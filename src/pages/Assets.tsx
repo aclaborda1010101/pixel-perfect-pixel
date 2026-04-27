@@ -1,17 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
+import { ValuatorButton } from "@/components/agents/ValuatorButton";
 
 export default function Assets() {
   const { t } = useI18n();
   const [rows, setRows] = useState<any[]>([]);
-  useEffect(() => {
+  const load = useCallback(() => {
     supabase.from("assets").select("*").order("updated_at", { ascending: false })
       .then(({ data }) => setRows(data ?? []));
   }, []);
+  useEffect(() => { load(); }, [load]);
   return (
     <div>
       <PageHeader title={t.nav.assets} />
@@ -24,6 +26,7 @@ export default function Assets() {
               <th className="px-4 py-3">Superficie</th>
               <th className="px-4 py-3">Valoración</th>
               <th className="px-4 py-3">Estado</th>
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -34,6 +37,9 @@ export default function Assets() {
                 <td className="px-4 py-3">{a.superficie_m2 ?? "—"} m²</td>
                 <td className="px-4 py-3">{a.valoracion_estimada ? `${Number(a.valoracion_estimada).toLocaleString()} €` : "—"}</td>
                 <td className="px-4 py-3"><Badge>{a.estado}</Badge></td>
+                <td className="px-4 py-3 text-right">
+                  <ValuatorButton assetId={a.id} onDone={load} />
+                </td>
               </tr>
             ))}
           </tbody>
