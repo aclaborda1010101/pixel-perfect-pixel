@@ -21,6 +21,26 @@ type Translations = {
     string
   >;
   cadences: Record<"mockBanner", string>;
+  agents: Record<
+    | "preCallTitle"
+    | "preCallGenerate"
+    | "preCallContext"
+    | "preCallObjectives"
+    | "preCallQuestions"
+    | "preCallRisks"
+    | "preCallNextAction"
+    | "preCallConfidence"
+    | "analyzeNoteTitle"
+    | "analyzeNotePlaceholder"
+    | "analyzeNoteRun"
+    | "analyzeNoteFacts"
+    | "analyzeNoteIntents"
+    | "analyzeNoteSentiment"
+    | "analyzeNoteAction"
+    | "analyzeNoteSaveAction"
+    | "analyzeNoteReview",
+    string
+  >;
 };
 
 export const translations: Record<Locale, Translations> = {
@@ -82,6 +102,25 @@ export const translations: Record<Locale, Translations> = {
       mockBanner:
         "Modo simulación: ningún mensaje real se envía desde AFFLUX en este MVP.",
     },
+    agents: {
+      preCallTitle: "Briefing pre-llamada",
+      preCallGenerate: "Generar briefing",
+      preCallContext: "Contexto",
+      preCallObjectives: "Objetivos sugeridos",
+      preCallQuestions: "Preguntas clave",
+      preCallRisks: "Riesgos / sensibilidades",
+      preCallNextAction: "Próxima acción sugerida",
+      preCallConfidence: "Confianza",
+      analyzeNoteTitle: "Analizar nota o transcripción",
+      analyzeNotePlaceholder: "Pega aquí una nota o transcripción de llamada…",
+      analyzeNoteRun: "Analizar",
+      analyzeNoteFacts: "Hechos",
+      analyzeNoteIntents: "Intenciones",
+      analyzeNoteSentiment: "Sentimiento",
+      analyzeNoteAction: "Próxima acción propuesta",
+      analyzeNoteSaveAction: "Guardar próxima acción",
+      analyzeNoteReview: "Marcado para revisión humana",
+    },
   },
   en: {
     appName: "AFFLUX",
@@ -140,6 +179,25 @@ export const translations: Record<Locale, Translations> = {
     cadences: {
       mockBanner:
         "Simulation mode: no real message is sent from AFFLUX in this MVP.",
+    },
+    agents: {
+      preCallTitle: "Pre-call briefing",
+      preCallGenerate: "Generate briefing",
+      preCallContext: "Context",
+      preCallObjectives: "Suggested goals",
+      preCallQuestions: "Key questions",
+      preCallRisks: "Risks / sensitivities",
+      preCallNextAction: "Suggested next action",
+      preCallConfidence: "Confidence",
+      analyzeNoteTitle: "Analyze note or transcript",
+      analyzeNotePlaceholder: "Paste a note or call transcript here…",
+      analyzeNoteRun: "Analyze",
+      analyzeNoteFacts: "Facts",
+      analyzeNoteIntents: "Intents",
+      analyzeNoteSentiment: "Sentiment",
+      analyzeNoteAction: "Proposed next action",
+      analyzeNoteSaveAction: "Save next action",
+      analyzeNoteReview: "Flagged for human review",
     },
   },
 };
