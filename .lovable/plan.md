@@ -1,165 +1,114 @@
+## Contexto
 
-# Tanda extra: Alta de entidades + relación edificio ↔ propietarios
+El HTML que has subido es un canvas tipo Figma con **18 artboards** ya diseñados, agrupados en 11 secciones, más una pantalla "Design system" con paleta y atoms. Cubre todo el panel Afflux y mapea casi 1:1 con tus rutas actuales (`Dashboard`, `Buildings`, `Assets`, `Owners`, `Investors`, `Calls`, `Matching`, `Cadences`, `Compliance`, `Settings`, wizards, login).
 
-Antes de seguir con la Tanda 2 (productividad agente), corregimos dos huecos del modelo:
-
-1. **No hay botones para dar de alta** propietarios, edificios, inversores ni activos.
-2. **Un edificio tiene varios propietarios** (no 1:1) y dentro de "heredero" hay subtipos (operador, ausente, residente, etc.).
-
----
-
-## 1. Modelo de datos — cambios
-
-### a) Sub-rol de propietario (más fino que `owner_role`)
-
-Mantenemos `owners.rol` (enum macro) y añadimos un **sub-rol** opcional para detallar la relación con el activo concreto:
-
-```text
-owner_role (ya existe):
-  particular | heredero | inversor_pasivo | operador_profesional | institucional | desconocido
-
-owner_subrole (NUEVO enum):
-  ninguno
-  heredero_operador      ← gestiona/explota el inmueble
-  heredero_residente     ← vive ahí
-  heredero_ausente       ← está fuera, solo cobra
-  heredero_conflictivo   ← bloquea decisiones
-  arrendador             ← alquila a terceros
-  usufructuario
-  nudo_propietario
-  apoderado
-```
-
-### b) Relación N:N edificio ↔ propietarios
-
-Hoy `assets.owner_id` es 1:1. Un edificio real tiene varios propietarios. Creamos una tabla puente:
-
-```sql
-building_owners (
-  building_id uuid,
-  owner_id uuid,
-  cuota numeric,           -- % de propiedad (opcional)
-  subrole owner_subrole,   -- rol específico en este edificio
-  rol_notas text,
-  created_at timestamptz,
-  PRIMARY KEY (building_id, owner_id)
-)
-```
-
-Añadimos también `owners.subrole` por defecto (cuando el propietario solo está ligado a un activo, no edificio).
-
-Las RLS siguen el patrón `preview_all_*` actual (estamos en preview sin auth).
-
-### c) `buildings.numero_propietarios` se calcula
-
-Pasa a ser informativo/derivado: la cuenta real sale de `building_owners`. No tocamos la columna pero la página de edificios mostrará el `count` real.
+Este plan respeta tres reglas que ya marcaste:
+- No tocar lógica, Supabase, rutas ni edge functions.
+- No tocar `src/integrations/supabase/*` ni `.env`.
+- Avanzar por fases pequeñas y revisables.
 
 ---
 
-## 2. Botones "+ Nuevo" en todas las páginas índice
+## Inventario extraído del HTML
 
-Patrón unificado: en `PageHeader.actions` añadimos un botón `+ Nuevo X` que abre un **`Dialog`** con un formulario corto (los campos mínimos para crear, no el detalle completo).
+**Paleta oficial (modo oscuro principal)**
+- Fondo app: `#0A1422` (azul marino noche profundo)
+- Brand / superficie marca: `#0E1B2C`
+- Surface 1 / cards: `#152538`
+- Surface 2 / hover, borders fuertes: `#1E3A5F`
+- Borde sutil sobre oscuro: `rgba(255,255,255,0.06–0.10)`
+- Foreground: `#EEF2F8` · muted: `#B6C0CE` · faint: `#6B7C95` / `#5A6B82`
+- **Acento marca (champán/dorado): `#C9A961`** — el color clave que identifica Afflux
+- Info: `#3D5A80` / `#4A6FA5` · Success: `#3F7D5C` (+ soft `#8FCAA8`)
+- Warning: `#FFBA08` · Danger: `#E07856`
 
-| Página | Botón | Diálogo crea |
-|---|---|---|
-| `/propietarios` | `+ Nuevo propietario` | nombre, email, teléfono, rol, subrole, consentimiento |
-| `/edificios` | `+ Nuevo edificio` | dirección, ciudad, CP, división horizontal, nº propietarios estimado |
-| `/inversores` | `+ Nuevo inversor` | nombre, email, teléfono, ticket min/max, ciudades (chips), tipos_activo (chips), consentimiento |
-| `/activos` | `+ Nuevo activo` | tipo, ubicación, ciudad, superficie, edificio (select), propietario principal (select), estado |
+**Tipografía** (ya cargada en `index.html`, solo falta afinar uso)
+- **Fraunces** (serif, opsz 9..144, w 400/600) → titulares editoriales del DS ("Sobrio. Notarial. Premium.")
+- **Inter Tight** (400/500/600/700) → display + body
+- **Geist Mono** (400/500) → eyebrows tipo `AFFLUX PROPERTY · DESIGN SYSTEM`, números, códigos de color, métricas
 
-Todos validan con `react-hook-form` + `zod` (ya disponibles en el stack shadcn).
-Tras crear, hacen `refetch` de la lista y muestran `toast.success`.
+**Estética**: notarial, sobria, premium. Bordes finos, sombras muy planas, radios pequeños (2–6px en cards, no las 12–16px típicas de shadcn), tablas densas estilo Attio, separadores `1px solid border-faint`.
 
----
-
-## 3. Detalle de edificio nuevo (`/edificios/:id`)
-
-Nueva página `BuildingDetail.tsx` con:
-
-- **Cabecera**: dirección, ciudad, DH, estado.
-- **Pestaña Propietarios** (la importante):
-  - Lista de `building_owners` con: nombre · subrole · cuota · enlace al propietario.
-  - Botón **`+ Añadir propietario`**: dialog con `Combobox` para buscar propietario existente (o "Crear nuevo" inline) + selector de subrole + cuota opcional.
-  - Botón quitar (✕) por fila.
-- **Pestaña Activos**: lista de `assets` cuyo `building_id = id`, con CTA "Crear activo en este edificio".
-- **Pestaña Llamadas**: agregadas de todos los propietarios del edificio (vista unificada, útil para "qué se ha hablado en este edificio").
-
-`Buildings.tsx` (índice) pasa a tabla con columnas: dirección · ciudad · nº propietarios reales (count) · estado · DH. Click navega a `/edificios/:id`.
-
----
-
-## 4. Detalle de propietario — mostrar subrole
-
-En `OwnerDetail.tsx` cabecera:
-- Badge actual `rol` + nuevo badge `subrole` (si existe).
-- Nueva pestaña **"Edificios"** que lista los `building_owners` del propietario (en qué edificios está y con qué cuota/subrole).
-
-En `AssetDetail.tsx` pestaña "Owners" pasa a listar **todos los propietarios del edificio** asociado (vía `building_owners`), no solo `assets.owner_id`. El `assets.owner_id` queda como "propietario principal/contacto".
+**18 artboards / 11 secciones del canvas**:
+1. Design system · Tokens y atoms
+2. Auth · Login dark, Login light, Recuperar contraseña
+3. Dashboard
+4. Cartera · Edificios + Building Detail (Serrano 85)
+5. Cartera · Activos + Asset Detail
+6. Cartera · Propietarios + Owner Detail
+7. Cartera · Inversores
+8. Operativo · Llamadas + Call Analysis (con waveform)
+9. Pipeline · Cadencias (builder visual) + Matching (activos ↔ inversores)
+10. Operaciones · Compliance + Wizard crear operación
+11. Cuenta · Settings + 404
 
 ---
 
-## 5. Wizard "Preparar llamada" — adaptado
+## Plan por fases
 
-En el paso de "elegir propietario": si el activo tiene edificio, mostrar **todos los propietarios del edificio** con sus subroles, para que el agente elija con quién va a hablar (un edificio con 5 herederos → 5 opciones, cada una con su rol). Esto es lo que pediste: "dentro del activo selecciona el propietario, dentro de esos propietarios cuál es y qué tipo de rol tiene".
+### FASE 1bis — Cerrar tokens (cierra lo que iniciaste)
+Solo `src/index.css` y `tailwind.config.ts`. Sin tocar componentes.
+
+- Añadir tokens que faltan en `:root` (modo oscuro como principal):
+  - `--brand: 213 52% 11%` (#0E1B2C), `--surface-1: 213 44% 15%` (#152538), `--surface-2: 213 51% 25%` (#1E3A5F)
+  - `--gold: 41 47% 59%` (#C9A961) y `--gold-soft` para hovers/fondos sutiles
+  - `--ink-muted: 217 19% 76%` (#B6C0CE), `--ink-faint: 217 16% 50%` (#6B7C95)
+  - Reescalar `--success`, `--warning`, `--info`, `--destructive` a los exactos del DS.
+- Sombras "notariales" planas: `--shadow-xs/sm/md` con valores `0 1px 2px rgba(0,0,0,.25)` en oscuro, sin halos azulados.
+- Radios: `--radius-sm: 2px`, `--radius: 6px`, `--radius-lg: 10px` (bajamos la calidez para encajar con el DS).
+- Mapeos shadcn: `--background → 0A1422`, `--card → 152538`, `--popover → 0E1B2C`, `--border → blanco α 0.08`, `--ring → gold`.
+- En `tailwind.config.ts`: añadir `colors.gold`, `colors.brand`, `colors.surface.{1,2}` y utilidades de tracking para la mono (`tracking-eyebrow: 0.18em`).
+- Modo claro: definir variantes equivalentes (login claro existe en el HTML), pero **dark = default** del panel.
+
+### FASE 2 — Atoms y patrones base (sin romper rutas)
+Solo retoques visuales en `src/components/ui/*` y `src/components/common/*`. La API y los nombres de los componentes shadcn no cambian.
+
+- `Button`: variant `gold` (CTA principal), `ghost` más sobrio, radios 6px.
+- `Card`: borde 1px, sombra plana, header con eyebrow mono opcional.
+- `Badge`: variants `info/success/warning/danger/gold` con backgrounds soft.
+- `Table`: densificar (filas 36–40px), separadores `border-faint`, hover sutil, primera columna sticky preparada.
+- `StatusBadge`, `PageHeader`, `Crumbs`, `EmptyState`: estilo notarial.
+- Añadir 2 atoms nuevos en `src/components/common/`: `Eyebrow` (mono uppercase tracking ancho) y `MetricValue` (Geist Mono tabular-nums para KPIs).
+
+### FASE 3 — Shell del panel
+`AppLayout`, `AppSidebar`, `Topbar`. Sin cambiar rutas ni navegación.
+
+- Sidebar oscuro `--brand`, ítems con icono + label, sección activa con barra dorada izquierda 2px y fondo `surface-1`.
+- Logo "Afflux Property" arriba, eyebrow mono debajo.
+- Topbar: search command (⌘K) prominente, breadcrumbs, avatar a la derecha, badge beta.
+- Densidad y spacing del HTML (sidebar ~248px, topbar ~56px).
+
+### FASE 4 — Dashboard + Cartera
+- `Dashboard`: KPIs (mono tabular), próximas acciones, pipeline mini, últimas llamadas — replicando el artboard 03.
+- `Buildings` (tabla densa Attio) + `BuildingDetail` (header con dirección, tabs, cuotas, timeline).
+- `Assets` + `AssetDetail` (ficha de cuotas).
+
+### FASE 5 — CRM + Operativo
+- `Owners` + `OwnerDetail` con timeline completo de interacciones (clave del producto).
+- `Investors` con filtros tipo CRM.
+- `Calls` con sentiment IA por fila.
+- `CallAnalysis` con waveform, transcript y panel de IA.
+
+### FASE 6 — Pipeline + Operaciones + Cuenta
+- `Matching` (activos ↔ inversores, dos columnas con score).
+- `Cadences` (builder visual de pasos).
+- `Compliance` (checklists jurídicas).
+- `PrepareCallWizard` y `AnalyzeCallWizard` (multi-step wizard del artboard 16).
+- `Settings` y `NotFound` (404).
 
 ---
 
-## 6. Command Palette (⌘K)
+## Reglas durante toda la implementación
 
-Añadir comandos rápidos: `Nuevo propietario`, `Nuevo edificio`, `Nuevo inversor`, `Nuevo activo` (abren los diálogos directamente).
-
----
-
-## Detalles técnicos
-
-**Migración SQL**:
-```sql
-CREATE TYPE owner_subrole AS ENUM (
-  'ninguno','heredero_operador','heredero_residente','heredero_ausente',
-  'heredero_conflictivo','arrendador','usufructuario','nudo_propietario','apoderado'
-);
-ALTER TABLE owners ADD COLUMN subrole owner_subrole NOT NULL DEFAULT 'ninguno';
-
-CREATE TABLE building_owners (
-  building_id uuid NOT NULL,
-  owner_id uuid NOT NULL,
-  cuota numeric,
-  subrole owner_subrole NOT NULL DEFAULT 'ninguno',
-  rol_notas text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (building_id, owner_id)
-);
-ALTER TABLE building_owners ENABLE ROW LEVEL SECURITY;
--- 4 políticas preview_all_* (select/insert/update/delete) idénticas al resto.
-CREATE INDEX idx_building_owners_building ON building_owners(building_id);
-CREATE INDEX idx_building_owners_owner ON building_owners(owner_id);
-```
-
-**Componentes nuevos**:
-- `src/components/forms/NewOwnerDialog.tsx`
-- `src/components/forms/NewBuildingDialog.tsx`
-- `src/components/forms/NewInvestorDialog.tsx`
-- `src/components/forms/NewAssetDialog.tsx`
-- `src/components/forms/AddOwnerToBuildingDialog.tsx`
-- `src/pages/BuildingDetail.tsx`
-
-**Rutas nuevas**: `/edificios/:id` → `BuildingDetail`.
-
-**i18n**: añadir `forms.*` y `subroles.*` en `es` y `en`.
-
-**Lo que NO cambia**: tablas existentes (solo se añaden columnas), wizards de análisis, sistema de RAG/agentes, RLS pattern actual.
+- Cada fase = un solo mensaje, revisable, sin tocar nada fuera de su scope.
+- Nunca tocar: `src/integrations/supabase/*`, `.env`, `supabase/config.toml`, edge functions.
+- Mantener todas las rutas, hooks, queries y nombres de props existentes.
+- i18n: usar las claves de `src/i18n/translations.ts` que ya existan; añadir nuevas solo si hace falta texto nuevo.
+- Si una pantalla actual tiene secciones que el HTML no cubre, se mantienen tal cual (no se eliminan features).
+- Tras cada fase te confirmo qué tocó y qué queda, para que valides antes de pasar a la siguiente.
 
 ---
 
-## Orden de ejecución
+## Lo que haría primero al aprobar el plan
 
-1. Migración (enum + tabla + columna).
-2. 4 diálogos "+ Nuevo" + cableado en `PageHeader` de cada índice.
-3. `BuildingDetail.tsx` + ruta + diálogo "Añadir propietario al edificio".
-4. Pestaña "Edificios" en `OwnerDetail` + subrole badge.
-5. Adaptar wizard "Preparar llamada" para listar todos los propietarios del edificio.
-6. Comandos `Nuevo X` en `CommandPalette`.
-
-Después continuamos con la **Tanda 2 (productividad agente)** que quedó pendiente.
-
-¿Le doy?
+Solo **FASE 1bis** (tokens). Es un cambio aislado en 2 archivos (`src/index.css`, `tailwind.config.ts`), sin riesgo para componentes, y sienta la base visual correcta antes de tocar nada más.
