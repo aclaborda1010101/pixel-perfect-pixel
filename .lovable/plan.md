@@ -1,118 +1,122 @@
-# Plan — MVP AFFLUX
 
-CRM operativo con IA, RAG, matching activo↔inversor, compliance/HITL y canales mock. Frontend React + Vite + Tailwind, backend Lovable Cloud, modelos vía Lovable AI Gateway. Bilingüe ES/EN con selector y tema claro/oscuro. Sin login en esta iteración (acceso abierto en preview); seed de datos ficticios incluido.
+# Reestructuración AFFLUX — "Copiloto Comercial"
 
-> Aviso: el alcance completo es muy grande. Propongo construirlo en **5 fases** dentro del mismo plan. Tras aprobarlo, ejecutaremos fase a fase y validaremos antes de pasar a la siguiente.
+## Diagnóstico
 
----
+La app actual mezcla **MVP, F2 y F3** del PRD en un único nivel de navegación (11 entradas planas) y obliga al usuario a saltar entre tablas inconexas. Según la auditoría cruzada (v1.3), el MVP real es mucho más estrecho:
 
-## Identidad visual y base UX
+> *"El sistema se enfoca en el ciclo de vida de una única interacción comercial: la llamada telefónica. Llamada → Análisis → Acción Sugerida es el único objetivo de este MVP."*
 
-- Tipografía sans neutra, layout tipo CRM (sidebar izquierda + contenido).
-- Tokens semánticos en `index.css` para soportar **claro/oscuro** (toggle en topbar, persistido en localStorage).
-- Selector **ES/EN** en topbar, traducciones con un diccionario simple (sin librería pesada). ES por defecto.
-- Sidebar con: Dashboard, Propietarios, Edificios, Activos, Llamadas, Inversores, Matching, Compliance, Cadencias/WhatsApp, Ajustes.
-- Componentes: shadcn/ui ya disponibles (Card, Table, Dialog, Tabs, Badge, Sheet, Form, Toast).
-- Indicadores transversales: chip de estado de compliance, badge "Requiere revisión humana", badge "Mock".
+Y solo debe tener **2 pantallas principales**: `Dashboard de Actividad` y `Análisis de Llamada`. Todo lo demás (Matching, Cadencias, Investors, Buildings, Compliance UI, WhatsApp) es F2/F3.
 
----
+## Principios de la nueva estructura
 
-## Fase 1 — Fundación CRUD navegable
+1. **Tres zonas claras por rol**, no 11 entradas planas:
+   - **Hoy** (operación diaria del agente — el Copiloto)
+   - **Datos** (catálogo: propietarios, activos, edificios, inversores)
+   - **IA & Gobierno** (matching, cadencias, compliance, ajustes — uso ocasional, manager)
+2. **Wizards guiados** para las 2 acciones de alto valor: *"Preparar llamada"* y *"Analizar llamada"*. Nada de formularios sueltos.
+3. **Jerarquía Activo → Propietario(s)**, no propietarios huérfanos. Al abrir un activo ves a sus propietarios y al abrir una llamada el contexto va precargado.
+4. **Lo del PRD que es F2/F3 se marca como tal** con badge "Próximamente / Beta", se mantiene accesible pero fuera del flujo principal.
 
-Objetivo: app completamente navegable con datos reales antes de tocar IA.
+## Nueva navegación (sidebar agrupado)
 
-**Esquema (Lovable Cloud / Postgres):**
-- `owners`, `buildings`, `assets`, `investors`, `calls`, `notes`, `match_candidates`, `compliance_cases`, `next_actions`, `cadence_steps` (mock), `whatsapp_messages` (mock), `agent_runs` (auditoría), `org_settings` (umbrales).
-- Campos según el pack + timestamps. Relaciones: `assets.building_id`, `assets.owner_id`, `calls.owner_id`, `notes.owner_id`, `match_candidates.asset_id/investor_id`, `compliance_cases.scope_id` (polimórfico por tipo).
-- RLS habilitada con políticas permisivas temporales (acceso anónimo) marcadas con TODO para endurecer cuando añadamos auth.
+```text
+HOY  (Copiloto Comercial - foco MVP)
+  • Inicio              (qué hago ahora: cola de llamadas + acciones pendientes)
+  • Llamadas            (Dashboard de Actividad del PRD)
+  • Nueva llamada  ➜    wizard 4 pasos
 
-**Pantallas:**
-- `/` Dashboard: KPIs (propietarios activos, llamadas semana, candidatos pendientes, casos compliance abiertos) + listas de "trabajo pendiente".
-- `/propietarios` listado con búsqueda/filtros + `/propietarios/:id` ficha con tabs (Datos, Notas, Llamadas, Próximas acciones, Activos vinculados).
-- `/edificios` listado + ficha (datos catastrales, propietarios, activos).
-- `/activos` listado con filtros (tipo, ciudad, estado, valoración) + `/activos/:id` ficha (datos, valoración, candidatos).
-- `/llamadas` bandeja + detalle con resumen, transcripción (placeholder), próxima acción.
-- `/inversores` listado + ficha (criterios, ticket).
-- `/ajustes` umbrales por agente, idioma por defecto, responsable HITL.
+DATOS  (catálogo, lectura/edición)
+  • Activos             (entrada principal — agrupa propietarios y edificio)
+  • Propietarios        (vista alterna, filtrable por rol)
+  • Edificios
+  • Inversores          [F2]
 
-**Seed:** ~15 propietarios, 8 edificios, 25 activos, 6 inversores, notas y llamadas variadas, 3 casos compliance abiertos.
+IA & GOBIERNO  (manager / ocasional)
+  • Matching            [F2]
+  • Cadencias           [F2]
+  • Compliance
+  • Ajustes
+```
 
----
+Los grupos del sidebar son colapsables. Las entradas F2 llevan un badge sutil "Beta" para que el usuario distinga MVP de extras.
 
-## Fase 2 — Pipeline de llamadas y asistente pre/post
+## Pantalla 1 — `Inicio` (sustituye al Dashboard genérico)
 
-- **Subida de transcripción**: el operador pega texto o sube `.txt`/`.vtt` (storage). No haremos ASR real en MVP; transcripción se considera entrada.
-- **Agente "Asistente pre-llamada"** (edge function): toma `owner_id`, recupera notas + llamadas + activos + rol clasificado, devuelve briefing estructurado (contexto, objetivos sugeridos, riesgos, preguntas clave). Botón "Generar briefing" en ficha de propietario.
-- **Agente "Analizador de notas / post-llamada"**: dada una nota o transcripción, extrae hechos, intenciones y propone **próxima acción** (título, vencimiento, propietario, activo). El operador confirma → persiste en `next_actions`.
-- Output estructurado vía tool calling (no JSON libre).
-- Cada ejecución se registra en `agent_runs` (input hash, modelo, latencia, tokens, resultado, score de confianza).
+Ya no son 4 KPIs huérfanos. Es una pantalla de **trabajo del día**:
 
----
+- **Banda superior**: 3 KPIs accionables → "Llamadas pendientes de analizar", "Acciones sugeridas sin cerrar", "Propietarios sin rol catalogado".
+- **Cola "Listo para revisar"**: tabla de las últimas llamadas en estado `Analizando / Listo`, click ➜ pantalla de Análisis.
+- **Tarjeta "¿Qué quieres hacer?"** con dos CTAs grandes:
+  - `Preparar una llamada` ➜ wizard
+  - `Analizar una llamada nueva` ➜ wizard
 
-## Fase 3 — RAG, catalogador y valorador
+## Pantalla 2 — `Análisis de Llamada` (la del PRD, bien hecha)
 
-- **Tabla `knowledge_chunks`** con `pgvector` (content, embedding, source_type, source_id, owner_id?).
-- Edge function de **ingesta**: trocea notas, llamadas, fichas de activo y documentos subidos en `org_documents`; genera embeddings vía Lovable AI Gateway; guarda.
-- **Tres RAGs lógicos** sobre la misma tabla, filtrando por `source_type`:
-  1. Conocimiento + conversaciones AFFLUX.
-  2. Propietarios y llamadas.
-  3. Activos y valoraciones.
-- **Catalogador de roles de propietario**: agente que clasifica a un propietario (p. ej. "heredero", "inversor pasivo", "operador profesional", "particular accidental") usando reglas + LLM. Resultado guardado en `owners.role` con confianza y justificación visible.
-- **Valorador con Brains Real Estate (mock)**: edge function que devuelve valoración estimada + comparables ficticios + banda de confianza. Botón "Valorar" en ficha de activo. Marcado claramente como **Mock**.
-- Buscador semántico global en topbar (⌘K) consultando los 3 RAGs.
+Layout en 2 columnas tal y como dice la auditoría:
 
----
+- **Cabecera**: Propietario · Activo asociado · Rol (badge con confianza) · Fecha · Duración.
+- **Columna izquierda**: `Resumen Ejecutivo` (≤150 palabras) + `Acciones Sugeridas` (1-2-3 numeradas, con botón "Crear como Next Action").
+- **Columna derecha con pestañas**:
+  - `Transcripción` (timestamps + speakers)
+  - `Consultar historial (RAG)` — chat sobre el propietario, citando llamadas/notas fuente.
+  - `Notas` (libres del agente)
+- **Pie**: botón "Iniciar cadencia" (F2, badge Beta).
 
-## Fase 4 — Matching, compliance/HITL y orquestador
+## Wizard "Preparar llamada" (4 pasos, 1 propósito)
 
-- **Matching activo↔inversor**: al guardar/actualizar un activo, edge function calcula candidatos comparando criterios del inversor (ciudad, tipo, ticket, etc.) con el activo, devuelve `score (0–1)` + evidencia textual. Filtra por umbral y consentimiento. Resultados en `/matching` con cola revisable; el operador aprueba/rechaza; aprobar genera `next_action` "contactar inversor".
-- **Agente Compliance / HITL** (capa transversal): antes de cualquier acción que envíe datos a tercero o trate datos sensibles, llama a `check_dpia_status` y `abstain_if_low_evidence`. Si bloquea → crea `compliance_case` con motivo y estado "pendiente revisión".
-- **Pantalla `/compliance`**: cola de casos, detalle con scope, motivo, evidencia, acciones aprobar/rechazar; al aprobar, desbloquea la acción original.
-- **Detector de fallecimientos / herencias**: pantalla de ingesta controlada (carga manual de señales). El agente marca posibles casos → siempre revisión humana obligatoria antes de propagar a `next_actions`.
-- **Orquestador / MoE Router**: edge function única `route_intent` que recibe `{intent, payload}` y decide: ruta determinista (búsqueda por id, filtros), modelo rápido (clasificación) o modelo de razonamiento (briefing, análisis libre). Implementa fallback a modelo secundario y registro en `agent_runs`. Todos los agentes anteriores pasan por aquí.
-- **Umbrales configurables** en `/ajustes` (confianza mínima por agente, responsable HITL).
+Resuelve directamente lo que pediste ("selecciona activo → propietario → enfoca la llamada"):
 
----
+```text
+Paso 1  Activo o propietario      (buscador con autocomplete)
+Paso 2  Propietario concreto       (lista de propietarios del activo + rol)
+Paso 3  Brief Pre-Call (IA)        (PreCallBrief actual: contexto, última llamada,
+                                    objeciones previas, recomendación de enfoque
+                                    según rol)
+Paso 4  Empezar                    (botón "Marcar llamada iniciada" + acceso
+                                    rápido a "Subir grabación" cuando termine)
+```
 
-## Fase 5 — Cadencias y WhatsApp mock
+## Wizard "Analizar llamada" (3 pasos)
 
-- `/cadencias` planificador visual: secuencia de pasos (día +0 llamada, +2 WhatsApp, +5 email…) por propietario o lista.
-- `/whatsapp` interfaz tipo chat con propietarios: redactar, programar, ver estado.
-- **Ningún envío real**: todo persiste en `whatsapp_messages` con `status: 'mock_sent'`. Banner permanente "Modo simulación, no se envían mensajes reales".
-- Toda redacción de mensaje pasa por compliance/HITL antes de marcarse como enviada.
+```text
+Paso 1  Subir grabación (.mp3/.wav)   o pegar transcripción manual
+Paso 2  Asociar a propietario/activo  (preselección si vino del wizard anterior)
+Paso 3  Procesar                      (transcripción mock + análisis IA → 
+                                       redirige a "Análisis de Llamada")
+```
 
----
+## Cambios concretos por archivo
 
-## Detalles técnicos
+| Archivo | Cambio |
+|---|---|
+| `src/components/layout/AppSidebar.tsx` | Reagrupar items en 3 secciones (Hoy / Datos / IA & Gobierno) con `SidebarGroupLabel` y badges "Beta" para F2. |
+| `src/pages/Dashboard.tsx` → renombrar a `Inicio.tsx` | Reemplazar 4 KPIs por: 3 KPIs accionables + cola "Listo para revisar" + 2 CTAs grandes a los wizards. |
+| `src/pages/Calls.tsx` | Convertir en el `Dashboard de Actividad` del PRD: tabla con `Propietario / Fecha / Duración / Estado / Agente` + botón `[+] Subir Grabación`. |
+| **NUEVO** `src/pages/CallAnalysis.tsx` (`/llamadas/:id`) | Pantalla 2 del PRD (2 columnas + pestañas). Reusa `AnalyzeNote` y `RagSearch`. |
+| **NUEVO** `src/pages/wizards/PrepareCallWizard.tsx` (`/preparar-llamada`) | 4 pasos. Reutiliza `PreCallBrief`. |
+| **NUEVO** `src/pages/wizards/AnalyzeCallWizard.tsx` (`/analizar-llamada`) | 3 pasos. Crea fila en `calls`, llama a `agent_analyze_note`, redirige a `CallAnalysis`. |
+| `src/pages/Assets.tsx` | Añadir columna "Propietarios" (count + popover con nombres y rol). Click en activo ➜ `/activos/:id` con propietarios y llamadas asociadas. |
+| **NUEVO** `src/pages/AssetDetail.tsx` | Vista jerárquica Activo → Propietarios → Llamadas → Acciones. |
+| `src/pages/OwnerDetail.tsx` | Quitar pestaña "Comms" del flujo principal (queda solo accesible vía Cadencias F2). Mover botón "Catalogar rol" a la cabecera. Simplificar pestañas: `Resumen / Llamadas / Activos / Acciones / IA`. |
+| `src/pages/Matching.tsx`, `Investors.tsx`, `Cadences.tsx` | Añadir banner "Funcionalidad Fast-Follow (F2)". Sin cambios funcionales. |
+| `src/pages/Compliance.tsx` | Añadir explicación de qué dispara casos automáticos (DPIA, consentimiento, Art. 22) — actualmente es opaco. |
+| `src/App.tsx` | Añadir rutas `/`, `/preparar-llamada`, `/analizar-llamada`, `/llamadas/:id`, `/activos/:id`. Renombrar Dashboard → Inicio. |
+| `src/i18n/translations.ts` | Añadir strings ES/EN para wizards, nueva nav, badges "Beta", banners F2. |
 
-- **Edge functions** (Supabase) por agente: `agent_pre_call_brief`, `agent_analyze_note`, `agent_classify_owner`, `agent_match_candidates`, `agent_valuate_asset`, `agent_compliance_check`, `agent_death_detector`, `route_intent`, `embed_and_index`, `semantic_search`. Todas usan Lovable AI Gateway (`LOVABLE_API_KEY`), modelo por defecto `google/gemini-3-flash-preview`, razonamiento `medium` para análisis largos.
-- **Tool calling** para todas las salidas estructuradas (briefing, próxima acción, candidatos, clasificación). Nunca JSON libre.
-- **Auditoría**: tabla `agent_runs` con input, output, score, modelo, latencia. Visible en ficha del recurso afectado.
-- **i18n**: hook `useT()` con diccionario `es`/`en` en `src/i18n/`. Persistencia en localStorage.
-- **Tema**: `next-themes` o gestor propio sobre clase `dark` en `<html>`.
-- **Manejo de 429/402** del gateway → toast amigable.
-- **RLS**: habilitada en todas las tablas. En esta iteración, políticas anónimas de lectura/escritura (anotadas) hasta añadir auth en una siguiente iteración.
-- **Vector**: extensión `pgvector` + índice IVFFlat sobre `knowledge_chunks.embedding`.
+## Lo que NO cambia (intencionadamente)
 
----
+- Esquema de base de datos y edge functions ya construidas. Todo se reutiliza.
+- Componentes IA existentes (`PreCallBrief`, `AnalyzeNote`, `RagSearch`, `CatalogRoleButton`, `ValuatorButton`) — solo cambian de sitio para encajar en los wizards.
+- Tema claro/oscuro, i18n ES/EN, sin login (siguen las decisiones aprobadas).
 
-## Fuera de alcance (fast-follow, según el pack)
+## Lo que queda fuera de este sprint
 
-- Detector de compradores institucionales tipo Benatar.
-- Generador de revista emocional por rol.
-- ASR real de audio.
-- Envío real por WhatsApp / scraping real de fuentes externas / scoring ML aprendido.
-- Auth y roles (operador/revisor/admin) — se añadirán cuando lo decidas.
+- Soul Capture real (es proceso humano, no software).
+- Subida real de audio + transcripción (Whisper). En el wizard "Analizar llamada" se acepta texto pegado o grabación mock; el pipeline real se aborda después.
+- Detector de fallecimientos, compradores institucionales, generador de revista (F2/F3 según PRD).
 
----
+## Resultado esperado
 
-## Criterios de aceptación
-
-- CRUD funcional en propietarios, edificios, activos, inversores, llamadas, notas sin errores.
-- Cada propietario puede generar briefing pre-llamada bajo demanda.
-- Cada nota/transcripción produce próxima acción propuesta y persistida tras confirmación.
-- Cadencias y WhatsApp solo como interfaz/mock; banner visible; ningún envío real.
-- Compliance/HITL bloquea acciones sensibles y las envía a revisión.
-- Matching devuelve candidatos con score y justificación; exige aprobación humana.
-- Valorador y detector de fallecimientos visibles y marcados como Mock.
-- Idioma ES/EN y tema claro/oscuro conmutables y persistidos.
+Un agente nuevo entra, ve **"Inicio"** con dos botones gigantes (`Preparar llamada` / `Analizar llamada`), sigue el wizard paso a paso y nunca tiene que entender qué es un "match candidate" o un "cadence step" para hacer su trabajo. El manager sí tiene acceso a Matching/Cadencias/Compliance, pero en su propio grupo del sidebar.
