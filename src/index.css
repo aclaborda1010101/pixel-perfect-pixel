@@ -120,7 +120,7 @@
     --sidebar-primary-foreground: 213 52% 11%;
     --sidebar-accent: 213 44% 15%;         /* surface-1 */
     --sidebar-accent-foreground: 210 30% 95%;
-    --sidebar-border: 0 0% 100% / 0.08;    /* sutil */
+    --sidebar-border: 213 35% 20%;         /* sutil */
     --sidebar-ring: 41 47% 59%;
   }
 
