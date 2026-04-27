@@ -23,6 +23,8 @@ import AssetDetail from "./pages/AssetDetail";
 import BuildingDetail from "./pages/BuildingDetail";
 import PrepareCallWizard from "./pages/wizards/PrepareCallWizard";
 import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
+import Login from "./pages/auth/Login";
+import RecoverPassword from "./pages/auth/RecoverPassword";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +37,8 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/recuperar" element={<RecoverPassword />} />
               <Route element={<AppLayout />}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/propietarios" element={<Owners />} />
