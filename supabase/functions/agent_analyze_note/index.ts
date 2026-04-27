@@ -1,4 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { embed } from "../_shared/embed.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -100,9 +101,23 @@ Deno.serve(async (req) => {
 
     // Persistir nota original y crear caso de compliance si HITL
     if (owner_id) {
-      await supabase.from("notes").insert({
+      const { data: noteRow } = await supabase.from("notes").insert({
         owner_id, texto, etiquetas: ["agent_analyze_note"],
-      });
+      }).select("id").maybeSingle();
+
+      // RAG ingest (best-effort)
+      try {
+        const v = await embed(texto);
+        await supabase.from("knowledge_chunks").insert({
+          contenido: texto,
+          origen: "nota",
+          referencia_id: noteRow?.id ?? null,
+          scope_type: "owner",
+          scope_id: owner_id,
+          metadatos: { source: "agent_analyze_note" },
+          embedding: v as unknown as string ?? null,
+        });
+      } catch (e) { console.warn("rag ingest failed", e); }
     }
     if (analysis.hitl_required) {
       await supabase.from("compliance_cases").insert({
