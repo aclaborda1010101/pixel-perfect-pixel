@@ -336,6 +336,42 @@ export type Database = {
         }
         Relationships: []
       }
+      knowledge_chunks: {
+        Row: {
+          contenido: string
+          created_at: string
+          embedding: string | null
+          id: string
+          metadatos: Json
+          origen: string
+          referencia_id: string | null
+          scope_id: string | null
+          scope_type: string | null
+        }
+        Insert: {
+          contenido: string
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          metadatos?: Json
+          origen: string
+          referencia_id?: string | null
+          scope_id?: string | null
+          scope_type?: string | null
+        }
+        Update: {
+          contenido?: string
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          metadatos?: Json
+          origen?: string
+          referencia_id?: string | null
+          scope_id?: string | null
+          scope_type?: string | null
+        }
+        Relationships: []
+      }
       match_candidates: {
         Row: {
           asset_id: string
@@ -580,7 +616,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_knowledge_chunks: {
+        Args: {
+          filter_scope_id?: string
+          filter_scope_type?: string
+          match_count?: number
+          query_embedding: string
+        }
+        Returns: {
+          contenido: string
+          id: string
+          metadatos: Json
+          origen: string
+          scope_id: string
+          scope_type: string
+          similarity: number
+        }[]
+      }
     }
     Enums: {
       asset_status:
