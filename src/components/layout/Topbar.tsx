@@ -100,15 +100,15 @@ export function Topbar() {
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => setTheme("light")}>
             <Sun className="mr-2 h-4 w-4" /> {t.settings.themeLight}
-            {theme === "light" && " ✓"}
+            {theme === "light" && <Check className="ml-auto h-3.5 w-3.5 text-gold" />}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setTheme("dark")}>
             <Moon className="mr-2 h-4 w-4" /> {t.settings.themeDark}
-            {theme === "dark" && " ✓"}
+            {theme === "dark" && <Check className="ml-auto h-3.5 w-3.5 text-gold" />}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setTheme("system")}>
             <Monitor className="mr-2 h-4 w-4" /> {t.settings.themeSystem}
-            {theme === "system" && " ✓"}
+            {theme === "system" && <Check className="ml-auto h-3.5 w-3.5 text-gold" />}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -41,7 +41,7 @@ const _translations = {
       of: "de",
     },
     home: {
-      title: "Hola 👋",
+      title: "Hola, Álvaro",
       subtitle: "Esto es lo que tienes pendiente hoy",
       kpiPendingAnalysis: "Llamadas por analizar",
       kpiPendingActions: "Acciones sin cerrar",
@@ -184,7 +184,7 @@ const _translations = {
       step: "Step", of: "of",
     },
     home: {
-      title: "Hi 👋",
+      title: "Welcome, Álvaro",
       subtitle: "Here's what's pending today",
       kpiPendingAnalysis: "Calls to analyze",
       kpiPendingActions: "Open actions",
