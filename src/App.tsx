@@ -3,24 +3,52 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { I18nProvider } from "@/i18n/I18nProvider";
+import { AppLayout } from "@/components/layout/AppLayout";
+import Dashboard from "./pages/Dashboard";
+import Owners from "./pages/Owners";
+import OwnerDetail from "./pages/OwnerDetail";
+import Buildings from "./pages/Buildings";
+import Assets from "./pages/Assets";
+import Calls from "./pages/Calls";
+import Investors from "./pages/Investors";
+import Matching from "./pages/Matching";
+import Compliance from "./pages/Compliance";
+import Cadences from "./pages/Cadences";
+import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
+    <ThemeProvider>
+      <I18nProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route element={<AppLayout />}>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/propietarios" element={<Owners />} />
+                <Route path="/propietarios/:id" element={<OwnerDetail />} />
+                <Route path="/edificios" element={<Buildings />} />
+                <Route path="/activos" element={<Assets />} />
+                <Route path="/llamadas" element={<Calls />} />
+                <Route path="/inversores" element={<Investors />} />
+                <Route path="/matching" element={<Matching />} />
+                <Route path="/compliance" element={<Compliance />} />
+                <Route path="/cadencias" element={<Cadences />} />
+                <Route path="/ajustes" element={<Settings />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </I18nProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 
