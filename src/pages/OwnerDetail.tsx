@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Crumbs } from "@/components/common/Crumbs";
+import { EmptyState } from "@/components/common/EmptyState";
+import { Eyebrow } from "@/components/common/Eyebrow";
+import { MetricValue } from "@/components/common/MetricValue";
+import { StatusBadge } from "@/components/common/StatusBadge";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { PreCallBrief } from "@/components/agents/PreCallBrief";
@@ -64,115 +67,165 @@ export default function OwnerDetail() {
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <Crumbs items={[{ label: "Propietarios", to: "/propietarios" }, { label: owner.nombre }]} />
       <PageHeader
+        eyebrow="Propietario · Ficha"
         title={owner.nombre}
         subtitle={owner.email ?? owner.telefono ?? ""}
         actions={
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="gap-1">
+            <Badge variant="info" className="gap-1">
               {owner.rol}
               {owner.rol_confianza != null && (
-                <span className="text-xs text-muted-foreground">
+                <span className="ml-1 font-mono text-[10px] opacity-80">
                   · {(owner.rol_confianza * 100).toFixed(0)}%
                 </span>
               )}
             </Badge>
             {owner.subrole && owner.subrole !== "ninguno" && (
-              <Badge variant="secondary">{SUBROLE_LABEL[owner.subrole] ?? owner.subrole}</Badge>
+              <Badge variant="outline">{SUBROLE_LABEL[owner.subrole] ?? owner.subrole}</Badge>
             )}
+            {owner.consentimiento && <Badge variant="success">Consentimiento</Badge>}
           </div>
         }
       />
 
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="overview">Resumen</TabsTrigger>
-          <TabsTrigger value="calls">Llamadas ({calls.length})</TabsTrigger>
-          <TabsTrigger value="notes">Notas ({notes.length})</TabsTrigger>
-          <TabsTrigger value="assets">Activos ({assets.length})</TabsTrigger>
-          <TabsTrigger value="buildings">Edificios ({buildings.length})</TabsTrigger>
-          <TabsTrigger value="actions">Acciones ({actions.length})</TabsTrigger>
-          <TabsTrigger value="ai">
-            <Sparkles className="mr-1 h-3 w-3" /> IA
-          </TabsTrigger>
-          <TabsTrigger value="comms">Comms</TabsTrigger>
-        </TabsList>
+      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-4">
+            <Card><div className="p-5"><Eyebrow>Llamadas</Eyebrow><div className="mt-2"><MetricValue size="lg">{calls.length}</MetricValue></div></div></Card>
+            <Card><div className="p-5"><Eyebrow>Notas</Eyebrow><div className="mt-2"><MetricValue size="lg">{notes.length}</MetricValue></div></div></Card>
+            <Card><div className="p-5"><Eyebrow>Activos</Eyebrow><div className="mt-2"><MetricValue size="lg">{assets.length}</MetricValue></div></div></Card>
+            <Card><div className="p-5"><Eyebrow>Acciones</Eyebrow><div className="mt-2"><MetricValue size="lg">{actions.length}</MetricValue></div></div></Card>
+          </div>
 
-        <TabsContent value="overview">
+          <Tabs defaultValue="overview" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="overview">Resumen</TabsTrigger>
+              <TabsTrigger value="calls">Llamadas ({calls.length})</TabsTrigger>
+              <TabsTrigger value="notes">Notas ({notes.length})</TabsTrigger>
+              <TabsTrigger value="assets">Activos ({assets.length})</TabsTrigger>
+              <TabsTrigger value="buildings">Edificios ({buildings.length})</TabsTrigger>
+              <TabsTrigger value="actions">Acciones ({actions.length})</TabsTrigger>
+              <TabsTrigger value="ai">
+                <Sparkles className="mr-1 h-3 w-3" /> IA
+              </TabsTrigger>
+              <TabsTrigger value="comms">Comms</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="overview">
+              <Card>
+                <CardHeader>
+                  <Eyebrow>Datos del contacto</Eyebrow>
+                  <CardTitle>Ficha</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 text-sm md:grid-cols-2">
+                  <Field label="Email" value={owner.email} />
+                  <Field label="Teléfono" value={owner.telefono} />
+                  <Field label="Consentimiento" value={owner.consentimiento ? "Sí" : "No"} />
+                  <Field label="Justificación rol" value={owner.rol_justificacion} />
+                  <div className="md:col-span-2">
+                    <Field label="Notas breves" value={owner.notas_breves} />
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="calls">
+              <SimpleList items={calls.map((c) => ({
+                primary: c.resumen ?? "(sin resumen)",
+                secondary: `${new Date(c.fecha).toLocaleString()} · ${c.direccion}`,
+              }))} />
+            </TabsContent>
+            <TabsContent value="notes">
+              <SimpleList items={notes.map((n) => ({
+                primary: n.texto,
+                secondary: new Date(n.created_at).toLocaleString(),
+              }))} />
+            </TabsContent>
+            <TabsContent value="assets">
+              <SimpleList items={assets.map((a) => ({
+                primary: `${a.tipo} · ${a.ubicacion}`,
+                secondary: `${a.estado} · ${a.superficie_m2 ?? "?"} m²`,
+              }))} />
+            </TabsContent>
+            <TabsContent value="buildings">
+              {buildings.length === 0 ? (
+                <EmptyState title="No participa en ningún edificio" description="Vincula este propietario a un edificio desde la ficha del edificio." />
+              ) : (
+                <Card>
+                  <ul className="divide-y divide-border-faint">
+                    {buildings.map((b: any) => (
+                      <li key={b.building_id}>
+                        <Link to={`/edificios/${b.building_id}`} className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-surface-1/30">
+                          <div>
+                            <div className="text-sm font-medium text-foreground">{b.buildings?.direccion}</div>
+                            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{b.buildings?.ciudad}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {b.cuota != null && <Badge variant="gold">{b.cuota}%</Badge>}
+                            <Badge variant="outline">{SUBROLE_LABEL[b.subrole] ?? b.subrole}</Badge>
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+            </TabsContent>
+            <TabsContent value="actions">
+              <SimpleList items={actions.map((a) => ({
+                primary: a.titulo,
+                secondary: `${a.estado} · ${a.vencimiento ?? "—"}`,
+              }))} />
+            </TabsContent>
+
+            <TabsContent value="ai" className="space-y-4">
+              <CatalogRoleButton ownerId={owner.id} onDone={() => window.location.reload()} />
+              <PreCallBrief ownerId={owner.id} />
+              <AnalyzeNote ownerId={owner.id} />
+              <RagSearch scopeType="owner" scopeId={owner.id} />
+            </TabsContent>
+
+            <TabsContent value="comms">
+              <WhatsappComposer ownerId={owner.id} ownerName={owner.nombre} />
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* Timeline lateral */}
+        <aside className="space-y-4">
           <Card>
-            <CardHeader><CardTitle className="text-base">Datos</CardTitle></CardHeader>
-            <CardContent className="grid gap-3 text-sm md:grid-cols-2">
-              <Field label="Email" value={owner.email} />
-              <Field label="Teléfono" value={owner.telefono} />
-              <Field label="Consentimiento" value={owner.consentimiento ? "Sí" : "No"} />
-              <Field label="Justificación rol" value={owner.rol_justificacion} />
-              <div className="md:col-span-2">
-                <Field label="Notas breves" value={owner.notas_breves} />
-              </div>
+            <CardHeader>
+              <Eyebrow>Actividad reciente</Eyebrow>
+              <CardTitle>Timeline</CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-5">
+              {calls.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Sin actividad registrada todavía.</p>
+              ) : (
+                <ol className="relative space-y-4 border-l border-border-faint pl-4">
+                  {calls.slice(0, 6).map((c) => (
+                    <li key={c.id} className="relative">
+                      <span className="absolute -left-[19px] top-1.5 h-2 w-2 rounded-full border border-gold bg-background" />
+                      <Link to={`/llamadas/${c.id}`} className="block hover:text-foreground">
+                        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                          {new Date(c.fecha).toLocaleDateString()}
+                        </div>
+                        <div className="mt-0.5 text-xs text-foreground line-clamp-2">{c.resumen ?? "(sin resumen)"}</div>
+                        <div className="mt-1.5">
+                          <StatusBadge status={c.resumen ? "analyzed" : "no_summary"} />
+                        </div>
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="calls">
-          <SimpleList items={calls.map((c) => ({
-            primary: c.resumen ?? "(sin resumen)",
-            secondary: `${new Date(c.fecha).toLocaleString()} · ${c.direccion}`,
-          }))} />
-        </TabsContent>
-        <TabsContent value="notes">
-          <SimpleList items={notes.map((n) => ({
-            primary: n.texto,
-            secondary: new Date(n.created_at).toLocaleString(),
-          }))} />
-        </TabsContent>
-        <TabsContent value="assets">
-          <SimpleList items={assets.map((a) => ({
-            primary: `${a.tipo} · ${a.ubicacion}`,
-            secondary: `${a.estado} · ${a.superficie_m2 ?? "?"} m²`,
-          }))} />
-        </TabsContent>
-        <TabsContent value="buildings">
-          {buildings.length === 0 ? (
-            <Card><CardContent className="py-6 text-center text-sm text-muted-foreground">No participa en ningún edificio</CardContent></Card>
-          ) : (
-            <Card><ul className="divide-y divide-border">
-              {buildings.map((b: any) => (
-                <li key={b.building_id}>
-                  <Link to={`/edificios/${b.building_id}`} className="flex items-center justify-between px-4 py-3 hover:bg-accent/30">
-                    <div>
-                      <div className="text-sm font-medium">{b.buildings?.direccion}</div>
-                      <div className="text-xs text-muted-foreground">{b.buildings?.ciudad}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {b.cuota != null && <Badge variant="secondary">{b.cuota}%</Badge>}
-                      <Badge variant="outline">{SUBROLE_LABEL[b.subrole] ?? b.subrole}</Badge>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul></Card>
-          )}
-        </TabsContent>
-        <TabsContent value="actions">
-          <SimpleList items={actions.map((a) => ({
-            primary: a.titulo,
-            secondary: `${a.estado} · ${a.vencimiento ?? "—"}`,
-          }))} />
-        </TabsContent>
-
-        <TabsContent value="ai" className="space-y-4">
-          <CatalogRoleButton ownerId={owner.id} onDone={() => window.location.reload()} />
-          <PreCallBrief ownerId={owner.id} />
-          <AnalyzeNote ownerId={owner.id} />
-          <RagSearch scopeType="owner" scopeId={owner.id} />
-        </TabsContent>
-
-        <TabsContent value="comms">
-          <WhatsappComposer ownerId={owner.id} ownerName={owner.nombre} />
-        </TabsContent>
-      </Tabs>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -180,23 +233,23 @@ export default function OwnerDetail() {
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div>
-      <div className="text-xs uppercase text-muted-foreground">{label}</div>
-      <div className="mt-1">{value || "—"}</div>
+      <Eyebrow>{label}</Eyebrow>
+      <div className="mt-1 text-foreground">{value || "—"}</div>
     </div>
   );
 }
 
 function SimpleList({ items }: { items: { primary: string; secondary: string }[] }) {
   if (items.length === 0) {
-    return <Card><CardContent className="py-6 text-center text-sm text-muted-foreground">Sin registros</CardContent></Card>;
+    return <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Sin registros</CardContent></Card>;
   }
   return (
     <Card>
-      <ul className="divide-y divide-border">
+      <ul className="divide-y divide-border-faint">
         {items.map((it, i) => (
           <li key={i} className="px-4 py-3">
-            <div className="text-sm">{it.primary}</div>
-            <div className="text-xs text-muted-foreground">{it.secondary}</div>
+            <div className="text-sm text-foreground">{it.primary}</div>
+            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{it.secondary}</div>
           </li>
         ))}
       </ul>
