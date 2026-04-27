@@ -1,6 +1,29 @@
 export type Locale = "es" | "en";
 
-export const translations = {
+type Translations = {
+  appName: string;
+  appTagline: string;
+  nav: Record<
+    "dashboard" | "owners" | "buildings" | "assets" | "calls" | "investors" | "matching" | "compliance" | "cadences" | "settings",
+    string
+  >;
+  common: Record<
+    "search" | "new" | "save" | "cancel" | "edit" | "delete" | "loading" | "empty" | "mock" | "hitl" | "back" | "generate",
+    string
+  >;
+  dashboard: Record<
+    "title" | "subtitle" | "kpiOwners" | "kpiCallsWeek" | "kpiPendingMatches" | "kpiComplianceOpen" | "pendingActions" | "recentCalls",
+    string
+  >;
+  owners: Record<"title" | "role" | "consent" | "lastContact", string>;
+  settings: Record<
+    "language" | "theme" | "themeLight" | "themeDark" | "themeSystem" | "hitlOwner" | "confidenceThreshold",
+    string
+  >;
+  cadences: Record<"mockBanner", string>;
+};
+
+export const translations: Record<Locale, Translations> = {
   es: {
     appName: "AFFLUX",
     appTagline: "CRM operativo de originación inmobiliaria",
@@ -119,6 +142,6 @@ export const translations = {
         "Simulation mode: no real message is sent from AFFLUX in this MVP.",
     },
   },
-} as const;
+};
 
-export type Dictionary = (typeof translations)["es"];
+export type Dictionary = Translations;
