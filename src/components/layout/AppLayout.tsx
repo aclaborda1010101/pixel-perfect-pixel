@@ -6,7 +6,14 @@ import { CommandPalette } from "@/components/common/CommandPalette";
 
 export function AppLayout() {
   return (
-    <SidebarProvider>
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "248px",
+          "--sidebar-width-icon": "56px",
+        } as React.CSSProperties
+      }
+    >
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar />
         <div className="flex min-h-screen flex-1 flex-col">
