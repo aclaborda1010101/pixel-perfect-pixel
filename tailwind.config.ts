@@ -16,10 +16,25 @@ export default {
       colors: {
         border: "hsl(var(--border))",
         "border-strong": "hsl(var(--border-strong))",
+        "border-faint": "hsl(var(--border-faint))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        brand: {
+          DEFAULT: "hsl(var(--brand))",
+          foreground: "hsl(var(--brand-foreground))",
+        },
+        surface: {
+          1: "hsl(var(--surface-1))",
+          2: "hsl(var(--surface-2))",
+        },
+        gold: {
+          DEFAULT: "hsl(var(--gold))",
+          foreground: "hsl(var(--gold-foreground))",
+          soft: "hsl(var(--gold-soft))",
+          strong: "hsl(var(--gold-strong))",
+        },
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
@@ -112,6 +127,10 @@ export default {
       transitionDuration: {
         fast: "var(--duration-fast)",
         base: "var(--duration-base)",
+      },
+      letterSpacing: {
+        eyebrow: "0.18em",
+        notarial: "-0.022em",
       },
       keyframes: {
         "accordion-down": {
