@@ -10,6 +10,8 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { PreCallBrief } from "@/components/agents/PreCallBrief";
 import { AnalyzeNote } from "@/components/agents/AnalyzeNote";
+import { CatalogRoleButton } from "@/components/agents/CatalogRoleButton";
+import { RagSearch } from "@/components/agents/RagSearch";
 
 type Owner = {
   id: string;
@@ -127,8 +129,10 @@ export default function OwnerDetail() {
         </TabsContent>
 
         <TabsContent value="ai" className="space-y-4">
+          <CatalogRoleButton ownerId={owner.id} onDone={() => window.location.reload()} />
           <PreCallBrief ownerId={owner.id} />
           <AnalyzeNote ownerId={owner.id} />
+          <RagSearch scopeType="owner" scopeId={owner.id} />
         </TabsContent>
       </Tabs>
     </div>
