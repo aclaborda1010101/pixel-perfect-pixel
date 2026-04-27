@@ -81,6 +81,7 @@ export default {
       fontFamily: {
         sans: ["var(--font-sans)"],
         display: ["var(--font-display)"],
+        editorial: ["var(--font-editorial)"],
         mono: ["var(--font-mono)"],
       },
       borderRadius: {
