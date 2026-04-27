@@ -1,4 +1,4 @@
-import { Moon, Sun, Languages, Monitor, Search, ChevronRight } from "lucide-react";
+import { Moon, Sun, Languages, Monitor, Search, ChevronRight, Check } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
