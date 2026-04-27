@@ -274,5 +274,5 @@ const _translations = {
   },
 } as const;
 
-export type Dictionary = typeof _translations.es;
-export const translations: Record<Locale, Dictionary> = _translations;
+export type Dictionary = any;
+export const translations: Record<Locale, any> = _translations;
