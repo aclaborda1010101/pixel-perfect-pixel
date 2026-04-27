@@ -146,7 +146,7 @@
 
     --gold: 41 47% 59%;                    /* #C9A961 */
     --gold-foreground: 213 52% 11%;
-    --gold-soft: 41 47% 59% / 0.14;        /* badges/hover sobre oscuro */
+    --gold-soft: 41 35% 22%;               /* fondo badges/hover sobre oscuro (opaco) */
     --gold-strong: 40 36% 49%;
 
     --primary: 41 47% 59%;                 /* CTA principal = champán */
@@ -180,9 +180,9 @@
     --info-foreground: 213 52% 11%;
     --info-soft: 213 31% 24%;
 
-    --border: 0 0% 100% / 0.08;            /* sutil sobre marino */
+    --border: 213 35% 20%;                 /* sutil sobre marino (opaco, compatible con /alpha) */
     --border-strong: 213 51% 25%;          /* surface-2 como borde fuerte */
-    --border-faint: 0 0% 100% / 0.05;
+    --border-faint: 213 40% 16%;           /* casi imperceptible */
     --input: 213 44% 15%;
     --ring: 41 47% 59%;
 
@@ -206,7 +206,7 @@
     --sidebar-primary-foreground: 213 52% 11%;
     --sidebar-accent: 213 44% 15%;
     --sidebar-accent-foreground: 215 30% 95%;
-    --sidebar-border: 0 0% 100% / 0.08;
+    --sidebar-border: 213 35% 20%;
     --sidebar-ring: 41 47% 59%;
   }
 }
