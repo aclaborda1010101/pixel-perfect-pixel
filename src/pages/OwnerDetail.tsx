@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { Crumbs } from "@/components/common/Crumbs";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { PreCallBrief } from "@/components/agents/PreCallBrief";
@@ -59,9 +60,7 @@ export default function OwnerDetail() {
 
   return (
     <div>
-      <Link to="/propietarios" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-3 w-3" /> {t.common.back}
-      </Link>
+      <Crumbs items={[{ label: "Propietarios", to: "/propietarios" }, { label: owner.nombre }]} />
       <PageHeader
         title={owner.nombre}
         subtitle={owner.email ?? owner.telefono ?? ""}

@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, PhoneCall } from "lucide-react";
+import { Loader2, PhoneCall } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { Crumbs } from "@/components/common/Crumbs";
+import { StatusBadge } from "@/components/common/StatusBadge";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { RagSearch } from "@/components/agents/RagSearch";
@@ -65,9 +67,7 @@ export default function CallAnalysis() {
 
   return (
     <div className="space-y-4">
-      <Link to="/llamadas" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-3 w-3" /> {t.common.back}
-      </Link>
+      <Crumbs items={[{ label: "Llamadas", to: "/llamadas" }, { label: owner?.nombre ?? "Llamada" }]} />
       <PageHeader
         title={t.callAnalysis.title}
         subtitle={
@@ -82,6 +82,7 @@ export default function CallAnalysis() {
             <span>{call.duracion_seg ?? 0}s</span>
             <Badge variant="outline">{call.direccion}</Badge>
             {owner?.rol && <Badge variant="outline">{owner.rol}</Badge>}
+            <StatusBadge status={call.resumen ? "analyzed" : "no_summary"} />
           </span>
         }
         actions={

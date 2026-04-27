@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { Search } from "lucide-react";
 
 export function Topbar() {
   const { locale, setLocale, t } = useI18n();
@@ -22,6 +23,17 @@ export function Topbar() {
           {t.appName} · <span className="text-foreground">{t.appTagline}</span>
         </h1>
       </div>
+
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+        className="hidden h-8 items-center gap-2 rounded-md border border-border bg-muted/50 px-2 text-xs text-muted-foreground transition-colors hover:bg-muted sm:inline-flex"
+        aria-label="Buscar"
+      >
+        <Search className="h-3 w-3" />
+        <span>Buscar…</span>
+        <kbd className="ml-2 rounded border border-border bg-background px-1 font-mono text-[10px]">⌘K</kbd>
+      </button>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
