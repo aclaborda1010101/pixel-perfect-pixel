@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { Users } from "lucide-react";
+import { NewOwnerDialog } from "@/components/forms/NewEntityDialogs";
 
 type Owner = {
   id: string;
@@ -15,6 +16,7 @@ type Owner = {
   email: string | null;
   telefono: string | null;
   rol: string;
+  subrole: string;
   consentimiento: boolean;
   updated_at: string;
 };
@@ -24,15 +26,14 @@ export default function Owners() {
   const [data, setData] = useState<Owner[]>([]);
   const [q, setQ] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("owners")
-        .select("id,nombre,email,telefono,rol,consentimiento,updated_at")
-        .order("updated_at", { ascending: false });
-      setData((data as Owner[]) ?? []);
-    })();
-  }, []);
+  const load = async () => {
+    const { data } = await supabase
+      .from("owners")
+      .select("id,nombre,email,telefono,rol,subrole,consentimiento,updated_at")
+      .order("updated_at", { ascending: false });
+    setData((data as Owner[]) ?? []);
+  };
+  useEffect(() => { load(); }, []);
 
   const filtered = useMemo(
     () =>
@@ -46,7 +47,7 @@ export default function Owners() {
 
   return (
     <div>
-      <PageHeader title={t.owners.title} />
+      <PageHeader title={t.owners.title} actions={<NewOwnerDialog onCreated={load} />} />
       <div className="mb-4 max-w-sm">
         <Input
           placeholder={t.common.search}

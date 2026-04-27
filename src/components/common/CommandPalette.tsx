@@ -8,6 +8,9 @@ import {
   GitMerge, MessageSquareDot, ShieldCheck, Settings as SettingsIcon, Sparkles, Upload,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { NewOwnerDialog, NewBuildingDialog, NewInvestorDialog, NewAssetDialog } from "@/components/forms/NewEntityDialogs";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 type Hit = { kind: "owner" | "asset" | "call"; id: string; label: string; sub?: string };
 
@@ -84,6 +87,18 @@ export function CommandPalette() {
           <CommandItem onSelect={() => go("/analizar-llamada")}>
             <Upload className="mr-2 h-4 w-4" /> Analizar llamada
             <CommandShortcut>⌘A</CommandShortcut>
+          </CommandItem>
+          <CommandItem onSelect={() => go("/propietarios")}>
+            <Plus className="mr-2 h-4 w-4" /> Nuevo propietario (en /propietarios)
+          </CommandItem>
+          <CommandItem onSelect={() => go("/edificios")}>
+            <Plus className="mr-2 h-4 w-4" /> Nuevo edificio (en /edificios)
+          </CommandItem>
+          <CommandItem onSelect={() => go("/inversores")}>
+            <Plus className="mr-2 h-4 w-4" /> Nuevo inversor (en /inversores)
+          </CommandItem>
+          <CommandItem onSelect={() => go("/activos")}>
+            <Plus className="mr-2 h-4 w-4" /> Nuevo activo (en /activos)
           </CommandItem>
         </CommandGroup>
 

@@ -20,6 +20,7 @@ import Cadences from "./pages/Cadences";
 import Settings from "./pages/Settings";
 import CallAnalysis from "./pages/CallAnalysis";
 import AssetDetail from "./pages/AssetDetail";
+import BuildingDetail from "./pages/BuildingDetail";
 import PrepareCallWizard from "./pages/wizards/PrepareCallWizard";
 import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
 
@@ -39,6 +40,7 @@ const App = () => (
                 <Route path="/propietarios" element={<Owners />} />
                 <Route path="/propietarios/:id" element={<OwnerDetail />} />
                 <Route path="/edificios" element={<Buildings />} />
+                <Route path="/edificios/:id" element={<BuildingDetail />} />
                 <Route path="/activos" element={<Assets />} />
                 <Route path="/activos/:id" element={<AssetDetail />} />
                 <Route path="/llamadas" element={<Calls />} />
