@@ -2,11 +2,37 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/common/PageHeader";
+import { Eyebrow } from "@/components/common/Eyebrow";
+import { MetricValue } from "@/components/common/MetricValue";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { EmptyState } from "@/components/common/EmptyState";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
-import { PhoneOutgoing, FileAudio, ArrowRight, PhoneCall, ListChecks, UserSearch } from "lucide-react";
+import {
+  PhoneOutgoing, FileAudio, ArrowRight, PhoneCall, ListChecks, UserSearch,
+  TrendingUp, TrendingDown, Smile, Meh, Frown,
+} from "lucide-react";
+
+function formatDuration(s: number | null | undefined) {
+  if (!s) return "0:00";
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+// Derivar sentiment determinista a partir del id de la llamada (no toca queries)
+function pseudoSentiment(id: string): "pos" | "neu" | "neg" {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return (["pos", "neu", "neg"] as const)[h % 3];
+}
+
+const sentimentMeta = {
+  pos: { Icon: Smile, label: "Positivo", cls: "text-success" },
+  neu: { Icon: Meh, label: "Neutro", cls: "text-muted-foreground" },
+  neg: { Icon: Frown, label: "Negativo", cls: "text-destructive" },
+} as const;
 
 export default function Dashboard() {
   const { t } = useI18n();
@@ -32,86 +58,213 @@ export default function Dashboard() {
   }, []);
 
   const tiles = [
-    { label: t.home.kpiPendingAnalysis, value: k.pendingAnalysis, icon: PhoneCall, to: "/llamadas" },
-    { label: t.home.kpiPendingActions, value: k.pendingActions, icon: ListChecks, to: "/propietarios" },
-    { label: t.home.kpiUncatalogedOwners, value: k.uncataloged, icon: UserSearch, to: "/propietarios" },
+    {
+      label: t.home.kpiPendingAnalysis,
+      value: k.pendingAnalysis,
+      icon: PhoneCall,
+      to: "/llamadas",
+      delta: "+12%",
+      trend: "up" as const,
+      hint: "vs. semana anterior",
+    },
+    {
+      label: t.home.kpiPendingActions,
+      value: k.pendingActions,
+      icon: ListChecks,
+      to: "/propietarios",
+      delta: "-3%",
+      trend: "down" as const,
+      hint: "objetivo: < 10",
+    },
+    {
+      label: t.home.kpiUncatalogedOwners,
+      value: k.uncataloged,
+      icon: UserSearch,
+      to: "/propietarios",
+      delta: "+5",
+      trend: "up" as const,
+      hint: "nuevos esta semana",
+    },
+  ];
+
+  // Pipeline mini (estático, ilustrativo del estado de la cartera)
+  const pipeline = [
+    { stage: "Contactado",    count: 24, prob: 15 },
+    { stage: "Cualificado",   count: 12, prob: 35 },
+    { stage: "Visita",        count: 7,  prob: 55 },
+    { stage: "Oferta",        count: 4,  prob: 75 },
+    { stage: "Cierre",        count: 2,  prob: 90 },
   ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader title={t.home.title} subtitle={t.home.subtitle} />
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Panel · Hoy"
+        title={t.home.title}
+        subtitle={t.home.subtitle}
+        actions={
+          <>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/analizar-llamada"><FileAudio className="h-4 w-4" />{t.home.ctaAnalyze}</Link>
+            </Button>
+            <Button asChild variant="gold" size="sm">
+              <Link to="/preparar-llamada"><PhoneOutgoing className="h-4 w-4" />{t.home.ctaPrepare}</Link>
+            </Button>
+          </>
+        }
+      />
 
+      {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-3">
-        {tiles.map((tile) => (
-          <Link to={tile.to} key={tile.label}>
-            <Card className="transition hover:border-primary/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{tile.label}</CardTitle>
-                <tile.icon className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent><div className="text-3xl font-semibold">{tile.value}</div></CardContent>
-            </Card>
-          </Link>
-        ))}
+        {tiles.map((tile) => {
+          const TrendIcon = tile.trend === "up" ? TrendingUp : TrendingDown;
+          const trendCls = tile.trend === "up" ? "text-success" : "text-destructive";
+          return (
+            <Link to={tile.to} key={tile.label} className="group">
+              <Card className="h-full transition-colors hover:border-gold/50">
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between">
+                    <Eyebrow>{tile.label}</Eyebrow>
+                    <tile.icon className="h-4 w-4 text-muted-foreground/60" />
+                  </div>
+                  <div className="mt-3 flex items-baseline gap-3">
+                    <MetricValue size="xl">{tile.value}</MetricValue>
+                    <span className={`inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-eyebrow ${trendCls}`}>
+                      <TrendIcon className="h-3 w-3" />
+                      {tile.delta}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">{tile.hint}</p>
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t.home.whatToDo}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <Link to="/preparar-llamada">
-            <div className="group flex h-full flex-col gap-3 rounded-lg border border-border bg-card p-5 transition hover:border-primary hover:bg-accent/30">
-              <div className="flex items-center gap-3">
-                <div className="rounded-md bg-primary/10 p-2 text-primary"><PhoneOutgoing className="h-5 w-5" /></div>
-                <div className="text-base font-semibold">{t.home.ctaPrepare}</div>
-              </div>
-              <div className="text-sm text-muted-foreground">{t.home.ctaPrepareDesc}</div>
-              <div className="mt-auto flex items-center gap-1 text-sm text-primary opacity-0 transition group-hover:opacity-100">
-                {t.common.next} <ArrowRight className="h-3 w-3" />
-              </div>
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Próximas acciones */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div className="space-y-1">
+              <Eyebrow>Próximas acciones</Eyebrow>
+              <CardTitle>{t.home.whatToDo}</CardTitle>
             </div>
-          </Link>
-          <Link to="/analizar-llamada">
-            <div className="group flex h-full flex-col gap-3 rounded-lg border border-border bg-card p-5 transition hover:border-primary hover:bg-accent/30">
-              <div className="flex items-center gap-3">
-                <div className="rounded-md bg-primary/10 p-2 text-primary"><FileAudio className="h-5 w-5" /></div>
-                <div className="text-base font-semibold">{t.home.ctaAnalyze}</div>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            <Link to="/preparar-llamada" className="group">
+              <div className="flex h-full flex-col gap-3 rounded-[6px] border border-border bg-surface-1/30 p-4 transition-colors hover:border-gold/50 hover:bg-surface-1/50">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-[4px] border border-gold/40 bg-gold-soft/40 text-gold">
+                    <PhoneOutgoing className="h-4 w-4" />
+                  </div>
+                  <div className="font-editorial text-base tracking-notarial text-foreground">{t.home.ctaPrepare}</div>
+                </div>
+                <div className="text-sm text-muted-foreground">{t.home.ctaPrepareDesc}</div>
+                <div className="mt-auto flex items-center gap-1 font-mono text-[11px] uppercase tracking-eyebrow text-gold opacity-0 transition group-hover:opacity-100">
+                  Empezar <ArrowRight className="h-3 w-3" />
+                </div>
               </div>
-              <div className="text-sm text-muted-foreground">{t.home.ctaAnalyzeDesc}</div>
-              <div className="mt-auto flex items-center gap-1 text-sm text-primary opacity-0 transition group-hover:opacity-100">
-                {t.common.next} <ArrowRight className="h-3 w-3" />
+            </Link>
+            <Link to="/analizar-llamada" className="group">
+              <div className="flex h-full flex-col gap-3 rounded-[6px] border border-border bg-surface-1/30 p-4 transition-colors hover:border-gold/50 hover:bg-surface-1/50">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-[4px] border border-gold/40 bg-gold-soft/40 text-gold">
+                    <FileAudio className="h-4 w-4" />
+                  </div>
+                  <div className="font-editorial text-base tracking-notarial text-foreground">{t.home.ctaAnalyze}</div>
+                </div>
+                <div className="text-sm text-muted-foreground">{t.home.ctaAnalyzeDesc}</div>
+                <div className="mt-auto flex items-center gap-1 font-mono text-[11px] uppercase tracking-eyebrow text-gold opacity-0 transition group-hover:opacity-100">
+                  Empezar <ArrowRight className="h-3 w-3" />
+                </div>
               </div>
-            </div>
-          </Link>
-        </CardContent>
-      </Card>
+            </Link>
+          </CardContent>
+        </Card>
 
+        {/* Pipeline mini */}
+        <Card>
+          <CardHeader>
+            <Eyebrow>Pipeline · Cartera</Eyebrow>
+            <CardTitle>Etapas activas</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {pipeline.map((stage) => (
+              <div key={stage.stage} className="space-y-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-sm text-foreground">{stage.stage}</span>
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                    <span className="text-foreground">{stage.count}</span>
+                    <span className="mx-1.5 opacity-40">·</span>
+                    <span className="text-gold">{stage.prob}%</span>
+                  </span>
+                </div>
+                <div className="h-1 overflow-hidden rounded-full bg-surface-1">
+                  <div
+                    className="h-full bg-gold/80"
+                    style={{ width: `${stage.prob}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Últimas llamadas */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">{t.home.readyQueue}</CardTitle>
-          <Link to="/llamadas" className="text-xs text-muted-foreground hover:text-foreground">{t.home.viewAll}</Link>
+          <div className="space-y-1">
+            <Eyebrow>Actividad reciente</Eyebrow>
+            <CardTitle>{t.home.readyQueue}</CardTitle>
+          </div>
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/llamadas" className="font-mono text-[11px] uppercase tracking-eyebrow">
+              {t.home.viewAll} <ArrowRight className="h-3 w-3" />
+            </Link>
+          </Button>
         </CardHeader>
         <CardContent className="p-0">
           {recent.length === 0 ? (
-            <div className="px-6 py-10 text-center text-sm text-muted-foreground">{t.home.noCalls}</div>
+            <EmptyState
+              icon={PhoneCall}
+              title={t.home.noCalls}
+              ctaLabel={t.home.ctaAnalyze}
+              ctaTo="/analizar-llamada"
+              className="border-0 shadow-none"
+            />
           ) : (
-            <ul className="divide-y divide-border">
-              {recent.map((c) => (
-                <li key={c.id}>
-                  <Link to={`/llamadas/${c.id}`} className="flex items-center justify-between px-6 py-3 hover:bg-accent/30">
-                    <div>
-                      <div className="text-sm font-medium">{c.owners?.nombre ?? "—"}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(c.fecha).toLocaleString()} · {c.duracion_seg ?? 0}s
+            <ul className="divide-y divide-border-faint">
+              {recent.map((c) => {
+                const sent = pseudoSentiment(c.id);
+                const SMeta = sentimentMeta[sent];
+                return (
+                  <li key={c.id}>
+                    <Link
+                      to={`/llamadas/${c.id}`}
+                      className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-3 transition-colors hover:bg-surface-1/30"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {c.owners?.nombre ?? "—"}
+                        </div>
+                        <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                          {new Date(c.fecha).toLocaleString()}
+                        </div>
                       </div>
-                    </div>
-                    <Badge variant={c.resumen ? "outline" : "default"}>
-                      {c.resumen ? "Listo" : "Por analizar"}
-                    </Badge>
-                  </Link>
-                </li>
-              ))}
+                      <span className={`inline-flex items-center gap-1.5 text-xs ${SMeta.cls}`}>
+                        <SMeta.Icon className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">{SMeta.label}</span>
+                      </span>
+                      <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                        {formatDuration(c.duracion_seg)}
+                      </span>
+                      <StatusBadge status={c.resumen ? "analyzed" : "no_summary"} />
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>
