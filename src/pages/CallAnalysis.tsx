@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2, PhoneCall } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Crumbs } from "@/components/common/Crumbs";
+import { Eyebrow } from "@/components/common/Eyebrow";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
@@ -47,7 +48,6 @@ export default function CallAnalysis() {
       const a = (data as any).analysis;
       setAnalysis(a);
       setActions([a.proxima_accion?.titulo].filter(Boolean));
-      // persist resumen on the call
       const resumen = [a.hechos?.[0], a.intenciones?.[0]].filter(Boolean).join(". ").slice(0, 500);
       await supabase.from("calls").update({ resumen }).eq("id", id);
       load();
@@ -66,9 +66,10 @@ export default function CallAnalysis() {
   if (!call) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <Crumbs items={[{ label: "Llamadas", to: "/llamadas" }, { label: owner?.nombre ?? "Llamada" }]} />
       <PageHeader
+        eyebrow="Llamada · Análisis"
         title={t.callAnalysis.title}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
@@ -81,33 +82,38 @@ export default function CallAnalysis() {
             <span>·</span>
             <span>{call.duracion_seg ?? 0}s</span>
             <Badge variant="outline">{call.direccion}</Badge>
-            {owner?.rol && <Badge variant="outline">{owner.rol}</Badge>}
+            {owner?.rol && <Badge variant="info">{owner.rol}</Badge>}
             <StatusBadge status={call.resumen ? "analyzed" : "no_summary"} />
           </span>
         }
         actions={
-          <Button size="sm" onClick={runAnalyze} disabled={running}>
-            {running && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
+          <Button size="sm" variant="gold" onClick={runAnalyze} disabled={running}>
+            {running && <Loader2 className="h-3 w-3 animate-spin" />}
             {t.callAnalysis.runAnalyze}
           </Button>
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* LEFT: summary + actions */}
+      <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-4">
           <Card>
-            <CardHeader><CardTitle className="text-base">{t.callAnalysis.summary}</CardTitle></CardHeader>
+            <CardHeader>
+              <Eyebrow>IA</Eyebrow>
+              <CardTitle>{t.callAnalysis.summary}</CardTitle>
+            </CardHeader>
             <CardContent className="text-sm">
               {call.resumen ? (
-                <p>{call.resumen}</p>
+                <p className="leading-relaxed text-foreground">{call.resumen}</p>
               ) : (
                 <p className="text-muted-foreground">{t.callAnalysis.noSummary}</p>
               )}
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle className="text-base">{t.callAnalysis.actions}</CardTitle></CardHeader>
+            <CardHeader>
+              <Eyebrow>Próximos pasos</Eyebrow>
+              <CardTitle>{t.callAnalysis.actions}</CardTitle>
+            </CardHeader>
             <CardContent>
               {analysis ? (
                 <ol className="space-y-2 text-sm">
@@ -115,8 +121,8 @@ export default function CallAnalysis() {
                     analysis.proxima_accion?.titulo,
                     ...(analysis.intenciones ?? []).slice(0, 2),
                   ].filter(Boolean).map((act: string, i: number) => (
-                    <li key={i} className="flex items-start justify-between gap-3 rounded border border-border p-2">
-                      <span><span className="mr-2 font-semibold text-primary">{i + 1}.</span>{act}</span>
+                    <li key={i} className="flex items-start justify-between gap-3 rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+                      <span className="text-foreground"><span className="mr-2 font-mono text-xs text-gold">{i + 1}.</span>{act}</span>
                       <Button size="sm" variant="outline" onClick={() => saveAction(act)}>{t.callAnalysis.saveAction}</Button>
                     </li>
                   ))}
@@ -128,7 +134,6 @@ export default function CallAnalysis() {
           </Card>
         </div>
 
-        {/* RIGHT: tabs */}
         <Card>
           <Tabs defaultValue="transcript" className="w-full">
             <CardHeader>
@@ -141,7 +146,7 @@ export default function CallAnalysis() {
             <CardContent>
               <TabsContent value="transcript">
                 {call.transcripcion ? (
-                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap text-xs leading-relaxed">{call.transcripcion}</pre>
+                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground">{call.transcripcion}</pre>
                 ) : (
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Sin transcripción guardada. Pega una para analizar:</p>

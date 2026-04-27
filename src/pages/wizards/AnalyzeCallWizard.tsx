@@ -7,6 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Loader2, Check } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { Stepper } from "@/components/common/Stepper";
+import { Eyebrow } from "@/components/common/Eyebrow";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -61,25 +63,30 @@ export default function AnalyzeCallWizard() {
   const canNext = (step === 0 && transcript.trim().length > 20) || (step === 1 && pickedOwner);
 
   return (
-    <div className="space-y-4">
-      <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+    <div className="space-y-6">
+      <Link to="/" className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-3 w-3" /> {t.common.back}
       </Link>
       <PageHeader
+        eyebrow="Wizard · Analizar llamada"
         title={t.wizard.analyzeTitle}
-        subtitle={`${t.common.step} ${step + 1} ${t.common.of} ${STEPS.length} · ${t.wizard[STEPS[step]]}`}
+        subtitle={t.wizard[STEPS[step]]}
       />
+
+      <Stepper steps={STEPS.map((s) => t.wizard[s])} current={step} />
+
       <Card>
         <CardContent className="space-y-4 p-6">
           {step === 0 && (
             <>
-              <p className="text-xs text-muted-foreground">{t.wizard.audioNote}</p>
+              <p className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{t.wizard.audioNote}</p>
               <Textarea rows={10} placeholder={t.wizard.transcriptPlaceholder}
                 value={transcript} onChange={(e) => setTranscript(e.target.value)} />
-              <div className="flex gap-2">
-                <Button size="sm" variant={direction === "saliente" ? "default" : "outline"}
+              <div className="flex items-center gap-2">
+                <Eyebrow>Dirección</Eyebrow>
+                <Button size="sm" variant={direction === "saliente" ? "gold" : "outline"}
                   onClick={() => setDirection("saliente")}>{t.wizard.directionOut}</Button>
-                <Button size="sm" variant={direction === "entrante" ? "default" : "outline"}
+                <Button size="sm" variant={direction === "entrante" ? "gold" : "outline"}
                   onClick={() => setDirection("entrante")}>{t.wizard.directionIn}</Button>
               </div>
             </>
@@ -87,18 +94,18 @@ export default function AnalyzeCallWizard() {
           {step === 1 && (
             <>
               <Input placeholder={t.wizard.pickOwner} value={q} onChange={(e) => setQ(e.target.value)} />
-              <ul className="max-h-72 divide-y divide-border overflow-auto rounded border border-border">
+              <ul className="max-h-72 divide-y divide-border-faint overflow-auto rounded-[6px] border border-border-faint">
                 {filtered.map((o) => (
                   <li key={o.id}>
                     <button onClick={() => setPickedOwner(o)}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-accent/30 ${pickedOwner?.id === o.id ? "bg-accent/30" : ""}`}>
+                      className={`w-full px-3 py-2 text-left text-sm transition-colors hover:bg-surface-1/40 ${pickedOwner?.id === o.id ? "bg-surface-1/60 border-l-2 border-gold" : ""}`}>
                       <div className="flex items-center justify-between">
-                        <span>{o.nombre}</span>
-                        {pickedOwner?.id === o.id && <Check className="h-3 w-3 text-primary" />}
+                        <span className="text-foreground">{o.nombre}</span>
+                        {pickedOwner?.id === o.id && <Check className="h-3 w-3 text-gold" />}
                       </div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-2">
+                      <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
                         <span>{o.email ?? o.telefono ?? "—"}</span>
-                        <Badge variant="outline" className="text-[10px]">{o.rol}</Badge>
+                        <Badge variant="outline">{o.rol}</Badge>
                       </div>
                     </button>
                   </li>
@@ -108,25 +115,28 @@ export default function AnalyzeCallWizard() {
           )}
           {step === 2 && (
             <div className="space-y-4">
-              <div className="rounded border border-border p-4 text-sm">
-                <div><b>Propietario:</b> {pickedOwner?.nombre}</div>
-                <div><b>Dirección:</b> {direction === "saliente" ? t.wizard.directionOut : t.wizard.directionIn}</div>
-                <div><b>Transcripción:</b> {transcript.length} caracteres</div>
+              <div className="rounded-[6px] border border-gold/40 bg-gold-soft/30 p-4 text-sm">
+                <Eyebrow className="mb-2">Resumen</Eyebrow>
+                <div className="space-y-1 text-foreground">
+                  <div><span className="text-muted-foreground">Propietario:</span> <b>{pickedOwner?.nombre}</b></div>
+                  <div><span className="text-muted-foreground">Dirección:</span> {direction === "saliente" ? t.wizard.directionOut : t.wizard.directionIn}</div>
+                  <div><span className="text-muted-foreground">Transcripción:</span> <span className="font-mono tabular-nums">{transcript.length}</span> caracteres</div>
+                </div>
               </div>
-              <Button onClick={process} disabled={running} className="w-full">
-                {running && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
+              <Button onClick={process} disabled={running} variant="gold" className="w-full">
+                {running && <Loader2 className="h-3 w-3 animate-spin" />}
                 {running ? t.wizard.processing : t.common.finish}
               </Button>
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-border pt-4">
+          <div className="flex items-center justify-between border-t border-border-faint pt-4">
             <Button variant="outline" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0 || running}>
-              <ArrowLeft className="mr-2 h-3 w-3" /> {t.common.prev}
+              <ArrowLeft className="h-3 w-3" /> {t.common.prev}
             </Button>
             {step < STEPS.length - 1 && (
-              <Button onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
-                {t.common.next} <ArrowRight className="ml-2 h-3 w-3" />
+              <Button variant="gold" onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
+                {t.common.next} <ArrowRight className="h-3 w-3" />
               </Button>
             )}
           </div>
