@@ -1,5 +1,5 @@
-import { Moon, Sun, Languages, Monitor, Search, ChevronRight, Check } from "lucide-react";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Moon, Sun, Languages, Monitor, ChevronRight, Check, Menu } from "lucide-react";
+import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,19 +10,51 @@ import {
 import { useI18n } from "@/i18n/I18nProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { useLocation, Link } from "react-router-dom";
+import { usePageTitle } from "./PageTitleContext";
 
-function useCrumbs() {
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const SEGMENT_LABELS: Record<string, string> = {
+  "": "Inicio",
+  propietarios: "Propietarios",
+  edificios: "Edificios",
+  activos: "Activos",
+  llamadas: "Llamadas",
+  inversores: "Inversores",
+  matching: "Matching",
+  compliance: "Compliance",
+  cadencias: "Cadencias",
+  ajustes: "Ajustes",
+  "preparar-llamada": "Preparar llamada",
+  "analizar-llamada": "Analizar llamada",
+};
+
+function useCrumbs(pageTitle: string | null) {
   const { pathname } = useLocation();
   if (pathname === "/") return [{ label: "Inicio", to: "/" }];
   const parts = pathname.split("/").filter(Boolean);
   const acc: { label: string; to: string }[] = [{ label: "Inicio", to: "/" }];
   let path = "";
-  for (const p of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
     path += "/" + p;
-    acc.push({
-      label: decodeURIComponent(p).replace(/-/g, " "),
-      to: path,
-    });
+    const isLast = i === parts.length - 1;
+    let label: string;
+    if (UUID_RE.test(p)) {
+      label = isLast && pageTitle ? pageTitle : "Detalle";
+    } else {
+      label = SEGMENT_LABELS[p] ?? decodeURIComponent(p).replace(/-/g, " ");
+    }
+    acc.push({ label, to: path });
+  }
+  // If the last segment is a static one but the page registered a title that
+  // differs (e.g. a wizard with custom name), prefer it.
+  if (pageTitle && acc.length > 1) {
+    const last = acc[acc.length - 1];
+    if (UUID_RE.test(parts[parts.length - 1] ?? "")) {
+      last.label = pageTitle;
+    }
   }
   return acc;
 }
@@ -30,59 +62,68 @@ function useCrumbs() {
 export function Topbar() {
   const { locale, setLocale, t } = useI18n();
   const { theme, setTheme, resolved } = useTheme();
-  const crumbs = useCrumbs();
+  const { title } = usePageTitle();
+  const crumbs = useCrumbs(title);
+  const { isMobile, setOpenMobile } = useSidebar();
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 shadow-[inset_0_-1px_0_0_hsl(var(--gold)/0.25)]">
-      <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
+    <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 shadow-[inset_0_-1px_0_0_hsl(var(--gold)/0.25)] md:gap-3 md:px-4">
+      {isMobile ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Abrir menú"
+          onClick={() => setOpenMobile(true)}
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+      ) : (
+        <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
+      )}
 
       <nav
         aria-label="Breadcrumb"
-        className="hidden items-center gap-1.5 font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground md:flex"
+        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden font-mono text-[11px] uppercase tracking-wider text-muted-foreground md:flex-initial"
       >
         {crumbs.map((c, i) => {
           const last = i === crumbs.length - 1;
           return (
-            <span key={c.to} className="flex items-center gap-1.5">
+            <span
+              key={c.to}
+              className={
+                "flex items-center gap-1.5 " +
+                (last ? "min-w-0 truncate" : "hidden md:flex")
+              }
+            >
               {last ? (
-                <span className="text-foreground">{c.label}</span>
+                <span className="truncate text-primary">{c.label}</span>
               ) : (
                 <Link to={c.to} className="transition-colors hover:text-foreground">
                   {c.label}
                 </Link>
               )}
-              {!last && <ChevronRight className="h-3 w-3 opacity-50" />}
+              {!last && <span className="opacity-50">›</span>}
             </span>
           );
         })}
       </nav>
 
-      <div className="flex flex-1 items-center justify-center px-4">
-        <button
-          type="button"
-          onClick={() =>
-            window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))
-          }
-          className="group flex h-9 w-full max-w-md items-center gap-2 rounded-[6px] border border-border bg-surface-1/40 px-3 text-xs text-muted-foreground transition-colors hover:border-gold/40 hover:bg-surface-1/70"
-          aria-label="Buscar"
-        >
-          <Search className="h-3.5 w-3.5" />
-          <span className="flex-1 text-left">Buscar activos, propietarios, llamadas…</span>
-          <kbd className="rounded-[3px] border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-            ⌘K
-          </kbd>
-        </button>
-      </div>
+      <div className="flex-1" />
 
-      <span className="hidden rounded-[3px] border border-gold/40 bg-gold-soft/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold sm:inline-flex">
+      <span className="hidden rounded-[3px] border border-gold/40 bg-gold-soft/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold md:inline-flex">
         Beta
       </span>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 px-2 text-muted-foreground md:px-3"
+          >
             <Languages className="h-4 w-4" />
-            <span className="uppercase">{locale}</span>
+            <span className="hidden uppercase sm:inline">{locale}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -113,7 +154,7 @@ export function Topbar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <div className="ml-1 flex items-center gap-2 border-l border-border pl-3">
+      <div className="ml-1 flex items-center gap-2 border-l border-border pl-2 md:pl-3">
         <div className="hidden flex-col items-end leading-tight md:flex">
           <span className="text-xs font-medium text-foreground">Álvaro Quintana</span>
           <span className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
