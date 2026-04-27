@@ -21,6 +21,26 @@ type Translations = {
     string
   >;
   cadences: Record<"mockBanner", string>;
+  agents: Record<
+    | "preCallTitle"
+    | "preCallGenerate"
+    | "preCallContext"
+    | "preCallObjectives"
+    | "preCallQuestions"
+    | "preCallRisks"
+    | "preCallNextAction"
+    | "preCallConfidence"
+    | "analyzeNoteTitle"
+    | "analyzeNotePlaceholder"
+    | "analyzeNoteRun"
+    | "analyzeNoteFacts"
+    | "analyzeNoteIntents"
+    | "analyzeNoteSentiment"
+    | "analyzeNoteAction"
+    | "analyzeNoteSaveAction"
+    | "analyzeNoteReview",
+    string
+  >;
 };
 
 export const translations: Record<Locale, Translations> = {
