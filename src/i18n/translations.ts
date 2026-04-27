@@ -212,6 +212,13 @@ export const translations: Record<Locale, Translations> = {
       analyzeNoteAction: "Proposed next action",
       analyzeNoteSaveAction: "Save next action",
       analyzeNoteReview: "Flagged for human review",
+      catalogRoleTitle: "Catalog owner role",
+      catalogRoleRun: "Catalog with AI",
+      valuatorTitle: "Estimated valuation",
+      valuatorRun: "Estimate value (mock)",
+      ragTitle: "Semantic search",
+      ragPlaceholder: "Ask about this owner…",
+      ragRun: "Search",
     },
   },
 };
