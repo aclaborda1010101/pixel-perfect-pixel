@@ -38,7 +38,14 @@ type Translations = {
     | "analyzeNoteSentiment"
     | "analyzeNoteAction"
     | "analyzeNoteSaveAction"
-    | "analyzeNoteReview",
+    | "analyzeNoteReview"
+    | "catalogRoleTitle"
+    | "catalogRoleRun"
+    | "valuatorTitle"
+    | "valuatorRun"
+    | "ragTitle"
+    | "ragPlaceholder"
+    | "ragRun",
     string
   >;
 };
