@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ArrowRight, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, PhoneOutgoing } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { Stepper } from "@/components/common/Stepper";
+import { Eyebrow } from "@/components/common/Eyebrow";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { PreCallBrief } from "@/components/agents/PreCallBrief";
@@ -68,49 +70,53 @@ export default function PrepareCallWizard() {
   const owner = pickedOwner ?? ownerForAsset;
 
   return (
-    <div className="space-y-4">
-      <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+    <div className="space-y-6">
+      <Link to="/" className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-3 w-3" /> {t.common.back}
       </Link>
       <PageHeader
+        eyebrow="Wizard · Preparar llamada"
         title={t.wizard.prepareTitle}
-        subtitle={`${t.common.step} ${step + 1} ${t.common.of} ${STEPS.length} · ${t.wizard[STEPS[step]]}`}
+        subtitle={t.wizard[STEPS[step]]}
       />
+
+      <Stepper steps={STEPS.map((s) => t.wizard[s])} current={step} />
+
       <Card>
         <CardContent className="space-y-4 p-6">
           {step === 0 && (
             <>
               <Input placeholder={t.wizard.pickAsset} value={q} onChange={(e) => setQ(e.target.value)} />
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <div className="mb-1 text-xs uppercase text-muted-foreground">Activos</div>
-                  <ul className="max-h-64 divide-y divide-border overflow-auto rounded border border-border">
+                  <Eyebrow className="mb-1.5">Activos</Eyebrow>
+                  <ul className="max-h-64 divide-y divide-border-faint overflow-auto rounded-[6px] border border-border-faint">
                     {filteredAssets.map((a) => (
                       <li key={a.id}>
                         <button onClick={() => { setPickedAsset(a); setPickedOwner(null); }}
-                          className={`w-full px-3 py-2 text-left text-sm hover:bg-accent/30 ${pickedAsset?.id === a.id ? "bg-accent/30" : ""}`}>
+                          className={`w-full px-3 py-2 text-left text-sm transition-colors hover:bg-surface-1/40 ${pickedAsset?.id === a.id ? "bg-surface-1/60 border-l-2 border-gold" : ""}`}>
                           <div className="flex items-center justify-between">
-                            <span>{a.tipo} · {a.ubicacion}</span>
-                            {pickedAsset?.id === a.id && <Check className="h-3 w-3 text-primary" />}
+                            <span className="text-foreground">{a.tipo} · {a.ubicacion}</span>
+                            {pickedAsset?.id === a.id && <Check className="h-3 w-3 text-gold" />}
                           </div>
-                          <div className="text-xs text-muted-foreground">{a.ciudad ?? "—"}</div>
+                          <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{a.ciudad ?? "—"}</div>
                         </button>
                       </li>
                     ))}
                   </ul>
                 </div>
                 <div>
-                  <div className="mb-1 text-xs uppercase text-muted-foreground">Propietarios</div>
-                  <ul className="max-h-64 divide-y divide-border overflow-auto rounded border border-border">
+                  <Eyebrow className="mb-1.5">Propietarios</Eyebrow>
+                  <ul className="max-h-64 divide-y divide-border-faint overflow-auto rounded-[6px] border border-border-faint">
                     {filteredOwners.map((o) => (
                       <li key={o.id}>
                         <button onClick={() => { setPickedOwner(o); setPickedAsset(null); }}
-                          className={`w-full px-3 py-2 text-left text-sm hover:bg-accent/30 ${pickedOwner?.id === o.id ? "bg-accent/30" : ""}`}>
+                          className={`w-full px-3 py-2 text-left text-sm transition-colors hover:bg-surface-1/40 ${pickedOwner?.id === o.id ? "bg-surface-1/60 border-l-2 border-gold" : ""}`}>
                           <div className="flex items-center justify-between">
-                            <span>{o.nombre}</span>
-                            <Badge variant="outline" className="text-[10px]">{o.rol}</Badge>
+                            <span className="text-foreground">{o.nombre}</span>
+                            <Badge variant="outline">{o.rol}</Badge>
                           </div>
-                          <div className="text-xs text-muted-foreground">{o.email ?? o.telefono ?? "—"}</div>
+                          <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{o.email ?? o.telefono ?? "—"}</div>
                         </button>
                       </li>
                     ))}
@@ -124,25 +130,23 @@ export default function PrepareCallWizard() {
             <div>
               {pickedAsset && buildingOwners.length > 0 ? (
                 <div className="space-y-2">
-                  <div className="text-xs uppercase text-muted-foreground">
-                    Propietarios del edificio ({buildingOwners.length}) · elige con quién hablas
-                  </div>
-                  <ul className="divide-y divide-border rounded border border-border">
+                  <Eyebrow>Propietarios del edificio ({buildingOwners.length}) · elige con quién hablas</Eyebrow>
+                  <ul className="divide-y divide-border-faint rounded-[6px] border border-border-faint">
                     {buildingOwners.map((r: any) => {
                       const isPicked = pickedOwner?.id === r.owner_id;
                       return (
                         <li key={r.owner_id}>
                           <button onClick={() => setPickedOwner(r.owners)}
-                            className={`w-full px-3 py-2 text-left hover:bg-accent/30 ${isPicked ? "bg-accent/30" : ""}`}>
+                            className={`w-full px-3 py-2 text-left transition-colors hover:bg-surface-1/40 ${isPicked ? "bg-surface-1/60 border-l-2 border-gold" : ""}`}>
                             <div className="flex items-center justify-between">
                               <div>
-                                <div className="text-sm font-medium">{r.owners?.nombre}</div>
-                                <div className="text-xs text-muted-foreground">{r.owners?.email ?? r.owners?.telefono ?? "—"}</div>
+                                <div className="text-sm font-medium text-foreground">{r.owners?.nombre}</div>
+                                <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{r.owners?.email ?? r.owners?.telefono ?? "—"}</div>
                               </div>
-                              <div className="flex items-center gap-1">
-                                {r.cuota != null && <Badge variant="secondary" className="text-[10px]">{r.cuota}%</Badge>}
-                                <Badge variant="outline" className="text-[10px]">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
-                                {r.owners?.rol && <Badge className="text-[10px]">{r.owners.rol}</Badge>}
+                              <div className="flex items-center gap-1.5">
+                                {r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>}
+                                <Badge variant="outline">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
+                                {r.owners?.rol && <Badge variant="info">{r.owners.rol}</Badge>}
                               </div>
                             </div>
                           </button>
@@ -152,10 +156,11 @@ export default function PrepareCallWizard() {
                   </ul>
                 </div>
               ) : owner ? (
-                <div className="rounded border border-border p-4">
-                  <div className="text-base font-semibold">{owner.nombre}</div>
-                  <div className="text-sm text-muted-foreground">{owner.email ?? owner.telefono ?? "—"}</div>
-                  <Badge variant="outline" className="mt-2">{owner.rol}</Badge>
+                <div className="rounded-[6px] border border-border-faint bg-surface-1/30 p-4">
+                  <Eyebrow>Propietario seleccionado</Eyebrow>
+                  <div className="mt-1 font-editorial text-lg tracking-notarial text-foreground">{owner.nombre}</div>
+                  <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{owner.email ?? owner.telefono ?? "—"}</div>
+                  <Badge variant="info" className="mt-2">{owner.rol}</Badge>
                   {pickedAsset && (
                     <div className="mt-3 text-xs text-muted-foreground">
                       Activo: {pickedAsset.tipo} · {pickedAsset.ubicacion}
@@ -175,24 +180,25 @@ export default function PrepareCallWizard() {
 
           {step === 3 && owner && (
             <div className="space-y-4">
-              <div className="rounded border border-border p-4 text-sm">
+              <div className="rounded-[6px] border border-gold/40 bg-gold-soft/30 p-4 text-sm text-foreground">
                 Estás a punto de iniciar una llamada con <b>{owner.nombre}</b>.
                 Se creará un registro en Llamadas en estado <i>por analizar</i>; cuando termines podrás
                 pegar la transcripción y obtener el resumen IA.
               </div>
-              <Button onClick={startCall} disabled={creating} className="w-full">
-                {creating ? t.wizard.processing : `📞 ${t.wizard.callMarkedStarted}`}
+              <Button onClick={startCall} disabled={creating} variant="gold" className="w-full">
+                <PhoneOutgoing className="h-4 w-4" />
+                {creating ? t.wizard.processing : t.wizard.callMarkedStarted}
               </Button>
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-border pt-4">
+          <div className="flex items-center justify-between border-t border-border-faint pt-4">
             <Button variant="outline" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>
-              <ArrowLeft className="mr-2 h-3 w-3" /> {t.common.prev}
+              <ArrowLeft className="h-3 w-3" /> {t.common.prev}
             </Button>
             {step < STEPS.length - 1 && (
-              <Button onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
-                {t.common.next} <ArrowRight className="ml-2 h-3 w-3" />
+              <Button variant="gold" onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
+                {t.common.next} <ArrowRight className="h-3 w-3" />
               </Button>
             )}
           </div>
