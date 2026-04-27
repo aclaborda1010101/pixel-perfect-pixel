@@ -85,9 +85,9 @@
                      radial-gradient(ellipse at bottom right, hsl(184 72% 38% / 0.10), transparent 55%);
 
     /* —— Tipografía ————————————————————————————————— */
-    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
-    --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    --font-sans: "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-display: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Geist Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
 
     /* —— Transiciones —————————————————————————————— */
     --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -185,7 +185,7 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "cv11", "ss01", "ss03";
+    font-feature-settings: "cv11", "ss01", "ss03", "cv02";
   }
 
   body {
@@ -196,7 +196,15 @@
   /* Tipografía display: ligeramente más ajustada en titulares */
   h1, h2, h3, h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.018em;
+    letter-spacing: -0.022em;
+    font-weight: 600;
+  }
+
+  /* Cifras tabulares para tablas, KPIs y montos */
+  .tabular-nums,
+  table,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
   }
 
   /* Selección coherente con la marca */
