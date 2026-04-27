@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { Crumbs } from "@/components/common/Crumbs";
+import { EmptyState } from "@/components/common/EmptyState";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
+import { PhoneCall, ListChecks, Users } from "lucide-react";
 
 export default function AssetDetail() {
   const { id = "" } = useParams();
@@ -41,9 +43,7 @@ export default function AssetDetail() {
 
   return (
     <div>
-      <Link to="/activos" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-3 w-3" /> {t.common.back}
-      </Link>
+      <Crumbs items={[{ label: t.nav.assets, to: "/activos" }, { label: `${asset.tipo} · ${asset.ubicacion}` }]} />
       <PageHeader
         title={`${asset.tipo} · ${asset.ubicacion}`}
         subtitle={`${asset.ciudad ?? ""} · ${asset.superficie_m2 ?? "?"} m²`}
@@ -66,12 +66,16 @@ export default function AssetDetail() {
                 </div>
                 <Badge variant="outline">{owner.rol}</Badge>
               </Link>
-            ) : <div className="text-muted-foreground">Sin propietario asignado</div>}
+            ) : (
+              <EmptyState icon={Users} title="Sin propietario asignado" description="Asocia un propietario desde la sección de propietarios para empezar a operar este activo." />
+            )}
           </CardContent></Card>
         </TabsContent>
         <TabsContent value="calls">
+          {calls.length === 0 ? (
+            <EmptyState icon={PhoneCall} title="Aún no hay llamadas" description="Las llamadas analizadas con el propietario aparecerán aquí." ctaLabel="Analizar una llamada" ctaTo="/analizar-llamada" />
+          ) : (
           <Card><ul className="divide-y divide-border">
-            {calls.length === 0 && <li className="px-4 py-6 text-center text-muted-foreground">{t.common.empty}</li>}
             {calls.map((c) => (
               <li key={c.id}>
                 <Link to={`/llamadas/${c.id}`} className="block px-4 py-3 hover:bg-accent/30">
@@ -81,10 +85,13 @@ export default function AssetDetail() {
               </li>
             ))}
           </ul></Card>
+          )}
         </TabsContent>
         <TabsContent value="actions">
+          {actions.length === 0 ? (
+            <EmptyState icon={ListChecks} title="Sin acciones abiertas" description="Crea acciones desde el análisis de una llamada o desde el propietario." />
+          ) : (
           <Card><ul className="divide-y divide-border">
-            {actions.length === 0 && <li className="px-4 py-6 text-center text-muted-foreground">{t.common.empty}</li>}
             {actions.map((a) => (
               <li key={a.id} className="px-4 py-3 text-sm">
                 <div>{a.titulo}</div>
@@ -92,6 +99,7 @@ export default function AssetDetail() {
               </li>
             ))}
           </ul></Card>
+          )}
         </TabsContent>
         <TabsContent value="building">
           <Card><CardContent className="p-4 text-sm">

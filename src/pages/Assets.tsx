@@ -3,9 +3,11 @@ import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/common/PageHeader";
+import { EmptyState } from "@/components/common/EmptyState";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { ValuatorButton } from "@/components/agents/ValuatorButton";
+import { Boxes } from "lucide-react";
 
 export default function Assets() {
   const { t } = useI18n();
@@ -18,6 +20,13 @@ export default function Assets() {
   return (
     <div>
       <PageHeader title={t.nav.assets} />
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Boxes}
+          title="Sin activos en el catálogo"
+          description="Añade activos para asociarlos a propietarios y usarlos en briefings de llamadas."
+        />
+      ) : (
       <Card>
         <table className="w-full text-sm">
           <thead className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -50,6 +59,7 @@ export default function Assets() {
           </tbody>
         </table>
       </Card>
+      )}
     </div>
   );
 }

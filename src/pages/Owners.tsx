@@ -4,8 +4,10 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/common/PageHeader";
+import { EmptyState } from "@/components/common/EmptyState";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
+import { Users } from "lucide-react";
 
 type Owner = {
   id: string;
@@ -52,6 +54,15 @@ export default function Owners() {
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
+      {data.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="Aún no hay propietarios"
+          description="Los propietarios se crean automáticamente al analizar llamadas o asociarlos a un activo."
+          ctaLabel="Analizar una llamada"
+          ctaTo="/analizar-llamada"
+        />
+      ) : (
       <Card>
         <table className="w-full text-sm">
           <thead className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -63,10 +74,10 @@ export default function Owners() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && (
+            {filtered.length === 0 && data.length > 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
-                  {t.common.empty}
+                  Sin coincidencias para “{q}”.
                 </td>
               </tr>
             )}
@@ -97,6 +108,7 @@ export default function Owners() {
           </tbody>
         </table>
       </Card>
+      )}
     </div>
   );
 }

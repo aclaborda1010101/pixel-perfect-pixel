@@ -4,8 +4,11 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/common/PageHeader";
+import { EmptyState } from "@/components/common/EmptyState";
+import { StatusBadge } from "@/components/common/StatusBadge";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
+import { PhoneCall } from "lucide-react";
 
 export default function Calls() {
   const { t } = useI18n();
@@ -25,6 +28,15 @@ export default function Calls() {
           <Link to="/analizar-llamada"><Button size="sm">{t.callsPage.uploadCta}</Button></Link>
         }
       />
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={PhoneCall}
+          title="Aún no has registrado llamadas"
+          description="Sube una grabación o pega la transcripción para que la IA la procese."
+          ctaLabel="Analizar una llamada"
+          ctaTo="/analizar-llamada"
+        />
+      ) : (
       <Card>
         <table className="w-full text-sm">
           <thead className="border-b border-border text-left text-xs uppercase text-muted-foreground">
@@ -37,9 +49,6 @@ export default function Calls() {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">{t.common.empty}</td></tr>
-            )}
             {rows.map((c) => (
               <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/30">
                 <td className="px-4 py-3">
@@ -51,13 +60,14 @@ export default function Calls() {
                 <td className="px-4 py-3">{c.duracion_seg ?? 0}s</td>
                 <td className="px-4 py-3"><Badge variant="outline">{c.direccion}</Badge></td>
                 <td className="px-4 py-3 max-w-md truncate text-muted-foreground">
-                  {c.resumen ?? <span className="text-amber-600 dark:text-amber-400">Por analizar</span>}
+                  {c.resumen ?? <StatusBadge status="no_summary" />}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+      )}
     </div>
   );
 }
