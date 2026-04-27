@@ -8,6 +8,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { ValuatorButton } from "@/components/agents/ValuatorButton";
 import { Boxes } from "lucide-react";
+import { NewAssetDialog } from "@/components/forms/NewEntityDialogs";
 
 export default function Assets() {
   const { t } = useI18n();
@@ -19,7 +20,7 @@ export default function Assets() {
   useEffect(() => { load(); }, [load]);
   return (
     <div>
-      <PageHeader title={t.nav.assets} />
+      <PageHeader title={t.nav.assets} actions={<NewAssetDialog onCreated={load} />} />
       {rows.length === 0 ? (
         <EmptyState
           icon={Boxes}

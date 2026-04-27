@@ -5,17 +5,17 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { BetaBanner } from "@/components/common/BetaBanner";
+import { NewInvestorDialog } from "@/components/forms/NewEntityDialogs";
 
 export default function Investors() {
   const { t } = useI18n();
   const [rows, setRows] = useState<any[]>([]);
-  useEffect(() => {
-    supabase.from("investors").select("*").order("updated_at", { ascending: false })
-      .then(({ data }) => setRows(data ?? []));
-  }, []);
+  const load = () => supabase.from("investors").select("*").order("updated_at", { ascending: false })
+    .then(({ data }) => setRows(data ?? []));
+  useEffect(() => { load(); }, []);
   return (
     <div>
-      <PageHeader title={t.nav.investors} />
+      <PageHeader title={t.nav.investors} actions={<NewInvestorDialog onCreated={load} />} />
       <BetaBanner />
       <Card>
         <ul className="divide-y divide-border">

@@ -14,6 +14,7 @@ import { AnalyzeNote } from "@/components/agents/AnalyzeNote";
 import { CatalogRoleButton } from "@/components/agents/CatalogRoleButton";
 import { RagSearch } from "@/components/agents/RagSearch";
 import { WhatsappComposer } from "@/components/comms/WhatsappComposer";
+import { SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
 
 type Owner = {
   id: string;
@@ -21,6 +22,7 @@ type Owner = {
   email: string | null;
   telefono: string | null;
   rol: string;
+  subrole: string;
   rol_confianza: number | null;
   rol_justificacion: string | null;
   consentimiento: boolean;
@@ -35,22 +37,25 @@ export default function OwnerDetail() {
   const [notes, setNotes] = useState<any[]>([]);
   const [actions, setActions] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
+  const [buildings, setBuildings] = useState<any[]>([]);
 
   useEffect(() => {
     if (!id) return;
     (async () => {
-      const [o, c, n, a, as] = await Promise.all([
+      const [o, c, n, a, as, bo] = await Promise.all([
         supabase.from("owners").select("*").eq("id", id).maybeSingle(),
         supabase.from("calls").select("*").eq("owner_id", id).order("fecha", { ascending: false }),
         supabase.from("notes").select("*").eq("owner_id", id).order("created_at", { ascending: false }),
         supabase.from("next_actions").select("*").eq("owner_id", id).order("created_at", { ascending: false }),
         supabase.from("assets").select("*").eq("owner_id", id),
+        supabase.from("building_owners").select("building_id, cuota, subrole, buildings:building_id(id, direccion, ciudad)").eq("owner_id", id),
       ]);
       setOwner(o.data as Owner);
       setCalls(c.data ?? []);
       setNotes(n.data ?? []);
       setActions(a.data ?? []);
       setAssets(as.data ?? []);
+      setBuildings(bo.data ?? []);
     })();
   }, [id]);
 
@@ -65,14 +70,19 @@ export default function OwnerDetail() {
         title={owner.nombre}
         subtitle={owner.email ?? owner.telefono ?? ""}
         actions={
-          <Badge variant="outline" className="gap-1">
-            {owner.rol}
-            {owner.rol_confianza != null && (
-              <span className="text-xs text-muted-foreground">
-                · {(owner.rol_confianza * 100).toFixed(0)}%
-              </span>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="gap-1">
+              {owner.rol}
+              {owner.rol_confianza != null && (
+                <span className="text-xs text-muted-foreground">
+                  · {(owner.rol_confianza * 100).toFixed(0)}%
+                </span>
+              )}
+            </Badge>
+            {owner.subrole && owner.subrole !== "ninguno" && (
+              <Badge variant="secondary">{SUBROLE_LABEL[owner.subrole] ?? owner.subrole}</Badge>
             )}
-          </Badge>
+          </div>
         }
       />
 
@@ -82,6 +92,7 @@ export default function OwnerDetail() {
           <TabsTrigger value="calls">Llamadas ({calls.length})</TabsTrigger>
           <TabsTrigger value="notes">Notas ({notes.length})</TabsTrigger>
           <TabsTrigger value="assets">Activos ({assets.length})</TabsTrigger>
+          <TabsTrigger value="buildings">Edificios ({buildings.length})</TabsTrigger>
           <TabsTrigger value="actions">Acciones ({actions.length})</TabsTrigger>
           <TabsTrigger value="ai">
             <Sparkles className="mr-1 h-3 w-3" /> IA
@@ -121,6 +132,28 @@ export default function OwnerDetail() {
             primary: `${a.tipo} · ${a.ubicacion}`,
             secondary: `${a.estado} · ${a.superficie_m2 ?? "?"} m²`,
           }))} />
+        </TabsContent>
+        <TabsContent value="buildings">
+          {buildings.length === 0 ? (
+            <Card><CardContent className="py-6 text-center text-sm text-muted-foreground">No participa en ningún edificio</CardContent></Card>
+          ) : (
+            <Card><ul className="divide-y divide-border">
+              {buildings.map((b: any) => (
+                <li key={b.building_id}>
+                  <Link to={`/edificios/${b.building_id}`} className="flex items-center justify-between px-4 py-3 hover:bg-accent/30">
+                    <div>
+                      <div className="text-sm font-medium">{b.buildings?.direccion}</div>
+                      <div className="text-xs text-muted-foreground">{b.buildings?.ciudad}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {b.cuota != null && <Badge variant="secondary">{b.cuota}%</Badge>}
+                      <Badge variant="outline">{SUBROLE_LABEL[b.subrole] ?? b.subrole}</Badge>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul></Card>
+          )}
         </TabsContent>
         <TabsContent value="actions">
           <SimpleList items={actions.map((a) => ({
