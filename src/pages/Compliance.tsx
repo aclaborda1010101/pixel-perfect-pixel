@@ -10,13 +10,15 @@ import { toast } from "sonner";
 export default function Compliance() {
   const { t } = useI18n();
   const [rows, setRows] = useState<any[]>([]);
-  const load = () => supabase.from("compliance_cases").select("*").order("created_at", { ascending: false })
-    .then(({ data }) => setRows(data ?? []));
-  useEffect(load, []);
+  const load = () => {
+    supabase.from("compliance_cases").select("*").order("created_at", { ascending: false })
+      .then(({ data }) => setRows(data ?? []));
+  };
+  useEffect(() => { load(); }, []);
 
   const resolve = async (id: string) => {
     const { error } = await supabase.from("compliance_cases")
-      .update({ estado: "resuelto", resuelto_at: new Date().toISOString() }).eq("id", id);
+      .update({ estado: "aprobado", resuelto_at: new Date().toISOString() }).eq("id", id);
     if (error) toast.error(error.message); else { toast.success("Resuelto"); load(); }
   };
 
