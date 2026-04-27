@@ -18,6 +18,10 @@ import Matching from "./pages/Matching";
 import Compliance from "./pages/Compliance";
 import Cadences from "./pages/Cadences";
 import Settings from "./pages/Settings";
+import CallAnalysis from "./pages/CallAnalysis";
+import AssetDetail from "./pages/AssetDetail";
+import PrepareCallWizard from "./pages/wizards/PrepareCallWizard";
+import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
 
 const queryClient = new QueryClient();
 
@@ -36,7 +40,11 @@ const App = () => (
                 <Route path="/propietarios/:id" element={<OwnerDetail />} />
                 <Route path="/edificios" element={<Buildings />} />
                 <Route path="/activos" element={<Assets />} />
+                <Route path="/activos/:id" element={<AssetDetail />} />
                 <Route path="/llamadas" element={<Calls />} />
+                <Route path="/llamadas/:id" element={<CallAnalysis />} />
+                <Route path="/preparar-llamada" element={<PrepareCallWizard />} />
+                <Route path="/analizar-llamada" element={<AnalyzeCallWizard />} />
                 <Route path="/inversores" element={<Investors />} />
                 <Route path="/matching" element={<Matching />} />
                 <Route path="/compliance" element={<Compliance />} />
