@@ -38,7 +38,14 @@ type Translations = {
     | "analyzeNoteSentiment"
     | "analyzeNoteAction"
     | "analyzeNoteSaveAction"
-    | "analyzeNoteReview",
+    | "analyzeNoteReview"
+    | "catalogRoleTitle"
+    | "catalogRoleRun"
+    | "valuatorTitle"
+    | "valuatorRun"
+    | "ragTitle"
+    | "ragPlaceholder"
+    | "ragRun",
     string
   >;
 };
@@ -120,6 +127,13 @@ export const translations: Record<Locale, Translations> = {
       analyzeNoteAction: "Próxima acción propuesta",
       analyzeNoteSaveAction: "Guardar próxima acción",
       analyzeNoteReview: "Marcado para revisión humana",
+      catalogRoleTitle: "Catalogar rol del propietario",
+      catalogRoleRun: "Catalogar con IA",
+      valuatorTitle: "Valoración estimada",
+      valuatorRun: "Estimar valor (mock)",
+      ragTitle: "Búsqueda semántica",
+      ragPlaceholder: "Pregunta sobre este propietario…",
+      ragRun: "Buscar",
     },
   },
   en: {
@@ -198,6 +212,13 @@ export const translations: Record<Locale, Translations> = {
       analyzeNoteAction: "Proposed next action",
       analyzeNoteSaveAction: "Save next action",
       analyzeNoteReview: "Flagged for human review",
+      catalogRoleTitle: "Catalog owner role",
+      catalogRoleRun: "Catalog with AI",
+      valuatorTitle: "Estimated valuation",
+      valuatorRun: "Estimate value (mock)",
+      ragTitle: "Semantic search",
+      ragPlaceholder: "Ask about this owner…",
+      ragRun: "Search",
     },
   },
 };

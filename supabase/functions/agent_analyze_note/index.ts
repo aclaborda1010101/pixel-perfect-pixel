@@ -1,5 +1,5 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+import { embed } from "../_shared/embed.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,128 +7,147 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_PROMPT = `Eres "Analizador de notas comerciales" del CRM AFFLUX.
-Recibes una nota o transcripción de llamada con un propietario inmobiliario.
-Extraes hechos objetivos, intenciones del propietario y propones una próxima acción concreta para el equipo comercial.
-No inventes datos. Si la información es insuficiente o sensible (DPIA, fallecimiento, herencia, datos de salud), márcalo en "requiere_revision".
-Responde en el idioma indicado.`;
+const MODEL = "google/gemini-3-flash-preview";
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+// HITL trigger keywords (tipo "muerte", "herencia", etc.)
+const HITL_KEYWORDS = [
+  "fallec", "muert", "defunci", "herenci", "testament", "tutela", "incapacita",
+  "death", "deceas", "inherit", "estate", "guardiansh",
+];
 
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const t0 = Date.now();
   try {
-    const { texto, owner_id, asset_id, locale = "es" } = await req.json();
-    if (!texto || typeof texto !== "string" || texto.trim().length < 10) {
-      return json({ error: "texto requerido (mínimo 10 caracteres)" }, 400);
+    const { owner_id, texto, locale = "es" } = await req.json();
+    if (!texto) {
+      return new Response(JSON.stringify({ error: "texto required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) return json({ error: "LOVABLE_API_KEY no configurada" }, 500);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const tools = [
-      {
-        type: "function",
-        function: {
-          name: "emit_analysis",
-          description: "Análisis estructurado de una nota/transcripción.",
-          parameters: {
-            type: "object",
-            properties: {
-              hechos: { type: "array", items: { type: "string" } },
-              intenciones: { type: "array", items: { type: "string" } },
-              sentimiento: { type: "string", enum: ["positivo", "neutro", "negativo"] },
-              proxima_accion: {
-                type: "object",
-                properties: {
-                  titulo: { type: "string" },
-                  detalle: { type: "string" },
-                  vencimiento_dias: { type: "integer" },
-                },
-                required: ["titulo", "detalle", "vencimiento_dias"],
-                additionalProperties: false,
+    const sys = locale === "en"
+      ? "You analyze real-estate call notes/transcripts. Extract facts, intents, sentiment, propose a single concrete next action, and flag if human review is required (e.g., bereavement, inheritance, vulnerable customer)."
+      : "Analizas notas/transcripciones de llamadas inmobiliarias. Extrae hechos, intenciones, sentimiento, propón UNA próxima acción concreta y marca si requiere revisión humana (p. ej. fallecimiento, herencia, cliente vulnerable).";
+
+    const tools = [{
+      type: "function",
+      function: {
+        name: "analyze",
+        parameters: {
+          type: "object",
+          properties: {
+            hechos: { type: "array", items: { type: "string" } },
+            intenciones: { type: "array", items: { type: "string" } },
+            sentimiento: { type: "string", enum: ["positivo", "neutro", "negativo", "positive", "neutral", "negative"] },
+            proxima_accion: {
+              type: "object",
+              properties: {
+                titulo: { type: "string" },
+                detalle: { type: "string" },
+                vencimiento_dias: { type: "number" },
               },
-              etiquetas: { type: "array", items: { type: "string" } },
-              requiere_revision: { type: "boolean" },
-              motivo_revision: { type: "string" },
-              confianza: { type: "number" },
+              required: ["titulo"],
+              additionalProperties: false,
             },
-            required: ["hechos", "intenciones", "sentimiento", "proxima_accion", "etiquetas", "requiere_revision", "confianza"],
-            additionalProperties: false,
+            hitl_required: { type: "boolean" },
+            motivo_hitl: { type: "string" },
+            confianza: { type: "number" },
           },
+          required: ["hechos", "intenciones", "sentimiento", "proxima_accion", "hitl_required", "confianza"],
+          additionalProperties: false,
         },
       },
-    ];
+    }];
 
-    const start = Date.now();
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: MODEL,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify({ idioma: locale, texto }) },
+          { role: "system", content: sys },
+          { role: "user", content: texto },
         ],
         tools,
-        tool_choice: { type: "function", function: { name: "emit_analysis" } },
+        tool_choice: { type: "function", function: { name: "analyze" } },
       }),
     });
 
-    if (aiResp.status === 429) return json({ error: "Rate limit del Gateway AI." }, 429);
-    if (aiResp.status === 402) return json({ error: "Sin créditos en Lovable AI." }, 402);
-    if (!aiResp.ok) {
-      const text = await aiResp.text();
-      console.error("AI gateway error", aiResp.status, text);
-      return json({ error: "Error en el modelo AI" }, 500);
+    if (!aiRes.ok) {
+      const txt = await aiRes.text();
+      throw new Error(`AI error ${aiRes.status}: ${txt}`);
+    }
+    const aiJson = await aiRes.json();
+    const call = aiJson?.choices?.[0]?.message?.tool_calls?.[0];
+    const analysis = JSON.parse(call?.function?.arguments ?? "{}");
+    const usage = aiJson?.usage ?? {};
+
+    // Refuerzo determinista: si keywords sensibles aparecen, forzamos HITL
+    const lower = texto.toLowerCase();
+    const matched = HITL_KEYWORDS.find((kw) => lower.includes(kw));
+    if (matched && !analysis.hitl_required) {
+      analysis.hitl_required = true;
+      analysis.motivo_hitl = (analysis.motivo_hitl ?? "") +
+        ` Detector keyword: "${matched}".`;
     }
 
-    const aiJson = await aiResp.json();
-    const toolCall = aiJson.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) return json({ error: "Respuesta sin tool call" }, 500);
-    const analysis = JSON.parse(toolCall.function.arguments);
-    const latency = Date.now() - start;
+    // Persistir nota original y crear caso de compliance si HITL
+    if (owner_id) {
+      const { data: noteRow } = await supabase.from("notes").insert({
+        owner_id, texto, etiquetas: ["agent_analyze_note"],
+      }).select("id").maybeSingle();
 
-    await supabase.from("agent_runs").insert({
-      agent_name: "agent_analyze_note",
-      scope_type: owner_id ? "owner" : asset_id ? "asset" : null,
-      scope_id: owner_id ?? asset_id ?? null,
-      modelo: "google/gemini-3-flash-preview",
-      latencia_ms: latency,
-      tokens_in: aiJson.usage?.prompt_tokens ?? null,
-      tokens_out: aiJson.usage?.completion_tokens ?? null,
-      confianza: analysis.confianza,
-      resultado: analysis,
-    });
-
-    if (analysis.requiere_revision) {
+      // RAG ingest (best-effort)
+      try {
+        const v = await embed(texto);
+        await supabase.from("knowledge_chunks").insert({
+          contenido: texto,
+          origen: "nota",
+          referencia_id: noteRow?.id ?? null,
+          scope_type: "owner",
+          scope_id: owner_id,
+          metadatos: { source: "agent_analyze_note" },
+          embedding: v as unknown as string ?? null,
+        });
+      } catch (e) { console.warn("rag ingest failed", e); }
+    }
+    if (analysis.hitl_required) {
       await supabase.from("compliance_cases").insert({
-        scope_type: owner_id ? "owner" : "asset",
-        scope_id: owner_id ?? asset_id ?? null,
-        estado: "pendiente",
-        dpia_ok: false,
-        motivo: analysis.motivo_revision ?? "Análisis de nota requiere revisión humana",
+        scope_type: "owner",
+        scope_id: owner_id ?? null,
+        motivo: analysis.motivo_hitl ?? "Revisión humana requerida",
         evidencia: texto.slice(0, 500),
+        dpia_ok: false,
       });
     }
 
-    return json({ analysis });
+    await supabase.from("agent_runs").insert({
+      agent_name: "analyze_note",
+      modelo: MODEL,
+      scope_type: "owner",
+      scope_id: owner_id ?? null,
+      latencia_ms: Date.now() - t0,
+      tokens_in: usage.prompt_tokens ?? null,
+      tokens_out: usage.completion_tokens ?? null,
+      confianza: analysis.confianza ?? null,
+      resultado: analysis,
+    });
+
+    return new Response(JSON.stringify({ analysis }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (e) {
-    console.error("agent_analyze_note error", e);
-    return json({ error: e instanceof Error ? e.message : "Error desconocido" }, 500);
+    console.error("analyze_note error", e);
+    return new Response(JSON.stringify({ error: String((e as Error).message ?? e) }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
-
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
