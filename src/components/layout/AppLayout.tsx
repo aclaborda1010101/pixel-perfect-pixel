@@ -21,10 +21,7 @@ export function AppLayout() {
         <AppSidebar />
         <div className="flex min-h-screen flex-1 flex-col">
           <Topbar />
-          <main
-            className="flex-1 px-4 py-5 pb-20 md:px-6 md:py-6 md:pb-6"
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 5rem)" }}
-          >
+          <main className="flex-1 px-4 py-5 pb-[calc(env(safe-area-inset-bottom)+5rem)] md:px-6 md:py-6 md:pb-6">
             <Outlet />
           </main>
         </div>
