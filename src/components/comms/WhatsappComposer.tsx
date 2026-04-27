@@ -24,7 +24,7 @@ export function WhatsappComposer({ ownerId, ownerName }: { ownerId: string; owne
   const [body, setBody] = useState(TEMPLATES[0].body);
   const [busy, setBusy] = useState(false);
 
-  const interp = (s: string) => s.replaceAll("{{nombre}}", ownerName);
+  const interp = (s: string) => s.split("{{nombre}}").join(ownerName);
 
   const queueMessage = async () => {
     setBusy(true);
