@@ -1,6 +1,6 @@
 import {
   Home, PhoneCall, PhoneOutgoing, Boxes, Users, Building2, Briefcase,
-  GitMerge, MessageSquareDot, ShieldCheck, Settings as SettingsIcon,
+  GitMerge, MessageSquareDot, ShieldCheck, Settings as SettingsIcon, Search,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
@@ -102,6 +102,26 @@ export function AppSidebar() {
             </div>
           )}
         </div>
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={() =>
+              window.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "k", metaKey: true })
+              )
+            }
+            aria-label="Buscar"
+            className="mt-3 flex h-9 w-full items-center gap-2 rounded-[4px] border border-sidebar-border bg-surface-1/40 px-2.5 font-mono text-[11px] tabular-nums text-sidebar-foreground/60 transition-colors hover:border-gold/40 hover:bg-surface-1/70 hover:text-sidebar-foreground"
+          >
+            <Search className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            <span className="flex-1 truncate text-left normal-case tracking-normal">
+              Buscar activos, propietarios, llamadas…
+            </span>
+            <kbd className="rounded-[3px] border border-sidebar-border bg-sidebar px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-sidebar-foreground/60">
+              ⌘K
+            </kbd>
+          </button>
+        )}
       </SidebarHeader>
       <SidebarContent className="bg-sidebar">
         {renderGroup("Pipeline", pipeline)}
