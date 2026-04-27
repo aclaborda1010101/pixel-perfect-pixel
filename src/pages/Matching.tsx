@@ -7,6 +7,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, RefreshCw } from "lucide-react";
+import { BetaBanner } from "@/components/common/BetaBanner";
 
 export default function Matching() {
   const { t } = useI18n();
@@ -67,6 +68,7 @@ export default function Matching() {
           </Button>
         }
       />
+      <BetaBanner />
       <Card>
         <ul className="divide-y divide-border">
           {rows.map((r) => (

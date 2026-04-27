@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
+import { BetaBanner } from "@/components/common/BetaBanner";
 
 export default function Cadences() {
   const { t } = useI18n();
@@ -18,6 +19,7 @@ export default function Cadences() {
   return (
     <div>
       <PageHeader title={t.nav.cadences} />
+      <BetaBanner />
       <div className="mb-4 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
         {t.cadences.mockBanner}
       </div>

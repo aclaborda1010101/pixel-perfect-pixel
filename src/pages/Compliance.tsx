@@ -25,6 +25,9 @@ export default function Compliance() {
   return (
     <div>
       <PageHeader title={t.nav.compliance} subtitle="Human-in-the-loop" />
+      <div className="mb-4 rounded-md border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+        {t.compliancePage.explainer}
+      </div>
       <Card>
         <ul className="divide-y divide-border">
           {rows.map((c) => (

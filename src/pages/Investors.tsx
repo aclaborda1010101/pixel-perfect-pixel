@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
+import { BetaBanner } from "@/components/common/BetaBanner";
 
 export default function Investors() {
   const { t } = useI18n();
@@ -15,6 +16,7 @@ export default function Investors() {
   return (
     <div>
       <PageHeader title={t.nav.investors} />
+      <BetaBanner />
       <Card>
         <ul className="divide-y divide-border">
           {rows.map((i) => (

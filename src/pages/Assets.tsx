@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -33,7 +34,11 @@ export default function Assets() {
             {rows.map((a) => (
               <tr key={a.id} className="border-b border-border last:border-0">
                 <td className="px-4 py-3"><Badge variant="outline">{a.tipo}</Badge></td>
-                <td className="px-4 py-3">{a.ubicacion}{a.ciudad ? `, ${a.ciudad}` : ""}</td>
+                <td className="px-4 py-3">
+                  <Link to={`/activos/${a.id}`} className="font-medium hover:text-primary">
+                    {a.ubicacion}{a.ciudad ? `, ${a.ciudad}` : ""}
+                  </Link>
+                </td>
                 <td className="px-4 py-3">{a.superficie_m2 ?? "—"} m²</td>
                 <td className="px-4 py-3">{a.valoracion_estimada ? `${Number(a.valoracion_estimada).toLocaleString()} €` : "—"}</td>
                 <td className="px-4 py-3"><Badge>{a.estado}</Badge></td>

@@ -1,70 +1,25 @@
 export type Locale = "es" | "en";
 
-type Translations = {
-  appName: string;
-  appTagline: string;
-  nav: Record<
-    "dashboard" | "owners" | "buildings" | "assets" | "calls" | "investors" | "matching" | "compliance" | "cadences" | "settings",
-    string
-  >;
-  common: Record<
-    "search" | "new" | "save" | "cancel" | "edit" | "delete" | "loading" | "empty" | "mock" | "hitl" | "back" | "generate",
-    string
-  >;
-  dashboard: Record<
-    "title" | "subtitle" | "kpiOwners" | "kpiCallsWeek" | "kpiPendingMatches" | "kpiComplianceOpen" | "pendingActions" | "recentCalls",
-    string
-  >;
-  owners: Record<"title" | "role" | "consent" | "lastContact", string>;
-  settings: Record<
-    "language" | "theme" | "themeLight" | "themeDark" | "themeSystem" | "hitlOwner" | "confidenceThreshold",
-    string
-  >;
-  cadences: Record<"mockBanner", string>;
-  agents: Record<
-    | "preCallTitle"
-    | "preCallGenerate"
-    | "preCallContext"
-    | "preCallObjectives"
-    | "preCallQuestions"
-    | "preCallRisks"
-    | "preCallNextAction"
-    | "preCallConfidence"
-    | "analyzeNoteTitle"
-    | "analyzeNotePlaceholder"
-    | "analyzeNoteRun"
-    | "analyzeNoteFacts"
-    | "analyzeNoteIntents"
-    | "analyzeNoteSentiment"
-    | "analyzeNoteAction"
-    | "analyzeNoteSaveAction"
-    | "analyzeNoteReview"
-    | "catalogRoleTitle"
-    | "catalogRoleRun"
-    | "valuatorTitle"
-    | "valuatorRun"
-    | "ragTitle"
-    | "ragPlaceholder"
-    | "ragRun",
-    string
-  >;
-};
-
-export const translations: Record<Locale, Translations> = {
+const _translations = {
   es: {
     appName: "AFFLUX",
-    appTagline: "CRM operativo de originación inmobiliaria",
+    appTagline: "Copiloto comercial inmobiliario",
     nav: {
-      dashboard: "Dashboard",
+      groupToday: "Hoy",
+      groupData: "Datos",
+      groupGov: "IA & Gobierno",
+      home: "Inicio",
+      calls: "Llamadas",
+      newCall: "Nueva llamada",
+      assets: "Activos",
       owners: "Propietarios",
       buildings: "Edificios",
-      assets: "Activos",
-      calls: "Llamadas",
       investors: "Inversores",
       matching: "Matching",
+      cadences: "Cadencias",
       compliance: "Compliance",
-      cadences: "Cadencias / WhatsApp",
       settings: "Ajustes",
+      betaBadge: "Beta",
     },
     common: {
       search: "Buscar",
@@ -79,16 +34,54 @@ export const translations: Record<Locale, Translations> = {
       hitl: "Requiere revisión humana",
       back: "Volver",
       generate: "Generar",
+      next: "Siguiente",
+      prev: "Atrás",
+      finish: "Finalizar",
+      step: "Paso",
+      of: "de",
     },
-    dashboard: {
-      title: "Resumen operativo",
-      subtitle: "Trabajo pendiente y señales en tiempo real",
-      kpiOwners: "Propietarios activos",
-      kpiCallsWeek: "Llamadas (7 días)",
-      kpiPendingMatches: "Candidatos pendientes",
-      kpiComplianceOpen: "Casos compliance abiertos",
-      pendingActions: "Próximas acciones pendientes",
-      recentCalls: "Llamadas recientes",
+    home: {
+      title: "Hola 👋",
+      subtitle: "Esto es lo que tienes pendiente hoy",
+      kpiPendingAnalysis: "Llamadas por analizar",
+      kpiPendingActions: "Acciones sin cerrar",
+      kpiUncatalogedOwners: "Propietarios sin rol",
+      whatToDo: "¿Qué quieres hacer?",
+      ctaPrepare: "Preparar una llamada",
+      ctaPrepareDesc: "Activo → propietario → briefing IA",
+      ctaAnalyze: "Analizar una llamada",
+      ctaAnalyzeDesc: "Sube una grabación o pega la transcripción",
+      readyQueue: "Listo para revisar",
+      noCalls: "No hay llamadas todavía. Empieza por “Analizar una llamada”.",
+      viewAll: "Ver todas",
+    },
+    callsPage: {
+      title: "Llamadas",
+      subtitle: "Dashboard de actividad",
+      colOwner: "Propietario",
+      colDate: "Fecha",
+      colDuration: "Duración",
+      colDirection: "Dirección",
+      colSummary: "Resumen",
+      uploadCta: "+ Subir grabación",
+    },
+    callAnalysis: {
+      title: "Análisis de llamada",
+      summary: "Resumen ejecutivo",
+      actions: "Acciones sugeridas",
+      tabsTranscript: "Transcripción",
+      tabsRag: "Consultar historial (RAG)",
+      tabsNotes: "Notas",
+      noSummary: "Esta llamada aún no tiene resumen. Pulsa “Analizar” para generarlo.",
+      runAnalyze: "Analizar ahora",
+      saveAction: "Crear como acción",
+    },
+    assetDetail: {
+      title: "Activo",
+      ownersTab: "Propietarios",
+      callsTab: "Llamadas",
+      actionsTab: "Acciones",
+      buildingTab: "Edificio",
     },
     owners: {
       title: "Propietarios",
@@ -105,9 +98,37 @@ export const translations: Record<Locale, Translations> = {
       hitlOwner: "Responsable HITL",
       confidenceThreshold: "Umbral de confianza por defecto",
     },
-    cadences: {
-      mockBanner:
-        "Modo simulación: ningún mensaje real se envía desde AFFLUX en este MVP.",
+    cadences: { mockBanner: "Modo simulación: ningún mensaje real se envía desde AFFLUX en este MVP." },
+    beta: {
+      title: "Funcionalidad Fast-Follow (F2)",
+      desc: "Esta sección está disponible para evaluación pero no forma parte del MVP “Copiloto Comercial”. Su pulido y compliance se completarán en la siguiente fase.",
+    },
+    compliancePage: {
+      explainer:
+        "Los casos se abren automáticamente cuando un propietario tiene datos sensibles (fallecimiento, herencia, conflicto), cuando se intenta aprobar un match con un inversor sin consentimiento (Art. 22 RGPD), o cuando la IA marca un análisis como HITL.",
+    },
+    wizard: {
+      prepareTitle: "Preparar llamada",
+      analyzeTitle: "Analizar llamada",
+      step1AssetOrOwner: "Selecciona activo o propietario",
+      step2Owner: "Confirma el propietario",
+      step3Brief: "Briefing IA",
+      step4Start: "Listo para llamar",
+      step1Upload: "Sube la grabación o pega la transcripción",
+      step2Associate: "Asocia al propietario",
+      step3Process: "Procesar",
+      pickAsset: "Buscar activo (tipo, ciudad, dirección)…",
+      pickOwner: "Buscar propietario (nombre, email, teléfono)…",
+      noOwnersForAsset: "Este activo no tiene propietarios asociados.",
+      transcriptPlaceholder: "Pega aquí la transcripción de la llamada…",
+      audioNote: "La subida de audio real (Whisper) se conectará en F2. Por ahora pega la transcripción.",
+      processing: "Procesando…",
+      callMarkedStarted: "Llamada marcada como iniciada.",
+      analyzeDone: "Análisis listo. Te llevamos a la pantalla de revisión.",
+      directionOut: "Saliente",
+      directionIn: "Entrante",
+      direction: "Dirección de la llamada",
+      reusePreCall: "Reusa el briefing pre-llamada con la IA",
     },
     agents: {
       preCallTitle: "Briefing pre-llamada",
@@ -138,89 +159,120 @@ export const translations: Record<Locale, Translations> = {
   },
   en: {
     appName: "AFFLUX",
-    appTagline: "Real-estate origination CRM",
+    appTagline: "Real-estate sales copilot",
     nav: {
-      dashboard: "Dashboard",
+      groupToday: "Today",
+      groupData: "Data",
+      groupGov: "AI & Governance",
+      home: "Home",
+      calls: "Calls",
+      newCall: "New call",
+      assets: "Assets",
       owners: "Owners",
       buildings: "Buildings",
-      assets: "Assets",
-      calls: "Calls",
       investors: "Investors",
       matching: "Matching",
+      cadences: "Cadences",
       compliance: "Compliance",
-      cadences: "Cadences / WhatsApp",
       settings: "Settings",
+      betaBadge: "Beta",
     },
     common: {
-      search: "Search",
-      new: "New",
-      save: "Save",
-      cancel: "Cancel",
-      edit: "Edit",
-      delete: "Delete",
-      loading: "Loading…",
-      empty: "No data yet",
-      mock: "Mock",
-      hitl: "Human review required",
-      back: "Back",
-      generate: "Generate",
+      search: "Search", new: "New", save: "Save", cancel: "Cancel", edit: "Edit", delete: "Delete",
+      loading: "Loading…", empty: "No data yet", mock: "Mock", hitl: "Human review required",
+      back: "Back", generate: "Generate", next: "Next", prev: "Back", finish: "Finish",
+      step: "Step", of: "of",
     },
-    dashboard: {
-      title: "Operational overview",
-      subtitle: "Pending work and live signals",
-      kpiOwners: "Active owners",
-      kpiCallsWeek: "Calls (7 days)",
-      kpiPendingMatches: "Pending candidates",
-      kpiComplianceOpen: "Open compliance cases",
-      pendingActions: "Pending next actions",
-      recentCalls: "Recent calls",
+    home: {
+      title: "Hi 👋",
+      subtitle: "Here's what's pending today",
+      kpiPendingAnalysis: "Calls to analyze",
+      kpiPendingActions: "Open actions",
+      kpiUncatalogedOwners: "Owners without role",
+      whatToDo: "What do you want to do?",
+      ctaPrepare: "Prepare a call",
+      ctaPrepareDesc: "Asset → owner → AI briefing",
+      ctaAnalyze: "Analyze a call",
+      ctaAnalyzeDesc: "Upload a recording or paste the transcript",
+      readyQueue: "Ready to review",
+      noCalls: "No calls yet. Start with “Analyze a call”.",
+      viewAll: "View all",
     },
-    owners: {
-      title: "Owners",
-      role: "Role",
-      consent: "Consent",
-      lastContact: "Last contact",
+    callsPage: {
+      title: "Calls", subtitle: "Activity dashboard",
+      colOwner: "Owner", colDate: "Date", colDuration: "Duration",
+      colDirection: "Direction", colSummary: "Summary",
+      uploadCta: "+ Upload recording",
     },
+    callAnalysis: {
+      title: "Call analysis",
+      summary: "Executive summary",
+      actions: "Suggested actions",
+      tabsTranscript: "Transcript",
+      tabsRag: "Query history (RAG)",
+      tabsNotes: "Notes",
+      noSummary: "This call has no summary yet. Press “Analyze” to generate it.",
+      runAnalyze: "Analyze now",
+      saveAction: "Create as action",
+    },
+    assetDetail: {
+      title: "Asset",
+      ownersTab: "Owners",
+      callsTab: "Calls",
+      actionsTab: "Actions",
+      buildingTab: "Building",
+    },
+    owners: { title: "Owners", role: "Role", consent: "Consent", lastContact: "Last contact" },
     settings: {
-      language: "Language",
-      theme: "Theme",
-      themeLight: "Light",
-      themeDark: "Dark",
-      themeSystem: "System",
-      hitlOwner: "HITL owner",
-      confidenceThreshold: "Default confidence threshold",
+      language: "Language", theme: "Theme", themeLight: "Light", themeDark: "Dark", themeSystem: "System",
+      hitlOwner: "HITL owner", confidenceThreshold: "Default confidence threshold",
     },
-    cadences: {
-      mockBanner:
-        "Simulation mode: no real message is sent from AFFLUX in this MVP.",
+    cadences: { mockBanner: "Simulation mode: no real message is sent from AFFLUX in this MVP." },
+    beta: {
+      title: "Fast-Follow feature (F2)",
+      desc: "Available for evaluation but not part of the “Sales Copilot” MVP. Polish and compliance will be completed in the next phase.",
+    },
+    compliancePage: {
+      explainer:
+        "Cases are opened automatically when an owner has sensitive data (death, inheritance, conflict), when approving a match with a non-consenting investor (GDPR Art. 22), or when AI flags an analysis as HITL.",
+    },
+    wizard: {
+      prepareTitle: "Prepare call",
+      analyzeTitle: "Analyze call",
+      step1AssetOrOwner: "Pick an asset or owner",
+      step2Owner: "Confirm the owner",
+      step3Brief: "AI briefing",
+      step4Start: "Ready to call",
+      step1Upload: "Upload the recording or paste the transcript",
+      step2Associate: "Associate with the owner",
+      step3Process: "Process",
+      pickAsset: "Search asset (type, city, address)…",
+      pickOwner: "Search owner (name, email, phone)…",
+      noOwnersForAsset: "This asset has no associated owners.",
+      transcriptPlaceholder: "Paste the call transcript here…",
+      audioNote: "Real audio upload (Whisper) will land in F2. For now please paste the transcript.",
+      processing: "Processing…",
+      callMarkedStarted: "Call marked as started.",
+      analyzeDone: "Analysis ready. Taking you to the review screen.",
+      directionOut: "Outgoing",
+      directionIn: "Incoming",
+      direction: "Call direction",
+      reusePreCall: "Reuse the AI pre-call briefing",
     },
     agents: {
-      preCallTitle: "Pre-call briefing",
-      preCallGenerate: "Generate briefing",
-      preCallContext: "Context",
-      preCallObjectives: "Suggested goals",
-      preCallQuestions: "Key questions",
-      preCallRisks: "Risks / sensitivities",
-      preCallNextAction: "Suggested next action",
-      preCallConfidence: "Confidence",
-      analyzeNoteTitle: "Analyze note or transcript",
-      analyzeNotePlaceholder: "Paste a note or call transcript here…",
-      analyzeNoteRun: "Analyze",
-      analyzeNoteFacts: "Facts",
-      analyzeNoteIntents: "Intents",
-      analyzeNoteSentiment: "Sentiment",
-      analyzeNoteAction: "Proposed next action",
-      analyzeNoteSaveAction: "Save next action",
-      analyzeNoteReview: "Flagged for human review",
-      catalogRoleTitle: "Catalog owner role",
-      catalogRoleRun: "Catalog with AI",
-      valuatorTitle: "Estimated valuation",
-      valuatorRun: "Estimate value (mock)",
-      ragTitle: "Semantic search",
-      ragPlaceholder: "Ask about this owner…",
-      ragRun: "Search",
+      preCallTitle: "Pre-call briefing", preCallGenerate: "Generate briefing",
+      preCallContext: "Context", preCallObjectives: "Suggested goals", preCallQuestions: "Key questions",
+      preCallRisks: "Risks / sensitivities", preCallNextAction: "Suggested next action", preCallConfidence: "Confidence",
+      analyzeNoteTitle: "Analyze note or transcript", analyzeNotePlaceholder: "Paste a note or call transcript here…",
+      analyzeNoteRun: "Analyze", analyzeNoteFacts: "Facts", analyzeNoteIntents: "Intents",
+      analyzeNoteSentiment: "Sentiment", analyzeNoteAction: "Proposed next action",
+      analyzeNoteSaveAction: "Save next action", analyzeNoteReview: "Flagged for human review",
+      catalogRoleTitle: "Catalog owner role", catalogRoleRun: "Catalog with AI",
+      valuatorTitle: "Estimated valuation", valuatorRun: "Estimate value (mock)",
+      ragTitle: "Semantic search", ragPlaceholder: "Ask about this owner…", ragRun: "Search",
     },
   },
-};
+} as const;
 
-export type Dictionary = Translations;
+export type Dictionary = any;
+export const translations: Record<Locale, any> = _translations;
