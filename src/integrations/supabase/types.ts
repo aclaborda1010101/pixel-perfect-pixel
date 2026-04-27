@@ -125,6 +125,33 @@ export type Database = {
           },
         ]
       }
+      building_owners: {
+        Row: {
+          building_id: string
+          created_at: string
+          cuota: number | null
+          owner_id: string
+          rol_notas: string | null
+          subrole: Database["public"]["Enums"]["owner_subrole"]
+        }
+        Insert: {
+          building_id: string
+          created_at?: string
+          cuota?: number | null
+          owner_id: string
+          rol_notas?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"]
+        }
+        Update: {
+          building_id?: string
+          created_at?: string
+          cuota?: number | null
+          owner_id?: string
+          rol_notas?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"]
+        }
+        Relationships: []
+      }
       buildings: {
         Row: {
           catastro_ref: string | null
@@ -542,6 +569,7 @@ export type Database = {
           rol: Database["public"]["Enums"]["owner_role"]
           rol_confianza: number | null
           rol_justificacion: string | null
+          subrole: Database["public"]["Enums"]["owner_subrole"]
           telefono: string | null
           updated_at: string
         }
@@ -555,6 +583,7 @@ export type Database = {
           rol?: Database["public"]["Enums"]["owner_role"]
           rol_confianza?: number | null
           rol_justificacion?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"]
           telefono?: string | null
           updated_at?: string
         }
@@ -568,6 +597,7 @@ export type Database = {
           rol?: Database["public"]["Enums"]["owner_role"]
           rol_confianza?: number | null
           rol_justificacion?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"]
           telefono?: string | null
           updated_at?: string
         }
@@ -667,6 +697,16 @@ export type Database = {
         | "operador_profesional"
         | "institucional"
         | "desconocido"
+      owner_subrole:
+        | "ninguno"
+        | "heredero_operador"
+        | "heredero_residente"
+        | "heredero_ausente"
+        | "heredero_conflictivo"
+        | "arrendador"
+        | "usufructuario"
+        | "nudo_propietario"
+        | "apoderado"
       whatsapp_status: "borrador" | "mock_enviado" | "fallido"
     }
     CompositeTypes: {
@@ -830,6 +870,17 @@ export const Constants = {
         "operador_profesional",
         "institucional",
         "desconocido",
+      ],
+      owner_subrole: [
+        "ninguno",
+        "heredero_operador",
+        "heredero_residente",
+        "heredero_ausente",
+        "heredero_conflictivo",
+        "arrendador",
+        "usufructuario",
+        "nudo_propietario",
+        "apoderado",
       ],
       whatsapp_status: ["borrador", "mock_enviado", "fallido"],
     },

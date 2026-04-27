@@ -1,122 +1,165 @@
 
-# Reestructuración AFFLUX — "Copiloto Comercial"
+# Tanda extra: Alta de entidades + relación edificio ↔ propietarios
 
-## Diagnóstico
+Antes de seguir con la Tanda 2 (productividad agente), corregimos dos huecos del modelo:
 
-La app actual mezcla **MVP, F2 y F3** del PRD en un único nivel de navegación (11 entradas planas) y obliga al usuario a saltar entre tablas inconexas. Según la auditoría cruzada (v1.3), el MVP real es mucho más estrecho:
+1. **No hay botones para dar de alta** propietarios, edificios, inversores ni activos.
+2. **Un edificio tiene varios propietarios** (no 1:1) y dentro de "heredero" hay subtipos (operador, ausente, residente, etc.).
 
-> *"El sistema se enfoca en el ciclo de vida de una única interacción comercial: la llamada telefónica. Llamada → Análisis → Acción Sugerida es el único objetivo de este MVP."*
+---
 
-Y solo debe tener **2 pantallas principales**: `Dashboard de Actividad` y `Análisis de Llamada`. Todo lo demás (Matching, Cadencias, Investors, Buildings, Compliance UI, WhatsApp) es F2/F3.
+## 1. Modelo de datos — cambios
 
-## Principios de la nueva estructura
+### a) Sub-rol de propietario (más fino que `owner_role`)
 
-1. **Tres zonas claras por rol**, no 11 entradas planas:
-   - **Hoy** (operación diaria del agente — el Copiloto)
-   - **Datos** (catálogo: propietarios, activos, edificios, inversores)
-   - **IA & Gobierno** (matching, cadencias, compliance, ajustes — uso ocasional, manager)
-2. **Wizards guiados** para las 2 acciones de alto valor: *"Preparar llamada"* y *"Analizar llamada"*. Nada de formularios sueltos.
-3. **Jerarquía Activo → Propietario(s)**, no propietarios huérfanos. Al abrir un activo ves a sus propietarios y al abrir una llamada el contexto va precargado.
-4. **Lo del PRD que es F2/F3 se marca como tal** con badge "Próximamente / Beta", se mantiene accesible pero fuera del flujo principal.
-
-## Nueva navegación (sidebar agrupado)
+Mantenemos `owners.rol` (enum macro) y añadimos un **sub-rol** opcional para detallar la relación con el activo concreto:
 
 ```text
-HOY  (Copiloto Comercial - foco MVP)
-  • Inicio              (qué hago ahora: cola de llamadas + acciones pendientes)
-  • Llamadas            (Dashboard de Actividad del PRD)
-  • Nueva llamada  ➜    wizard 4 pasos
+owner_role (ya existe):
+  particular | heredero | inversor_pasivo | operador_profesional | institucional | desconocido
 
-DATOS  (catálogo, lectura/edición)
-  • Activos             (entrada principal — agrupa propietarios y edificio)
-  • Propietarios        (vista alterna, filtrable por rol)
-  • Edificios
-  • Inversores          [F2]
-
-IA & GOBIERNO  (manager / ocasional)
-  • Matching            [F2]
-  • Cadencias           [F2]
-  • Compliance
-  • Ajustes
+owner_subrole (NUEVO enum):
+  ninguno
+  heredero_operador      ← gestiona/explota el inmueble
+  heredero_residente     ← vive ahí
+  heredero_ausente       ← está fuera, solo cobra
+  heredero_conflictivo   ← bloquea decisiones
+  arrendador             ← alquila a terceros
+  usufructuario
+  nudo_propietario
+  apoderado
 ```
 
-Los grupos del sidebar son colapsables. Las entradas F2 llevan un badge sutil "Beta" para que el usuario distinga MVP de extras.
+### b) Relación N:N edificio ↔ propietarios
 
-## Pantalla 1 — `Inicio` (sustituye al Dashboard genérico)
+Hoy `assets.owner_id` es 1:1. Un edificio real tiene varios propietarios. Creamos una tabla puente:
 
-Ya no son 4 KPIs huérfanos. Es una pantalla de **trabajo del día**:
-
-- **Banda superior**: 3 KPIs accionables → "Llamadas pendientes de analizar", "Acciones sugeridas sin cerrar", "Propietarios sin rol catalogado".
-- **Cola "Listo para revisar"**: tabla de las últimas llamadas en estado `Analizando / Listo`, click ➜ pantalla de Análisis.
-- **Tarjeta "¿Qué quieres hacer?"** con dos CTAs grandes:
-  - `Preparar una llamada` ➜ wizard
-  - `Analizar una llamada nueva` ➜ wizard
-
-## Pantalla 2 — `Análisis de Llamada` (la del PRD, bien hecha)
-
-Layout en 2 columnas tal y como dice la auditoría:
-
-- **Cabecera**: Propietario · Activo asociado · Rol (badge con confianza) · Fecha · Duración.
-- **Columna izquierda**: `Resumen Ejecutivo` (≤150 palabras) + `Acciones Sugeridas` (1-2-3 numeradas, con botón "Crear como Next Action").
-- **Columna derecha con pestañas**:
-  - `Transcripción` (timestamps + speakers)
-  - `Consultar historial (RAG)` — chat sobre el propietario, citando llamadas/notas fuente.
-  - `Notas` (libres del agente)
-- **Pie**: botón "Iniciar cadencia" (F2, badge Beta).
-
-## Wizard "Preparar llamada" (4 pasos, 1 propósito)
-
-Resuelve directamente lo que pediste ("selecciona activo → propietario → enfoca la llamada"):
-
-```text
-Paso 1  Activo o propietario      (buscador con autocomplete)
-Paso 2  Propietario concreto       (lista de propietarios del activo + rol)
-Paso 3  Brief Pre-Call (IA)        (PreCallBrief actual: contexto, última llamada,
-                                    objeciones previas, recomendación de enfoque
-                                    según rol)
-Paso 4  Empezar                    (botón "Marcar llamada iniciada" + acceso
-                                    rápido a "Subir grabación" cuando termine)
+```sql
+building_owners (
+  building_id uuid,
+  owner_id uuid,
+  cuota numeric,           -- % de propiedad (opcional)
+  subrole owner_subrole,   -- rol específico en este edificio
+  rol_notas text,
+  created_at timestamptz,
+  PRIMARY KEY (building_id, owner_id)
+)
 ```
 
-## Wizard "Analizar llamada" (3 pasos)
+Añadimos también `owners.subrole` por defecto (cuando el propietario solo está ligado a un activo, no edificio).
 
-```text
-Paso 1  Subir grabación (.mp3/.wav)   o pegar transcripción manual
-Paso 2  Asociar a propietario/activo  (preselección si vino del wizard anterior)
-Paso 3  Procesar                      (transcripción mock + análisis IA → 
-                                       redirige a "Análisis de Llamada")
+Las RLS siguen el patrón `preview_all_*` actual (estamos en preview sin auth).
+
+### c) `buildings.numero_propietarios` se calcula
+
+Pasa a ser informativo/derivado: la cuenta real sale de `building_owners`. No tocamos la columna pero la página de edificios mostrará el `count` real.
+
+---
+
+## 2. Botones "+ Nuevo" en todas las páginas índice
+
+Patrón unificado: en `PageHeader.actions` añadimos un botón `+ Nuevo X` que abre un **`Dialog`** con un formulario corto (los campos mínimos para crear, no el detalle completo).
+
+| Página | Botón | Diálogo crea |
+|---|---|---|
+| `/propietarios` | `+ Nuevo propietario` | nombre, email, teléfono, rol, subrole, consentimiento |
+| `/edificios` | `+ Nuevo edificio` | dirección, ciudad, CP, división horizontal, nº propietarios estimado |
+| `/inversores` | `+ Nuevo inversor` | nombre, email, teléfono, ticket min/max, ciudades (chips), tipos_activo (chips), consentimiento |
+| `/activos` | `+ Nuevo activo` | tipo, ubicación, ciudad, superficie, edificio (select), propietario principal (select), estado |
+
+Todos validan con `react-hook-form` + `zod` (ya disponibles en el stack shadcn).
+Tras crear, hacen `refetch` de la lista y muestran `toast.success`.
+
+---
+
+## 3. Detalle de edificio nuevo (`/edificios/:id`)
+
+Nueva página `BuildingDetail.tsx` con:
+
+- **Cabecera**: dirección, ciudad, DH, estado.
+- **Pestaña Propietarios** (la importante):
+  - Lista de `building_owners` con: nombre · subrole · cuota · enlace al propietario.
+  - Botón **`+ Añadir propietario`**: dialog con `Combobox` para buscar propietario existente (o "Crear nuevo" inline) + selector de subrole + cuota opcional.
+  - Botón quitar (✕) por fila.
+- **Pestaña Activos**: lista de `assets` cuyo `building_id = id`, con CTA "Crear activo en este edificio".
+- **Pestaña Llamadas**: agregadas de todos los propietarios del edificio (vista unificada, útil para "qué se ha hablado en este edificio").
+
+`Buildings.tsx` (índice) pasa a tabla con columnas: dirección · ciudad · nº propietarios reales (count) · estado · DH. Click navega a `/edificios/:id`.
+
+---
+
+## 4. Detalle de propietario — mostrar subrole
+
+En `OwnerDetail.tsx` cabecera:
+- Badge actual `rol` + nuevo badge `subrole` (si existe).
+- Nueva pestaña **"Edificios"** que lista los `building_owners` del propietario (en qué edificios está y con qué cuota/subrole).
+
+En `AssetDetail.tsx` pestaña "Owners" pasa a listar **todos los propietarios del edificio** asociado (vía `building_owners`), no solo `assets.owner_id`. El `assets.owner_id` queda como "propietario principal/contacto".
+
+---
+
+## 5. Wizard "Preparar llamada" — adaptado
+
+En el paso de "elegir propietario": si el activo tiene edificio, mostrar **todos los propietarios del edificio** con sus subroles, para que el agente elija con quién va a hablar (un edificio con 5 herederos → 5 opciones, cada una con su rol). Esto es lo que pediste: "dentro del activo selecciona el propietario, dentro de esos propietarios cuál es y qué tipo de rol tiene".
+
+---
+
+## 6. Command Palette (⌘K)
+
+Añadir comandos rápidos: `Nuevo propietario`, `Nuevo edificio`, `Nuevo inversor`, `Nuevo activo` (abren los diálogos directamente).
+
+---
+
+## Detalles técnicos
+
+**Migración SQL**:
+```sql
+CREATE TYPE owner_subrole AS ENUM (
+  'ninguno','heredero_operador','heredero_residente','heredero_ausente',
+  'heredero_conflictivo','arrendador','usufructuario','nudo_propietario','apoderado'
+);
+ALTER TABLE owners ADD COLUMN subrole owner_subrole NOT NULL DEFAULT 'ninguno';
+
+CREATE TABLE building_owners (
+  building_id uuid NOT NULL,
+  owner_id uuid NOT NULL,
+  cuota numeric,
+  subrole owner_subrole NOT NULL DEFAULT 'ninguno',
+  rol_notas text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (building_id, owner_id)
+);
+ALTER TABLE building_owners ENABLE ROW LEVEL SECURITY;
+-- 4 políticas preview_all_* (select/insert/update/delete) idénticas al resto.
+CREATE INDEX idx_building_owners_building ON building_owners(building_id);
+CREATE INDEX idx_building_owners_owner ON building_owners(owner_id);
 ```
 
-## Cambios concretos por archivo
+**Componentes nuevos**:
+- `src/components/forms/NewOwnerDialog.tsx`
+- `src/components/forms/NewBuildingDialog.tsx`
+- `src/components/forms/NewInvestorDialog.tsx`
+- `src/components/forms/NewAssetDialog.tsx`
+- `src/components/forms/AddOwnerToBuildingDialog.tsx`
+- `src/pages/BuildingDetail.tsx`
 
-| Archivo | Cambio |
-|---|---|
-| `src/components/layout/AppSidebar.tsx` | Reagrupar items en 3 secciones (Hoy / Datos / IA & Gobierno) con `SidebarGroupLabel` y badges "Beta" para F2. |
-| `src/pages/Dashboard.tsx` → renombrar a `Inicio.tsx` | Reemplazar 4 KPIs por: 3 KPIs accionables + cola "Listo para revisar" + 2 CTAs grandes a los wizards. |
-| `src/pages/Calls.tsx` | Convertir en el `Dashboard de Actividad` del PRD: tabla con `Propietario / Fecha / Duración / Estado / Agente` + botón `[+] Subir Grabación`. |
-| **NUEVO** `src/pages/CallAnalysis.tsx` (`/llamadas/:id`) | Pantalla 2 del PRD (2 columnas + pestañas). Reusa `AnalyzeNote` y `RagSearch`. |
-| **NUEVO** `src/pages/wizards/PrepareCallWizard.tsx` (`/preparar-llamada`) | 4 pasos. Reutiliza `PreCallBrief`. |
-| **NUEVO** `src/pages/wizards/AnalyzeCallWizard.tsx` (`/analizar-llamada`) | 3 pasos. Crea fila en `calls`, llama a `agent_analyze_note`, redirige a `CallAnalysis`. |
-| `src/pages/Assets.tsx` | Añadir columna "Propietarios" (count + popover con nombres y rol). Click en activo ➜ `/activos/:id` con propietarios y llamadas asociadas. |
-| **NUEVO** `src/pages/AssetDetail.tsx` | Vista jerárquica Activo → Propietarios → Llamadas → Acciones. |
-| `src/pages/OwnerDetail.tsx` | Quitar pestaña "Comms" del flujo principal (queda solo accesible vía Cadencias F2). Mover botón "Catalogar rol" a la cabecera. Simplificar pestañas: `Resumen / Llamadas / Activos / Acciones / IA`. |
-| `src/pages/Matching.tsx`, `Investors.tsx`, `Cadences.tsx` | Añadir banner "Funcionalidad Fast-Follow (F2)". Sin cambios funcionales. |
-| `src/pages/Compliance.tsx` | Añadir explicación de qué dispara casos automáticos (DPIA, consentimiento, Art. 22) — actualmente es opaco. |
-| `src/App.tsx` | Añadir rutas `/`, `/preparar-llamada`, `/analizar-llamada`, `/llamadas/:id`, `/activos/:id`. Renombrar Dashboard → Inicio. |
-| `src/i18n/translations.ts` | Añadir strings ES/EN para wizards, nueva nav, badges "Beta", banners F2. |
+**Rutas nuevas**: `/edificios/:id` → `BuildingDetail`.
 
-## Lo que NO cambia (intencionadamente)
+**i18n**: añadir `forms.*` y `subroles.*` en `es` y `en`.
 
-- Esquema de base de datos y edge functions ya construidas. Todo se reutiliza.
-- Componentes IA existentes (`PreCallBrief`, `AnalyzeNote`, `RagSearch`, `CatalogRoleButton`, `ValuatorButton`) — solo cambian de sitio para encajar en los wizards.
-- Tema claro/oscuro, i18n ES/EN, sin login (siguen las decisiones aprobadas).
+**Lo que NO cambia**: tablas existentes (solo se añaden columnas), wizards de análisis, sistema de RAG/agentes, RLS pattern actual.
 
-## Lo que queda fuera de este sprint
+---
 
-- Soul Capture real (es proceso humano, no software).
-- Subida real de audio + transcripción (Whisper). En el wizard "Analizar llamada" se acepta texto pegado o grabación mock; el pipeline real se aborda después.
-- Detector de fallecimientos, compradores institucionales, generador de revista (F2/F3 según PRD).
+## Orden de ejecución
 
-## Resultado esperado
+1. Migración (enum + tabla + columna).
+2. 4 diálogos "+ Nuevo" + cableado en `PageHeader` de cada índice.
+3. `BuildingDetail.tsx` + ruta + diálogo "Añadir propietario al edificio".
+4. Pestaña "Edificios" en `OwnerDetail` + subrole badge.
+5. Adaptar wizard "Preparar llamada" para listar todos los propietarios del edificio.
+6. Comandos `Nuevo X` en `CommandPalette`.
 
-Un agente nuevo entra, ve **"Inicio"** con dos botones gigantes (`Preparar llamada` / `Analizar llamada`), sigue el wizard paso a paso y nunca tiene que entender qué es un "match candidate" o un "cadence step" para hacer su trabajo. El manager sí tiene acceso a Matching/Cadencias/Compliance, pero en su propio grupo del sidebar.
+Después continuamos con la **Tanda 2 (productividad agente)** que quedó pendiente.
+
+¿Le doy?
