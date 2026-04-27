@@ -1,6 +1,6 @@
 export type Locale = "es" | "en";
 
-export const translations = {
+const _translations = {
   es: {
     appName: "AFFLUX",
     appTagline: "Copiloto comercial inmobiliario",
@@ -274,4 +274,5 @@ export const translations = {
   },
 } as const;
 
-export type Dictionary = typeof translations.es;
+export type Dictionary = typeof _translations.es;
+export const translations: Record<Locale, Dictionary> = _translations;
