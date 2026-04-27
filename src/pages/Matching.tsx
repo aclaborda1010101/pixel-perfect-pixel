@@ -19,7 +19,7 @@ export default function Matching() {
   };
   useEffect(load, []);
 
-  const setEstado = async (id: string, estado: string) => {
+  const setEstado = async (id: string, estado: "aprobado" | "rechazado" | "contactado" | "propuesto") => {
     const { error } = await supabase.from("match_candidates").update({ estado }).eq("id", id);
     if (error) toast.error(error.message);
     else { toast.success("Actualizado"); load(); }
