@@ -3,10 +3,13 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { Topbar } from "./Topbar";
 import { CommandPalette } from "@/components/common/CommandPalette";
+import { PageTitleProvider } from "./PageTitleContext";
+import { BottomNav } from "./BottomNav";
 
 export function AppLayout() {
   return (
-    <SidebarProvider
+    <PageTitleProvider>
+      <SidebarProvider
       style={
         {
           "--sidebar-width": "248px",
@@ -18,12 +21,14 @@ export function AppLayout() {
         <AppSidebar />
         <div className="flex min-h-screen flex-1 flex-col">
           <Topbar />
-          <main className="flex-1 px-6 py-6">
+          <main className="flex-1 px-4 py-5 pb-[calc(env(safe-area-inset-bottom)+5rem)] md:px-6 md:py-6 md:pb-6">
             <Outlet />
           </main>
         </div>
+        <BottomNav />
         <CommandPalette />
       </div>
-    </SidebarProvider>
+      </SidebarProvider>
+    </PageTitleProvider>
   );
 }

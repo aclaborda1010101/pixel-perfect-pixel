@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useRegisterPageTitle } from "@/components/layout/PageTitleContext";
 
 export function PageHeader({
   title,
@@ -11,6 +12,7 @@ export function PageHeader({
   actions?: ReactNode;
   eyebrow?: ReactNode;
 }) {
+  useRegisterPageTitle(title);
   return (
     <div className="mb-6 flex items-end justify-between gap-4 border-b border-border-faint pb-4">
       <div className="space-y-1">
