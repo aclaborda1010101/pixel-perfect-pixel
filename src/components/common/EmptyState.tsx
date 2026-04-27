@@ -25,13 +25,13 @@ export function EmptyState({
   children?: ReactNode;
 }) {
   return (
-    <Card className={cn("flex flex-col items-center justify-center gap-3 px-6 py-12 text-center", className)}>
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Icon className="h-6 w-6" />
+    <Card className={cn("flex flex-col items-center justify-center gap-4 px-6 py-16 text-center border-dashed", className)}>
+      <div className="flex h-11 w-11 items-center justify-center rounded-[4px] border border-border-faint bg-surface-1/40 text-muted-foreground">
+        <Icon className="h-5 w-5" />
       </div>
-      <div className="space-y-1">
-        <p className="text-base font-medium text-foreground">{title}</p>
-        {description && <p className="max-w-sm text-sm text-muted-foreground">{description}</p>}
+      <div className="space-y-1.5">
+        <p className="font-editorial text-lg tracking-notarial text-foreground">{title}</p>
+        {description && <p className="max-w-sm text-sm text-muted-foreground leading-relaxed">{description}</p>}
       </div>
       {ctaLabel && ctaTo && (
         <Button asChild size="sm" className="mt-2">
