@@ -12,6 +12,7 @@ import { PreCallBrief } from "@/components/agents/PreCallBrief";
 import { AnalyzeNote } from "@/components/agents/AnalyzeNote";
 import { CatalogRoleButton } from "@/components/agents/CatalogRoleButton";
 import { RagSearch } from "@/components/agents/RagSearch";
+import { WhatsappComposer } from "@/components/comms/WhatsappComposer";
 
 type Owner = {
   id: string;
@@ -86,6 +87,7 @@ export default function OwnerDetail() {
           <TabsTrigger value="ai">
             <Sparkles className="mr-1 h-3 w-3" /> IA
           </TabsTrigger>
+          <TabsTrigger value="comms">Comms</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -133,6 +135,10 @@ export default function OwnerDetail() {
           <PreCallBrief ownerId={owner.id} />
           <AnalyzeNote ownerId={owner.id} />
           <RagSearch scopeType="owner" scopeId={owner.id} />
+        </TabsContent>
+
+        <TabsContent value="comms">
+          <WhatsappComposer ownerId={owner.id} ownerName={owner.nombre} />
         </TabsContent>
       </Tabs>
     </div>

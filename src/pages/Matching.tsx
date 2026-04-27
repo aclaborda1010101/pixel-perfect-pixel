@@ -6,28 +6,67 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Loader2, RefreshCw } from "lucide-react";
 
 export default function Matching() {
   const { t } = useI18n();
   const [rows, setRows] = useState<any[]>([]);
+  const [recalc, setRecalc] = useState(false);
   const load = () => {
     supabase
       .from("match_candidates")
-      .select("*, assets(tipo,ubicacion,ciudad), investors(nombre)")
+      .select("*, assets(tipo,ubicacion,ciudad), investors(nombre,consentimiento)")
       .order("score", { ascending: false })
       .then(({ data }) => setRows(data ?? []));
   };
   useEffect(load, []);
 
-  const setEstado = async (id: string, estado: "aprobado" | "rechazado" | "contactado" | "propuesto") => {
-    const { error } = await supabase.from("match_candidates").update({ estado }).eq("id", id);
+  const setEstado = async (
+    row: any,
+    estado: "aprobado" | "rechazado" | "contactado" | "propuesto",
+  ) => {
+    // HITL: si se aprueba un match y el inversor no tiene consentimiento, bloquear y abrir caso
+    if (estado === "aprobado" && row.investors && row.investors.consentimiento === false) {
+      await supabase.from("compliance_cases").insert({
+        scope_type: "match",
+        scope_id: row.id,
+        motivo: `Aprobación bloqueada: inversor "${row.investors.nombre}" sin consentimiento`,
+        evidencia: row.evidencia ?? null,
+        dpia_ok: false,
+      });
+      toast.error("Bloqueado por compliance — caso creado");
+      return;
+    }
+    const { error } = await supabase.from("match_candidates").update({ estado }).eq("id", row.id);
     if (error) toast.error(error.message);
     else { toast.success("Actualizado"); load(); }
   };
 
+  const recompute = async () => {
+    setRecalc(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("compute_matches", { body: { threshold: 0.6 } });
+      if (error) throw error;
+      const r = data as any;
+      toast.success(`Evaluados ${r.evaluated} · nuevos ${r.inserted}`);
+      load();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Error");
+    } finally { setRecalc(false); }
+  };
+
   return (
     <div>
-      <PageHeader title={t.nav.matching} subtitle="Cola de candidatos asset ↔ inversor" />
+      <PageHeader
+        title={t.nav.matching}
+        subtitle="Cola de candidatos asset ↔ inversor"
+        actions={
+          <Button size="sm" onClick={recompute} disabled={recalc}>
+            {recalc ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-2 h-3 w-3" />}
+            Recalcular
+          </Button>
+        }
+      />
       <Card>
         <ul className="divide-y divide-border">
           {rows.map((r) => (
@@ -38,6 +77,7 @@ export default function Matching() {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {r.assets?.ciudad ?? "—"} · score {Number(r.score).toFixed(2)}
+                  {r.investors?.consentimiento === false && " · ⚠ inversor sin consentimiento"}
                 </div>
                 {r.evidencia && <div className="text-xs mt-1">{r.evidencia}</div>}
               </div>
@@ -45,8 +85,8 @@ export default function Matching() {
                 <Badge variant="outline">{r.estado}</Badge>
                 {r.estado === "propuesto" && (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => setEstado(r.id, "rechazado")}>Rechazar</Button>
-                    <Button size="sm" onClick={() => setEstado(r.id, "aprobado")}>Aprobar</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEstado(r, "rechazado")}>Rechazar</Button>
+                    <Button size="sm" onClick={() => setEstado(r, "aprobado")}>Aprobar</Button>
                   </>
                 )}
               </div>
