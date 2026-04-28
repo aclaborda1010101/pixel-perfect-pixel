@@ -26,6 +26,8 @@ import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
 import Login from "./pages/auth/Login";
 import RecoverPassword from "./pages/auth/RecoverPassword";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { DEMO_MODE } from "@/lib/config";
+import { Navigate } from "react-router-dom";
 
 const queryClient = new QueryClient();
 
@@ -38,17 +40,10 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/recuperar" element={<RecoverPassword />} />
-              <Route element={<AppLayout />}>
-                <Route
-                  path="/"
-                  element={
-                    <ProtectedRoute>
-                      <Dashboard />
-                    </ProtectedRoute>
-                  }
-                />
+              <Route path="/login" element={DEMO_MODE ? <Navigate to="/" replace /> : <Login />} />
+              <Route path="/recuperar" element={DEMO_MODE ? <Navigate to="/" replace /> : <RecoverPassword />} />
+              <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+                <Route path="/" element={<Dashboard />} />
                 <Route path="/propietarios" element={<Owners />} />
                 <Route path="/propietarios/:id" element={<OwnerDetail />} />
                 <Route path="/edificios" element={<Buildings />} />
