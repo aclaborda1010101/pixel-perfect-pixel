@@ -66,7 +66,7 @@ export default function CallAnalysis() {
   if (!call) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <Crumbs items={[{ label: "Llamadas", to: "/llamadas" }, { label: owner?.nombre ?? "Llamada" }]} />
       <PageHeader
         eyebrow="Llamada · Análisis"
@@ -95,7 +95,7 @@ export default function CallAnalysis() {
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <Eyebrow>IA</Eyebrow>
@@ -103,7 +103,7 @@ export default function CallAnalysis() {
             </CardHeader>
             <CardContent className="text-sm">
               {call.resumen ? (
-                <p className="leading-relaxed text-foreground">{call.resumen}</p>
+                <p className="leading-relaxed text-foreground break-words">{call.resumen}</p>
               ) : (
                 <p className="text-muted-foreground">{t.callAnalysis.noSummary}</p>
               )}
@@ -121,9 +121,9 @@ export default function CallAnalysis() {
                     analysis.proxima_accion?.titulo,
                     ...(analysis.intenciones ?? []).slice(0, 2),
                   ].filter(Boolean).map((act: string, i: number) => (
-                    <li key={i} className="flex items-start justify-between gap-3 rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
-                      <span className="text-foreground"><span className="mr-2 font-mono text-xs text-gold">{i + 1}.</span>{act}</span>
-                      <Button size="sm" variant="outline" onClick={() => saveAction(act)}>{t.callAnalysis.saveAction}</Button>
+                    <li key={i} className="flex flex-col items-stretch gap-3 rounded-[6px] border border-border-faint bg-surface-1/30 p-3 sm:flex-row sm:items-start sm:justify-between">
+                      <span className="min-w-0 flex-1 break-words text-foreground"><span className="mr-2 font-mono text-xs text-gold">{i + 1}.</span>{act}</span>
+                      <Button size="sm" variant="outline" className="shrink-0" onClick={() => saveAction(act)}>{t.callAnalysis.saveAction}</Button>
                     </li>
                   ))}
                 </ol>
@@ -134,19 +134,21 @@ export default function CallAnalysis() {
           </Card>
         </div>
 
-        <Card>
+        <Card className="min-w-0">
           <Tabs defaultValue="transcript" className="w-full">
             <CardHeader>
-              <TabsList>
+              <div className="-mx-2 overflow-x-auto px-2">
+              <TabsList className="w-max md:w-auto">
                 <TabsTrigger value="transcript">{t.callAnalysis.tabsTranscript}</TabsTrigger>
                 <TabsTrigger value="rag">{t.callAnalysis.tabsRag}</TabsTrigger>
                 <TabsTrigger value="notes">{t.callAnalysis.tabsNotes}</TabsTrigger>
               </TabsList>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-w-0">
               <TabsContent value="transcript">
                 {call.transcripcion ? (
-                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground">{call.transcripcion}</pre>
+                  <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{call.transcripcion}</pre>
                 ) : (
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Sin transcripción guardada. Pega una para analizar:</p>
