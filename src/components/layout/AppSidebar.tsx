@@ -38,14 +38,14 @@ export function AppSidebar() {
   ];
 
   const renderGroup = (label: string, items: Item[]) => (
-    <SidebarGroup className="px-2 py-1">
+    <SidebarGroup className="px-2 py-1 md:py-1">
       {!collapsed && (
-        <SidebarGroupLabel className="px-3 pb-1 pt-3 font-mono text-[10px] uppercase tracking-eyebrow text-sidebar-foreground/50">
+        <SidebarGroupLabel className="h-auto px-3 pb-2 pt-5 font-mono text-[12px] uppercase tracking-eyebrow text-sidebar-foreground/60 md:pb-1 md:pt-3 md:text-[10px] md:text-sidebar-foreground/50">
           {label}
         </SidebarGroupLabel>
       )}
       <SidebarGroupContent>
-        <SidebarMenu className="gap-0.5">
+        <SidebarMenu className="gap-0 divide-y divide-sidebar-border/40 md:gap-0.5 md:divide-y-0">
           {items.map((item) => {
             const active =
               item.url === "/"
@@ -57,18 +57,18 @@ export function AppSidebar() {
                   asChild
                   isActive={active}
                   className={
-                    "relative h-8 rounded-[4px] px-3 text-[13px] text-sidebar-foreground/80 transition-colors hover:bg-surface-1 hover:text-sidebar-foreground " +
+                    "relative h-14 gap-3 rounded-[4px] px-3 text-[17px] text-sidebar-foreground/80 transition-colors hover:bg-surface-1 hover:text-sidebar-foreground md:h-8 md:gap-2 md:text-[13px] " +
                     "data-[active=true]:bg-surface-1 data-[active=true]:text-sidebar-foreground data-[active=true]:font-medium " +
                     "data-[active=true]:before:absolute data-[active=true]:before:left-0 data-[active=true]:before:top-1.5 data-[active=true]:before:bottom-1.5 data-[active=true]:before:w-[2px] data-[active=true]:before:bg-gold data-[active=true]:before:rounded-r-sm"
                   }
                 >
                   <NavLink to={item.url} end={item.url === "/"}>
-                    <item.icon className="h-4 w-4 shrink-0 opacity-80" />
+                    <item.icon className="h-6 w-6 shrink-0 opacity-80 md:h-4 md:w-4" />
                     {!collapsed && (
                       <span className="flex flex-1 items-center justify-between">
                         <span>{item.label}</span>
                         {item.beta && (
-                          <span className="ml-2 rounded-[3px] border border-sidebar-border px-1 font-mono text-[9px] uppercase tracking-eyebrow text-sidebar-foreground/60">
+                          <span className="ml-2 rounded-[3px] border border-sidebar-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-sidebar-foreground/60 md:px-1 md:py-0 md:text-[9px]">
                             {t.nav.betaBadge}
                           </span>
                         )}
@@ -86,17 +86,17 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
+      <SidebarHeader className="border-b border-sidebar-border px-4 py-5 md:py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[4px] border border-gold/40 bg-surface-1 font-editorial text-base text-gold">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[4px] border border-gold/40 bg-surface-1 font-editorial text-lg text-gold md:h-9 md:w-9 md:text-base">
             A
           </div>
           {!collapsed && (
             <div className="flex min-w-0 flex-col leading-tight">
-              <span className="font-editorial text-base tracking-notarial text-sidebar-foreground">
+              <span className="font-editorial text-lg tracking-notarial text-sidebar-foreground md:text-base">
                 Afflux
               </span>
-              <span className="font-mono text-[9px] uppercase tracking-eyebrow text-sidebar-foreground/50">
+              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-sidebar-foreground/50 md:text-[9px]">
                 Property
               </span>
             </div>
@@ -111,13 +111,13 @@ export function AppSidebar() {
               )
             }
             aria-label="Buscar"
-            className="mt-3 flex h-9 w-full items-center gap-2 rounded-[4px] border border-sidebar-border bg-surface-1/40 px-2.5 font-mono text-[11px] tabular-nums text-sidebar-foreground/60 transition-colors hover:border-gold/40 hover:bg-surface-1/70 hover:text-sidebar-foreground"
+            className="mt-4 flex h-12 w-full items-center gap-2.5 rounded-[4px] border border-sidebar-border bg-surface-1/40 px-3 font-mono text-[13px] tabular-nums text-sidebar-foreground/60 transition-colors hover:border-gold/40 hover:bg-surface-1/70 hover:text-sidebar-foreground md:mt-3 md:h-9 md:gap-2 md:px-2.5 md:text-[11px]"
           >
-            <Search className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            <Search className="h-4 w-4 shrink-0 opacity-70 md:h-3.5 md:w-3.5" />
             <span className="flex-1 truncate text-left normal-case tracking-normal">
               Buscar activos, propietarios, llamadas…
             </span>
-            <kbd className="rounded-[3px] border border-sidebar-border bg-sidebar px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-sidebar-foreground/60">
+            <kbd className="hidden rounded-[3px] border border-sidebar-border bg-sidebar px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-sidebar-foreground/60 md:inline-flex">
               ⌘K
             </kbd>
           </button>
