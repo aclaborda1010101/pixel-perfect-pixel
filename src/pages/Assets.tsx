@@ -53,7 +53,7 @@ export default function Assets() {
         actions={<NewAssetDialog onCreated={load} />}
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card><div className="p-5"><Eyebrow>Total activos</Eyebrow><div className="mt-2"><MetricValue size="lg">{rows.length}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Superficie total</Eyebrow><div className="mt-2"><MetricValue size="lg" unit="m²">{totalSup.toLocaleString()}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Valoración agregada</Eyebrow><div className="mt-2"><MetricValue size="lg" unit="€">{totalVal.toLocaleString()}</MetricValue></div></div></Card>
@@ -85,6 +85,37 @@ export default function Assets() {
             </div>
           </div>
 
+          {/* Mobile cards */}
+          <ul className="divide-y divide-border-faint md:hidden">
+            {filtered.map((a) => (
+              <li key={a.id} className="px-4 py-3">
+                <Link to={`/activos/${a.id}`} className="block space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Eyebrow>Tipo</Eyebrow>
+                      <div className="text-sm font-medium text-foreground"><Badge variant="outline">{a.tipo}</Badge></div>
+                    </div>
+                    <Badge variant="gold" className="shrink-0">{a.estado}</Badge>
+                  </div>
+                  <div>
+                    <Eyebrow>Ubicación</Eyebrow>
+                    <div className="text-sm text-foreground break-words">{a.ubicacion}{a.ciudad ? `, ${a.ciudad}` : ""}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <Eyebrow>Superficie</Eyebrow>
+                      <div className="font-mono tabular-nums text-foreground">{a.superficie_m2 ?? "—"}{a.superficie_m2 ? " m²" : ""}</div>
+                    </div>
+                    <div className="text-right">
+                      <Eyebrow>Valoración</Eyebrow>
+                      <div className="font-mono tabular-nums text-foreground">{a.valoracion_estimada ? `${Number(a.valoracion_estimada).toLocaleString()} €` : "—"}</div>
+                    </div>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden md:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
@@ -121,6 +152,7 @@ export default function Assets() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </Card>
       )}
     </div>
