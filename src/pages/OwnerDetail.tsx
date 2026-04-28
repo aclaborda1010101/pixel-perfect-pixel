@@ -67,14 +67,14 @@ export default function OwnerDetail() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <Crumbs items={[{ label: "Propietarios", to: "/propietarios" }, { label: owner.nombre }]} />
       <PageHeader
         eyebrow="Propietario · Ficha"
         title={owner.nombre}
         subtitle={owner.email ?? owner.telefono ?? ""}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant="info" className="gap-1">
               {owner.rol}
               {owner.rol_confianza != null && (
@@ -92,16 +92,17 @@ export default function OwnerDetail() {
       />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-4">
-            <Card><div className="p-5"><Eyebrow>Llamadas</Eyebrow><div className="mt-2"><MetricValue size="lg">{calls.length}</MetricValue></div></div></Card>
-            <Card><div className="p-5"><Eyebrow>Notas</Eyebrow><div className="mt-2"><MetricValue size="lg">{notes.length}</MetricValue></div></div></Card>
-            <Card><div className="p-5"><Eyebrow>Activos</Eyebrow><div className="mt-2"><MetricValue size="lg">{assets.length}</MetricValue></div></div></Card>
-            <Card><div className="p-5"><Eyebrow>Acciones</Eyebrow><div className="mt-2"><MetricValue size="lg">{actions.length}</MetricValue></div></div></Card>
+        <div className="min-w-0 space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+            <Card><div className="p-4 md:p-5"><Eyebrow>Llamadas</Eyebrow><div className="mt-2"><MetricValue size="lg">{calls.length}</MetricValue></div></div></Card>
+            <Card><div className="p-4 md:p-5"><Eyebrow>Notas</Eyebrow><div className="mt-2"><MetricValue size="lg">{notes.length}</MetricValue></div></div></Card>
+            <Card><div className="p-4 md:p-5"><Eyebrow>Activos</Eyebrow><div className="mt-2"><MetricValue size="lg">{assets.length}</MetricValue></div></div></Card>
+            <Card><div className="p-4 md:p-5"><Eyebrow>Acciones</Eyebrow><div className="mt-2"><MetricValue size="lg">{actions.length}</MetricValue></div></div></Card>
           </div>
 
           <Tabs defaultValue="overview" className="space-y-4">
-            <TabsList>
+            <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+            <TabsList className="w-max md:w-auto">
               <TabsTrigger value="overview">Resumen</TabsTrigger>
               <TabsTrigger value="calls">Llamadas ({calls.length})</TabsTrigger>
               <TabsTrigger value="notes">Notas ({notes.length})</TabsTrigger>
@@ -113,6 +114,7 @@ export default function OwnerDetail() {
               </TabsTrigger>
               <TabsTrigger value="comms">Comms</TabsTrigger>
             </TabsList>
+            </div>
 
             <TabsContent value="overview">
               <Card>
@@ -158,12 +160,12 @@ export default function OwnerDetail() {
                   <ul className="divide-y divide-border-faint">
                     {buildings.map((b: any) => (
                       <li key={b.building_id}>
-                        <Link to={`/edificios/${b.building_id}`} className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-surface-1/30">
-                          <div>
-                            <div className="text-sm font-medium text-foreground">{b.buildings?.direccion}</div>
+                        <Link to={`/edificios/${b.building_id}`} className="flex flex-col items-start gap-2 px-4 py-3 transition-colors hover:bg-surface-1/30 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-foreground">{b.buildings?.direccion}</div>
                             <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{b.buildings?.ciudad}</div>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             {b.cuota != null && <Badge variant="gold">{b.cuota}%</Badge>}
                             <Badge variant="outline">{SUBROLE_LABEL[b.subrole] ?? b.subrole}</Badge>
                           </div>
@@ -195,7 +197,7 @@ export default function OwnerDetail() {
         </div>
 
         {/* Timeline lateral */}
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <Eyebrow>Actividad reciente</Eyebrow>
