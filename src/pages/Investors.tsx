@@ -62,18 +62,18 @@ export default function Investors() {
               <li key={i.id} className="space-y-3 px-4 py-5">
                 <div>
                   <Eyebrow>Inversor</Eyebrow>
-                  <div className="text-sm font-medium text-foreground break-words">{i.nombre}</div>
+                  <div className="text-base font-medium text-foreground break-words">{i.nombre}</div>
                 </div>
                 <div>
                   <Eyebrow>Tipos de activo</Eyebrow>
-                  <div className="mt-1 flex flex-wrap gap-1">
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {(i.tipos_activo ?? []).map((tp: string) => (
                       <Badge key={tp} variant="outline">{tp}</Badge>
                     ))}
                     {(!i.tipos_activo || i.tipos_activo.length === 0) && <span className="text-xs text-muted-foreground">—</span>}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <Eyebrow>Ticket min</Eyebrow>
                     <div className="font-mono tabular-nums text-foreground">{i.ticket_min ? `${Number(i.ticket_min).toLocaleString()} €` : "—"}</div>
@@ -85,7 +85,7 @@ export default function Investors() {
                 </div>
                 <div>
                   <Eyebrow>Ciudades</Eyebrow>
-                  <div className="text-xs text-muted-foreground break-words">{(i.ciudades ?? []).join(", ") || "—"}</div>
+                  <div className="text-sm text-muted-foreground break-words">{(i.ciudades ?? []).join(", ") || "—"}</div>
                 </div>
               </li>
             ))}

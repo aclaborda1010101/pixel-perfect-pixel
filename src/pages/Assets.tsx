@@ -89,19 +89,19 @@ export default function Assets() {
           <ul className="divide-y divide-border-faint md:hidden">
             {filtered.map((a) => (
               <li key={a.id} className="px-4 py-5">
-                <Link to={`/activos/${a.id}`} className="block space-y-2">
+                <Link to={`/activos/${a.id}`} className="block space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <Eyebrow>Tipo</Eyebrow>
-                      <div className="text-sm font-medium text-foreground"><Badge variant="outline">{a.tipo}</Badge></div>
+                      <div className="text-base font-medium text-foreground"><Badge variant="outline">{a.tipo}</Badge></div>
                     </div>
                     <Badge variant="gold" className="shrink-0">{a.estado}</Badge>
                   </div>
                   <div>
                     <Eyebrow>Ubicación</Eyebrow>
-                    <div className="text-sm text-foreground break-words">{a.ubicacion}{a.ciudad ? `, ${a.ciudad}` : ""}</div>
+                    <div className="text-base text-foreground break-words">{a.ubicacion}{a.ciudad ? `, ${a.ciudad}` : ""}</div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <Eyebrow>Superficie</Eyebrow>
                       <div className="font-mono tabular-nums text-foreground">{a.superficie_m2 ?? "—"}{a.superficie_m2 ? " m²" : ""}</div>
