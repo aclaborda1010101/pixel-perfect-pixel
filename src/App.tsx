@@ -40,8 +40,8 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route path="/login" element={DEMO_MODE ? <Navigate to="/" replace /> : <Login />} />
-              <Route path="/recuperar" element={DEMO_MODE ? <Navigate to="/" replace /> : <RecoverPassword />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/recuperar" element={<RecoverPassword />} />
               <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/propietarios" element={<Owners />} />
