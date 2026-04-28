@@ -94,7 +94,7 @@ export default function Buildings() {
                 className="h-8 pl-8 text-sm"
               />
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Chip active={filter === "all"} onClick={() => setFilter("all")}>Todos</Chip>
               {estados.map((e) => (
                 <Chip key={e} active={filter === e} onClick={() => setFilter(e)}>{e}</Chip>

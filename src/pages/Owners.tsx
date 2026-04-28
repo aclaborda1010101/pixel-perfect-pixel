@@ -92,7 +92,7 @@ export default function Owners() {
                 className="h-8 pl-8 text-sm"
               />
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Chip active={rolFilter === "all"} onClick={() => setRolFilter("all")}>Todos</Chip>
               {roles.map((r) => (
                 <Chip key={r} active={rolFilter === r} onClick={() => setRolFilter(r)}>{r}</Chip>
