@@ -105,7 +105,7 @@ export default function Buildings() {
           {/* Mobile cards */}
           <ul className="divide-y divide-border-faint md:hidden">
             {filtered.map((b) => (
-              <li key={b.id} className="px-4 py-3">
+              <li key={b.id} className="px-4 py-5">
                 <Link to={`/edificios/${b.id}`} className="block space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">

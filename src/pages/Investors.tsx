@@ -59,7 +59,7 @@ export default function Investors() {
           {/* Mobile cards */}
           <ul className="divide-y divide-border-faint md:hidden">
             {filtered.map((i) => (
-              <li key={i.id} className="space-y-2 px-4 py-3">
+              <li key={i.id} className="space-y-3 px-4 py-5">
                 <div>
                   <Eyebrow>Inversor</Eyebrow>
                   <div className="text-sm font-medium text-foreground break-words">{i.nombre}</div>

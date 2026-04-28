@@ -98,7 +98,7 @@ export default function Calls() {
           {/* Mobile cards */}
           <ul className="divide-y divide-border-faint md:hidden">
             {filtered.map((c) => (
-              <li key={c.id} className="px-4 py-3">
+              <li key={c.id} className="px-4 py-5">
                 <Link to={`/llamadas/${c.id}`} className="block space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
