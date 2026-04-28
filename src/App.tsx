@@ -25,6 +25,7 @@ import PrepareCallWizard from "./pages/wizards/PrepareCallWizard";
 import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
 import Login from "./pages/auth/Login";
 import RecoverPassword from "./pages/auth/RecoverPassword";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -40,7 +41,14 @@ const App = () => (
               <Route path="/login" element={<Login />} />
               <Route path="/recuperar" element={<RecoverPassword />} />
               <Route element={<AppLayout />}>
-                <Route path="/" element={<Dashboard />} />
+                <Route
+                  path="/"
+                  element={
+                    <ProtectedRoute>
+                      <Dashboard />
+                    </ProtectedRoute>
+                  }
+                />
                 <Route path="/propietarios" element={<Owners />} />
                 <Route path="/propietarios/:id" element={<OwnerDetail />} />
                 <Route path="/edificios" element={<Buildings />} />
