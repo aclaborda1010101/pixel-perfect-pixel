@@ -21,7 +21,7 @@ export function AppLayout() {
         <AppSidebar />
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
           <Topbar />
-          <main className="min-w-0 max-w-full flex-1 overflow-x-hidden px-4 py-5 pb-[calc(env(safe-area-inset-bottom)+5rem)] md:px-6 md:py-6 md:pb-6">
+          <main className="min-w-0 max-w-full flex-1 overflow-x-hidden px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] md:px-6 md:py-6 md:pb-6">
             <Outlet />
           </main>
         </div>
