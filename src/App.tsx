@@ -26,8 +26,6 @@ import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
 import Login from "./pages/auth/Login";
 import RecoverPassword from "./pages/auth/RecoverPassword";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { DEMO_MODE } from "@/lib/config";
-import { Navigate } from "react-router-dom";
 
 const queryClient = new QueryClient();
 
