@@ -124,7 +124,7 @@ export default function BuildingDetail() {
   const valorEstimado = 6_450_000;
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <Crumbs items={[{ label: "Edificios", to: "/edificios" }, { label: building.direccion }]} />
 
       <PageHeader
@@ -132,7 +132,7 @@ export default function BuildingDetail() {
         title={building.direccion}
         subtitle={`${building.ciudad ?? "Madrid"}${building.codigo_postal ? ` · ${building.codigo_postal}` : ""}`}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm"><Mail className="h-4 w-4" />Email</Button>
             <Button variant="outline" size="sm"><FileText className="h-4 w-4" />Documentos</Button>
             <Button variant="gold" size="sm"><Plus className="h-4 w-4" />Nueva acción</Button>
@@ -150,7 +150,7 @@ export default function BuildingDetail() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
         <Card><CardContent className="p-5">
           <Eyebrow>Unidades</Eyebrow>
           <div className="mt-2"><MetricValue size="lg">{unidadesViv + unidadesLoc}</MetricValue></div>
@@ -179,9 +179,10 @@ export default function BuildingDetail() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Tabs defaultValue="resumen">
-            <TabsList>
+            <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+            <TabsList className="w-max md:w-auto">
               <TabsTrigger value="resumen">Resumen</TabsTrigger>
               <TabsTrigger value="assets">Activos {assets.length || 9}</TabsTrigger>
               <TabsTrigger value="owners">Propietarios {bos.length || 11}</TabsTrigger>
@@ -190,6 +191,7 @@ export default function BuildingDetail() {
               <TabsTrigger value="compliance">Compliance</TabsTrigger>
               <TabsTrigger value="timeline">Timeline</TabsTrigger>
             </TabsList>
+            </div>
 
             <TabsContent value="resumen" className="space-y-6">
               {/* Ubicación */}
@@ -258,6 +260,7 @@ export default function BuildingDetail() {
                   <CardTitle>Unidades</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -288,6 +291,7 @@ export default function BuildingDetail() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -358,7 +362,7 @@ export default function BuildingDetail() {
                   <Eyebrow>Agenda</Eyebrow>
                   <CardTitle>Próximas acciones</CardTitle>
                 </CardHeader>
-                <CardContent className="grid gap-3 md:grid-cols-3">
+                <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
                   {MOCK_NEXT_ACTIONS.map((a, i) => (
                     <div key={i} className="rounded-[4px] border border-border bg-surface-1/30 p-4">
                       <div className="flex items-center gap-2">
@@ -386,15 +390,15 @@ export default function BuildingDetail() {
                 <Card>
                   <ul className="divide-y divide-border-faint">
                     {bos.map((r) => (
-                      <li key={r.owner_id} className="flex items-center justify-between px-4 py-3 hover:bg-surface-1/30 transition-colors">
-                        <div>
-                          <Link to={`/propietarios/${r.owner_id}`} className="text-sm font-medium text-foreground hover:text-gold">{r.owners?.nombre}</Link>
-                          <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                      <li key={r.owner_id} className="flex flex-col items-start gap-2 px-4 py-3 transition-colors hover:bg-surface-1/30 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <Link to={`/propietarios/${r.owner_id}`} className="block truncate text-sm font-medium text-foreground hover:text-gold">{r.owners?.nombre}</Link>
+                          <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
                             {r.owners?.email ?? r.owners?.telefono ?? "—"}
                             {r.rol_notas ? ` · ${r.rol_notas}` : ""}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           {r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>}
                           <Badge variant="outline">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
                           {r.owners?.rol && <Badge variant="info">{r.owners.rol}</Badge>}
@@ -465,7 +469,7 @@ export default function BuildingDetail() {
         </div>
 
         {/* Timeline lateral */}
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <Eyebrow>Actividad reciente</Eyebrow>
