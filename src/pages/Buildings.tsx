@@ -105,20 +105,20 @@ export default function Buildings() {
           {/* Mobile cards */}
           <ul className="divide-y divide-border-faint md:hidden">
             {filtered.map((b) => (
-              <li key={b.id} className="px-4 py-3">
-                <Link to={`/edificios/${b.id}`} className="block space-y-2">
+              <li key={b.id} className="px-4 py-5">
+                <Link to={`/edificios/${b.id}`} className="block space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <Eyebrow>Dirección</Eyebrow>
-                      <div className="text-sm font-medium text-foreground break-words">{b.direccion}</div>
-                      <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{b.ciudad ?? "—"} · {b.codigo_postal ?? "—"}</div>
+                      <div className="text-base font-medium text-foreground break-words">{b.direccion}</div>
+                      <div className="font-mono text-[12px] uppercase tracking-eyebrow text-muted-foreground">{b.ciudad ?? "—"} · {b.codigo_postal ?? "—"}</div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       <Badge variant="outline">{b.estado}</Badge>
                       {b.division_horizontal && <Badge variant="gold">DH</Badge>}
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right text-sm">
                     <Eyebrow>Propietarios</Eyebrow>
                     <div className="font-mono tabular-nums text-foreground">{counts[b.id] ?? 0}</div>
                   </div>

@@ -264,3 +264,41 @@
   }
   ::-webkit-scrollbar-track { background: transparent; }
 }
+
+/* =====================================================================
+   MOBILE-FIRST overrides (<768px): tipografía mayor, touch targets 44px,
+   espaciados más aéreos. No afecta a desktop.
+   ===================================================================== */
+@layer base {
+  @media (max-width: 767px) {
+    html {
+      font-size: 16px;
+    }
+    body {
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    /* Touch targets: cualquier control táctil mínimo 44x44 */
+    button,
+    [role="button"],
+    a[role="menuitem"],
+    a.nav-touch,
+    [data-touch-target] {
+      min-height: 44px;
+    }
+    /* Inputs cómodos en mobile */
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 16px; /* evita zoom iOS */
+    }
+  }
+}
+
+@layer utilities {
+  /* Utilidades responsivas de tipografía notarial */
+  .text-display-mobile { font-size: 1.875rem; line-height: 2.125rem; }     /* 30px */
+  .text-h2-mobile      { font-size: 1.375rem; line-height: 1.625rem; }     /* 22px */
+  .text-kpi-mobile     { font-size: 2.25rem;  line-height: 2.5rem; }       /* 36px */
+  .text-eyebrow-mobile { font-size: 0.75rem;  letter-spacing: 0.18em; }    /* 12px */
+}

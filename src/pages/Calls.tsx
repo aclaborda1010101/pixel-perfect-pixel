@@ -98,16 +98,16 @@ export default function Calls() {
           {/* Mobile cards */}
           <ul className="divide-y divide-border-faint md:hidden">
             {filtered.map((c) => (
-              <li key={c.id} className="px-4 py-3">
-                <Link to={`/llamadas/${c.id}`} className="block space-y-2">
+              <li key={c.id} className="px-4 py-5">
+                <Link to={`/llamadas/${c.id}`} className="block space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <Eyebrow>Propietario</Eyebrow>
-                      <div className="truncate text-sm font-medium text-foreground">{c.owners?.nombre ?? "—"}</div>
+                      <div className="truncate text-base font-medium text-foreground">{c.owners?.nombre ?? "—"}</div>
                     </div>
                     <Badge variant="outline" className="shrink-0">{c.direccion}</Badge>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <Eyebrow>Fecha</Eyebrow>
                       <div className="font-mono tabular-nums text-foreground">{new Date(c.fecha).toLocaleDateString()}</div>
@@ -119,7 +119,7 @@ export default function Calls() {
                   </div>
                   <div>
                     <Eyebrow>Estado</Eyebrow>
-                    <div className="mt-1">{c.resumen ? <span className="text-xs text-muted-foreground line-clamp-2">{c.resumen}</span> : <StatusBadge status="no_summary" />}</div>
+                    <div className="mt-1">{c.resumen ? <span className="text-sm text-muted-foreground line-clamp-2">{c.resumen}</span> : <StatusBadge status="no_summary" />}</div>
                   </div>
                 </Link>
               </li>

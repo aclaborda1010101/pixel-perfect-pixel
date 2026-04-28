@@ -103,20 +103,20 @@ export default function Owners() {
           {/* Mobile cards */}
           <ul className="divide-y divide-border-faint md:hidden">
             {filtered.map((o) => (
-              <li key={o.id} className="px-4 py-3">
-                <Link to={`/propietarios/${o.id}`} className="block space-y-2">
+              <li key={o.id} className="px-4 py-5">
+                <Link to={`/propietarios/${o.id}`} className="block space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <Eyebrow>Nombre</Eyebrow>
-                      <div className="truncate text-sm font-medium text-foreground">{o.nombre}</div>
-                      <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground truncate">{o.email ?? o.telefono ?? "—"}</div>
+                      <div className="truncate text-base font-medium text-foreground">{o.nombre}</div>
+                      <div className="font-mono text-[12px] uppercase tracking-eyebrow text-muted-foreground truncate">{o.email ?? o.telefono ?? "—"}</div>
                     </div>
                     <Badge variant="outline" className="shrink-0">{o.rol}</Badge>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <Eyebrow>Consentimiento</Eyebrow>
-                      <div className="text-foreground">{o.consentimiento ? <span className="inline-flex items-center gap-1 text-success"><Check className="h-3 w-3" />Sí</span> : "—"}</div>
+                      <div className="text-foreground">{o.consentimiento ? <span className="inline-flex items-center gap-1 text-success"><Check className="h-3.5 w-3.5" />Sí</span> : "—"}</div>
                     </div>
                     <div className="text-right">
                       <Eyebrow>Último contacto</Eyebrow>
