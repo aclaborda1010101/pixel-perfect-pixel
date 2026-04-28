@@ -8,9 +8,28 @@ import { Eyebrow } from "@/components/common/Eyebrow";
  */
 export function AuthShell({ children }: { children: ReactNode }) {
   return (
-    <div className="grid min-h-screen w-full grid-cols-1 bg-background lg:grid-cols-[5fr_6fr]">
+    <div className="grid min-h-screen w-full grid-cols-1 bg-background md:grid-cols-[5fr_6fr]">
+      {/* Marca compacta mobile (<768px) */}
+      <div className="relative overflow-hidden border-b border-border-faint bg-brand p-6 text-brand-foreground md:hidden">
+        <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(to_right,hsl(var(--gold))_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--gold))_1px,transparent_1px)] [background-size:32px_32px]" />
+        <div className="relative z-10 space-y-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-[4px] border border-gold/60 bg-gold/10 font-mono text-sm text-gold">
+              A
+            </div>
+            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-brand-foreground/80">
+              Afflux Property
+            </div>
+          </div>
+          <p className="font-editorial text-base leading-snug tracking-notarial text-brand-foreground">
+            Patrimonio inmobiliario de Madrid, con la sobriedad que merece.
+          </p>
+          <div className="h-px w-12 bg-gold/60" />
+        </div>
+      </div>
+
       {/* Panel marca */}
-      <aside className="relative hidden flex-col justify-between overflow-hidden bg-brand p-12 text-brand-foreground lg:flex">
+      <aside className="relative hidden flex-col justify-between overflow-hidden bg-brand p-12 text-brand-foreground md:flex">
         <div className="absolute inset-0 opacity-[0.06] [background-image:linear-gradient(to_right,hsl(var(--gold))_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--gold))_1px,transparent_1px)] [background-size:48px_48px]" />
         <div className="relative z-10 space-y-2">
           <div className="flex items-center gap-3">
