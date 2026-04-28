@@ -1,114 +1,94 @@
-## Contexto
+## Problema detectado en /activos/:id (mobile 390px)
 
-El HTML que has subido es un canvas tipo Figma con **18 artboards** ya diseñados, agrupados en 11 secciones, más una pantalla "Design system" con paleta y atoms. Cubre todo el panel Afflux y mapea casi 1:1 con tus rutas actuales (`Dashboard`, `Buildings`, `Assets`, `Owners`, `Investors`, `Calls`, `Matching`, `Cadences`, `Compliance`, `Settings`, wizards, login).
+En el screenshot se ven varios fallos típicos en `AssetDetail.tsx`, que se repiten en `OwnerDetail.tsx`, `BuildingDetail.tsx` y `CallAnalysis.tsx`:
 
-Este plan respeta tres reglas que ya marcaste:
-- No tocar lógica, Supabase, rutas ni edge functions.
-- No tocar `src/integrations/supabase/*` ni `.env`.
-- Avanzar por fases pequeñas y revisables.
+1. **Crumbs desbordan**: la breadcrumb "ACTIVOS › EDIFICIO › ACTIVO DEMO #1" no hace wrap y empuja el layout.
+2. **TabsList desborda en horizontal** (4–8 pestañas con `text-xs` y sin scroll). Genera overflow-x lateral.
+3. **PageHeader actions** (badges/botones) compiten con el título largo y se cortan.
+4. **Aside/timeline lateral** declarado como `lg:grid-cols-[1fr_300px]`, en mobile aparece debajo correctamente, pero los KPIs internos `sm:grid-cols-3 / sm:grid-cols-4 / lg:grid-cols-5` saltan demasiado pronto y se aprietan en tablets pequeños.
+5. **BuildingDetail**: tabla `<Table>` de unidades + Tabs de 7 pestañas + grid de KPIs de 5 columnas → desborda fuerte en mobile.
+6. **CallAnalysis**: subtitle con muchos elementos en `flex` sin `flex-wrap` correcto a tamaños extremos; layout `lg:grid-cols-2` ya stackea, pero el `<pre>` de transcripción tiene `overflow-auto` solo vertical y puede empujar horizontalmente.
 
----
+## Cambios a aplicar
 
-## Inventario extraído del HTML
+Sin tocar rutas, queries Supabase, hooks de datos, `.env` ni i18n.
 
-**Paleta oficial (modo oscuro principal)**
-- Fondo app: `#0A1422` (azul marino noche profundo)
-- Brand / superficie marca: `#0E1B2C`
-- Surface 1 / cards: `#152538`
-- Surface 2 / hover, borders fuertes: `#1E3A5F`
-- Borde sutil sobre oscuro: `rgba(255,255,255,0.06–0.10)`
-- Foreground: `#EEF2F8` · muted: `#B6C0CE` · faint: `#6B7C95` / `#5A6B82`
-- **Acento marca (champán/dorado): `#C9A961`** — el color clave que identifica Afflux
-- Info: `#3D5A80` / `#4A6FA5` · Success: `#3F7D5C` (+ soft `#8FCAA8`)
-- Warning: `#FFBA08` · Danger: `#E07856`
+### 1. `src/pages/AssetDetail.tsx`
+- Wrapper raíz: añadir `min-w-0` y `w-full` al `div.space-y-6` para que no fuerce ancho.
+- KPIs: cambiar `grid gap-4 sm:grid-cols-3` → `grid grid-cols-1 gap-3 sm:grid-cols-3` y reducir padding `p-5` → `p-4 md:p-5`.
+- TabsList: envolver en wrapper con scroll horizontal:
+  ```tsx
+  <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+    <TabsList className="w-max md:w-auto">…</TabsList>
+  </div>
+  ```
+- Aside: añadir `min-w-0`. En mobile el grid `lg:grid-cols-[1fr_300px]` ya stackea; ok.
+- Items con `flex items-center justify-between`: añadir `gap-3 min-w-0` y al `<div>` de texto `min-w-0 flex-1` con `truncate`.
 
-**Tipografía** (ya cargada en `index.html`, solo falta afinar uso)
-- **Fraunces** (serif, opsz 9..144, w 400/600) → titulares editoriales del DS ("Sobrio. Notarial. Premium.")
-- **Inter Tight** (400/500/600/700) → display + body
-- **Geist Mono** (400/500) → eyebrows tipo `AFFLUX PROPERTY · DESIGN SYSTEM`, números, códigos de color, métricas
+### 2. `src/pages/OwnerDetail.tsx`
+- Mismas correcciones que AssetDetail.
+- KPIs: `grid grid-cols-2 gap-3 sm:grid-cols-4` (en lugar de `sm:grid-cols-4` directo).
+- TabsList con 8 triggers → scroll horizontal con `-mx-4 px-4 overflow-x-auto`, `TabsList w-max`.
+- PageHeader actions con badges → ya envuelto en `flex items-center gap-2`, añadir `flex-wrap`.
 
-**Estética**: notarial, sobria, premium. Bordes finos, sombras muy planas, radios pequeños (2–6px en cards, no las 12–16px típicas de shadcn), tablas densas estilo Attio, separadores `1px solid border-faint`.
+### 3. `src/pages/BuildingDetail.tsx`
+- KPIs `md:grid-cols-3 lg:grid-cols-5` → `grid-cols-2 md:grid-cols-3 lg:grid-cols-5` para evitar 1 columna apretada y dar respiro en mobile (2 cols).
+- Chips eyebrow: ya `flex-wrap`, ok.
+- TabsList (7 triggers) → scroll horizontal igual patrón.
+- PageHeader actions (3 botones) → wrap a `flex flex-wrap`.
+- Tabla `<Table>` de unidades: envolver en `<div className="overflow-x-auto">` para scroll horizontal nativo en mobile sin romper el layout.
+- Lista de propietarios `bos.map`: el `<li>` con `flex items-center justify-between` y muchos badges + botón X → en mobile cambiar a `flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between`.
+- Próximas acciones grid: `md:grid-cols-3` → `grid-cols-1 sm:grid-cols-2 md:grid-cols-3`.
 
-**18 artboards / 11 secciones del canvas**:
-1. Design system · Tokens y atoms
-2. Auth · Login dark, Login light, Recuperar contraseña
-3. Dashboard
-4. Cartera · Edificios + Building Detail (Serrano 85)
-5. Cartera · Activos + Asset Detail
-6. Cartera · Propietarios + Owner Detail
-7. Cartera · Inversores
-8. Operativo · Llamadas + Call Analysis (con waveform)
-9. Pipeline · Cadencias (builder visual) + Matching (activos ↔ inversores)
-10. Operaciones · Compliance + Wizard crear operación
-11. Cuenta · Settings + 404
+### 4. `src/pages/CallAnalysis.tsx`
+- Wrapper raíz: `min-w-0 w-full`.
+- PageHeader subtitle ya tiene `flex-wrap`, ok.
+- TabsList (3 triggers) ya cabe; añadir igualmente patrón seguro `overflow-x-auto`.
+- `<pre>` transcripción: añadir `break-words` y wrap container `min-w-0` para que `whitespace-pre-wrap` se aplique sin desbordar.
+- Acciones por línea (`<li> flex items-start justify-between`): permitir `flex-col sm:flex-row` para que el botón "Guardar acción" no se aplaste contra el texto largo.
 
----
+### 5. `src/components/common/Crumbs.tsx` (revisar)
+- Asegurar `flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0` para que las migas hagan wrap en mobile y no fuercen overflow.
 
-## Plan por fases
+### 6. `src/components/common/PageHeader.tsx` (revisar)
+- Asegurar que `actions` esté en un contenedor `flex flex-wrap` y que el bloque título use `min-w-0` con `break-words` en h1, para no empujar al sidebar.
 
-### FASE 1bis — Cerrar tokens (cierra lo que iniciaste)
-Solo `src/index.css` y `tailwind.config.ts`. Sin tocar componentes.
+### 7. Patrón reutilizable de Tabs scrollables
+No se crea componente nuevo (para no aumentar superficie). Se aplica el wrapper inline en cada página afectada. El propio `TabsList` mantiene su tamaño natural (`w-max`) y se permite scroll horizontal solo dentro del wrapper.
 
-- Añadir tokens que faltan en `:root` (modo oscuro como principal):
-  - `--brand: 213 52% 11%` (#0E1B2C), `--surface-1: 213 44% 15%` (#152538), `--surface-2: 213 51% 25%` (#1E3A5F)
-  - `--gold: 41 47% 59%` (#C9A961) y `--gold-soft` para hovers/fondos sutiles
-  - `--ink-muted: 217 19% 76%` (#B6C0CE), `--ink-faint: 217 16% 50%` (#6B7C95)
-  - Reescalar `--success`, `--warning`, `--info`, `--destructive` a los exactos del DS.
-- Sombras "notariales" planas: `--shadow-xs/sm/md` con valores `0 1px 2px rgba(0,0,0,.25)` en oscuro, sin halos azulados.
-- Radios: `--radius-sm: 2px`, `--radius: 6px`, `--radius-lg: 10px` (bajamos la calidez para encajar con el DS).
-- Mapeos shadcn: `--background → 0A1422`, `--card → 152538`, `--popover → 0E1B2C`, `--border → blanco α 0.08`, `--ring → gold`.
-- En `tailwind.config.ts`: añadir `colors.gold`, `colors.brand`, `colors.surface.{1,2}` y utilidades de tracking para la mono (`tracking-eyebrow: 0.18em`).
-- Modo claro: definir variantes equivalentes (login claro existe en el HTML), pero **dark = default** del panel.
+## Diagrama de layout mobile final por detalle
 
-### FASE 2 — Atoms y patrones base (sin romper rutas)
-Solo retoques visuales en `src/components/ui/*` y `src/components/common/*`. La API y los nombres de los componentes shadcn no cambian.
+```text
+┌─────────────────────────────────┐
+│ Crumbs (wrap)                   │
+│ PageHeader                      │
+│   eyebrow                       │
+│   H1 (break-words)              │
+│   subtitle                      │
+│   actions (flex-wrap)           │
+├─────────────────────────────────┤
+│ KPIs grid-cols-1 / 2 cols       │
+├─────────────────────────────────┤
+│ Tabs ◀──── scroll-x ────▶       │
+│ ┌─ contenido tab ─────────────┐ │
+│ │ cards / listas con          │ │
+│ │ items flex-col sm:flex-row  │ │
+│ └─────────────────────────────┘ │
+├─────────────────────────────────┤
+│ Aside Timeline (apilado abajo)  │
+└─────────────────────────────────┘
+```
 
-- `Button`: variant `gold` (CTA principal), `ghost` más sobrio, radios 6px.
-- `Card`: borde 1px, sombra plana, header con eyebrow mono opcional.
-- `Badge`: variants `info/success/warning/danger/gold` con backgrounds soft.
-- `Table`: densificar (filas 36–40px), separadores `border-faint`, hover sutil, primera columna sticky preparada.
-- `StatusBadge`, `PageHeader`, `Crumbs`, `EmptyState`: estilo notarial.
-- Añadir 2 atoms nuevos en `src/components/common/`: `Eyebrow` (mono uppercase tracking ancho) y `MetricValue` (Geist Mono tabular-nums para KPIs).
+## Lo que NO se toca
 
-### FASE 3 — Shell del panel
-`AppLayout`, `AppSidebar`, `Topbar`. Sin cambiar rutas ni navegación.
+- Rutas en `App.tsx`.
+- Queries Supabase ni hooks de datos.
+- `.env`, i18n, traducciones.
+- Lógica de estado, navegación o componentes funcionales.
+- Auth / DEMO_MODE.
 
-- Sidebar oscuro `--brand`, ítems con icono + label, sección activa con barra dorada izquierda 2px y fondo `surface-1`.
-- Logo "Afflux Property" arriba, eyebrow mono debajo.
-- Topbar: search command (⌘K) prominente, breadcrumbs, avatar a la derecha, badge beta.
-- Densidad y spacing del HTML (sidebar ~248px, topbar ~56px).
+## Validación tras implementar
 
-### FASE 4 — Dashboard + Cartera
-- `Dashboard`: KPIs (mono tabular), próximas acciones, pipeline mini, últimas llamadas — replicando el artboard 03.
-- `Buildings` (tabla densa Attio) + `BuildingDetail` (header con dirección, tabs, cuotas, timeline).
-- `Assets` + `AssetDetail` (ficha de cuotas).
-
-### FASE 5 — CRM + Operativo
-- `Owners` + `OwnerDetail` con timeline completo de interacciones (clave del producto).
-- `Investors` con filtros tipo CRM.
-- `Calls` con sentiment IA por fila.
-- `CallAnalysis` con waveform, transcript y panel de IA.
-
-### FASE 6 — Pipeline + Operaciones + Cuenta
-- `Matching` (activos ↔ inversores, dos columnas con score).
-- `Cadences` (builder visual de pasos).
-- `Compliance` (checklists jurídicas).
-- `PrepareCallWizard` y `AnalyzeCallWizard` (multi-step wizard del artboard 16).
-- `Settings` y `NotFound` (404).
-
----
-
-## Reglas durante toda la implementación
-
-- Cada fase = un solo mensaje, revisable, sin tocar nada fuera de su scope.
-- Nunca tocar: `src/integrations/supabase/*`, `.env`, `supabase/config.toml`, edge functions.
-- Mantener todas las rutas, hooks, queries y nombres de props existentes.
-- i18n: usar las claves de `src/i18n/translations.ts` que ya existan; añadir nuevas solo si hace falta texto nuevo.
-- Si una pantalla actual tiene secciones que el HTML no cubre, se mantienen tal cual (no se eliminan features).
-- Tras cada fase te confirmo qué tocó y qué queda, para que valides antes de pasar a la siguiente.
-
----
-
-## Lo que haría primero al aprobar el plan
-
-Solo **FASE 1bis** (tokens). Es un cambio aislado en 2 archivos (`src/index.css`, `tailwind.config.ts`), sin riesgo para componentes, y sienta la base visual correcta antes de tocar nada más.
+- `tsc --noEmit` verde.
+- Visual check a 390px en `/activos/:id`, `/propietarios/:id`, `/edificios/:id`, `/llamadas/:id`: sin overflow-x, tabs scrolleables, KPIs respirando, listas legibles.
+- Desktop ≥md mantiene exactamente el layout actual.

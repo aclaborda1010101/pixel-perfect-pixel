@@ -52,7 +52,7 @@ export default function AssetDetail() {
   if (!asset) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <Crumbs items={[{ label: t.nav.assets, to: "/activos" }, { label: `${asset.tipo} · ${asset.ubicacion}` }]} />
       <PageHeader
         eyebrow={`Activo · ${asset.tipo}`}
@@ -62,38 +62,40 @@ export default function AssetDetail() {
       />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Card><div className="p-5"><Eyebrow>Superficie</Eyebrow><div className="mt-2"><MetricValue size="lg" unit="m²">{asset.superficie_m2 ?? "—"}</MetricValue></div></div></Card>
-            <Card><div className="p-5"><Eyebrow>Valoración</Eyebrow><div className="mt-2"><MetricValue size="lg" unit="€">{asset.valoracion_estimada ? Number(asset.valoracion_estimada).toLocaleString() : "—"}</MetricValue></div></div></Card>
-            <Card><div className="p-5"><Eyebrow>Acciones abiertas</Eyebrow><div className="mt-2"><MetricValue size="lg">{actions.length}</MetricValue></div></div></Card>
+        <div className="min-w-0 space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            <Card><div className="p-4 md:p-5"><Eyebrow>Superficie</Eyebrow><div className="mt-2"><MetricValue size="lg" unit="m²">{asset.superficie_m2 ?? "—"}</MetricValue></div></div></Card>
+            <Card><div className="p-4 md:p-5"><Eyebrow>Valoración</Eyebrow><div className="mt-2"><MetricValue size="lg" unit="€">{asset.valoracion_estimada ? Number(asset.valoracion_estimada).toLocaleString() : "—"}</MetricValue></div></div></Card>
+            <Card><div className="p-4 md:p-5"><Eyebrow>Acciones abiertas</Eyebrow><div className="mt-2"><MetricValue size="lg">{actions.length}</MetricValue></div></div></Card>
           </div>
 
           <Tabs defaultValue="owners">
-            <TabsList>
+            <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+            <TabsList className="w-max md:w-auto">
               <TabsTrigger value="owners">{t.assetDetail.ownersTab}</TabsTrigger>
               <TabsTrigger value="calls">{t.assetDetail.callsTab} ({calls.length})</TabsTrigger>
               <TabsTrigger value="actions">{t.assetDetail.actionsTab} ({actions.length})</TabsTrigger>
               <TabsTrigger value="building">{t.assetDetail.buildingTab}</TabsTrigger>
             </TabsList>
+            </div>
             <TabsContent value="owners">
               <Card>
                 <CardContent className="space-y-4 p-5 text-sm">
                   {owner && (
                     <div>
                       <Eyebrow className="mb-2">Propietario principal (contacto)</Eyebrow>
-                      <Link to={`/propietarios/${owner.id}`} className="flex items-center justify-between rounded-[6px] border border-border bg-surface-1/30 p-3 transition-colors hover:border-gold/50 hover:bg-surface-1/60">
-                        <div>
-                          <div className="font-medium text-foreground">{owner.nombre}</div>
-                          <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{owner.email ?? owner.telefono ?? "—"}</div>
+                      <Link to={`/propietarios/${owner.id}`} className="flex items-center justify-between gap-3 rounded-[6px] border border-border bg-surface-1/30 p-3 transition-colors hover:border-gold/50 hover:bg-surface-1/60">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium text-foreground">{owner.nombre}</div>
+                          <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{owner.email ?? owner.telefono ?? "—"}</div>
                         </div>
-                        <Badge variant="info">{owner.rol}</Badge>
+                        <Badge variant="info" className="shrink-0">{owner.rol}</Badge>
                       </Link>
                     </div>
                   )}
                   {building && (
                     <div>
-                      <div className="mb-2 flex items-center justify-between">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                         <Eyebrow>Todos los propietarios del edificio</Eyebrow>
                         <Link to={`/edificios/${building.id}`} className="font-mono text-[10px] uppercase tracking-eyebrow text-gold hover:underline">Gestionar →</Link>
                       </div>
@@ -105,12 +107,12 @@ export default function AssetDetail() {
                         <ul className="divide-y divide-border-faint rounded-[6px] border border-border-faint">
                           {buildingOwners.map((r: any) => (
                             <li key={r.owner_id}>
-                              <Link to={`/propietarios/${r.owner_id}`} className="flex items-center justify-between px-3 py-2 transition-colors hover:bg-surface-1/30">
-                                <div>
-                                  <div className="font-medium text-foreground">{r.owners?.nombre}</div>
-                                  <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{r.owners?.email ?? r.owners?.telefono ?? "—"}</div>
+                              <Link to={`/propietarios/${r.owner_id}`} className="flex flex-col items-start gap-2 px-3 py-2 transition-colors hover:bg-surface-1/30 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate font-medium text-foreground">{r.owners?.nombre}</div>
+                                  <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{r.owners?.email ?? r.owners?.telefono ?? "—"}</div>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
                                   {r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>}
                                   <Badge variant="outline">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
                                 </div>
@@ -152,8 +154,8 @@ export default function AssetDetail() {
                 <Card>
                   <ul className="divide-y divide-border-faint">
                     {actions.map((a) => (
-                      <li key={a.id} className="flex items-center justify-between px-4 py-3 text-sm">
-                        <div>
+                      <li key={a.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                        <div className="min-w-0 flex-1">
                           <div className="text-foreground">{a.titulo}</div>
                           <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{a.estado} · {a.vencimiento ?? "—"}</div>
                         </div>
@@ -170,7 +172,7 @@ export default function AssetDetail() {
                   {building ? (
                     <div className="space-y-1">
                       <Eyebrow>Edificio asociado</Eyebrow>
-                      <div className="mt-1 font-editorial text-lg tracking-notarial text-foreground">{building.direccion}</div>
+                      <div className="mt-1 font-editorial text-lg tracking-notarial text-foreground break-words">{building.direccion}</div>
                       <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{building.ciudad} · {building.codigo_postal ?? "—"}</div>
                       <div className="mt-2 text-xs text-muted-foreground">Propietarios: {building.numero_propietarios ?? "?"} · DH: {building.division_horizontal ? "Sí" : "No"}</div>
                     </div>
@@ -182,7 +184,7 @@ export default function AssetDetail() {
         </div>
 
         {/* Timeline lateral */}
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <Eyebrow>Actividad reciente</Eyebrow>
