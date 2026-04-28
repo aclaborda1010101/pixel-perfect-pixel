@@ -87,7 +87,7 @@ export default function PrepareCallWizard() {
           {step === 0 && (
             <>
               <Input placeholder={t.wizard.pickAsset} value={q} onChange={(e) => setQ(e.target.value)} />
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <Eyebrow className="mb-1.5">Activos</Eyebrow>
                   <ul className="max-h-64 divide-y divide-border-faint overflow-auto rounded-[6px] border border-border-faint">
