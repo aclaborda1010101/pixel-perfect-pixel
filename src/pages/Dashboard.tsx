@@ -115,20 +115,20 @@ export default function Dashboard() {
       />
 
       {/* KPIs */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((tile) => {
           const TrendIcon = tile.trend === "up" ? TrendingUp : TrendingDown;
           const trendCls = tile.trend === "up" ? "text-success" : "text-destructive";
           return (
-            <Link to={tile.to} key={tile.label} className="group">
-              <Card className="h-full transition-colors hover:border-gold/50">
+            <Link to={tile.to} key={tile.label} className="group min-w-0">
+              <Card className="h-full min-w-0 transition-colors hover:border-gold/50">
                 <CardContent className="p-5">
-                  <div className="flex items-start justify-between">
-                    <Eyebrow>{tile.label}</Eyebrow>
+                  <div className="flex items-start justify-between gap-2">
+                    <Eyebrow className="truncate">{tile.label}</Eyebrow>
                     <tile.icon className="h-4 w-4 text-muted-foreground/60" />
                   </div>
-                  <div className="mt-3 flex items-baseline gap-3">
-                    <MetricValue size="xl">{tile.value}</MetricValue>
+                  <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <MetricValue size="xl" className="break-words">{tile.value}</MetricValue>
                     <span className={`inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-eyebrow ${trendCls}`}>
                       <TrendIcon className="h-3 w-3" />
                       {tile.delta}
@@ -142,7 +142,7 @@ export default function Dashboard() {
         })}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Próximas acciones */}
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">

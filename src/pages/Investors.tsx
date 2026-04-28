@@ -40,7 +40,7 @@ export default function Investors() {
       />
       <BetaBanner />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card><div className="p-5"><Eyebrow>Total inversores</Eyebrow><div className="mt-2"><MetricValue size="lg">{rows.length}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Capital agregado (max)</Eyebrow><div className="mt-2"><MetricValue size="lg" unit="€">{totalTicketMax.toLocaleString()}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Tipologías cubiertas</Eyebrow><div className="mt-2"><MetricValue size="lg">{new Set(rows.flatMap((r) => r.tipos_activo ?? [])).size}</MetricValue></div></div></Card>
@@ -56,6 +56,41 @@ export default function Investors() {
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar inversor…" className="h-8 pl-8 text-sm" />
             </div>
           </div>
+          {/* Mobile cards */}
+          <ul className="divide-y divide-border-faint md:hidden">
+            {filtered.map((i) => (
+              <li key={i.id} className="space-y-2 px-4 py-3">
+                <div>
+                  <Eyebrow>Inversor</Eyebrow>
+                  <div className="text-sm font-medium text-foreground break-words">{i.nombre}</div>
+                </div>
+                <div>
+                  <Eyebrow>Tipos de activo</Eyebrow>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {(i.tipos_activo ?? []).map((tp: string) => (
+                      <Badge key={tp} variant="outline">{tp}</Badge>
+                    ))}
+                    {(!i.tipos_activo || i.tipos_activo.length === 0) && <span className="text-xs text-muted-foreground">—</span>}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <Eyebrow>Ticket min</Eyebrow>
+                    <div className="font-mono tabular-nums text-foreground">{i.ticket_min ? `${Number(i.ticket_min).toLocaleString()} €` : "—"}</div>
+                  </div>
+                  <div className="text-right">
+                    <Eyebrow>Ticket max</Eyebrow>
+                    <div className="font-mono tabular-nums text-foreground">{i.ticket_max ? `${Number(i.ticket_max).toLocaleString()} €` : "—"}</div>
+                  </div>
+                </div>
+                <div>
+                  <Eyebrow>Ciudades</Eyebrow>
+                  <div className="text-xs text-muted-foreground break-words">{(i.ciudades ?? []).join(", ") || "—"}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden md:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
@@ -91,6 +126,7 @@ export default function Investors() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </Card>
       )}
     </div>

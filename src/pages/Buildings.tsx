@@ -59,7 +59,7 @@ export default function Buildings() {
         actions={<NewBuildingDialog onCreated={load} />}
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <div className="p-5">
             <Eyebrow>Total edificios</Eyebrow>
@@ -102,6 +102,31 @@ export default function Buildings() {
             </div>
           </div>
 
+          {/* Mobile cards */}
+          <ul className="divide-y divide-border-faint md:hidden">
+            {filtered.map((b) => (
+              <li key={b.id} className="px-4 py-3">
+                <Link to={`/edificios/${b.id}`} className="block space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Eyebrow>Dirección</Eyebrow>
+                      <div className="text-sm font-medium text-foreground break-words">{b.direccion}</div>
+                      <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{b.ciudad ?? "—"} · {b.codigo_postal ?? "—"}</div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <Badge variant="outline">{b.estado}</Badge>
+                      {b.division_horizontal && <Badge variant="gold">DH</Badge>}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <Eyebrow>Propietarios</Eyebrow>
+                    <div className="font-mono tabular-nums text-foreground">{counts[b.id] ?? 0}</div>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden md:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
@@ -132,6 +157,7 @@ export default function Buildings() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </Card>
       )}
     </div>

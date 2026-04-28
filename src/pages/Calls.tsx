@@ -64,7 +64,7 @@ export default function Calls() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card><div className="p-5"><Eyebrow>Total llamadas</Eyebrow><div className="mt-2"><MetricValue size="lg">{rows.length}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Analizadas</Eyebrow><div className="mt-2"><MetricValue size="lg">{analyzed}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Duración media</Eyebrow><div className="mt-2"><MetricValue size="lg">{fmtDur(avgDur)}</MetricValue></div></div></Card>
@@ -95,6 +95,37 @@ export default function Calls() {
               ))}
             </div>
           </div>
+          {/* Mobile cards */}
+          <ul className="divide-y divide-border-faint md:hidden">
+            {filtered.map((c) => (
+              <li key={c.id} className="px-4 py-3">
+                <Link to={`/llamadas/${c.id}`} className="block space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Eyebrow>Propietario</Eyebrow>
+                      <div className="truncate text-sm font-medium text-foreground">{c.owners?.nombre ?? "—"}</div>
+                    </div>
+                    <Badge variant="outline" className="shrink-0">{c.direccion}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <Eyebrow>Fecha</Eyebrow>
+                      <div className="font-mono tabular-nums text-foreground">{new Date(c.fecha).toLocaleDateString()}</div>
+                    </div>
+                    <div className="text-right">
+                      <Eyebrow>Duración</Eyebrow>
+                      <div className="font-mono tabular-nums text-foreground">{fmtDur(c.duracion_seg)}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <Eyebrow>Estado</Eyebrow>
+                    <div className="mt-1">{c.resumen ? <span className="text-xs text-muted-foreground line-clamp-2">{c.resumen}</span> : <StatusBadge status="no_summary" />}</div>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden md:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
@@ -123,6 +154,7 @@ export default function Calls() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </Card>
       )}
     </div>
