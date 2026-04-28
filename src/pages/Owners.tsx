@@ -66,7 +66,7 @@ export default function Owners() {
         actions={<NewOwnerDialog onCreated={load} />}
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card><div className="p-5"><Eyebrow>Total</Eyebrow><div className="mt-2"><MetricValue size="lg">{data.length}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Con consentimiento</Eyebrow><div className="mt-2"><MetricValue size="lg">{consentidos}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Sin rol catalogado</Eyebrow><div className="mt-2"><MetricValue size="lg">{sinRol}</MetricValue></div></div></Card>
@@ -100,6 +100,34 @@ export default function Owners() {
             </div>
           </div>
 
+          {/* Mobile cards */}
+          <ul className="divide-y divide-border-faint md:hidden">
+            {filtered.map((o) => (
+              <li key={o.id} className="px-4 py-3">
+                <Link to={`/propietarios/${o.id}`} className="block space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Eyebrow>Nombre</Eyebrow>
+                      <div className="truncate text-sm font-medium text-foreground">{o.nombre}</div>
+                      <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground truncate">{o.email ?? o.telefono ?? "—"}</div>
+                    </div>
+                    <Badge variant="outline" className="shrink-0">{o.rol}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <Eyebrow>Consentimiento</Eyebrow>
+                      <div className="text-foreground">{o.consentimiento ? <span className="inline-flex items-center gap-1 text-success"><Check className="h-3 w-3" />Sí</span> : "—"}</div>
+                    </div>
+                    <div className="text-right">
+                      <Eyebrow>Último contacto</Eyebrow>
+                      <div className="font-mono tabular-nums text-foreground">{new Date(o.updated_at).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden md:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
@@ -140,6 +168,7 @@ export default function Owners() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </Card>
       )}
     </div>
