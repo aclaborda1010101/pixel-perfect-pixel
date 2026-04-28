@@ -13,9 +13,13 @@ type Item = { url: string; label: string; icon: any; beta?: boolean };
 
 export function AppSidebar() {
   const { t } = useI18n();
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
+
+  const handleNavClick = () => {
+    if (isMobile) setOpenMobile(false);
+  };
 
   const pipeline: Item[] = [
     { url: "/", label: t.nav.home, icon: Home },
@@ -62,7 +66,7 @@ export function AppSidebar() {
                     "data-[active=true]:before:absolute data-[active=true]:before:left-0 data-[active=true]:before:top-1.5 data-[active=true]:before:bottom-1.5 data-[active=true]:before:w-[2px] data-[active=true]:before:bg-gold data-[active=true]:before:rounded-r-sm"
                   }
                 >
-                  <NavLink to={item.url} end={item.url === "/"}>
+                  <NavLink to={item.url} end={item.url === "/"} onClick={handleNavClick}>
                     <item.icon className="h-6 w-6 shrink-0 opacity-80 md:h-4 md:w-4" />
                     {!collapsed && (
                       <span className="flex flex-1 items-center justify-between">
