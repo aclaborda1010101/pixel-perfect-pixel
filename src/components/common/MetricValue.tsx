@@ -4,10 +4,10 @@ import { cn } from "@/lib/utils";
 type Size = "sm" | "md" | "lg" | "xl";
 
 const sizeMap: Record<Size, string> = {
-  sm: "text-lg",
-  md: "text-2xl",
-  lg: "text-3xl",
-  xl: "text-4xl",
+  sm: "text-xl md:text-lg",
+  md: "text-3xl md:text-2xl",
+  lg: "text-[2.25rem] leading-10 md:text-3xl md:leading-9",
+  xl: "text-[2.5rem] leading-[2.75rem] md:text-4xl md:leading-none",
 };
 
 export function MetricValue({
