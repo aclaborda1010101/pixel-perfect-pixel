@@ -5,7 +5,7 @@ import {
 } from "@/components/ui/command";
 import {
   Home, PhoneCall, PhoneOutgoing, Boxes, Users, Building2, Briefcase,
-  GitMerge, MessageSquareDot, ShieldCheck, Settings as SettingsIcon, Sparkles, Upload,
+  GitMerge, MessageSquareDot, Settings as SettingsIcon, Sparkles, Upload,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { NewOwnerDialog, NewBuildingDialog, NewInvestorDialog, NewAssetDialog } from "@/components/forms/NewEntityDialogs";
