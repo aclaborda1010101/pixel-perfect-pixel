@@ -111,7 +111,7 @@ export function CommandPalette() {
           <CommandItem onSelect={() => go("/inversores")}><Briefcase className="mr-2 h-4 w-4" /> Inversores</CommandItem>
           <CommandItem onSelect={() => go("/matching")}><GitMerge className="mr-2 h-4 w-4" /> Matching</CommandItem>
           <CommandItem onSelect={() => go("/cadencias")}><MessageSquareDot className="mr-2 h-4 w-4" /> Cadencias</CommandItem>
-          <CommandItem onSelect={() => go("/compliance")}><ShieldCheck className="mr-2 h-4 w-4" /> Compliance</CommandItem>
+          <CommandItem onSelect={() => go("/asistente")}><Sparkles className="mr-2 h-4 w-4" /> Asistente IA</CommandItem>
           <CommandItem onSelect={() => go("/ajustes")}><SettingsIcon className="mr-2 h-4 w-4" /> Ajustes</CommandItem>
         </CommandGroup>
       </CommandList>

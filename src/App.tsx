@@ -15,8 +15,8 @@ import Assets from "./pages/Assets";
 import Calls from "./pages/Calls";
 import Investors from "./pages/Investors";
 import Matching from "./pages/Matching";
-import Compliance from "./pages/Compliance";
 import Cadences from "./pages/Cadences";
+import Assistant from "./pages/Assistant";
 import Settings from "./pages/Settings";
 import CallAnalysis from "./pages/CallAnalysis";
 import AssetDetail from "./pages/AssetDetail";
@@ -54,8 +54,8 @@ const App = () => (
                 <Route path="/analizar-llamada" element={<AnalyzeCallWizard />} />
                 <Route path="/inversores" element={<Investors />} />
                 <Route path="/matching" element={<Matching />} />
-                <Route path="/compliance" element={<Compliance />} />
                 <Route path="/cadencias" element={<Cadences />} />
+                <Route path="/asistente" element={<Assistant />} />
                 <Route path="/ajustes" element={<Settings />} />
               </Route>
               <Route path="*" element={<NotFound />} />
