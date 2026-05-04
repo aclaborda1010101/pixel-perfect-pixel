@@ -1,6 +1,6 @@
 import {
   Home, PhoneCall, PhoneOutgoing, Boxes, Users, Building2, Briefcase,
-  GitMerge, MessageSquareDot, ShieldCheck, Settings as SettingsIcon, Search,
+  GitMerge, MessageSquareDot, Sparkles, Settings as SettingsIcon, Search,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
@@ -35,9 +35,9 @@ export function AppSidebar() {
   const operaciones: Item[] = [
     { url: "/matching", label: t.nav.matching, icon: GitMerge, beta: true },
     { url: "/cadencias", label: t.nav.cadences, icon: MessageSquareDot, beta: true },
-    { url: "/compliance", label: t.nav.compliance, icon: ShieldCheck },
   ];
   const cuenta: Item[] = [
+    { url: "/asistente", label: "Asistente IA", icon: Sparkles },
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
   ];
 

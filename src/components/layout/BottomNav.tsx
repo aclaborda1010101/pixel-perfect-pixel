@@ -1,12 +1,12 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { Home, PhoneCall, Boxes, User } from "lucide-react";
+import { Home, PhoneCall, Boxes, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { to: "/", label: "Inicio", icon: Home, match: (p: string) => p === "/" },
   { to: "/llamadas", label: "Llamadas", icon: PhoneCall, match: (p: string) => p.startsWith("/llamadas") || p.startsWith("/preparar-llamada") || p.startsWith("/analizar-llamada") },
   { to: "/activos", label: "Cartera", icon: Boxes, match: (p: string) => p.startsWith("/activos") || p.startsWith("/edificios") || p.startsWith("/propietarios") || p.startsWith("/inversores") },
-  { to: "/ajustes", label: "Cuenta", icon: User, match: (p: string) => p.startsWith("/ajustes") },
+  { to: "/asistente", label: "Asistente", icon: Sparkles, match: (p: string) => p.startsWith("/asistente") },
 ];
 
 export function BottomNav() {
