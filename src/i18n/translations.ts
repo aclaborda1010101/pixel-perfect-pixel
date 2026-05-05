@@ -3,7 +3,7 @@ export type Locale = "es" | "en";
 const _translations = {
   es: {
     appName: "Afflux Property",
-    appTagline: "",
+    appTagline: "Inteligencia operativa para Madrid",
     nav: {
       groupOperativa: "Operativa",
       groupCaptacion: "Captación",
@@ -165,7 +165,7 @@ const _translations = {
   },
   en: {
     appName: "Afflux Brain",
-    appTagline: "Operational intelligence for Afflux Property",
+    appTagline: "Operational intelligence for Madrid",
     nav: {
       groupOperativa: "Operations",
       groupCaptacion: "Acquisition",
