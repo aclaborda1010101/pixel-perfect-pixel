@@ -6,6 +6,7 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { Languages, Palette, User, Users } from "lucide-react";
+import { HubspotPanel } from "@/components/settings/HubspotPanel";
 
 export default function Settings() {
   const { t, locale, setLocale } = useI18n();
@@ -18,6 +19,7 @@ export default function Settings() {
         subtitle="Preferencias del panel"
       />
       <div className="grid gap-4 md:grid-cols-2">
+        <HubspotPanel />
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>
