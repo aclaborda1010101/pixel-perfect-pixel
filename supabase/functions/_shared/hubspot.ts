@@ -59,9 +59,4 @@ export const CONTACT_PROPERTIES = [
   'capital_de_inversion', 'telefono_secundario', 'telefono_terciario',
 ];
 
-export function getServiceClient() {
-  // Lazy import para no romper el bundle si no se usa
-  // @ts-ignore
-  const { createClient } = globalThis.__supabaseModule || {};
-  return createClient;
-}
+// (no helper extra; cada función importa createClient directamente)
