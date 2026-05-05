@@ -130,6 +130,7 @@ export type Database = {
           building_id: string
           created_at: string
           cuota: number | null
+          metadatos: Json
           owner_id: string
           rol_notas: string | null
           subrole: Database["public"]["Enums"]["owner_subrole"]
@@ -138,6 +139,7 @@ export type Database = {
           building_id: string
           created_at?: string
           cuota?: number | null
+          metadatos?: Json
           owner_id: string
           rol_notas?: string | null
           subrole?: Database["public"]["Enums"]["owner_subrole"]
@@ -146,6 +148,7 @@ export type Database = {
           building_id?: string
           created_at?: string
           cuota?: number | null
+          metadatos?: Json
           owner_id?: string
           rol_notas?: string | null
           subrole?: Database["public"]["Enums"]["owner_subrole"]
@@ -162,6 +165,8 @@ export type Database = {
           division_horizontal: boolean
           estado: Database["public"]["Enums"]["building_status"]
           id: string
+          last_synced_at: string | null
+          metadatos: Json
           notas: string | null
           numero_propietarios: number | null
           updated_at: string
@@ -175,6 +180,8 @@ export type Database = {
           division_horizontal?: boolean
           estado?: Database["public"]["Enums"]["building_status"]
           id?: string
+          last_synced_at?: string | null
+          metadatos?: Json
           notas?: string | null
           numero_propietarios?: number | null
           updated_at?: string
@@ -188,6 +195,8 @@ export type Database = {
           division_horizontal?: boolean
           estado?: Database["public"]["Enums"]["building_status"]
           id?: string
+          last_synced_at?: string | null
+          metadatos?: Json
           notas?: string | null
           numero_propietarios?: number | null
           updated_at?: string
@@ -315,6 +324,126 @@ export type Database = {
           resuelto_at?: string | null
           scope_id?: string | null
           scope_type?: string
+        }
+        Relationships: []
+      }
+      external_ids: {
+        Row: {
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          metadatos: Json
+          provider: string
+          provider_id: string
+          provider_object_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          metadatos?: Json
+          provider: string
+          provider_id: string
+          provider_object_type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          metadatos?: Json
+          provider?: string
+          provider_id?: string
+          provider_object_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      hubspot_sync_log: {
+        Row: {
+          created_at: string
+          entity: string
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          metadatos: Json
+          pages_fetched: number
+          records_failed: number
+          records_upserted: number
+          started_at: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          entity: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          metadatos?: Json
+          pages_fetched?: number
+          records_failed?: number
+          records_upserted?: number
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          entity?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          metadatos?: Json
+          pages_fetched?: number
+          records_failed?: number
+          records_upserted?: number
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      hubspot_sync_state: {
+        Row: {
+          created_at: string
+          cursor: string | null
+          entity: string
+          id: string
+          last_error: string | null
+          last_full_sync_at: string | null
+          last_run_at: string | null
+          last_run_status: string | null
+          metadatos: Json
+          total_synced: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          cursor?: string | null
+          entity: string
+          id?: string
+          last_error?: string | null
+          last_full_sync_at?: string | null
+          last_run_at?: string | null
+          last_run_status?: string | null
+          metadatos?: Json
+          total_synced?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          cursor?: string | null
+          entity?: string
+          id?: string
+          last_error?: string | null
+          last_full_sync_at?: string | null
+          last_run_at?: string | null
+          last_run_status?: string | null
+          metadatos?: Json
+          total_synced?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -564,6 +693,8 @@ export type Database = {
           created_at: string
           email: string | null
           id: string
+          last_synced_at: string | null
+          metadatos: Json
           nombre: string
           notas_breves: string | null
           rol: Database["public"]["Enums"]["owner_role"]
@@ -578,6 +709,8 @@ export type Database = {
           created_at?: string
           email?: string | null
           id?: string
+          last_synced_at?: string | null
+          metadatos?: Json
           nombre: string
           notas_breves?: string | null
           rol?: Database["public"]["Enums"]["owner_role"]
@@ -592,6 +725,8 @@ export type Database = {
           created_at?: string
           email?: string | null
           id?: string
+          last_synced_at?: string | null
+          metadatos?: Json
           nombre?: string
           notas_breves?: string | null
           rol?: Database["public"]["Enums"]["owner_role"]

@@ -31,7 +31,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
             Afflux Property
           </div>
           <div className="font-mono text-[11px] uppercase tracking-eyebrow text-brand-foreground/70">
-            Inteligencia operativa para Afflux Property
+            Inteligencia operativa para Madrid
           </div>
           <div className="text-primary"><AqueductLine /></div>
         </div>
