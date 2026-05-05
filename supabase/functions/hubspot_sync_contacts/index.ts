@@ -4,7 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 import { hubspotFetch, corsHeaders, CONTACT_PROPERTIES } from '../_shared/hubspot.ts';
 
 const PAGE_LIMIT = 100;
-const MAX_PAGES_PER_RUN = 30;
+const MAX_PAGES_PER_RUN = 10;
 
 interface HubspotContact {
   id: string;
