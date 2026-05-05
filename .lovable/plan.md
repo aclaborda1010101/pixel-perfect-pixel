@@ -1,94 +1,104 @@
-## Problema detectado en /activos/:id (mobile 390px)
+## Revert quirúrgico Fase A
 
-En el screenshot se ven varios fallos típicos en `AssetDetail.tsx`, que se repiten en `OwnerDetail.tsx`, `BuildingDetail.tsx` y `CallAnalysis.tsx`:
+Dos cambios aislados. No tocamos estructura, navegación, tipografías ni saludo Dashboard.
 
-1. **Crumbs desbordan**: la breadcrumb "ACTIVOS › EDIFICIO › ACTIVO DEMO #1" no hace wrap y empuja el layout.
-2. **TabsList desborda en horizontal** (4–8 pestañas con `text-xs` y sin scroll). Genera overflow-x lateral.
-3. **PageHeader actions** (badges/botones) compiten con el título largo y se cortan.
-4. **Aside/timeline lateral** declarado como `lg:grid-cols-[1fr_300px]`, en mobile aparece debajo correctamente, pero los KPIs internos `sm:grid-cols-3 / sm:grid-cols-4 / lg:grid-cols-5` saltan demasiado pronto y se aprietan en tablets pequeños.
-5. **BuildingDetail**: tabla `<Table>` de unidades + Tabs de 7 pestañas + grid de KPIs de 5 columnas → desborda fuerte en mobile.
-6. **CallAnalysis**: subtitle con muchos elementos en `flex` sin `flex-wrap` correcto a tamaños extremos; layout `lg:grid-cols-2` ya stackea, pero el `<pre>` de transcripción tiene `overflow-auto` solo vertical y puede empujar horizontalmente.
+---
 
-## Cambios a aplicar
+### 1. Paleta: vuelve champán/dorado sobre el grafito actual
 
-Sin tocar rutas, queries Supabase, hooks de datos, `.env` ni i18n.
+Archivo: `src/index.css`.
 
-### 1. `src/pages/AssetDetail.tsx`
-- Wrapper raíz: añadir `min-w-0` y `w-full` al `div.space-y-6` para que no fuerce ancho.
-- KPIs: cambiar `grid gap-4 sm:grid-cols-3` → `grid grid-cols-1 gap-3 sm:grid-cols-3` y reducir padding `p-5` → `p-4 md:p-5`.
-- TabsList: envolver en wrapper con scroll horizontal:
-  ```tsx
-  <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-    <TabsList className="w-max md:w-auto">…</TabsList>
-  </div>
-  ```
-- Aside: añadir `min-w-0`. En mobile el grid `lg:grid-cols-[1fr_300px]` ya stackea; ok.
-- Items con `flex items-center justify-between`: añadir `gap-3 min-w-0` y al `<div>` de texto `min-w-0 flex-1` con `truncate`.
+**Importante:** se restauran SOLO los tokens de marca/acento. Los tokens de superficie y estado que pediste no tocar (`--background`, `--foreground`, `--card`, `--popover`, `--secondary`, `--muted`, `--border`, `--input`, `--destructive`, `--success`, `--warning`, `--info`, `--shadow-*`, `--radius`, `--sidebar-background`, `--sidebar-foreground`) se quedan exactamente como están hoy (grafito #222831 / marfil #eeeeee / etc.). Resultado: panel sigue grafito, pero los CTA, anillos focus, ribbons activos del sidebar y gradientes vuelven a ser champán/dorado real.
 
-### 2. `src/pages/OwnerDetail.tsx`
-- Mismas correcciones que AssetDetail.
-- KPIs: `grid grid-cols-2 gap-3 sm:grid-cols-4` (en lugar de `sm:grid-cols-4` directo).
-- TabsList con 8 triggers → scroll horizontal con `-mx-4 px-4 overflow-x-auto`, `TabsList w-max`.
-- PageHeader actions con badges → ya envuelto en `flex items-center gap-2`, añadir `flex-wrap`.
+**Valores a restaurar (recuperados del commit previo a Fase A — `dd10914`):**
 
-### 3. `src/pages/BuildingDetail.tsx`
-- KPIs `md:grid-cols-3 lg:grid-cols-5` → `grid-cols-2 md:grid-cols-3 lg:grid-cols-5` para evitar 1 columna apretada y dar respiro en mobile (2 cols).
-- Chips eyebrow: ya `flex-wrap`, ok.
-- TabsList (7 triggers) → scroll horizontal igual patrón.
-- PageHeader actions (3 botones) → wrap a `flex flex-wrap`.
-- Tabla `<Table>` de unidades: envolver en `<div className="overflow-x-auto">` para scroll horizontal nativo en mobile sin romper el layout.
-- Lista de propietarios `bos.map`: el `<li>` con `flex items-center justify-between` y muchos badges + botón X → en mobile cambiar a `flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between`.
-- Próximas acciones grid: `md:grid-cols-3` → `grid-cols-1 sm:grid-cols-2 md:grid-cols-3`.
+En `:root` (modo claro):
+- `--primary: 41 47% 59%` (champán #C9A961)
+- `--primary-foreground: 213 52% 11%` (tinta marino, contraste sobre champán)
+- `--primary-hover: 40 36% 49%`
+- `--primary-soft: 41 47% 92%`
+- `--accent: 41 47% 59%`
+- `--accent-foreground: 213 52% 11%`
+- `--accent-soft: 41 47% 92%`
+- `--gold: 41 47% 59%` (real, no alias)
+- `--gold-foreground: 213 52% 11%`
+- `--gold-soft: 41 47% 92%`
+- `--gold-strong: 40 36% 39%`
+- `--ring: 41 47% 59%`
+- `--gradient-primary: linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 49%))`
+- `--gradient-accent:  linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 39%))`
+- `--gradient-hero: radial-gradient(ellipse at top left, hsl(210 14% 16% / 0.06), transparent 55%), radial-gradient(ellipse at bottom right, hsl(41 47% 59% / 0.10), transparent 55%)` (mantengo el grafito del fondo claro actual y solo cambio el halo de acero a champán)
+- `--sidebar-primary: 41 47% 59%`
+- `--sidebar-ring: 41 47% 59%`
 
-### 4. `src/pages/CallAnalysis.tsx`
-- Wrapper raíz: `min-w-0 w-full`.
-- PageHeader subtitle ya tiene `flex-wrap`, ok.
-- TabsList (3 triggers) ya cabe; añadir igualmente patrón seguro `overflow-x-auto`.
-- `<pre>` transcripción: añadir `break-words` y wrap container `min-w-0` para que `whitespace-pre-wrap` se aplique sin desbordar.
-- Acciones por línea (`<li> flex items-start justify-between`): permitir `flex-col sm:flex-row` para que el botón "Guardar acción" no se aplaste contra el texto largo.
+En `.dark` (modo oscuro, default):
+- `--primary: 41 47% 59%`
+- `--primary-foreground: 213 52% 11%`
+- `--primary-hover: 41 50% 65%`
+- `--primary-soft: 41 47% 59%` (se usa con /alpha)
+- `--accent: 41 47% 59%`
+- `--accent-foreground: 213 52% 11%`
+- `--accent-soft: 41 47% 59%`
+- `--gold: 41 47% 59%`
+- `--gold-foreground: 213 52% 11%`
+- `--gold-soft: 41 35% 22%`
+- `--gold-strong: 40 36% 49%`
+- `--ring: 41 47% 59%`
+- `--gradient-primary: linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 49%))`
+- `--gradient-accent:  linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 39%))`
+- `--gradient-hero: radial-gradient(ellipse at top left, hsl(210 14% 16% / 0.6), transparent 55%), radial-gradient(ellipse at bottom right, hsl(41 47% 59% / 0.10), transparent 55%)` (fondo grafito intacto, halo champán)
+- `--sidebar-primary: 41 47% 59%`
+- `--sidebar-ring: 41 47% 59%`
 
-### 5. `src/components/common/Crumbs.tsx` (revisar)
-- Asegurar `flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0` para que las migas hagan wrap en mobile y no fuercen overflow.
+Además:
+- Eliminar los dos comentarios `TODO legacy alias — limpiar en Fase C…` (ya no aplica, `--gold` vuelve a ser real).
+- Actualizar el comentario de cabecera del archivo: cambiar "Acero (#5c848e) como acento único" por "Champán/dorado (#C9A961) como acento sobre fondo grafito" para que el código no mienta.
 
-### 6. `src/components/common/PageHeader.tsx` (revisar)
-- Asegurar que `actions` esté en un contenedor `flex flex-wrap` y que el bloque título use `min-w-0` con `break-words` en h1, para no empujar al sidebar.
+### 2. Nombre: "Afflux Brain" → "Afflux Property"
 
-### 7. Patrón reutilizable de Tabs scrollables
-No se crea componente nuevo (para no aumentar superficie). Se aplica el wrapper inline en cada página afectada. El propio `TabsList` mantiene su tamaño natural (`w-max`) y se permite scroll horizontal solo dentro del wrapper.
+**`index.html`:**
+- `<title>`: `Afflux Property — Inteligencia operativa para Madrid`
+- `<meta name="description">`: `Afflux Property: plataforma operativa interna. Detectar, desbloquear, estructurar y liquidar patrimonio inmobiliario complejo en Madrid.`
+- `<meta property="og:site_name">`: `Afflux Property`
+- `og:title`, `twitter:title`: `Afflux Property — Inteligencia operativa para Madrid`
+- `og:description`, `twitter:description`: `Plataforma operativa interna de Afflux Property: detectar, desbloquear, estructurar, liquidar.`
+- Comentario de fuentes: dejar `Tipografía Afflux Property` (cosmético).
 
-## Diagrama de layout mobile final por detalle
+**`src/i18n/translations.ts`:**
+- `appName: "Afflux Property"`
+- `appTagline: ""` (vacío — antes del rebrand no había tagline persistido como literal de marca; mantenerlo vacío evita duplicar "Afflux Property · Afflux Property" allá donde se renderice).
 
-```text
-┌─────────────────────────────────┐
-│ Crumbs (wrap)                   │
-│ PageHeader                      │
-│   eyebrow                       │
-│   H1 (break-words)              │
-│   subtitle                      │
-│   actions (flex-wrap)           │
-├─────────────────────────────────┤
-│ KPIs grid-cols-1 / 2 cols       │
-├─────────────────────────────────┤
-│ Tabs ◀──── scroll-x ────▶       │
-│ ┌─ contenido tab ─────────────┐ │
-│ │ cards / listas con          │ │
-│ │ items flex-col sm:flex-row  │ │
-│ └─────────────────────────────┘ │
-├─────────────────────────────────┤
-│ Aside Timeline (apilado abajo)  │
-└─────────────────────────────────┘
-```
+**`src/components/layout/AppSidebar.tsx`:**
+- Wordmark del header pasa a `Afflux Property`.
+- Eliminar el `<span>` muted que repetía `Afflux Property` debajo (ya no tiene sentido con el wordmark cambiado).
+- Mantener `<AqueductLine />` y el resto del bloque tal cual.
 
-## Lo que NO se toca
+**`src/pages/auth/AuthShell.tsx`:**
+- Wordmark mobile (`<div class="font-editorial text-2xl…">`): `Afflux Property`.
+- Wordmark desktop (`<div class="font-editorial text-3xl…">`): `Afflux Property`.
+- Eliminar el `<Eyebrow>Afflux Property</Eyebrow>` redundante bajo el wordmark desktop.
+- Mantener `AqueductLine`, el `Eyebrow` editorial "Detectar · Desbloquear · Estructurar · Liquidar", el `<h1>` editorial y el footer "Afflux Property · Madrid · 2026".
+- En el bloque mobile, conservar la línea de tagline `Inteligencia operativa para Afflux Property` tal cual (sigue teniendo sentido al haber renombrado solo el wordmark).
+- Actualizar comentario JSDoc del componente: `marca Afflux Property`.
 
-- Rutas en `App.tsx`.
-- Queries Supabase ni hooks de datos.
-- `.env`, i18n, traducciones.
-- Lógica de estado, navegación o componentes funcionales.
-- Auth / DEMO_MODE.
+**Búsqueda final:** ejecutaré `rg "Afflux Brain"` tras los cambios y, si aparece cualquier otro literal en código (comentarios incluidos), lo reemplazo a `Afflux Property`.
 
-## Validación tras implementar
+---
 
-- `tsc --noEmit` verde.
-- Visual check a 390px en `/activos/:id`, `/propietarios/:id`, `/edificios/:id`, `/llamadas/:id`: sin overflow-x, tabs scrolleables, KPIs respirando, listas legibles.
-- Desktop ≥md mantiene exactamente el layout actual.
+### Lo que NO se toca (confirmación)
+
+- Estructura sidebar (4 grupos: Operativa / Captación / IA & Mensajes / Cuenta).
+- Bottom nav 4 items.
+- Páginas placeholder `/leads`, `/notas-simples`, `/mensajes`.
+- Eliminación previa de Compliance / Matching / Cadences / Index.
+- Modo oscuro por defecto.
+- Topbar sin Beta badge.
+- Tipografías Cormorant Garamond + Lato + Geist Mono.
+- Saludo Dashboard "Buenos días, Álvaro".
+- Tokens de superficie/estado (`--background`, `--foreground`, `--card`, `--popover`, `--secondary`, `--muted`, `--border`, `--input`, `--destructive`, `--success`, `--warning`, `--info`, `--shadow-*`, `--radius`, `--sidebar-background`, `--sidebar-foreground`).
+
+### Resultado esperado
+
+Panel grafito + marfil intacto, pero los acentos vuelven a ser champán/dorado real (CTA primary, ribbon activo del sidebar item, anillo focus, halos del hero). Marca textual coherente como "Afflux Property" en title, OG, sidebar y AuthShell.
+
+Tras aprobación, aplico, dejo build limpio y abrimos la decisión Conector nativo Lovable→HubSpot vs Private App.

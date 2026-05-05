@@ -18,7 +18,7 @@ function AqueductLine() {
 
 /**
  * Split-screen sobrio para Login / Recuperar contraseña.
- * Panel izquierdo: marca Afflux Brain sobre fondo --brand grafito.
+ * Panel izquierdo: marca Afflux Property sobre fondo --brand grafito.
  * Panel derecho: superficie del formulario.
  */
 export function AuthShell({ children }: { children: ReactNode }) {
@@ -28,7 +28,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
       <div className="relative overflow-hidden border-b border-border-faint bg-brand p-6 text-brand-foreground md:hidden">
         <div className="relative z-10 space-y-3">
           <div className="font-editorial text-2xl font-semibold tracking-[-0.005em] text-brand-foreground">
-            Afflux Brain
+            Afflux Property
           </div>
           <div className="font-mono text-[11px] uppercase tracking-eyebrow text-brand-foreground/70">
             Inteligencia operativa para Afflux Property
@@ -41,9 +41,8 @@ export function AuthShell({ children }: { children: ReactNode }) {
       <aside className="relative hidden flex-col justify-between overflow-hidden bg-brand p-12 text-brand-foreground md:flex">
         <div className="relative z-10 space-y-2">
           <div className="font-editorial text-3xl font-semibold tracking-[-0.005em]">
-            Afflux Brain
+            Afflux Property
           </div>
-          <Eyebrow className="text-primary/80">Afflux Property</Eyebrow>
           <div className="text-primary"><AqueductLine /></div>
         </div>
 

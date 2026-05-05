@@ -121,9 +121,6 @@ export function AppSidebar() {
           ) : (
             <div className="flex min-w-0 flex-col leading-tight text-sidebar-foreground">
               <span className="font-editorial text-[22px] font-semibold tracking-[-0.005em] text-sidebar-foreground md:text-[19px]">
-                Afflux Brain
-              </span>
-              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-sidebar-foreground/50 md:text-[9px]">
                 Afflux Property
               </span>
               <AqueductLine />

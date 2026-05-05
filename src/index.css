@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 /* =====================================================================
-   AFFLUX BRAIN — Design tokens
+   AFFLUX PROPERTY — Design tokens
    Plataforma operativa interna de Afflux Property.
    Tono: clásico, sobrio, profesional. Sin estridencias.
-   - Acero (#5c848e) como acento único, fondo grafito profundo
+   - Champán/dorado (#C9A961) como acento sobre fondo grafito profundo
    - Tipografías editoriales: Cormorant Garamond (display) + Lato (body)
    Reglas: TODO color en HSL. Nunca colores directos en componentes.
    ===================================================================== */
@@ -14,8 +14,8 @@
 @layer base {
   :root {
     /* =====================================================================
-       AFFLUX BRAIN — Modo CLARO (toggle, no default)
-       Marfil neutro #eeeeee + tinta grafito #222831 + acero #5c848e
+       AFFLUX PROPERTY — Modo CLARO (toggle, no default)
+       Marfil neutro #eeeeee + tinta grafito #222831 + champán #C9A961
        ===================================================================== */
 
     --background: 0 0% 93%;                /* #eeeeee */
@@ -33,16 +33,16 @@
     --surface-1: 213 11% 90%;              /* gris claro card-secundario */
     --surface-2: 213 11% 84%;
 
-    /* TODO legacy alias — limpiar en Fase C al reescribir componentes que aún usen --gold */
-    --gold: 196 23% 46%;                   /* alias → acero #5c848e */
-    --gold-foreground: 0 0% 98%;
-    --gold-soft: 196 23% 88%;
-    --gold-strong: 196 25% 36%;
+    /* —— Champán / dorado (acento Afflux) ————————————————— */
+    --gold: 41 47% 59%;                    /* #C9A961 champán */
+    --gold-foreground: 213 52% 11%;
+    --gold-soft: 41 47% 92%;
+    --gold-strong: 40 36% 39%;
 
-    --primary: 196 23% 38%;                /* acero ligeramente más oscuro para CTA en claro */
-    --primary-foreground: 0 0% 98%;
-    --primary-hover: 196 25% 30%;
-    --primary-soft: 196 23% 88%;
+    --primary: 41 47% 59%;                 /* CTA principal = champán */
+    --primary-foreground: 213 52% 11%;
+    --primary-hover: 40 36% 49%;
+    --primary-soft: 41 47% 92%;
 
     --secondary: 213 11% 88%;
     --secondary-foreground: 210 14% 16%;
@@ -50,9 +50,9 @@
     --muted: 213 11% 90%;
     --muted-foreground: 214 10% 40%;
 
-    --accent: 196 23% 46%;                 /* #5c848e acero */
-    --accent-foreground: 0 0% 98%;
-    --accent-soft: 196 23% 88%;
+    --accent: 41 47% 59%;                  /* champán */
+    --accent-foreground: 213 52% 11%;
+    --accent-soft: 41 47% 92%;
 
     /* —— Estado (mantenidos, sobrios) ——————————————————— */
     --destructive: 4 65% 48%;
@@ -76,7 +76,7 @@
     --border-strong: 213 12% 70%;
     --border-faint: 213 12% 90%;
     --input: 213 12% 84%;
-    --ring: 196 23% 46%;
+    --ring: 41 47% 59%;
 
     /* —— Radios (notarial: pequeños) ——————————————————— */
     --radius: 0.375rem;
@@ -93,13 +93,13 @@
     --shadow-focus: 0 0 0 3px hsl(var(--ring) / 0.30);
 
     /* —— Gradientes (planos, sin halos) ———————————————— */
-    --gradient-primary: linear-gradient(135deg, hsl(196 23% 46%), hsl(196 25% 36%));
-    --gradient-accent:  linear-gradient(135deg, hsl(196 23% 46%), hsl(196 25% 30%));
+    --gradient-primary: linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 49%));
+    --gradient-accent:  linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 39%));
     --gradient-surface: linear-gradient(180deg, hsl(0 0% 96%), hsl(213 11% 90%));
     --gradient-hero:    radial-gradient(ellipse at top left, hsl(210 14% 16% / 0.06), transparent 55%),
-                        radial-gradient(ellipse at bottom right, hsl(196 23% 46% / 0.08), transparent 55%);
+                        radial-gradient(ellipse at bottom right, hsl(41 47% 59% / 0.10), transparent 55%);
 
-    /* —— Tipografía Afflux Brain ——————————————————————— */
+    /* —— Tipografía Afflux Property ———————————————————— */
     --font-sans: "Lato", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --font-display: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
     --font-editorial: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
@@ -113,18 +113,18 @@
     /* —— Sidebar (siempre grafito, también en modo claro) ——— */
     --sidebar-background: 210 16% 13%;     /* algo más oscuro que el bg dark */
     --sidebar-foreground: 0 0% 82%;
-    --sidebar-primary: 196 23% 46%;
+    --sidebar-primary: 41 47% 59%;
     --sidebar-primary-foreground: 0 0% 98%;
     --sidebar-accent: 213 11% 22%;
     --sidebar-accent-foreground: 0 0% 93%;
     --sidebar-border: 213 11% 22%;
-    --sidebar-ring: 196 23% 46%;
+    --sidebar-ring: 41 47% 59%;
   }
 
   .dark {
     /* =====================================================================
-       AFFLUX BRAIN — Modo OSCURO (panel interno, default)
-       #222831 background + #eeeeee foreground + #5c848e acero
+       AFFLUX PROPERTY — Modo OSCURO (panel interno, default)
+       #222831 background + #eeeeee foreground + #C9A961 champán
        ===================================================================== */
 
     --background: 210 14% 16%;             /* #222831 */
@@ -141,16 +141,16 @@
     --surface-1: 213 12% 20%;              /* card */
     --surface-2: 213 11% 26%;              /* #393e46 */
 
-    /* TODO legacy alias — limpiar en Fase C al reescribir componentes que aún usen --gold */
-    --gold: 196 23% 46%;                   /* alias → acero #5c848e */
-    --gold-foreground: 0 0% 98%;
-    --gold-soft: 196 23% 22%;              /* fondo sutil sobre oscuro */
-    --gold-strong: 196 28% 56%;
+    /* —— Champán / dorado (acento Afflux) ————————————————— */
+    --gold: 41 47% 59%;                    /* #C9A961 champán */
+    --gold-foreground: 213 52% 11%;
+    --gold-soft: 41 35% 22%;
+    --gold-strong: 40 36% 49%;
 
-    --primary: 196 23% 46%;                /* #5c848e */
-    --primary-foreground: 0 0% 98%;
-    --primary-hover: 196 28% 54%;
-    --primary-soft: 196 23% 22%;
+    --primary: 41 47% 59%;                 /* CTA principal = champán */
+    --primary-foreground: 213 52% 11%;
+    --primary-hover: 41 50% 65%;
+    --primary-soft: 41 47% 59%;
 
     --secondary: 213 11% 26%;              /* #393e46 */
     --secondary-foreground: 0 0% 93%;
@@ -158,9 +158,9 @@
     --muted: 213 11% 22%;
     --muted-foreground: 214 10% 65%;
 
-    --accent: 196 23% 46%;
-    --accent-foreground: 0 0% 98%;
-    --accent-soft: 196 23% 22%;
+    --accent: 41 47% 59%;
+    --accent-foreground: 213 52% 11%;
+    --accent-soft: 41 47% 59%;
 
     --destructive: 4 65% 58%;
     --destructive-foreground: 0 0% 98%;
@@ -182,7 +182,7 @@
     --border-strong: 213 11% 36%;
     --border-faint: 213 11% 22%;
     --input: 213 11% 26%;
-    --ring: 196 23% 46%;
+    --ring: 41 47% 59%;
 
     /* Sombras planas sin tonalidad */
     --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.40);
@@ -192,20 +192,20 @@
     --shadow-xl: 0 24px 48px -12px hsl(0 0% 0% / 0.70);
     --shadow-focus: 0 0 0 3px hsl(var(--ring) / 0.45);
 
-    --gradient-primary: linear-gradient(135deg, hsl(196 23% 46%), hsl(196 25% 36%));
-    --gradient-accent:  linear-gradient(135deg, hsl(196 23% 46%), hsl(196 28% 54%));
+    --gradient-primary: linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 49%));
+    --gradient-accent:  linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 39%));
     --gradient-surface: linear-gradient(180deg, hsl(213 12% 20%), hsl(210 14% 16%));
     --gradient-hero:    radial-gradient(ellipse at top left, hsl(210 14% 16% / 0.6), transparent 55%),
-                        radial-gradient(ellipse at bottom right, hsl(196 23% 46% / 0.10), transparent 55%);
+                        radial-gradient(ellipse at bottom right, hsl(41 47% 59% / 0.10), transparent 55%);
 
     --sidebar-background: 210 16% 13%;
     --sidebar-foreground: 0 0% 82%;
-    --sidebar-primary: 196 23% 46%;
+    --sidebar-primary: 41 47% 59%;
     --sidebar-primary-foreground: 0 0% 98%;
     --sidebar-accent: 213 11% 22%;
     --sidebar-accent-foreground: 0 0% 93%;
     --sidebar-border: 213 11% 22%;
-    --sidebar-ring: 196 23% 46%;
+    --sidebar-ring: 41 47% 59%;
   }
 }
 

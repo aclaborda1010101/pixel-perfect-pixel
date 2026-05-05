@@ -2,8 +2,8 @@ export type Locale = "es" | "en";
 
 const _translations = {
   es: {
-    appName: "Afflux Brain",
-    appTagline: "Inteligencia operativa para Afflux Property",
+    appName: "Afflux Property",
+    appTagline: "",
     nav: {
       groupOperativa: "Operativa",
       groupCaptacion: "Captación",
