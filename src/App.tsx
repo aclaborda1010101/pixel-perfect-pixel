@@ -14,8 +14,6 @@ import Buildings from "./pages/Buildings";
 import Assets from "./pages/Assets";
 import Calls from "./pages/Calls";
 import Investors from "./pages/Investors";
-import Matching from "./pages/Matching";
-import Cadences from "./pages/Cadences";
 import Assistant from "./pages/Assistant";
 import Settings from "./pages/Settings";
 import CallAnalysis from "./pages/CallAnalysis";
@@ -23,6 +21,9 @@ import AssetDetail from "./pages/AssetDetail";
 import BuildingDetail from "./pages/BuildingDetail";
 import PrepareCallWizard from "./pages/wizards/PrepareCallWizard";
 import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
+import Leads from "./pages/Leads";
+import NotasSimples from "./pages/NotasSimples";
+import Mensajes from "./pages/Mensajes";
 import Login from "./pages/auth/Login";
 import RecoverPassword from "./pages/auth/RecoverPassword";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -53,8 +54,9 @@ const App = () => (
                 <Route path="/preparar-llamada" element={<PrepareCallWizard />} />
                 <Route path="/analizar-llamada" element={<AnalyzeCallWizard />} />
                 <Route path="/inversores" element={<Investors />} />
-                <Route path="/matching" element={<Matching />} />
-                <Route path="/cadencias" element={<Cadences />} />
+                <Route path="/leads" element={<Leads />} />
+                <Route path="/notas-simples" element={<NotasSimples />} />
+                <Route path="/mensajes" element={<Mensajes />} />
                 <Route path="/asistente" element={<Assistant />} />
                 <Route path="/ajustes" element={<Settings />} />
               </Route>
