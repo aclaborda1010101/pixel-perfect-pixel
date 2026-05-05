@@ -112,6 +112,9 @@ Deno.serve(async (req) => {
               .eq('id', buildingId);
             if (upErr) throw upErr;
           } else {
+            // Insertar building y external_id de forma idempotente: primero intentamos
+            // INSERT en external_ids con ON CONFLICT (provider, provider_object_type, provider_id)
+            // para evitar carrera. Insertamos building primero, luego external_id con onConflict.
             const { data: ins, error: insErr } = await supabase
               .from('buildings')
               .insert(buildingPayload)
@@ -119,15 +122,27 @@ Deno.serve(async (req) => {
               .single();
             if (insErr) throw insErr;
             buildingId = ins!.id;
-            const { error: extErr } = await supabase.from('external_ids').insert({
-              entity_type: 'building',
-              entity_id: buildingId,
-              provider: 'hubspot',
-              provider_object_type: 'deal',
-              provider_id: deal.id,
-              metadatos: { hs_object_id: deal.id },
-            });
+            const { error: extErr, data: extData } = await supabase
+              .from('external_ids')
+              .upsert({
+                entity_type: 'building',
+                entity_id: buildingId,
+                provider: 'hubspot',
+                provider_object_type: 'deal',
+                provider_id: deal.id,
+                metadatos: { hs_object_id: deal.id },
+              }, { onConflict: 'provider,provider_object_type,provider_id', ignoreDuplicates: false })
+              .select('entity_id')
+              .single();
             if (extErr) throw extErr;
+            // Si ya existía un mapping previo para este deal, el upsert lo sobreescribe
+            // pero el building "nuevo" que acabamos de insertar queda huérfano. Lo limpiamos.
+            if (extData && extData.entity_id !== buildingId) {
+              await supabase.from('buildings').delete().eq('id', buildingId);
+              buildingId = extData.entity_id;
+              // Actualizar el building original con los datos frescos
+              await supabase.from('buildings').update(buildingPayload).eq('id', buildingId);
+            }
           }
           upserted++;
         } catch (e) {
