@@ -3,109 +3,106 @@
 @tailwind utilities;
 
 /* =====================================================================
-   AFFLUX — Design tokens
-   Identidad: CRM premium para captación inmobiliaria.
-   Tono: confianza institucional + claridad operativa.
-   - Azul tinta profundo (primary) + turquesa señal (accent)
-   - Neutros ligeramente cálidos para reducir fatiga visual
-   - Escala de elevaciones, gradientes y tipografía consistentes
+   AFFLUX BRAIN — Design tokens
+   Plataforma operativa interna de Afflux Property.
+   Tono: clásico, sobrio, profesional. Sin estridencias.
+   - Acero (#5c848e) como acento único, fondo grafito profundo
+   - Tipografías editoriales: Cormorant Garamond (display) + Lato (body)
    Reglas: TODO color en HSL. Nunca colores directos en componentes.
    ===================================================================== */
 
 @layer base {
   :root {
     /* =====================================================================
-       AFFLUX — Modo CLARO (auth claro, marketing, impresión)
-       Paleta notarial: marfil ligeramente cálido + tinta marino + champán.
-       El panel interno corre en modo oscuro (.dark) por defecto.
+       AFFLUX BRAIN — Modo CLARO (toggle, no default)
+       Marfil neutro #eeeeee + tinta grafito #222831 + acero #5c848e
        ===================================================================== */
 
-    /* —— Superficie —————————————————————————————————— */
-    --background: 40 33% 97%;              /* marfil cálido ~#FAF9F5 */
-    --foreground: 213 52% 11%;             /* tinta marino ~#0E1B2C */
+    --background: 0 0% 93%;                /* #eeeeee */
+    --foreground: 210 14% 16%;             /* #222831 */
 
     --card: 0 0% 100%;
-    --card-foreground: 213 52% 11%;
+    --card-foreground: 210 14% 16%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 213 52% 11%;
+    --popover-foreground: 210 14% 16%;
 
-    /* —— Marca ———————————————————————————————————————— */
-    /* Brand = tinta marino noche; primary action = champán */
-    --brand: 213 52% 11%;                  /* #0E1B2C */
-    --brand-foreground: 40 33% 97%;
-    --surface-1: 213 44% 15%;              /* #152538 */
-    --surface-2: 213 51% 25%;              /* #1E3A5F */
+    /* —— Marca ——————————————————————————————————————————— */
+    --brand: 210 14% 16%;                  /* #222831 grafito */
+    --brand-foreground: 0 0% 93%;
+    --surface-1: 213 11% 90%;              /* gris claro card-secundario */
+    --surface-2: 213 11% 84%;
 
-    --gold: 41 47% 59%;                    /* #C9A961 — acento Afflux */
-    --gold-foreground: 213 52% 11%;
-    --gold-soft: 41 47% 92%;               /* fondo sutil para badges/hover */
-    --gold-strong: 40 36% 39%;             /* #8a7340 hover/borde */
+    /* TODO legacy alias — limpiar en Fase C al reescribir componentes que aún usen --gold */
+    --gold: 196 23% 46%;                   /* alias → acero #5c848e */
+    --gold-foreground: 0 0% 98%;
+    --gold-soft: 196 23% 88%;
+    --gold-strong: 196 25% 36%;
 
-    --primary: 41 47% 59%;                 /* CTA principal = champán */
-    --primary-foreground: 213 52% 11%;
-    --primary-hover: 40 36% 49%;
-    --primary-soft: 41 47% 92%;
+    --primary: 196 23% 38%;                /* acero ligeramente más oscuro para CTA en claro */
+    --primary-foreground: 0 0% 98%;
+    --primary-hover: 196 25% 30%;
+    --primary-soft: 196 23% 88%;
 
-    --secondary: 213 30% 94%;
-    --secondary-foreground: 213 52% 11%;
+    --secondary: 213 11% 88%;
+    --secondary-foreground: 210 14% 16%;
 
-    --muted: 213 25% 95%;
-    --muted-foreground: 217 16% 50%;       /* #6B7C95 */
+    --muted: 213 11% 90%;
+    --muted-foreground: 214 10% 40%;
 
-    --accent: 41 47% 59%;
-    --accent-foreground: 213 52% 11%;
-    --accent-soft: 41 47% 92%;
+    --accent: 196 23% 46%;                 /* #5c848e acero */
+    --accent-foreground: 0 0% 98%;
+    --accent-soft: 196 23% 88%;
 
-    /* —— Estado ———————————————————————————————————————— */
-    --destructive: 14 73% 61%;             /* #E07856 */
-    --destructive-foreground: 40 33% 97%;
-    --destructive-soft: 14 73% 94%;
+    /* —— Estado (mantenidos, sobrios) ——————————————————— */
+    --destructive: 4 65% 48%;
+    --destructive-foreground: 0 0% 98%;
+    --destructive-soft: 4 65% 92%;
 
-    --success: 148 33% 37%;                /* #3F7D5C */
-    --success-foreground: 40 33% 97%;
-    --success-soft: 148 33% 92%;
+    --success: 148 35% 35%;
+    --success-foreground: 0 0% 98%;
+    --success-soft: 148 35% 90%;
 
-    --warning: 43 99% 51%;                 /* #FFBA08 */
-    --warning-foreground: 213 52% 11%;
-    --warning-soft: 43 99% 92%;
+    --warning: 35 85% 45%;
+    --warning-foreground: 0 0% 98%;
+    --warning-soft: 35 85% 92%;
 
-    --info: 213 31% 36%;                   /* #3D5A80 */
-    --info-foreground: 40 33% 97%;
-    --info-soft: 213 31% 92%;
+    --info: 196 23% 46%;
+    --info-foreground: 0 0% 98%;
+    --info-soft: 196 23% 90%;
 
     /* —— Bordes / formularios —————————————————————————— */
-    --border: 220 18% 89%;
-    --border-strong: 220 16% 78%;
-    --border-faint: 213 30% 92%;
-    --input: 220 18% 89%;
-    --ring: 41 47% 59%;                    /* anillo focus = champán */
+    --border: 213 12% 84%;
+    --border-strong: 213 12% 70%;
+    --border-faint: 213 12% 90%;
+    --input: 213 12% 84%;
+    --ring: 196 23% 46%;
 
-    /* —— Radios (notarial: pequeños y sobrios) ————————— */
-    --radius: 0.375rem;                    /* base 6px */
-    --radius-sm: 0.125rem;                 /* 2px */
-    --radius-lg: 0.625rem;                 /* 10px */
-    --radius-xl: 0.875rem;                 /* 14px */
+    /* —— Radios (notarial: pequeños) ——————————————————— */
+    --radius: 0.375rem;
+    --radius-sm: 0.125rem;
+    --radius-lg: 0.625rem;
+    --radius-xl: 0.875rem;
 
-    /* —— Sombras planas (sin halos azulados) ——————————— */
-    --shadow-xs: 0 1px 2px 0 hsl(213 52% 11% / 0.04);
-    --shadow-sm: 0 1px 3px 0 hsl(213 52% 11% / 0.06), 0 1px 2px -1px hsl(213 52% 11% / 0.04);
-    --shadow-md: 0 4px 12px -2px hsl(213 52% 11% / 0.08), 0 2px 4px -2px hsl(213 52% 11% / 0.04);
-    --shadow-lg: 0 12px 28px -8px hsl(213 52% 11% / 0.12);
-    --shadow-xl: 0 24px 48px -12px hsl(213 52% 11% / 0.18);
+    /* —— Sombras planas ——————————————————————————————— */
+    --shadow-xs: 0 1px 2px 0 hsl(210 14% 16% / 0.04);
+    --shadow-sm: 0 1px 3px 0 hsl(210 14% 16% / 0.06), 0 1px 2px -1px hsl(210 14% 16% / 0.04);
+    --shadow-md: 0 4px 12px -2px hsl(210 14% 16% / 0.08), 0 2px 4px -2px hsl(210 14% 16% / 0.04);
+    --shadow-lg: 0 12px 28px -8px hsl(210 14% 16% / 0.12);
+    --shadow-xl: 0 24px 48px -12px hsl(210 14% 16% / 0.18);
     --shadow-focus: 0 0 0 3px hsl(var(--ring) / 0.30);
 
-    /* —— Gradientes ———————————————————————————————————— */
-    --gradient-primary: linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 49%));
-    --gradient-accent:  linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 39%));
-    --gradient-surface: linear-gradient(180deg, hsl(40 33% 99%), hsl(40 25% 95%));
-    --gradient-hero:    radial-gradient(ellipse at top left, hsl(213 52% 11% / 0.08), transparent 55%),
-                        radial-gradient(ellipse at bottom right, hsl(41 47% 59% / 0.10), transparent 55%);
+    /* —— Gradientes (planos, sin halos) ———————————————— */
+    --gradient-primary: linear-gradient(135deg, hsl(196 23% 46%), hsl(196 25% 36%));
+    --gradient-accent:  linear-gradient(135deg, hsl(196 23% 46%), hsl(196 25% 30%));
+    --gradient-surface: linear-gradient(180deg, hsl(0 0% 96%), hsl(213 11% 90%));
+    --gradient-hero:    radial-gradient(ellipse at top left, hsl(210 14% 16% / 0.06), transparent 55%),
+                        radial-gradient(ellipse at bottom right, hsl(196 23% 46% / 0.08), transparent 55%);
 
-    /* —— Tipografía ———————————————————————————————————— */
-    --font-sans: "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --font-display: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
-    --font-editorial: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+    /* —— Tipografía Afflux Brain ——————————————————————— */
+    --font-sans: "Lato", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-display: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
+    --font-editorial: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
     --font-mono: "Geist Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
 
     /* —— Transiciones —————————————————————————————————— */
@@ -113,80 +110,81 @@
     --duration-fast: 140ms;
     --duration-base: 220ms;
 
-    /* —— Sidebar (siempre marino oscuro, incluso en modo claro) ——— */
-    --sidebar-background: 213 52% 11%;     /* #0E1B2C */
-    --sidebar-foreground: 217 19% 76%;     /* #B6C0CE */
-    --sidebar-primary: 41 47% 59%;         /* champán */
-    --sidebar-primary-foreground: 213 52% 11%;
-    --sidebar-accent: 213 44% 15%;         /* surface-1 */
-    --sidebar-accent-foreground: 210 30% 95%;
-    --sidebar-border: 213 35% 20%;         /* sutil */
-    --sidebar-ring: 41 47% 59%;
+    /* —— Sidebar (siempre grafito, también en modo claro) ——— */
+    --sidebar-background: 210 16% 13%;     /* algo más oscuro que el bg dark */
+    --sidebar-foreground: 0 0% 82%;
+    --sidebar-primary: 196 23% 46%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 213 11% 22%;
+    --sidebar-accent-foreground: 0 0% 93%;
+    --sidebar-border: 213 11% 22%;
+    --sidebar-ring: 196 23% 46%;
   }
 
   .dark {
     /* =====================================================================
-       AFFLUX — Modo OSCURO (panel interno, default)
-       Marino noche profundo + champán. Bordes finos, sombras planas.
+       AFFLUX BRAIN — Modo OSCURO (panel interno, default)
+       #222831 background + #eeeeee foreground + #5c848e acero
        ===================================================================== */
 
-    --background: 213 54% 9%;              /* #0A1422 */
-    --foreground: 215 30% 95%;             /* #EEF2F8 */
+    --background: 210 14% 16%;             /* #222831 */
+    --foreground: 0 0% 93%;                /* #eeeeee */
 
-    --card: 213 44% 15%;                   /* #152538 */
-    --card-foreground: 215 30% 95%;
+    --card: 213 12% 20%;                   /* #2c333d ligeramente más claro que bg */
+    --card-foreground: 0 0% 93%;
 
-    --popover: 213 52% 11%;                /* #0E1B2C */
-    --popover-foreground: 215 30% 95%;
+    --popover: 213 12% 20%;
+    --popover-foreground: 0 0% 93%;
 
-    --brand: 213 52% 11%;
-    --brand-foreground: 215 30% 95%;
-    --surface-1: 213 44% 15%;
-    --surface-2: 213 51% 25%;
+    --brand: 210 14% 16%;
+    --brand-foreground: 0 0% 93%;
+    --surface-1: 213 12% 20%;              /* card */
+    --surface-2: 213 11% 26%;              /* #393e46 */
 
-    --gold: 41 47% 59%;                    /* #C9A961 */
-    --gold-foreground: 213 52% 11%;
-    --gold-soft: 41 35% 22%;               /* fondo badges/hover sobre oscuro (opaco) */
-    --gold-strong: 40 36% 49%;
+    /* TODO legacy alias — limpiar en Fase C al reescribir componentes que aún usen --gold */
+    --gold: 196 23% 46%;                   /* alias → acero #5c848e */
+    --gold-foreground: 0 0% 98%;
+    --gold-soft: 196 23% 22%;              /* fondo sutil sobre oscuro */
+    --gold-strong: 196 28% 56%;
 
-    --primary: 41 47% 59%;                 /* CTA principal = champán */
-    --primary-foreground: 213 52% 11%;
-    --primary-hover: 41 50% 65%;
-    --primary-soft: 41 47% 59%;            /* usar con /0.14 vía clase */
+    --primary: 196 23% 46%;                /* #5c848e */
+    --primary-foreground: 0 0% 98%;
+    --primary-hover: 196 28% 54%;
+    --primary-soft: 196 23% 22%;
 
-    --secondary: 213 44% 15%;
-    --secondary-foreground: 215 30% 95%;
+    --secondary: 213 11% 26%;              /* #393e46 */
+    --secondary-foreground: 0 0% 93%;
 
-    --muted: 213 44% 15%;
-    --muted-foreground: 217 19% 76%;       /* #B6C0CE */
+    --muted: 213 11% 22%;
+    --muted-foreground: 214 10% 65%;
 
-    --accent: 41 47% 59%;
-    --accent-foreground: 213 52% 11%;
-    --accent-soft: 41 47% 59%;
+    --accent: 196 23% 46%;
+    --accent-foreground: 0 0% 98%;
+    --accent-soft: 196 23% 22%;
 
-    --destructive: 14 73% 61%;             /* #E07856 */
-    --destructive-foreground: 213 52% 11%;
-    --destructive-soft: 14 73% 30%;
+    --destructive: 4 65% 58%;
+    --destructive-foreground: 0 0% 98%;
+    --destructive-soft: 4 50% 26%;
 
-    --success: 148 38% 61%;                /* #8FCAA8 sobre oscuro */
-    --success-foreground: 213 52% 11%;
+    --success: 148 38% 55%;
+    --success-foreground: 0 0% 98%;
     --success-soft: 148 33% 22%;
 
-    --warning: 43 99% 51%;                 /* #FFBA08 */
-    --warning-foreground: 213 52% 11%;
-    --warning-soft: 43 60% 22%;
+    --warning: 35 85% 58%;
+    --warning-foreground: 210 14% 16%;
+    --warning-soft: 35 60% 22%;
 
-    --info: 217 35% 57%;                   /* #6B86B0 ~ entre 4A6FA5 y 8493A8 */
-    --info-foreground: 213 52% 11%;
-    --info-soft: 213 31% 24%;
+    --info: 196 28% 54%;
+    --info-foreground: 0 0% 98%;
+    --info-soft: 196 23% 22%;
 
-    --border: 213 35% 20%;                 /* sutil sobre marino (opaco, compatible con /alpha) */
-    --border-strong: 213 51% 25%;          /* surface-2 como borde fuerte */
-    --border-faint: 213 40% 16%;           /* casi imperceptible */
-    --input: 213 44% 15%;
-    --ring: 41 47% 59%;
+    --border: 213 11% 26%;                 /* #393e46 fino sobre grafito */
+    --border-strong: 213 11% 36%;
+    --border-faint: 213 11% 22%;
+    --input: 213 11% 26%;
+    --ring: 196 23% 46%;
 
-    /* Sombras planas notariales (sin colorear de azul) */
+    /* Sombras planas sin tonalidad */
     --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.40);
     --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.50);
     --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.55);
@@ -194,20 +192,20 @@
     --shadow-xl: 0 24px 48px -12px hsl(0 0% 0% / 0.70);
     --shadow-focus: 0 0 0 3px hsl(var(--ring) / 0.45);
 
-    --gradient-primary: linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 49%));
-    --gradient-accent:  linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 39%));
-    --gradient-surface: linear-gradient(180deg, hsl(213 44% 15%), hsl(213 54% 9%));
-    --gradient-hero:    radial-gradient(ellipse at top left, hsl(213 52% 11% / 0.6), transparent 55%),
-                        radial-gradient(ellipse at bottom right, hsl(41 47% 59% / 0.10), transparent 55%);
+    --gradient-primary: linear-gradient(135deg, hsl(196 23% 46%), hsl(196 25% 36%));
+    --gradient-accent:  linear-gradient(135deg, hsl(196 23% 46%), hsl(196 28% 54%));
+    --gradient-surface: linear-gradient(180deg, hsl(213 12% 20%), hsl(210 14% 16%));
+    --gradient-hero:    radial-gradient(ellipse at top left, hsl(210 14% 16% / 0.6), transparent 55%),
+                        radial-gradient(ellipse at bottom right, hsl(196 23% 46% / 0.10), transparent 55%);
 
-    --sidebar-background: 213 52% 11%;
-    --sidebar-foreground: 217 19% 76%;
-    --sidebar-primary: 41 47% 59%;
-    --sidebar-primary-foreground: 213 52% 11%;
-    --sidebar-accent: 213 44% 15%;
-    --sidebar-accent-foreground: 215 30% 95%;
-    --sidebar-border: 213 35% 20%;
-    --sidebar-ring: 41 47% 59%;
+    --sidebar-background: 210 16% 13%;
+    --sidebar-foreground: 0 0% 82%;
+    --sidebar-primary: 196 23% 46%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 213 11% 22%;
+    --sidebar-accent-foreground: 0 0% 93%;
+    --sidebar-border: 213 11% 22%;
+    --sidebar-ring: 196 23% 46%;
   }
 }
 
@@ -221,7 +219,6 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "cv11", "ss01", "ss03", "cv02";
   }
 
   body {
@@ -229,10 +226,10 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
-  /* Tipografía display: ligeramente más ajustada en titulares */
+  /* Tipografía display: Cormorant Garamond, ligeramente más ajustada en titulares */
   h1, h2, h3, h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.022em;
+    letter-spacing: -0.005em;
     font-weight: 600;
   }
 
@@ -245,7 +242,7 @@
 
   /* Selección coherente con la marca */
   ::selection {
-    background-color: hsl(var(--primary) / 0.18);
+    background-color: hsl(var(--primary) / 0.22);
     color: hsl(var(--foreground));
   }
 
@@ -296,7 +293,7 @@
 }
 
 @layer utilities {
-  /* Utilidades responsivas de tipografía notarial */
+  /* Utilidades responsivas de tipografía editorial */
   .text-display-mobile { font-size: 1.875rem; line-height: 2.125rem; }     /* 30px */
   .text-h2-mobile      { font-size: 1.375rem; line-height: 1.625rem; }     /* 22px */
   .text-kpi-mobile     { font-size: 2.25rem;  line-height: 2.5rem; }       /* 36px */

@@ -1,4 +1,4 @@
-import { Moon, Sun, Languages, Monitor, ChevronRight, Check, Menu } from "lucide-react";
+import { Moon, Sun, Languages, Monitor, Check, Menu } from "lucide-react";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,25 +16,27 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const SEGMENT_LABELS: Record<string, string> = {
-  "": "Inicio",
+  "": "Dashboard",
   propietarios: "Propietarios",
   edificios: "Edificios",
   activos: "Activos",
   llamadas: "Llamadas",
   inversores: "Inversores",
-  matching: "Matching",
-  cadencias: "Cadencias",
+  leads: "Leads marketing",
+  "notas-simples": "Notas Simples",
+  mensajes: "Mensajes",
   asistente: "Asistente IA",
-  ajustes: "Ajustes",
+  ajustes: "Configuración",
+  configuracion: "Configuración",
   "preparar-llamada": "Preparar llamada",
   "analizar-llamada": "Analizar llamada",
 };
 
 function useCrumbs(pageTitle: string | null) {
   const { pathname } = useLocation();
-  if (pathname === "/") return [{ label: "Inicio", to: "/" }];
+  if (pathname === "/") return [{ label: "Dashboard", to: "/" }];
   const parts = pathname.split("/").filter(Boolean);
-  const acc: { label: string; to: string }[] = [{ label: "Inicio", to: "/" }];
+  const acc: { label: string; to: string }[] = [{ label: "Dashboard", to: "/" }];
   let path = "";
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
@@ -48,8 +50,6 @@ function useCrumbs(pageTitle: string | null) {
     }
     acc.push({ label, to: path });
   }
-  // If the last segment is a static one but the page registered a title that
-  // differs (e.g. a wizard with custom name), prefer it.
   if (pageTitle && acc.length > 1) {
     const last = acc[acc.length - 1];
     if (UUID_RE.test(parts[parts.length - 1] ?? "")) {
@@ -67,7 +67,7 @@ export function Topbar() {
   const { isMobile, setOpenMobile } = useSidebar();
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 shadow-[inset_0_-1px_0_0_hsl(var(--gold)/0.25)] md:gap-3 md:px-4">
+    <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 shadow-[inset_0_-1px_0_0_hsl(var(--primary)/0.20)] md:gap-3 md:px-4">
       {isMobile ? (
         <Button
           variant="ghost"
@@ -97,7 +97,7 @@ export function Topbar() {
               }
             >
               {last ? (
-                <span className="truncate text-primary">{c.label}</span>
+                <span className="truncate text-foreground">{c.label}</span>
               ) : (
                 <Link to={c.to} className="transition-colors hover:text-foreground">
                   {c.label}
@@ -110,10 +110,6 @@ export function Topbar() {
       </nav>
 
       <div className="flex-1" />
-
-      <span className="hidden rounded-[3px] border border-gold/40 bg-gold-soft/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold md:inline-flex">
-        Beta
-      </span>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -141,15 +137,15 @@ export function Topbar() {
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => setTheme("light")}>
             <Sun className="mr-2 h-4 w-4" /> {t.settings.themeLight}
-            {theme === "light" && <Check className="ml-auto h-3.5 w-3.5 text-gold" />}
+            {theme === "light" && <Check className="ml-auto h-3.5 w-3.5 text-primary" />}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setTheme("dark")}>
             <Moon className="mr-2 h-4 w-4" /> {t.settings.themeDark}
-            {theme === "dark" && <Check className="ml-auto h-3.5 w-3.5 text-gold" />}
+            {theme === "dark" && <Check className="ml-auto h-3.5 w-3.5 text-primary" />}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setTheme("system")}>
             <Monitor className="mr-2 h-4 w-4" /> {t.settings.themeSystem}
-            {theme === "system" && <Check className="ml-auto h-3.5 w-3.5 text-gold" />}
+            {theme === "system" && <Check className="ml-auto h-3.5 w-3.5 text-primary" />}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -161,7 +157,7 @@ export function Topbar() {
             Founder
           </span>
         </div>
-        <div className="flex h-8 w-8 items-center justify-center rounded-full border border-gold/50 bg-surface-1 font-mono text-xs text-gold">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/50 bg-surface-1 font-mono text-xs text-primary">
           AQ
         </div>
       </div>
