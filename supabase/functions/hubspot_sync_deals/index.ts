@@ -4,7 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 import { hubspotFetch, corsHeaders, DEAL_PROPERTIES } from '../_shared/hubspot.ts';
 
 const PAGE_LIMIT = 100;
-const MAX_PAGES_PER_RUN = 30; // ~3000 deals por pulsación; 7300 totales caben en 3 pulsaciones
+const MAX_PAGES_PER_RUN = 10; // ~1000 deals por pulsación; 7300 totales caben en 8 pulsaciones
 
 interface HubspotDeal {
   id: string;
