@@ -99,7 +99,6 @@ Deno.serve(async (req) => {
             ciudad: pickCiudad(props),
             codigo_postal: props.zip?.trim() || null,
             catastro_ref: props.cadastral_reference?.trim() || null,
-            numero_propietarios: parseInt0(props.total_m2 ? null : null), // dejamos null
             metadatos: { ...props, _hubspot_deal_id: deal.id },
             last_synced_at: new Date().toISOString(),
           };
@@ -141,13 +140,11 @@ Deno.serve(async (req) => {
       // Persistir cursor en cada página por si se corta
       await supabase.from('hubspot_sync_state').update({
         cursor: after || null,
-        total_synced: (state?.cursor ? 0 : 0) + upserted, // valor incremental dentro del run
       }).eq('entity', 'deals');
 
       if (!after) break;
     }
 
-    const finalState = !await (async () => true)(); // placeholder
     const finishedAt = new Date().toISOString();
 
     // Cerrar log
@@ -173,12 +170,15 @@ Deno.serve(async (req) => {
       total_synced: totalDeals || 0,
     }).eq('entity', 'deals');
 
+    const { data: stateAfter } = await supabase
+      .from('hubspot_sync_state').select('cursor').eq('entity', 'deals').single();
+
     return new Response(JSON.stringify({
       ok: true,
       pages_fetched: pagesFetched,
       upserted,
       failed,
-      has_more: !!(await supabase.from('hubspot_sync_state').select('cursor').eq('entity', 'deals').single()).data?.cursor,
+      has_more: !!stateAfter?.cursor,
       total_synced: totalDeals || 0,
     }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: unknown) {
