@@ -4,13 +4,10 @@ import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut,
 } from "@/components/ui/command";
 import {
-  Home, PhoneCall, PhoneOutgoing, Boxes, Users, Building2, Briefcase,
-  GitMerge, MessageSquareDot, Settings as SettingsIcon, Sparkles, Upload,
+  LayoutDashboard, PhoneCall, PhoneOutgoing, Boxes, Users, Building2, TrendingUp,
+  Inbox, FileText, Megaphone, MessageSquare, Settings as SettingsIcon, Upload, Plus,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { NewOwnerDialog, NewBuildingDialog, NewInvestorDialog, NewAssetDialog } from "@/components/forms/NewEntityDialogs";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
 
 type Hit = { kind: "owner" | "asset" | "call"; id: string; label: string; sub?: string };
 
@@ -56,7 +53,7 @@ export function CommandPalette() {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Buscar o navegar… (escribe nombre, activo, llamada)" value={query} onValueChange={setQuery} />
+      <CommandInput placeholder="Buscar o navegar… (escribe nombre, edificio, llamada)" value={query} onValueChange={setQuery} />
       <CommandList>
         <CommandEmpty>Sin resultados</CommandEmpty>
 
@@ -97,22 +94,19 @@ export function CommandPalette() {
           <CommandItem onSelect={() => go("/inversores")}>
             <Plus className="mr-2 h-4 w-4" /> Nuevo inversor (en /inversores)
           </CommandItem>
-          <CommandItem onSelect={() => go("/activos")}>
-            <Plus className="mr-2 h-4 w-4" /> Nuevo activo (en /activos)
-          </CommandItem>
         </CommandGroup>
 
         <CommandGroup heading="Navegar">
-          <CommandItem onSelect={() => go("/")}><Home className="mr-2 h-4 w-4" /> Inicio</CommandItem>
-          <CommandItem onSelect={() => go("/llamadas")}><PhoneCall className="mr-2 h-4 w-4" /> Llamadas</CommandItem>
-          <CommandItem onSelect={() => go("/activos")}><Boxes className="mr-2 h-4 w-4" /> Activos</CommandItem>
-          <CommandItem onSelect={() => go("/propietarios")}><Users className="mr-2 h-4 w-4" /> Propietarios</CommandItem>
+          <CommandItem onSelect={() => go("/")}><LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard</CommandItem>
           <CommandItem onSelect={() => go("/edificios")}><Building2 className="mr-2 h-4 w-4" /> Edificios</CommandItem>
-          <CommandItem onSelect={() => go("/inversores")}><Briefcase className="mr-2 h-4 w-4" /> Inversores</CommandItem>
-          <CommandItem onSelect={() => go("/matching")}><GitMerge className="mr-2 h-4 w-4" /> Matching</CommandItem>
-          <CommandItem onSelect={() => go("/cadencias")}><MessageSquareDot className="mr-2 h-4 w-4" /> Cadencias</CommandItem>
-          <CommandItem onSelect={() => go("/asistente")}><Sparkles className="mr-2 h-4 w-4" /> Asistente IA</CommandItem>
-          <CommandItem onSelect={() => go("/ajustes")}><SettingsIcon className="mr-2 h-4 w-4" /> Ajustes</CommandItem>
+          <CommandItem onSelect={() => go("/propietarios")}><Users className="mr-2 h-4 w-4" /> Propietarios</CommandItem>
+          <CommandItem onSelect={() => go("/inversores")}><TrendingUp className="mr-2 h-4 w-4" /> Inversores</CommandItem>
+          <CommandItem onSelect={() => go("/leads")}><Inbox className="mr-2 h-4 w-4" /> Leads marketing</CommandItem>
+          <CommandItem onSelect={() => go("/notas-simples")}><FileText className="mr-2 h-4 w-4" /> Notas Simples</CommandItem>
+          <CommandItem onSelect={() => go("/llamadas")}><PhoneCall className="mr-2 h-4 w-4" /> Llamadas</CommandItem>
+          <CommandItem onSelect={() => go("/asistente")}><MessageSquare className="mr-2 h-4 w-4" /> Asistente IA</CommandItem>
+          <CommandItem onSelect={() => go("/mensajes")}><Megaphone className="mr-2 h-4 w-4" /> Mensajes</CommandItem>
+          <CommandItem onSelect={() => go("/ajustes")}><SettingsIcon className="mr-2 h-4 w-4" /> Configuración</CommandItem>
         </CommandGroup>
       </CommandList>
     </CommandDialog>
@@ -122,7 +116,7 @@ export function CommandPalette() {
 export function CommandPaletteHint() {
   return (
     <kbd className="hidden h-7 select-none items-center gap-1 rounded border border-border bg-muted px-2 text-[10px] font-medium text-muted-foreground sm:inline-flex">
-      <Sparkles className="h-3 w-3" /> ⌘ K
+      <MessageSquare className="h-3 w-3" /> ⌘ K
     </kbd>
   );
 }
