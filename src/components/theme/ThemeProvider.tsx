@@ -10,6 +10,8 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 const STORAGE_KEY = "afflux.theme";
+// Afflux Brain: el panel interno corre en oscuro por defecto.
+const DEFAULT_THEME: Theme = "dark";
 
 function applyTheme(theme: Theme): "light" | "dark" {
   const root = document.documentElement;
@@ -22,13 +24,13 @@ function applyTheme(theme: Theme): "light" | "dark" {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "system";
+    if (typeof window === "undefined") return DEFAULT_THEME;
     const stored = window.localStorage.getItem(STORAGE_KEY);
     return (stored === "light" || stored === "dark" || stored === "system")
       ? stored
-      : "system";
+      : DEFAULT_THEME;
   });
-  const [resolved, setResolved] = useState<"light" | "dark">("light");
+  const [resolved, setResolved] = useState<"light" | "dark">("dark");
 
   useEffect(() => {
     setResolved(applyTheme(theme));
