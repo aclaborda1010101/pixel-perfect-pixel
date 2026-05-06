@@ -36,7 +36,8 @@ export default function Owners() {
     const { data } = await supabase
       .from("owners")
       .select("id,nombre,email,telefono,rol,subrole,consentimiento,updated_at")
-      .order("updated_at", { ascending: false });
+      .order("updated_at", { ascending: false })
+      .range(0, 9999);
     setData((data as Owner[]) ?? []);
   };
   useEffect(() => { load(); }, []);
