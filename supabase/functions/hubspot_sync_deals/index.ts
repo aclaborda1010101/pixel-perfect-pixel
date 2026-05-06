@@ -112,9 +112,7 @@ Deno.serve(async (req) => {
               .eq('id', buildingId);
             if (upErr) throw upErr;
           } else {
-            // Insertar building y external_id de forma idempotente: primero intentamos
-            // INSERT en external_ids con ON CONFLICT (provider, provider_object_type, provider_id)
-            // para evitar carrera. Insertamos building primero, luego external_id con onConflict.
+            // Insert building primero
             const { data: ins, error: insErr } = await supabase
               .from('buildings')
               .insert(buildingPayload)
@@ -122,26 +120,33 @@ Deno.serve(async (req) => {
               .single();
             if (insErr) throw insErr;
             buildingId = ins!.id;
-            const { error: extErr, data: extData } = await supabase
-              .from('external_ids')
-              .upsert({
-                entity_type: 'building',
-                entity_id: buildingId,
-                provider: 'hubspot',
-                provider_object_type: 'deal',
-                provider_id: deal.id,
-                metadatos: { hs_object_id: deal.id },
-              }, { onConflict: 'provider,provider_object_type,provider_id', ignoreDuplicates: false })
-              .select('entity_id')
-              .single();
-            if (extErr) throw extErr;
-            // Si ya existía un mapping previo para este deal, el upsert lo sobreescribe
-            // pero el building "nuevo" que acabamos de insertar queda huérfano. Lo limpiamos.
-            if (extData && extData.entity_id !== buildingId) {
-              await supabase.from('buildings').delete().eq('id', buildingId);
-              buildingId = extData.entity_id;
-              // Actualizar el building original con los datos frescos
-              await supabase.from('buildings').update(buildingPayload).eq('id', buildingId);
+            // Intentar insertar mapping external_ids. Si colisiona (23505), otro
+            // run ya creó el mapping: limpiamos el building huérfano y reusamos el ganador.
+            const { error: extErr } = await supabase.from('external_ids').insert({
+              entity_type: 'building',
+              entity_id: buildingId,
+              provider: 'hubspot',
+              provider_object_type: 'deal',
+              provider_id: deal.id,
+              metadatos: { hs_object_id: deal.id },
+            });
+            if (extErr) {
+              if ((extErr as any).code === '23505') {
+                // Conflict: borrar building huérfano y usar el existente
+                await supabase.from('buildings').delete().eq('id', buildingId);
+                const { data: winner, error: winErr } = await supabase
+                  .from('external_ids')
+                  .select('entity_id')
+                  .eq('provider', 'hubspot')
+                  .eq('provider_object_type', 'deal')
+                  .eq('provider_id', deal.id)
+                  .single();
+                if (winErr || !winner) throw winErr ?? new Error('winner not found');
+                buildingId = winner.entity_id;
+                await supabase.from('buildings').update(buildingPayload).eq('id', buildingId);
+              } else {
+                throw extErr;
+              }
             }
           }
           upserted++;

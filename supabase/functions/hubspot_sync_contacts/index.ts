@@ -122,7 +122,21 @@ Deno.serve(async (req) => {
               provider_id: contact.id,
               metadatos: { hs_object_id: contact.id },
             });
-            if (extErr) throw extErr;
+            if (extErr) {
+              if ((extErr as any).code === '23505') {
+                await supabase.from('owners').delete().eq('id', ownerId);
+                const { data: winner } = await supabase
+                  .from('external_ids').select('entity_id')
+                  .eq('provider', 'hubspot')
+                  .eq('provider_object_type', 'contact')
+                  .eq('provider_id', contact.id).single();
+                if (!winner) throw extErr;
+                ownerId = winner.entity_id;
+                await supabase.from('owners').update(ownerPayload).eq('id', ownerId);
+              } else {
+                throw extErr;
+              }
+            }
           }
           upserted++;
 
