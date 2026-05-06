@@ -23,7 +23,11 @@ export default function Buildings() {
   const [filter, setFilter] = useState<string>("all");
 
   const load = async () => {
-    const { data } = await supabase.from("buildings").select("*").order("updated_at", { ascending: false });
+    const { data } = await supabase
+      .from("buildings")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .range(0, 9999);
     setRows(data ?? []);
     if (data && data.length) {
       const { data: bo } = await supabase.from("building_owners").select("building_id").in("building_id", data.map((b) => b.id));
