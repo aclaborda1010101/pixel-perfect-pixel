@@ -1,104 +1,76 @@
-## Revert quirúrgico Fase A
+## Paginación server-side + buscador real en /edificios y /propietarios
 
-Dos cambios aislados. No tocamos estructura, navegación, tipografías ni saludo Dashboard.
+### Problema
 
----
+PostgREST tiene `max-rows=1000` como límite duro del servidor (no se puede subir desde el cliente con `.range()`). Por eso /edificios y /propietarios sólo muestran 1000 de los 7703 / 7616 reales.
 
-### 1. Paleta: vuelve champán/dorado sobre el grafito actual
+### Solución
 
-Archivo: `src/index.css`.
+Paginación server-side (50 por página) con buscador y filtro que ejecutan la query en el servidor, no en memoria. Así trabajas con 7700 filas sin descargarlas todas y la UX escala.
 
-**Importante:** se restauran SOLO los tokens de marca/acento. Los tokens de superficie y estado que pediste no tocar (`--background`, `--foreground`, `--card`, `--popover`, `--secondary`, `--muted`, `--border`, `--input`, `--destructive`, `--success`, `--warning`, `--info`, `--shadow-*`, `--radius`, `--sidebar-background`, `--sidebar-foreground`) se quedan exactamente como están hoy (grafito #222831 / marfil #eeeeee / etc.). Resultado: panel sigue grafito, pero los CTA, anillos focus, ribbons activos del sidebar y gradientes vuelven a ser champán/dorado real.
+### Cambios
 
-**Valores a restaurar (recuperados del commit previo a Fase A — `dd10914`):**
+**1. `src/pages/Buildings.tsx`**
 
-En `:root` (modo claro):
-- `--primary: 41 47% 59%` (champán #C9A961)
-- `--primary-foreground: 213 52% 11%` (tinta marino, contraste sobre champán)
-- `--primary-hover: 40 36% 49%`
-- `--primary-soft: 41 47% 92%`
-- `--accent: 41 47% 59%`
-- `--accent-foreground: 213 52% 11%`
-- `--accent-soft: 41 47% 92%`
-- `--gold: 41 47% 59%` (real, no alias)
-- `--gold-foreground: 213 52% 11%`
-- `--gold-soft: 41 47% 92%`
-- `--gold-strong: 40 36% 39%`
-- `--ring: 41 47% 59%`
-- `--gradient-primary: linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 49%))`
-- `--gradient-accent:  linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 39%))`
-- `--gradient-hero: radial-gradient(ellipse at top left, hsl(210 14% 16% / 0.06), transparent 55%), radial-gradient(ellipse at bottom right, hsl(41 47% 59% / 0.10), transparent 55%)` (mantengo el grafito del fondo claro actual y solo cambio el halo de acero a champán)
-- `--sidebar-primary: 41 47% 59%`
-- `--sidebar-ring: 41 47% 59%`
+- Estado nuevo: `page` (0..N), `pageSize=50`, `total` (count exact), `loading`.
+- `load()` reescrito:
+  - Construye query con `.select("*", { count: "exact" })`.
+  - Aplica `.ilike("direccion", \`%${q}%\`)` (o `or(direccion.ilike,ciudad.ilike,codigo_postal.ilike)`) cuando hay búsqueda.
+  - Aplica `.eq("estado", filter)` cuando filtro != "all".
+  - `.order("updated_at", desc).range(page*50, page*50+49)`.
+  - Lee `count` para pintar total real y calcular `Math.ceil(count/50)` páginas.
+- `counts` (propietarios por edificio): se sigue cargando sólo para los 50 visibles vía `.in("building_id", visibleIds)`.
+- Debounce 250 ms en `q` para no spamear el servidor en cada tecla.
+- Resetear `page=0` cuando cambia `q` o `filter`.
+- Métricas superiores (Total edificios, Propietarios vinculados, DH): pasan a leer de queries `count` independientes (3 HEADs ligeros en paralelo) en lugar de calcular sobre `rows`. Así reflejan los 7703 reales, no los 50 de la página.
+- Nuevo componente footer de tabla: `« Anterior  Página X / Y  Siguiente »` + texto `Mostrando 51-100 de 7703`.
 
-En `.dark` (modo oscuro, default):
-- `--primary: 41 47% 59%`
-- `--primary-foreground: 213 52% 11%`
-- `--primary-hover: 41 50% 65%`
-- `--primary-soft: 41 47% 59%` (se usa con /alpha)
-- `--accent: 41 47% 59%`
-- `--accent-foreground: 213 52% 11%`
-- `--accent-soft: 41 47% 59%`
-- `--gold: 41 47% 59%`
-- `--gold-foreground: 213 52% 11%`
-- `--gold-soft: 41 35% 22%`
-- `--gold-strong: 40 36% 49%`
-- `--ring: 41 47% 59%`
-- `--gradient-primary: linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 49%))`
-- `--gradient-accent:  linear-gradient(135deg, hsl(41 47% 59%), hsl(40 36% 39%))`
-- `--gradient-hero: radial-gradient(ellipse at top left, hsl(210 14% 16% / 0.6), transparent 55%), radial-gradient(ellipse at bottom right, hsl(41 47% 59% / 0.10), transparent 55%)` (fondo grafito intacto, halo champán)
-- `--sidebar-primary: 41 47% 59%`
-- `--sidebar-ring: 41 47% 59%`
+**2. `src/pages/Owners.tsx`**
 
-Además:
-- Eliminar los dos comentarios `TODO legacy alias — limpiar en Fase C…` (ya no aplica, `--gold` vuelve a ser real).
-- Actualizar el comentario de cabecera del archivo: cambiar "Acero (#5c848e) como acento único" por "Champán/dorado (#C9A961) como acento sobre fondo grafito" para que el código no mienta.
+Mismo patrón:
+- `page`, `pageSize=50`, `total`, `loading`.
+- Query con `count: "exact"`, búsqueda `or(nombre.ilike,email.ilike,telefono.ilike)`, filtro `eq("rol", rolFilter)`, `range`.
+- Métricas (Total, Con consentimiento, Sin rol catalogado) → 3 queries `count` independientes.
+- Mismo footer de paginación, mismo debounce.
 
-### 2. Nombre: "Afflux Brain" → "Afflux Property"
+**3. Limpieza**
 
-**`index.html`:**
-- `<title>`: `Afflux Property — Inteligencia operativa para Madrid`
-- `<meta name="description">`: `Afflux Property: plataforma operativa interna. Detectar, desbloquear, estructurar y liquidar patrimonio inmobiliario complejo en Madrid.`
-- `<meta property="og:site_name">`: `Afflux Property`
-- `og:title`, `twitter:title`: `Afflux Property — Inteligencia operativa para Madrid`
-- `og:description`, `twitter:description`: `Plataforma operativa interna de Afflux Property: detectar, desbloquear, estructurar, liquidar.`
-- Comentario de fuentes: dejar `Tipografía Afflux Property` (cosmético).
+- Quitar el `.range(0, 9999)` previo (queda sin uso al haber paginación real).
+- Quitar el filtrado en memoria (`useMemo` que filtra `data`/`rows`): ahora la query ya viene filtrada del servidor; sólo se renderiza directo.
 
-**`src/i18n/translations.ts`:**
-- `appName: "Afflux Property"`
-- `appTagline: ""` (vacío — antes del rebrand no había tagline persistido como literal de marca; mantenerlo vacío evita duplicar "Afflux Property · Afflux Property" allá donde se renderice).
+### Lo que NO se toca
 
-**`src/components/layout/AppSidebar.tsx`:**
-- Wordmark del header pasa a `Afflux Property`.
-- Eliminar el `<span>` muted que repetía `Afflux Property` debajo (ya no tiene sentido con el wordmark cambiado).
-- Mantener `<AqueductLine />` y el resto del bloque tal cual.
+- Schema DB.
+- RLS.
+- Edge functions HubSpot.
+- Sync (sigue 7694 deals + 7616 contacts intactos).
+- Otras páginas (/leads, /inversores, /llamadas, dashboard).
+- Diseño visual de la tabla y cards mobile.
 
-**`src/pages/auth/AuthShell.tsx`:**
-- Wordmark mobile (`<div class="font-editorial text-2xl…">`): `Afflux Property`.
-- Wordmark desktop (`<div class="font-editorial text-3xl…">`): `Afflux Property`.
-- Eliminar el `<Eyebrow>Afflux Property</Eyebrow>` redundante bajo el wordmark desktop.
-- Mantener `AqueductLine`, el `Eyebrow` editorial "Detectar · Desbloquear · Estructurar · Liquidar", el `<h1>` editorial y el footer "Afflux Property · Madrid · 2026".
-- En el bloque mobile, conservar la línea de tagline `Inteligencia operativa para Afflux Property` tal cual (sigue teniendo sentido al haber renombrado solo el wordmark).
-- Actualizar comentario JSDoc del componente: `marca Afflux Property`.
+### Detalles técnicos
 
-**Búsqueda final:** ejecutaré `rg "Afflux Brain"` tras los cambios y, si aparece cualquier otro literal en código (comentarios incluidos), lo reemplazo a `Afflux Property`.
+```ts
+// patrón de query paginada con búsqueda
+let query = supabase
+  .from("buildings")
+  .select("*", { count: "exact" })
+  .order("updated_at", { ascending: false });
 
----
+if (debouncedQ) {
+  query = query.or(
+    `direccion.ilike.%${debouncedQ}%,ciudad.ilike.%${debouncedQ}%,codigo_postal.ilike.%${debouncedQ}%`
+  );
+}
+if (filter !== "all") query = query.eq("estado", filter);
 
-### Lo que NO se toca (confirmación)
+const { data, count } = await query.range(page * 50, page * 50 + 49);
+```
 
-- Estructura sidebar (4 grupos: Operativa / Captación / IA & Mensajes / Cuenta).
-- Bottom nav 4 items.
-- Páginas placeholder `/leads`, `/notas-simples`, `/mensajes`.
-- Eliminación previa de Compliance / Matching / Cadences / Index.
-- Modo oscuro por defecto.
-- Topbar sin Beta badge.
-- Tipografías Cormorant Garamond + Lato + Geist Mono.
-- Saludo Dashboard "Buenos días, Álvaro".
-- Tokens de superficie/estado (`--background`, `--foreground`, `--card`, `--popover`, `--secondary`, `--muted`, `--border`, `--input`, `--destructive`, `--success`, `--warning`, `--info`, `--shadow-*`, `--radius`, `--sidebar-background`, `--sidebar-foreground`).
+`count: "exact"` añade `Prefer: count=exact` y devuelve total real ignorando `max-rows` (sólo se aplica al payload de filas).
 
 ### Resultado esperado
 
-Panel grafito + marfil intacto, pero los acentos vuelven a ser champán/dorado real (CTA primary, ribbon activo del sidebar item, anillo focus, halos del hero). Marca textual coherente como "Afflux Property" en title, OG, sidebar y AuthShell.
-
-Tras aprobación, aplico, dejo build limpio y abrimos la decisión Conector nativo Lovable→HubSpot vs Private App.
+- /edificios muestra "Total edificios: 7703" en la métrica y la tabla pagina 50 a 50 con buscador funcionando sobre los 7703 reales.
+- /propietarios muestra "Total: 7616" y pagina igual.
+- Carga rápida (50 filas por request en lugar de 1000+).
+- El sync HubSpot se mantiene tal cual.
