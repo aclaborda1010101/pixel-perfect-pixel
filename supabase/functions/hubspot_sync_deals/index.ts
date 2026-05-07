@@ -14,12 +14,11 @@ interface HubspotDeal {
 }
 
 function pickAddress(p: Record<string, string | null>): string {
-  // Prioriza address; si no, dealname; si no, cadastral_reference; si no, "Sin dirección"
-  return (p.address?.trim() || p.dealname?.trim() || p.cadastral_reference?.trim() || 'Sin dirección');
+  return (p.address?.trim() || p.dealname?.trim() || p.referencia_catastral?.trim() || 'Sin dirección');
 }
 
 function pickCiudad(p: Record<string, string | null>): string {
-  return p.city?.trim() || p.distrito_zona?.trim() || 'Madrid';
+  return p.city?.trim() || p.distrito_zona__clonada_?.trim() || 'Madrid';
 }
 
 function parseInt0(v: string | null | undefined): number | null {
@@ -98,7 +97,7 @@ Deno.serve(async (req) => {
             direccion: pickAddress(props),
             ciudad: pickCiudad(props),
             codigo_postal: props.zip?.trim() || null,
-            catastro_ref: props.cadastral_reference?.trim() || null,
+            catastro_ref: props.referencia_catastral?.trim() || null,
             metadatos: { ...props, _hubspot_deal_id: deal.id },
             last_synced_at: new Date().toISOString(),
           };
