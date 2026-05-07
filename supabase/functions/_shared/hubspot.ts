@@ -39,12 +39,21 @@ export const DEAL_PROPERTIES = [
   // estándar
   'dealname', 'dealstage', 'pipeline', 'amount', 'address', 'city', 'zip', 'country',
   'createdate', 'hs_lastmodifieddate',
-  // custom Afflux
-  'cadastral_reference', 'total_m2', 'm2_residential', 'm2_commercial',
-  'temperature', 'tipo_de_activo___inmueble', 'verificado', 'tenemos_la_nota_simple',
-  'prioridad_del_activo', 'precio_del_vendedor__exacto_', 'precio_del_vendedor__rango_',
-  'barrios_completos', 'distrito_zona', 'valoracion_viviendas', 'valoracion_locales____',
-  'tipo_de_oportunidad',
+  // custom Afflux (verified internal names)
+  'referencia_catastral',
+  'metros_cuadrados__exactos_',
+  'dividido',
+  'verificado',
+  'tenemos_la_nota_simple_',
+  'prioridad_del_activo',
+  'distrito_zona__clonada_',
+  'barrios_completos__clonada_',
+  'tipo_de_activo___inmueble__clonada_',
+  'tipo_de_oportunidad__clonada_',
+  'valoracion_viviendas',
+  'valoracion_locales',
+  'precio_del_vendedor__exacto___clonada_',
+  'precio_del_vendedor__rango___clonada_',
 ];
 
 // Properties para Contacts (propietarios + leads + inversores)
