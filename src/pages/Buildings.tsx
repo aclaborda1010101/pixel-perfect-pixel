@@ -212,9 +212,9 @@ export default function Buildings() {
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
-                  <TableHead className="min-w-[280px]">Dirección</TableHead>
-                  <TableHead>Ciudad</TableHead>
-                  <TableHead>CP</TableHead>
+                  <TableHead className="min-w-[260px]">Dirección</TableHead>
+                  <TableHead>Distrito · Barrio</TableHead>
+                  <TableHead>Ref. catastral</TableHead>
                   <TableHead className="text-right">Propietarios</TableHead>
                   <TableHead>DH</TableHead>
                   <TableHead>Estado</TableHead>
@@ -228,22 +228,33 @@ export default function Buildings() {
                     </TableCell>
                   </TableRow>
                 )}
-                {rows.map((b) => (
+                {rows.map((b) => {
+                  const distrito = (b.metadatos?.distrito_zona__clonada_ as string | undefined) ?? null;
+                  const barrio = (b.metadatos?.barrios_completos__clonada_ as string | undefined) ?? null;
+                  const cleanZone = [distrito, barrio]
+                    .filter(Boolean)
+                    .map((s) => (s as string).replace(/\s*\([^)]*\)\s*$/, "").trim())
+                    .join(" · ");
+                  return (
                   <TableRow key={b.id} className="bg-card">
                     <TableCell>
                       <Link to={`/edificios/${b.id}`} className="font-medium text-foreground hover:text-gold">
                         {b.direccion}
                       </Link>
+                      <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                        {b.ciudad ?? "—"}{b.codigo_postal ? ` · ${b.codigo_postal}` : ""}
+                      </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{b.ciudad ?? "—"}</TableCell>
-                    <TableCell className="font-mono tabular-nums text-muted-foreground">{b.codigo_postal ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{cleanZone || "—"}</TableCell>
+                    <TableCell className="font-mono text-[11px] tabular-nums text-muted-foreground">{b.catastro_ref ?? "—"}</TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{counts[b.id] ?? 0}</TableCell>
                     <TableCell>
                       {b.division_horizontal ? <Badge variant="gold">DH</Badge> : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell><Badge variant="outline">{b.estado}</Badge></TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

@@ -59,9 +59,11 @@ const App = () => (
                 <Route path="/analizar-llamada" element={<AnalyzeCallWizard />} />
                 <Route path="/inversores" element={<Investors />} />
                 <Route path="/leads" element={<Leads />} />
+                <Route path="/leads-marketing" element={<Leads />} />
                 <Route path="/notas-simples" element={<NotasSimples />} />
                 <Route path="/mensajes" element={<Mensajes />} />
                 <Route path="/asistente" element={<Assistant />} />
+                <Route path="/asistente-ia" element={<Assistant />} />
                 <Route path="/ajustes" element={<Settings />} />
               </Route>
               <Route path="*" element={<NotFound />} />

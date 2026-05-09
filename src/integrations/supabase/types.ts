@@ -288,6 +288,51 @@ export type Database = {
           },
         ]
       }
+      companies: {
+        Row: {
+          buyer_persona: Database["public"]["Enums"]["buyer_persona"]
+          cif: string | null
+          consentimiento: boolean
+          created_at: string
+          email: string | null
+          id: string
+          last_synced_at: string | null
+          metadatos: Json
+          nombre: string
+          notas: string | null
+          telefono: string | null
+          updated_at: string
+        }
+        Insert: {
+          buyer_persona?: Database["public"]["Enums"]["buyer_persona"]
+          cif?: string | null
+          consentimiento?: boolean
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_synced_at?: string | null
+          metadatos?: Json
+          nombre: string
+          notas?: string | null
+          telefono?: string | null
+          updated_at?: string
+        }
+        Update: {
+          buyer_persona?: Database["public"]["Enums"]["buyer_persona"]
+          cif?: string | null
+          consentimiento?: boolean
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_synced_at?: string | null
+          metadatos?: Json
+          nombre?: string
+          notas?: string | null
+          telefono?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       compliance_cases: {
         Row: {
           created_at: string
@@ -915,6 +960,48 @@ export type Database = {
           },
         ]
       }
+      notas_simples: {
+        Row: {
+          building_id: string | null
+          created_at: string
+          error_message: string | null
+          file_url: string | null
+          id: string
+          owner_id: string | null
+          processed_at: string | null
+          raw_pdf_text: string | null
+          riesgo: string | null
+          status: string
+          structured_json: Json | null
+        }
+        Insert: {
+          building_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_url?: string | null
+          id?: string
+          owner_id?: string | null
+          processed_at?: string | null
+          raw_pdf_text?: string | null
+          riesgo?: string | null
+          status?: string
+          structured_json?: Json | null
+        }
+        Update: {
+          building_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_url?: string | null
+          id?: string
+          owner_id?: string | null
+          processed_at?: string | null
+          raw_pdf_text?: string | null
+          riesgo?: string | null
+          status?: string
+          structured_json?: Json | null
+        }
+        Relationships: []
+      }
       notes: {
         Row: {
           asset_id: string | null
@@ -1120,7 +1207,20 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      v_propietarios: {
+        Row: {
+          buyer_persona: string | null
+          cif: string | null
+          consentimiento: boolean | null
+          email: string | null
+          id: string | null
+          nombre: string | null
+          telefono: string | null
+          tipo: string | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role: {
