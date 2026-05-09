@@ -24,6 +24,10 @@ import { NewBuildingDialog } from "@/components/forms/NewEntityDialogs";
 const PAGE_SIZE = 50;
 const ESTADOS = ["identificado", "contactado", "negociacion", "cerrado", "descartado"];
 
+function applyNonDemoFilter<T extends { or: (filters: string) => T }>(query: T) {
+  return query.or("metadatos->>seed.is.null,metadatos->>seed.eq.false");
+}
+
 export default function Buildings() {
   const { t } = useI18n();
   const [rows, setRows] = useState<any[]>([]);
@@ -53,8 +57,8 @@ export default function Buildings() {
     const totQ = supabase.from("buildings").select("id", { count: "exact", head: true });
     const dhQ = supabase.from("buildings").select("id", { count: "exact", head: true }).eq("division_horizontal", true);
     if (!showDemos) {
-      totQ.not("metadatos->>seed", "eq", "true");
-      dhQ.not("metadatos->>seed", "eq", "true");
+      applyNonDemoFilter(totQ);
+      applyNonDemoFilter(dhQ);
     }
     const [tot, dh, props] = await Promise.all([
       totQ,
@@ -96,7 +100,7 @@ export default function Buildings() {
     }
     if (filter !== "all") query = query.eq("estado", filter as any);
     if (ciudad !== "all") query = query.eq("ciudad", ciudad);
-    if (!showDemos) query = query.not("metadatos->>seed", "eq", "true");
+    if (!showDemos) query = applyNonDemoFilter(query);
 
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
