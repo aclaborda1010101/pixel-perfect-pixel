@@ -92,12 +92,21 @@ export function UploadNotaSimpleDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Edificio</Label>
+            <Label>Edificio <span className="text-muted-foreground font-normal">(opcional)</span></Label>
             <Input
               placeholder="Buscar por dirección…"
               value={selectedBuilding ? `${selectedBuilding.direccion} · ${selectedBuilding.ciudad ?? ""}` : search}
               onChange={(e) => { setBuildingId(null); setSearch(e.target.value); }}
             />
+            <p className="text-xs text-muted-foreground">
+              Si la nota incluye referencia catastral y el edificio está en cartera, lo vincularemos automáticamente.
+            </p>
+            {buildingId && (
+              <button type="button" className="text-xs text-primary hover:underline"
+                onClick={() => { setBuildingId(null); setSearch(""); }}>
+                Quitar selección
+              </button>
+            )}
             {!buildingId && buildings.length > 0 && (
               <div className="border border-border rounded max-h-44 overflow-auto text-sm">
                 {buildings.map(b => (
