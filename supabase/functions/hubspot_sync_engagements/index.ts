@@ -5,7 +5,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 import { hubspotFetch, corsHeaders } from '../_shared/hubspot.ts';
 
 const PAGE_LIMIT = 100;
-const MAX_PAGES_PER_RUN = 15;
+const MAX_PAGES_PER_RUN = 8;
 
 type EngType = 'tasks' | 'calls' | 'notes';
 
@@ -123,28 +123,30 @@ Deno.serve(async (req) => {
       pagesFetched++;
       const results: any[] = data?.results || [];
 
-      for (const e of results) {
-        try {
-          const row = toRow(type, e);
-          // Detect change for versioning: compare hs_lastmodifieddate
-          const { data: prev } = await supabase
-            .from(TABLE[type]).select('hs_lastmodifieddate').eq('hs_id', row.hs_id as string).maybeSingle();
-          const prevLM = prev?.hs_lastmodifieddate || null;
-          const newLM = row.hs_lastmodifieddate as string | null;
-          if (prev && prevLM !== newLM) {
-            await supabase.from('hubspot_changes_log').insert({
-              entity_type: type, hs_id: row.hs_id as string,
-              field: 'hs_lastmodifieddate',
-              old_value: prevLM, new_value: newLM,
-            });
-            changesLogged++;
+      if (results.length) {
+        const rows = results.map((e) => toRow(type, e));
+        const ids = rows.map((r) => r.hs_id as string);
+        // Bulk fetch prev hs_lastmodifieddate for change detection
+        const { data: prevRows } = await supabase
+          .from(TABLE[type]).select('hs_id,hs_lastmodifieddate').in('hs_id', ids);
+        const prevMap = new Map<string, string | null>();
+        (prevRows || []).forEach((p: any) => prevMap.set(p.hs_id, p.hs_lastmodifieddate));
+        const changes: any[] = [];
+        for (const r of rows) {
+          if (prevMap.has(r.hs_id as string)) {
+            const old = prevMap.get(r.hs_id as string) || null;
+            const neu = r.hs_lastmodifieddate as string | null;
+            if (old !== neu) {
+              changes.push({ entity_type: type, hs_id: r.hs_id, field: 'hs_lastmodifieddate', old_value: old, new_value: neu });
+            }
           }
-          const { error } = await supabase.from(TABLE[type]).upsert(row, { onConflict: 'hs_id' });
-          if (error) throw error;
-          upserted++;
-        } catch (err) {
-          failed++;
-          console.error(`[${type}] failed ${e.id}:`, err);
+        }
+        const { error: upErr } = await supabase.from(TABLE[type]).upsert(rows, { onConflict: 'hs_id' });
+        if (upErr) { failed += rows.length; console.error(`[${type}] bulk upsert err:`, upErr); }
+        else upserted += rows.length;
+        if (changes.length) {
+          await supabase.from('hubspot_changes_log').insert(changes);
+          changesLogged += changes.length;
         }
       }
 
