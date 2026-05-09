@@ -23,6 +23,7 @@ import PrepareCallWizard from "./pages/wizards/PrepareCallWizard";
 import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
 import Leads from "./pages/Leads";
 import NotasSimples from "./pages/NotasSimples";
+import NotaSimpleDetail from "./pages/NotaSimpleDetail";
 import Mensajes from "./pages/Mensajes";
 import Login from "./pages/auth/Login";
 import RecoverPassword from "./pages/auth/RecoverPassword";
@@ -61,6 +62,7 @@ const App = () => (
                 <Route path="/leads" element={<Leads />} />
                 <Route path="/leads-marketing" element={<Leads />} />
                 <Route path="/notas-simples" element={<NotasSimples />} />
+                <Route path="/notas-simples/:id" element={<NotaSimpleDetail />} />
                 <Route path="/mensajes" element={<Mensajes />} />
                 <Route path="/asistente" element={<Assistant />} />
                 <Route path="/asistente-ia" element={<Assistant />} />
