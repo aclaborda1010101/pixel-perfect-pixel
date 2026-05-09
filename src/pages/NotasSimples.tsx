@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { FileText, Loader2, AlertTriangle, CheckCircle2, Clock, Plus } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -34,6 +34,7 @@ function fmtDate(d: string) {
 export default function NotasSimples() {
   const { items, loading } = useNotasSimples();
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
 
   return (
     <div className="space-y-6">
@@ -71,17 +72,16 @@ export default function NotasSimples() {
               </TableHeader>
               <TableBody>
                 {items.map((n: NotaSimpleEnriched) => (
-                  <TableRow key={n.id} className="cursor-pointer" asChild>
-                    <Link to={`/notas-simples/${n.id}`}>
-                      <TableCell className="font-medium">
-                        {n.building?.direccion ?? <span className="text-muted-foreground">— sin asignar —</span>}
-                        {n.building?.ciudad && <div className="text-xs text-muted-foreground">{n.building.ciudad}</div>}
-                      </TableCell>
-                      <TableCell>{n.owner?.nombre ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{fmtDate(n.created_at)}</TableCell>
-                      <TableCell><StatusChip status={n.status} /></TableCell>
-                      <TableCell><RiesgoBadge r={n.riesgo} /></TableCell>
-                    </Link>
+                  <TableRow key={n.id} className="cursor-pointer"
+                    onClick={() => navigate(`/notas-simples/${n.id}`)}>
+                    <TableCell className="font-medium">
+                      {n.building?.direccion ?? <span className="text-muted-foreground">— sin asignar —</span>}
+                      {n.building?.ciudad && <div className="text-xs text-muted-foreground">{n.building.ciudad}</div>}
+                    </TableCell>
+                    <TableCell>{n.owner?.nombre ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{fmtDate(n.created_at)}</TableCell>
+                    <TableCell><StatusChip status={n.status} /></TableCell>
+                    <TableCell><RiesgoBadge r={n.riesgo} /></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
