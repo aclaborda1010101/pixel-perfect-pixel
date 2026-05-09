@@ -63,7 +63,7 @@ export function useNotasSimples() {
   // Realtime: re-fetch on cualquier change
   useEffect(() => {
     const ch = supabase
-      .channel("notas_simples_rt")
+      .channel(`notas_simples_rt_${Math.random().toString(36).slice(2)}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "notas_simples" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
