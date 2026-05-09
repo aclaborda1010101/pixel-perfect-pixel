@@ -23,10 +23,33 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [magicSubmitting, setMagicSubmitting] = useState(false);
+  const [magicSent, setMagicSent] = useState(false);
+  const [usePassword, setUsePassword] = useState(false);
 
   useEffect(() => {
     if (session) navigate(from, { replace: true });
   }, [session, from, navigate]);
+
+  async function handleMagicLink(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email) return;
+    setMagicSubmitting(true);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: `${window.location.origin}/` },
+      });
+      if (error) throw error;
+      setMagicSent(true);
+      toast.success("Magic link enviado — revisa tu email");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error enviando magic link";
+      toast.error(msg);
+    } finally {
+      setMagicSubmitting(false);
+    }
+  }
 
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -75,16 +98,59 @@ export default function Login() {
         <div className="space-y-2">
           <Eyebrow>Panel · Acceso</Eyebrow>
           <h2 className="font-editorial text-3xl font-normal tracking-notarial text-foreground">
-            {mode === "signin" ? "Bienvenido de vuelta" : "Crea tu cuenta"}
+            Bienvenido a Afflux Property
           </h2>
           <p className="text-sm text-muted-foreground">
-            {mode === "signin"
-              ? "Accede al panel para retomar tus cadencias y llamadas."
-              : "Solicita acceso al panel operativo de Afflux Property."}
+            Introduce tu email corporativo y te enviaremos un enlace de acceso seguro.
           </p>
         </div>
 
-        <form className="space-y-5" onSubmit={handleEmail}>
+        {/* Magic link primary form */}
+        <form className="space-y-5" onSubmit={handleMagicLink}>
+          <div className="space-y-1.5">
+            <Label htmlFor="email" className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+              Email corporativo
+            </Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="alvaro@afflux.es"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); setMagicSent(false); }}
+              required
+            />
+          </div>
+          <Button variant="gold" className="w-full" size="lg" type="submit" disabled={magicSubmitting || magicSent}>
+            {magicSubmitting ? "Enviando…" : magicSent ? "Enlace enviado ✓" : "Enviar magic link"}
+          </Button>
+          {magicSent && (
+            <p className="text-center font-mono text-[11px] uppercase tracking-eyebrow text-gold">
+              Revisa tu bandeja · {email}
+            </p>
+          )}
+        </form>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-border-faint" />
+            <Eyebrow>O continúa con</Eyebrow>
+            <div className="h-px flex-1 bg-border-faint" />
+          </div>
+          <Button variant="outline" type="button" className="w-full" onClick={handleGoogle}>
+            Google Workspace
+          </Button>
+          <button
+            type="button"
+            onClick={() => setUsePassword((v) => !v)}
+            className="block w-full text-center font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground hover:text-gold"
+          >
+            {usePassword ? "Ocultar acceso por contraseña" : "Acceder con contraseña"}
+          </button>
+        </div>
+
+        {usePassword && (
+        <form className="space-y-5 border-t border-border-faint pt-6" onSubmit={handleEmail}>
           {mode === "signup" && (
             <div className="space-y-1.5">
               <Label htmlFor="name" className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
@@ -93,13 +159,6 @@ export default function Login() {
               <Input id="name" type="text" autoComplete="name" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
             </div>
           )}
-
-          <div className="space-y-1.5">
-            <Label htmlFor="email" className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-              Email corporativo
-            </Label>
-            <Input id="email" type="email" placeholder="alvaro@afflux.es" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </div>
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
@@ -115,23 +174,10 @@ export default function Login() {
             <Input id="password" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
           </div>
 
-          <Button variant="gold" className="w-full" size="lg" type="submit" disabled={submitting}>
+          <Button variant="outline" className="w-full" size="lg" type="submit" disabled={submitting}>
             {submitting ? "Procesando…" : mode === "signin" ? "Acceder al panel" : "Crear cuenta"}
           </Button>
-        </form>
-
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-border-faint" />
-            <Eyebrow>O continúa con</Eyebrow>
-            <div className="h-px flex-1 bg-border-faint" />
-          </div>
-          <Button variant="outline" type="button" className="w-full" onClick={handleGoogle}>
-            Google Workspace
-          </Button>
-        </div>
-
-        <div className="text-center text-sm text-muted-foreground">
+          <div className="text-center text-sm text-muted-foreground">
           {mode === "signin" ? (
             <>
               ¿Sin cuenta?{" "}
@@ -147,7 +193,9 @@ export default function Login() {
               </button>
             </>
           )}
-        </div>
+          </div>
+        </form>
+        )}
 
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-border-faint pt-6">
           <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Afflux Property · Madrid · 2026</span>
