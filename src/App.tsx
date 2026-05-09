@@ -26,7 +26,9 @@ import NotasSimples from "./pages/NotasSimples";
 import Mensajes from "./pages/Mensajes";
 import Login from "./pages/auth/Login";
 import RecoverPassword from "./pages/auth/RecoverPassword";
+import ResetPassword from "./pages/auth/ResetPassword";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { AuthProvider } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
 
@@ -38,9 +40,11 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <AuthProvider>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/recuperar" element={<RecoverPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/propietarios" element={<Owners />} />
@@ -62,6 +66,7 @@ const App = () => (
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </AuthProvider>
           </BrowserRouter>
         </TooltipProvider>
       </I18nProvider>
