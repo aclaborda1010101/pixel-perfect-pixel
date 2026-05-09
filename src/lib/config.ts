@@ -10,7 +10,7 @@
  * Útil mientras pulimos la UI sin sesión activa.
  * Poner a false para reactivar el comportamiento normal del guard.
  */
-export const DEMO_MODE = true;
+export const DEMO_MODE = false;
 
 // FASE 9-fix: bump para invalidar caché de Vite tras re-optimización de deps.
 export const __BUILD_TAG__ = "fase-9-fix";
