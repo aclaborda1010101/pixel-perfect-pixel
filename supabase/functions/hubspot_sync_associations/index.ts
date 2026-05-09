@@ -149,15 +149,31 @@ Deno.serve(async (req) => {
       }
 
       if (rows.length > 0) {
-        // Use upsert with ignoreDuplicates to skip existing pairs
-        const { error: upErr, count } = await supabase
+        // Filtrar pares ya existentes para contar inserts reales
+        const buildingIds = Array.from(new Set(rows.map((r) => r.building_id)));
+        const { data: existing } = await supabase
           .from('building_owners')
-          .upsert(rows, { onConflict: 'building_id,owner_id', ignoreDuplicates: true, count: 'exact' });
-        if (upErr) {
-          failed++;
-          console.error('[assoc] upsert fail:', upErr);
-        } else {
-          inserted += count || 0;
+          .select('building_id, owner_id')
+          .in('building_id', buildingIds);
+        const exSet = new Set((existing || []).map((e) => `${e.building_id}|${e.owner_id}`));
+        const fresh = rows.filter((r) => !exSet.has(`${r.building_id}|${r.owner_id}`));
+        // Dedupe within fresh
+        const seen = new Set<string>();
+        const dedup = fresh.filter((r) => {
+          const k = `${r.building_id}|${r.owner_id}`;
+          if (seen.has(k)) return false;
+          seen.add(k); return true;
+        });
+        if (dedup.length > 0) {
+          const { error: upErr } = await supabase
+            .from('building_owners')
+            .upsert(dedup, { onConflict: 'building_id,owner_id', ignoreDuplicates: true });
+          if (upErr) {
+            failed++;
+            console.error('[assoc] upsert fail:', upErr);
+          } else {
+            inserted += dedup.length;
+          }
         }
       }
 
