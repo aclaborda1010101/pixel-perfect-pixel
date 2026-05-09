@@ -10,18 +10,18 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  const entries: Array<{ table: string; entity: string }> = [
-    { table: 'buildings', entity: 'buildings' },
-    { table: 'owners', entity: 'owners' },
-    { table: 'hubspot_tasks', entity: 'tasks' },
-    { table: 'hubspot_calls', entity: 'calls' },
-    { table: 'hubspot_notes', entity: 'notes' },
-    { table: 'hubspot_lists', entity: 'lists' },
-    { table: 'hubspot_list_memberships', entity: 'list_memberships' },
+  const entries: Array<{ table: string; entity: string; pkCol: string }> = [
+    { table: 'buildings', entity: 'buildings', pkCol: 'id' },
+    { table: 'owners', entity: 'owners', pkCol: 'id' },
+    { table: 'hubspot_tasks', entity: 'tasks', pkCol: 'id' },
+    { table: 'hubspot_calls', entity: 'calls', pkCol: 'id' },
+    { table: 'hubspot_notes', entity: 'notes', pkCol: 'id' },
+    { table: 'hubspot_lists', entity: 'lists', pkCol: 'id' },
+    { table: 'hubspot_list_memberships', entity: 'list_memberships', pkCol: 'hs_list_id' },
   ];
   const out: Record<string, number> = {};
   for (const e of entries) {
-    const { count } = await supabase.from(e.table).select('id', { count: 'exact', head: true });
+    const { count } = await supabase.from(e.table).select(e.pkCol, { count: 'exact', head: true });
     out[e.entity] = count || 0;
     await supabase.from('hubspot_snapshots').insert({ entity_type: e.entity, total_count: count || 0, metrics: {} });
   }
