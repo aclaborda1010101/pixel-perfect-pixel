@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, RefreshCw, Loader2, ExternalLink, FileText, Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useNotaSimple } from "@/hooks/useNotasSimples";
 import { toast } from "sonner";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 function RiesgoBadge({ r }: { r: string | null }) {
   if (!r) return null;
@@ -20,9 +25,57 @@ function fmtPct(p?: number | null) {
 
 export default function NotaSimpleDetail() {
   const { id } = useParams<{ id: string }>();
-  const { nota, pdfUrl, pdfBlobUrl, loading, reanalyze } = useNotaSimple(id);
+  const { nota, pdfUrl, loading, reanalyze, reload } = useNotaSimple(id);
   const [busy, setBusy] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(0);
+  const [numPages, setNumPages] = useState<number | null>(null);
+  const [pdfStatus, setPdfStatus] = useState<string | null>(null);
+  const [pdfHeaders, setPdfHeaders] = useState<Record<string, string> | null>(null);
+  const [pdfDiagError, setPdfDiagError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const measure = () => setPanelWidth(panelRef.current?.clientWidth ?? 0);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  useEffect(() => {
+    if (!pdfUrl) {
+      setPdfStatus(null);
+      setPdfHeaders(null);
+      setPdfDiagError(null);
+      return;
+    }
+
+    const ctrl = new AbortController();
+    const run = async () => {
+      try {
+        const res = await fetch(pdfUrl, { method: "HEAD", signal: ctrl.signal });
+        const picked = {
+          "content-type": res.headers.get("content-type") ?? "",
+          "content-disposition": res.headers.get("content-disposition") ?? "",
+          "cache-control": res.headers.get("cache-control") ?? "",
+          "accept-ranges": res.headers.get("accept-ranges") ?? "",
+        };
+        console.info("[nota-simple-pdf] HEAD", { status: res.status, headers: picked, url: pdfUrl });
+        setPdfStatus(String(res.status));
+        setPdfHeaders(picked);
+        setPdfDiagError(null);
+      } catch (error: any) {
+        if (ctrl.signal.aborted) return;
+        console.warn("[nota-simple-pdf] HEAD failed", error);
+        setPdfDiagError(error?.message ?? "HEAD failed");
+      }
+    };
+
+    run();
+    return () => ctrl.abort();
+  }, [pdfUrl]);
+
+  const pageWidth = useMemo(() => Math.max(panelWidth - 32, 280), [panelWidth]);
 
   if (loading) {
     return <div className="flex items-center justify-center py-10 text-muted-foreground">
@@ -95,13 +148,35 @@ export default function NotaSimpleDetail() {
                 </a>
               )}
             </CardHeader>
-            <CardContent className="p-0 h-[calc(80vh-60px)]">
-              {pdfBlobUrl || pdfUrl ? (
-                <iframe
-                  src={`${pdfBlobUrl ?? pdfUrl}#toolbar=1&view=FitH`}
-                  className="w-full h-full border-0"
-                  title="Nota simple PDF"
-                />
+            <CardContent className="h-[calc(80vh-60px)] overflow-auto p-4" ref={panelRef}>
+              {pdfUrl ? (
+                <div className="space-y-3">
+                  <div className="text-xs text-muted-foreground">
+                    <span>HEAD {pdfStatus ?? "…"}</span>
+                    {pdfHeaders?.["content-type"] && <span> · {pdfHeaders["content-type"]}</span>}
+                    {pdfDiagError && <span className="text-destructive"> · {pdfDiagError}</span>}
+                  </div>
+                  <Document
+                    file={pdfUrl}
+                    loading={<div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Cargando PDF…</div>}
+                    error={<div className="py-6 text-sm text-destructive">No se ha podido renderizar el PDF.</div>}
+                    onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                    onLoadError={(error) => {
+                      console.error("[nota-simple-pdf] render error", error);
+                      toast.error("No se ha podido abrir el PDF");
+                    }}
+                    className="flex flex-col items-center gap-4"
+                  >
+                    <Page
+                      pageNumber={1}
+                      width={pageWidth}
+                      renderAnnotationLayer
+                      renderTextLayer
+                      loading={<div className="py-8 text-sm text-muted-foreground">Preparando primera página…</div>}
+                    />
+                  </Document>
+                  {numPages && numPages > 1 && <div className="text-xs text-muted-foreground">Mostrando página 1 de {numPages}</div>}
+                </div>
               ) : <div className="p-4 text-sm text-muted-foreground">Sin PDF</div>}
             </CardContent>
           </Card>
@@ -194,13 +269,23 @@ export default function NotaSimpleDetail() {
       </div>
 
       {/* PDF overlay mobile */}
-      {pdfOpen && (pdfBlobUrl || pdfUrl) && (
+      {pdfOpen && pdfUrl && (
         <div className="fixed inset-0 z-50 bg-background lg:hidden">
           <div className="flex items-center justify-between p-3 border-b border-border">
             <div className="text-sm font-medium">PDF</div>
             <Button size="sm" variant="ghost" onClick={() => setPdfOpen(false)}>Cerrar</Button>
           </div>
-          <iframe src={pdfBlobUrl ?? pdfUrl ?? ""} className="w-full h-[calc(100vh-49px)] border-0" title="PDF" />
+          <div className="h-[calc(100vh-49px)] overflow-auto p-3">
+            <Document
+              file={pdfUrl}
+              loading={<div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Cargando PDF…</div>}
+              error={<div className="py-6 text-sm text-destructive">No se ha podido renderizar el PDF.</div>}
+              onLoadError={(error) => console.error("[nota-simple-pdf] mobile render error", error)}
+              className="flex flex-col items-center gap-4"
+            >
+              <Page pageNumber={1} width={Math.max(window.innerWidth - 24, 280)} renderAnnotationLayer renderTextLayer />
+            </Document>
+          </div>
         </div>
       )}
     </div>
