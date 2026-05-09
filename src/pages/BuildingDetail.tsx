@@ -15,8 +15,9 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Users, Boxes, PhoneCall, X, Mail, FileText, Plus, MapPin, CheckCircle2,
-  Calendar, PenSquare, PhoneOutgoing,
+  Calendar, PenSquare, PhoneOutgoing, Sparkles, Crown,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AddOwnerToBuildingDialog, NewAssetDialog, SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -81,7 +82,7 @@ export default function BuildingDetail() {
     setBuilding(b);
     const { data: bo } = await supabase
       .from("building_owners")
-      .select("building_id, owner_id, cuota, subrole, rol_notas, owners:owner_id(id, nombre, rol, email, telefono)")
+      .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono)")
       .eq("building_id", id);
     setBos(bo ?? []);
     const { data: ass } = await supabase.from("assets").select("*").eq("building_id", id);
@@ -104,6 +105,14 @@ export default function BuildingDetail() {
     const { error } = await supabase.from("building_owners").delete().eq("building_id", id).eq("owner_id", ownerId);
     if (error) return toast.error(error.message);
     toast.success("Propietario quitado");
+    load();
+  };
+
+  const recalcInfluencers = async () => {
+    toast.info("Calculando influencer…");
+    const { data, error } = await supabase.functions.invoke("detect_influencers", { body: { building_id: id } });
+    if (error) return toast.error(error.message);
+    toast.success(`Influencer recalculado (${(data as any)?.influencers_identified ?? 0})`);
     load();
   };
 
@@ -381,7 +390,10 @@ export default function BuildingDetail() {
             </TabsContent>
 
             <TabsContent value="owners" className="space-y-3">
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="outline" onClick={recalcInfluencers}>
+                  <Sparkles className="mr-1 h-3 w-3" /> Recalcular influencers
+                </Button>
                 <AddOwnerToBuildingDialog buildingId={id} existingOwnerIds={existingOwnerIds} onAdded={load} />
               </div>
               {bos.length === 0 ? (
@@ -392,7 +404,26 @@ export default function BuildingDetail() {
                     {bos.map((r) => (
                       <li key={r.owner_id} className="flex flex-col items-start gap-2 px-4 py-3 transition-colors hover:bg-surface-1/30 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0 flex-1">
-                          <Link to={`/propietarios/${r.owner_id}`} className="block truncate text-sm font-medium text-foreground hover:text-gold">{r.owners?.nombre}</Link>
+                          <div className="flex items-center gap-2">
+                            <Link to={`/propietarios/${r.owner_id}`} className="block truncate text-sm font-medium text-foreground hover:text-gold">{r.owners?.nombre}</Link>
+                            {r.es_influencer && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex items-center gap-1 rounded-[3px] border border-gold/60 bg-gold-soft/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-gold">
+                                      <Crown className="h-3 w-3" /> Influencer
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <div className="text-xs">
+                                      <div className="font-mono">score {r.influencer_score ?? "—"}</div>
+                                      <div>{r.influencer_reason ?? "sin razón"}</div>
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
                           <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
                             {r.owners?.email ?? r.owners?.telefono ?? "—"}
                             {r.rol_notas ? ` · ${r.rol_notas}` : ""}
