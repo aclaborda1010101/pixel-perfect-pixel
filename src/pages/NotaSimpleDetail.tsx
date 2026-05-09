@@ -96,12 +96,12 @@ export default function NotaSimpleDetail() {
               )}
             </CardHeader>
             <CardContent className="p-0 h-[calc(80vh-60px)]">
-              {pdfBlobUrl ? (
-                <object data={pdfBlobUrl} type="application/pdf" className="w-full h-full">
-                  <iframe src={pdfBlobUrl} className="w-full h-full border-0" title="Nota simple PDF" />
-                </object>
-              ) : pdfUrl ? (
-                <iframe src={pdfUrl} className="w-full h-full border-0" title="Nota simple PDF" />
+              {pdfBlobUrl || pdfUrl ? (
+                <iframe
+                  src={`${pdfBlobUrl ?? pdfUrl}#toolbar=1&view=FitH`}
+                  className="w-full h-full border-0"
+                  title="Nota simple PDF"
+                />
               ) : <div className="p-4 text-sm text-muted-foreground">Sin PDF</div>}
             </CardContent>
           </Card>
