@@ -21,11 +21,11 @@ type Owner = {
   nombre: string;
   email: string | null;
   telefono: string | null;
-  rol: string;
-  subrole: string;
   buyer_persona: string;
   consentimiento: boolean;
   updated_at: string;
+  tipo: "persona_fisica" | "persona_juridica";
+  cif: string | null;
 };
 
 const PAGE_SIZE = 50;
@@ -47,6 +47,7 @@ export default function Owners() {
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [personaFilter, setPersonaFilter] = useState<string>("all");
+  const [tipoFilter, setTipoFilter] = useState<"all" | "persona_fisica" | "persona_juridica">("all");
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -57,16 +58,22 @@ export default function Owners() {
     return () => clearTimeout(t);
   }, [q]);
 
-  useEffect(() => { setPage(0); }, [debouncedQ, personaFilter]);
+  useEffect(() => { setPage(0); }, [debouncedQ, personaFilter, tipoFilter]);
+
+  const [metricsTipo, setMetricsTipo] = useState({ fisicas: 0, juridicas: 0 });
 
   const loadMetrics = async () => {
-    const [tot, cons, sin] = await Promise.all([
+    const [own, comp, cons, sin] = await Promise.all([
       supabase.from("owners").select("id", { count: "exact", head: true }),
-      supabase.from("owners").select("id", { count: "exact", head: true }).eq("consentimiento", true),
-      supabase.from("owners").select("id", { count: "exact", head: true }).eq("buyer_persona", "sin_clasificar" as any),
+      supabase.from("companies" as any).select("id", { count: "exact", head: true }),
+      supabase.from("v_propietarios" as any).select("id", { count: "exact", head: true }).eq("consentimiento", true),
+      supabase.from("v_propietarios" as any).select("id", { count: "exact", head: true }).eq("buyer_persona", "sin_clasificar"),
     ]);
+    const fisicas = own.count ?? 0;
+    const juridicas = comp.count ?? 0;
+    setMetricsTipo({ fisicas, juridicas });
     setMetrics({
-      total: tot.count ?? 0,
+      total: fisicas + juridicas,
       consentidos: cons.count ?? 0,
       sinRol: sin.count ?? 0,
     });
@@ -75,27 +82,28 @@ export default function Owners() {
   const load = async () => {
     setLoading(true);
     let query = supabase
-      .from("owners")
-      .select("id,nombre,email,telefono,rol,subrole,buyer_persona,consentimiento,updated_at", { count: "exact" })
+      .from("v_propietarios" as any)
+      .select("id,nombre,email,telefono,buyer_persona,consentimiento,updated_at,tipo,cif", { count: "exact" })
       .order("updated_at", { ascending: false });
 
     if (debouncedQ.trim()) {
       const s = debouncedQ.trim().replace(/[%,]/g, "");
       query = query.or(`nombre.ilike.%${s}%,email.ilike.%${s}%,telefono.ilike.%${s}%`);
     }
-    if (personaFilter !== "all") query = query.eq("buyer_persona", personaFilter as any);
+    if (personaFilter !== "all") query = query.eq("buyer_persona", personaFilter);
+    if (tipoFilter !== "all") query = query.eq("tipo", tipoFilter);
 
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
     const { data, count } = await query.range(from, to);
 
-    setData((data as Owner[]) ?? []);
+    setData(((data as unknown) as Owner[]) ?? []);
     setTotal(count ?? 0);
     setLoading(false);
   };
 
   useEffect(() => { loadMetrics(); }, []);
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, personaFilter, page]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, personaFilter, tipoFilter, page]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const showingFrom = total === 0 ? 0 : page * PAGE_SIZE + 1;
@@ -111,7 +119,7 @@ export default function Owners() {
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card><div className="p-5"><Eyebrow>Total</Eyebrow><div className="mt-2"><MetricValue size="lg">{metrics.total.toLocaleString()}</MetricValue></div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Total</Eyebrow><div className="mt-2"><MetricValue size="lg">{metrics.total.toLocaleString()}</MetricValue></div><div className="mt-1 font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{metricsTipo.fisicas.toLocaleString()} físicas · {metricsTipo.juridicas.toLocaleString()} jurídicas</div></div></Card>
         <Card><div className="p-5"><Eyebrow>Con consentimiento</Eyebrow><div className="mt-2"><MetricValue size="lg">{metrics.consentidos.toLocaleString()}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Sin clasificar</Eyebrow><div className="mt-2"><MetricValue size="lg">{metrics.sinRol.toLocaleString()}</MetricValue></div></div></Card>
       </div>
@@ -137,6 +145,13 @@ export default function Owners() {
               />
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Tipo</span>
+              <Chip active={tipoFilter === "all"} onClick={() => setTipoFilter("all")}>Todos</Chip>
+              <Chip active={tipoFilter === "persona_fisica"} onClick={() => setTipoFilter("persona_fisica")}>Físicas</Chip>
+              <Chip active={tipoFilter === "persona_juridica"} onClick={() => setTipoFilter("persona_juridica")}>Jurídicas</Chip>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Persona</span>
               <Chip active={personaFilter === "all"} onClick={() => setPersonaFilter("all")}>Todos</Chip>
               {PERSONAS.map((p) => (
                 <Chip key={p.value} active={personaFilter === p.value} onClick={() => setPersonaFilter(p.value)}>{p.label}</Chip>
@@ -148,14 +163,17 @@ export default function Owners() {
           <ul className="divide-y divide-border-faint md:hidden">
             {data.map((o) => (
               <li key={o.id} className="px-4 py-5">
-                <Link to={`/propietarios/${o.id}`} className="block space-y-3">
+                <RowWrapper to={o.tipo === "persona_fisica" ? `/propietarios/${o.id}` : null} className="block space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <Eyebrow>Nombre</Eyebrow>
+                      <Eyebrow>{o.tipo === "persona_juridica" ? "Empresa" : "Nombre"}</Eyebrow>
                       <div className="truncate text-base font-medium text-foreground">{o.nombre}</div>
-                      <div className="font-mono text-[12px] uppercase tracking-eyebrow text-muted-foreground truncate">{o.email ?? o.telefono ?? "—"}</div>
+                      <div className="font-mono text-[12px] uppercase tracking-eyebrow text-muted-foreground truncate">{o.cif ?? o.email ?? o.telefono ?? "—"}</div>
                     </div>
-                    <Badge variant={o.buyer_persona === "sin_clasificar" ? "outline" : "gold"} className="shrink-0">{PERSONA_LABEL[o.buyer_persona] ?? o.buyer_persona}</Badge>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <Badge variant={o.tipo === "persona_juridica" ? "secondary" : "outline"}>{o.tipo === "persona_juridica" ? "Jurídica" : "Física"}</Badge>
+                      <Badge variant={o.buyer_persona === "sin_clasificar" ? "outline" : "gold"}>{PERSONA_LABEL[o.buyer_persona] ?? o.buyer_persona}</Badge>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
@@ -167,7 +185,7 @@ export default function Owners() {
                       <div className="font-mono tabular-nums text-foreground">{new Date(o.updated_at).toLocaleDateString()}</div>
                     </div>
                   </div>
-                </Link>
+                </RowWrapper>
               </li>
             ))}
           </ul>
@@ -176,6 +194,7 @@ export default function Owners() {
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="min-w-[280px]">{t.owners.title}</TableHead>
+                  <TableHead>Tipo</TableHead>
                   <TableHead>Persona</TableHead>
                   <TableHead>{t.owners.consent}</TableHead>
                   <TableHead className="text-right">{t.owners.lastContact}</TableHead>
@@ -184,7 +203,7 @@ export default function Owners() {
               <TableBody>
                 {data.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                       Sin coincidencias.
                     </TableCell>
                   </TableRow>
@@ -192,13 +211,18 @@ export default function Owners() {
                 {data.map((o) => (
                   <TableRow key={o.id} className="bg-card">
                     <TableCell>
-                      <Link to={`/propietarios/${o.id}`} className="font-medium text-foreground hover:text-gold">
-                        {o.nombre}
-                      </Link>
+                      {o.tipo === "persona_fisica" ? (
+                        <Link to={`/propietarios/${o.id}`} className="font-medium text-foreground hover:text-gold">
+                          {o.nombre}
+                        </Link>
+                      ) : (
+                        <span className="font-medium text-foreground">{o.nombre}</span>
+                      )}
                       <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-                        {o.email ?? o.telefono ?? "—"}
+                        {o.cif ?? o.email ?? o.telefono ?? "—"}
                       </div>
                     </TableCell>
+                    <TableCell><Badge variant={o.tipo === "persona_juridica" ? "secondary" : "outline"}>{o.tipo === "persona_juridica" ? "Jurídica" : "Física"}</Badge></TableCell>
                     <TableCell><Badge variant={o.buyer_persona === "sin_clasificar" ? "outline" : "gold"}>{PERSONA_LABEL[o.buyer_persona] ?? o.buyer_persona}</Badge></TableCell>
                     <TableCell>
                       {o.consentimiento ? (
@@ -251,4 +275,9 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
       {children}
     </button>
   );
+}
+
+function RowWrapper({ to, className, children }: { to: string | null; className?: string; children: React.ReactNode }) {
+  if (to) return <Link to={to} className={className}>{children}</Link>;
+  return <div className={className}>{children}</div>;
 }
