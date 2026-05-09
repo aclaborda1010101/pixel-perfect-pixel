@@ -5,32 +5,38 @@ import { corsHeaders } from '../_shared/hubspot.ts';
 
 const ROL_BONUS = new Set(['heredero_operador', 'apoderado', 'operador_profesional']);
 
-interface OwnerRow {
+interface BORow {
   owner_id: string;
   cuota: number | null;
   rol_notas: string | null;
-  owners: {
-    nombre: string;
-    rol: string | null;
-    buyer_persona: string | null;
-    updated_at: string;
-    metadatos: Record<string, unknown> | null;
-  } | null;
+}
+interface OwnerInfo {
+  id: string;
+  nombre: string;
+  rol: string | null;
+  buyer_persona: string | null;
+  updated_at: string;
 }
 
 async function processBuilding(
   supabase: any,
   buildingId: string,
 ): Promise<{ winner_owner_id: string | null; ranking: any[] }> {
-  const { data: rows } = await supabase
+  const { data: rows, error: boErr } = await supabase
     .from('building_owners')
-    .select('owner_id, cuota, rol_notas, owners(nombre, rol, buyer_persona, updated_at, metadatos)')
+    .select('owner_id, cuota, rol_notas')
     .eq('building_id', buildingId);
+  if (boErr) throw boErr;
 
-  const bos = (rows || []) as OwnerRow[];
+  const bos = (rows || []) as BORow[];
   if (bos.length < 2) return { winner_owner_id: null, ranking: [] };
 
   const ownerIds = bos.map((r) => r.owner_id);
+  const { data: ownersData } = await supabase
+    .from('owners').select('id, nombre, rol, buyer_persona, updated_at')
+    .in('id', ownerIds);
+  const ownerMap = new Map<string, OwnerInfo>();
+  for (const o of (ownersData || []) as OwnerInfo[]) ownerMap.set(o.id, o);
 
   // count calls operativos por owner
   const callsByOwner: Record<string, number> = {};
@@ -55,9 +61,10 @@ async function processBuilding(
   }
 
   const ranking = bos.map((bo) => {
+    const o = ownerMap.get(bo.owner_id);
     const cuota = Number(bo.cuota) || 0;
-    const rol = (bo.owners?.rol || 'desconocido') as string;
-    const bp = (bo.owners?.buyer_persona || '') as string;
+    const rol = (o?.rol || 'desconocido') as string;
+    const bp = (o?.buyer_persona || '') as string;
     const cOp = Math.min(callsByOwner[bo.owner_id] || 0, 30);
     const cHs = Math.min(hsCallsByOwner[bo.owner_id] || 0, 15);
     const rolBonus = ROL_BONUS.has(rol) ? 25 : 0;
@@ -71,10 +78,10 @@ async function processBuilding(
     if (cHs > 0) reasonParts.push(`${hsCallsByOwner[bo.owner_id]} hs_calls`);
     return {
       owner_id: bo.owner_id,
-      nombre: bo.owners?.nombre,
+      nombre: o?.nombre,
       score: Math.round(score * 100) / 100,
       cuota,
-      updated_at: bo.owners?.updated_at,
+      updated_at: o?.updated_at,
       reason: reasonParts.join(' + ') || 'sin señales',
     };
   });
