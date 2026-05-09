@@ -115,6 +115,7 @@ export function useNotasSimples() {
 export function useNotaSimple(id: string | undefined) {
   const [nota, setNota] = useState<NotaSimpleEnriched | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -125,7 +126,7 @@ export function useNotaSimple(id: string | undefined) {
     if (error || !data) { setNota(null); setLoading(false); return; }
     const n = data as NotaSimple;
 
-    const [b, o, signed] = await Promise.all([
+    const [b, o, signed, blob] = await Promise.all([
       n.building_id
         ? supabase.from("buildings").select("id, direccion, ciudad").eq("id", n.building_id).maybeSingle()
         : Promise.resolve({ data: null }),
@@ -135,18 +136,27 @@ export function useNotaSimple(id: string | undefined) {
       n.file_url
         ? supabase.storage.from("notas-simples").createSignedUrl(n.file_url, 60 * 30)
         : Promise.resolve({ data: null }),
+      n.file_url
+        ? supabase.storage.from("notas-simples").download(n.file_url)
+        : Promise.resolve({ data: null }),
     ]);
     setNota({ ...n, building: (b as any).data ?? null, owner: (o as any).data ?? null });
     setPdfUrl((signed as any)?.data?.signedUrl ?? null);
+    const blobData = (blob as any)?.data as Blob | null;
+    if (blobData) {
+      const url = URL.createObjectURL(blobData);
+      setPdfBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+    }
     setLoading(false);
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => () => { if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl); }, [pdfBlobUrl]);
 
   useEffect(() => {
     if (!id) return;
     const ch = supabase
-      .channel(`nota_simple_${id}`)
+      .channel(`nota_simple_${id}_${Math.random().toString(36).slice(2)}`)
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "notas_simples", filter: `id=eq.${id}`,
       }, () => load())
@@ -165,5 +175,5 @@ export function useNotaSimple(id: string | undefined) {
     if (error) throw new Error(error.message);
   }, [id]);
 
-  return { nota, pdfUrl, loading, reanalyze, reload: load };
+  return { nota, pdfUrl, pdfBlobUrl, loading, reanalyze, reload: load };
 }
