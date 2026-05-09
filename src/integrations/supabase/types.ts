@@ -363,6 +363,240 @@ export type Database = {
         }
         Relationships: []
       }
+      hubspot_calls: {
+        Row: {
+          associated_contact_ids: string[] | null
+          associated_deal_ids: string[] | null
+          created_at: string
+          hs_call_body: string | null
+          hs_call_direction: string | null
+          hs_call_disposition: string | null
+          hs_call_duration: number | null
+          hs_call_from_number: string | null
+          hs_call_recording_url: string | null
+          hs_call_status: string | null
+          hs_call_title: string | null
+          hs_call_to_number: string | null
+          hs_createdate: string | null
+          hs_id: string
+          hs_lastmodifieddate: string | null
+          hs_timestamp: string | null
+          id: string
+          raw: Json
+          updated_at: string
+        }
+        Insert: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_call_body?: string | null
+          hs_call_direction?: string | null
+          hs_call_disposition?: string | null
+          hs_call_duration?: number | null
+          hs_call_from_number?: string | null
+          hs_call_recording_url?: string | null
+          hs_call_status?: string | null
+          hs_call_title?: string | null
+          hs_call_to_number?: string | null
+          hs_createdate?: string | null
+          hs_id: string
+          hs_lastmodifieddate?: string | null
+          hs_timestamp?: string | null
+          id?: string
+          raw?: Json
+          updated_at?: string
+        }
+        Update: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_call_body?: string | null
+          hs_call_direction?: string | null
+          hs_call_disposition?: string | null
+          hs_call_duration?: number | null
+          hs_call_from_number?: string | null
+          hs_call_recording_url?: string | null
+          hs_call_status?: string | null
+          hs_call_title?: string | null
+          hs_call_to_number?: string | null
+          hs_createdate?: string | null
+          hs_id?: string
+          hs_lastmodifieddate?: string | null
+          hs_timestamp?: string | null
+          id?: string
+          raw?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      hubspot_changes_log: {
+        Row: {
+          entity_type: string
+          field: string
+          hs_id: string
+          id: string
+          new_value: string | null
+          observed_at: string
+          old_value: string | null
+          sync_run_id: string | null
+        }
+        Insert: {
+          entity_type: string
+          field: string
+          hs_id: string
+          id?: string
+          new_value?: string | null
+          observed_at?: string
+          old_value?: string | null
+          sync_run_id?: string | null
+        }
+        Update: {
+          entity_type?: string
+          field?: string
+          hs_id?: string
+          id?: string
+          new_value?: string | null
+          observed_at?: string
+          old_value?: string | null
+          sync_run_id?: string | null
+        }
+        Relationships: []
+      }
+      hubspot_list_memberships: {
+        Row: {
+          added_at: string | null
+          hs_list_id: string
+          object_type: string
+          observed_at: string
+          record_id: string
+        }
+        Insert: {
+          added_at?: string | null
+          hs_list_id: string
+          object_type: string
+          observed_at?: string
+          record_id: string
+        }
+        Update: {
+          added_at?: string | null
+          hs_list_id?: string
+          object_type?: string
+          observed_at?: string
+          record_id?: string
+        }
+        Relationships: []
+      }
+      hubspot_lists: {
+        Row: {
+          created_at: string
+          created_at_hs: string | null
+          hs_list_id: string
+          id: string
+          list_type: string | null
+          name: string | null
+          object_type_id: string | null
+          processing_type: string | null
+          raw: Json
+          size: number | null
+          updated_at: string
+          updated_at_hs: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_at_hs?: string | null
+          hs_list_id: string
+          id?: string
+          list_type?: string | null
+          name?: string | null
+          object_type_id?: string | null
+          processing_type?: string | null
+          raw?: Json
+          size?: number | null
+          updated_at?: string
+          updated_at_hs?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_at_hs?: string | null
+          hs_list_id?: string
+          id?: string
+          list_type?: string | null
+          name?: string | null
+          object_type_id?: string | null
+          processing_type?: string | null
+          raw?: Json
+          size?: number | null
+          updated_at?: string
+          updated_at_hs?: string | null
+        }
+        Relationships: []
+      }
+      hubspot_notes: {
+        Row: {
+          associated_contact_ids: string[] | null
+          associated_deal_ids: string[] | null
+          created_at: string
+          hs_createdate: string | null
+          hs_id: string
+          hs_lastmodifieddate: string | null
+          hs_note_body: string | null
+          hs_timestamp: string | null
+          id: string
+          raw: Json
+          updated_at: string
+        }
+        Insert: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_createdate?: string | null
+          hs_id: string
+          hs_lastmodifieddate?: string | null
+          hs_note_body?: string | null
+          hs_timestamp?: string | null
+          id?: string
+          raw?: Json
+          updated_at?: string
+        }
+        Update: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_createdate?: string | null
+          hs_id?: string
+          hs_lastmodifieddate?: string | null
+          hs_note_body?: string | null
+          hs_timestamp?: string | null
+          id?: string
+          raw?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      hubspot_snapshots: {
+        Row: {
+          entity_type: string
+          id: string
+          metrics: Json
+          taken_at: string
+          total_count: number
+        }
+        Insert: {
+          entity_type: string
+          id?: string
+          metrics?: Json
+          taken_at?: string
+          total_count: number
+        }
+        Update: {
+          entity_type?: string
+          id?: string
+          metrics?: Json
+          taken_at?: string
+          total_count?: number
+        }
+        Relationships: []
+      }
       hubspot_sync_log: {
         Row: {
           created_at: string
@@ -443,6 +677,63 @@ export type Database = {
           last_run_status?: string | null
           metadatos?: Json
           total_synced?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      hubspot_tasks: {
+        Row: {
+          associated_contact_ids: string[] | null
+          associated_deal_ids: string[] | null
+          created_at: string
+          hs_createdate: string | null
+          hs_id: string
+          hs_lastmodifieddate: string | null
+          hs_task_body: string | null
+          hs_task_completion_date: string | null
+          hs_task_priority: string | null
+          hs_task_status: string | null
+          hs_task_subject: string | null
+          hs_task_type: string | null
+          hs_timestamp: string | null
+          id: string
+          raw: Json
+          updated_at: string
+        }
+        Insert: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_createdate?: string | null
+          hs_id: string
+          hs_lastmodifieddate?: string | null
+          hs_task_body?: string | null
+          hs_task_completion_date?: string | null
+          hs_task_priority?: string | null
+          hs_task_status?: string | null
+          hs_task_subject?: string | null
+          hs_task_type?: string | null
+          hs_timestamp?: string | null
+          id?: string
+          raw?: Json
+          updated_at?: string
+        }
+        Update: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_createdate?: string | null
+          hs_id?: string
+          hs_lastmodifieddate?: string | null
+          hs_task_body?: string | null
+          hs_task_completion_date?: string | null
+          hs_task_priority?: string | null
+          hs_task_status?: string | null
+          hs_task_subject?: string | null
+          hs_task_type?: string | null
+          hs_timestamp?: string | null
+          id?: string
+          raw?: Json
           updated_at?: string
         }
         Relationships: []
