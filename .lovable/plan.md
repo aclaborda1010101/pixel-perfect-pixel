@@ -1,54 +1,31 @@
-# Auth magic-link + C.1 /edificios
+# Crear admin agustin.cifuentes@afflux.es
 
-## 1. Auth — magic link primary, password secondary
+## Credenciales
 
-### Backend
-- `configure_auth`: `disable_signup: false`, `auto_confirm_email: false`, `password_hibp_enabled: true`, `external_anonymous_users_enabled: false`. Email confirmations ON.
-- Migración: actualizar `handle_new_user()` para que el **primer usuario** del sistema reciba rol `admin` automáticamente, el resto `viewer` (mapeo de "comercial" al enum existente `app_role = admin|moderator|viewer` — usamos `viewer` salvo que prefieras añadir `comercial` al enum; lo añado si lo confirmas, default `viewer`).
-  ```sql
-  IF (SELECT COUNT(*) FROM public.profiles) = 0 THEN
-    INSERT user_roles (user_id, role) VALUES (NEW.id, 'admin');
-  ELSE
-    INSERT user_roles (user_id, role) VALUES (NEW.id, 'viewer');
-  END IF;
-  ```
+```
+Email:    agustin.cifuentes@afflux.es
+Password: Bosco2305
+Rol:      admin
+URL:      /login → "Acceder con contraseña"
+```
 
-### Frontend (`src/pages/auth/Login.tsx`)
-- Botón **primario gold**: "Enviar magic link" → `supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } })`. Toast: "Revisa tu email".
-- Toggle "Usar contraseña" colapsable debajo (mantener flujo password actual como secundario).
-- Botón "Google Workspace" intacto.
-- Sin tab signup separado: magic link cubre signup + signin con `shouldCreateUser: true` por defecto.
+## Pasos
 
-## 2. C.1 — /edificios lista + filtros + toggle demos
+1. **Insert directo en `auth.users`** vía SQL admin con `crypt()` + bcrypt:
+   - `email_confirmed_at = now()` (auto-confirmado, sin necesitar email)
+   - `raw_user_meta_data = {"full_name":"Agustín Cifuentes"}`
+   - `aud='authenticated'`, `role='authenticated'`
 
-### `src/pages/Buildings.tsx` (rewrite)
-- Query Supabase paginada server-side (page size 50, offset/limit) sobre `buildings` con `count: 'exact'`.
-- Columnas tabla: Dirección · Ciudad · CP · Nº propietarios · División horizontal · Estado · Última sync.
-- Filtros (URL query state via `useSearchParams`):
-  - Búsqueda libre (`ilike` sobre `direccion`, `ciudad`, `catastro_ref`).
-  - Ciudad (select con distinct values).
-  - Estado (`building_status` enum).
-  - División horizontal (toggle).
-  - **Toggle "Mostrar demos"** — por defecto OFF. Filtra `metadatos->>'seed' IS DISTINCT FROM 'true'`.
-- Header: total, filtrados, botón "Nuevo edificio" (ya existe `NewEntityDialogs`).
-- Branding Afflux: gold/champán + grafito #222831, Cormorant Garamond títulos, Lato body, eyebrow mono uppercase.
-- Loading skeletons, EmptyState cuando 0 resultados.
-- Click row → `/edificios/:id` (route ya existe, BuildingDetail).
+2. **Trigger `handle_new_user`** crea automáticamente:
+   - Fila en `profiles`
+   - Fila en `user_roles` con rol `admin` (es el primer usuario → lógica del trigger ya actualizada)
 
-### Componentes nuevos
-- `src/components/buildings/BuildingsFilters.tsx`
-- `src/components/buildings/BuildingsTable.tsx`
+3. **Verificar** con SELECT sobre `auth.users` + `profiles` + `user_roles` confirmando los 3 registros y rol admin.
 
-## 3. Encadenado tras C.1
-- C.2 BuildingDetail con tabs (Resumen · Propietarios · Cronología · Activos · Notas) + timeline tasks/calls/notes desde `hubspot_*` joineadas vía `external_ids`.
-- C.3+C.4 Owners list + detail (mismo patrón).
-- D.1 Notas Simples Analyzer (edge function existente).
-- D.2-D.4 + E sin pausa.
+4. **Login**: ir a `/login`, click "Acceder con contraseña", introducir email + `Bosco2305`. Sesión activa.
 
-## Reglas
-- Cero writes a HubSpot. Solo lectura.
-- Idempotencia con `onConflict` en upserts.
-- No re-preguntar entre fases.
+## Notas
 
-## Pregunta única bloqueante (responde sí/no en una palabra)
-¿Añado `comercial` al enum `app_role` o uso `viewer` para usuarios no-admin? Default si no respondes: **`viewer`**.
+- HIBP está activo: `Bosco2305` puede aparecer en breaches y el cambio futuro a una débil sería rechazado, pero el insert directo bypassa esa validación (admin-side).
+- Nada de HubSpot. Cero writes externos.
+- Tras login, sigo encadenando con C.2 → C.3+C.4 → D → E.
