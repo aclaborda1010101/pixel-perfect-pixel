@@ -4,6 +4,11 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -26,6 +31,9 @@ export default function Buildings() {
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [filter, setFilter] = useState<string>("all");
+  const [ciudad, setCiudad] = useState<string>("all");
+  const [showDemos, setShowDemos] = useState<boolean>(false);
+  const [ciudades, setCiudades] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -38,13 +46,19 @@ export default function Buildings() {
   }, [q]);
 
   // reset página al cambiar filtros/busqueda
-  useEffect(() => { setPage(0); }, [debouncedQ, filter]);
+  useEffect(() => { setPage(0); }, [debouncedQ, filter, ciudad, showDemos]);
 
   // métricas globales (independientes de paginación)
   const loadMetrics = async () => {
+    const totQ = supabase.from("buildings").select("id", { count: "exact", head: true });
+    const dhQ = supabase.from("buildings").select("id", { count: "exact", head: true }).eq("division_horizontal", true);
+    if (!showDemos) {
+      totQ.not("metadatos->>seed", "eq", "true");
+      dhQ.not("metadatos->>seed", "eq", "true");
+    }
     const [tot, dh, props] = await Promise.all([
-      supabase.from("buildings").select("id", { count: "exact", head: true }),
-      supabase.from("buildings").select("id", { count: "exact", head: true }).eq("division_horizontal", true),
+      totQ,
+      dhQ,
       supabase.from("building_owners").select("building_id", { count: "exact", head: true }),
     ]);
     setMetrics({
@@ -53,6 +67,19 @@ export default function Buildings() {
       propietarios: props.count ?? 0,
     });
   };
+
+  // distinct ciudades (top 200)
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("buildings")
+        .select("ciudad")
+        .not("ciudad", "is", null)
+        .limit(2000);
+      const uniq = Array.from(new Set((data ?? []).map((r: any) => r.ciudad).filter(Boolean))).sort();
+      setCiudades(uniq);
+    })();
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -68,6 +95,8 @@ export default function Buildings() {
       );
     }
     if (filter !== "all") query = query.eq("estado", filter as any);
+    if (ciudad !== "all") query = query.eq("ciudad", ciudad);
+    if (!showDemos) query = query.not("metadatos->>seed", "eq", "true");
 
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -90,8 +119,8 @@ export default function Buildings() {
     setLoading(false);
   };
 
-  useEffect(() => { loadMetrics(); }, []);
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, filter, page]);
+  useEffect(() => { loadMetrics(); /* eslint-disable-next-line */ }, [showDemos]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, filter, ciudad, showDemos, page]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const showingFrom = total === 0 ? 0 : page * PAGE_SIZE + 1;
@@ -126,11 +155,28 @@ export default function Buildings() {
                 className="h-8 pl-8 text-sm"
               />
             </div>
+            <Select value={ciudad} onValueChange={setCiudad}>
+              <SelectTrigger className="h-8 w-[180px] text-sm">
+                <SelectValue placeholder="Ciudad" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                <SelectItem value="all">Todas las ciudades</SelectItem>
+                {ciudades.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <div className="flex flex-wrap items-center gap-1.5">
               <Chip active={filter === "all"} onClick={() => setFilter("all")}>Todos</Chip>
               {ESTADOS.map((e) => (
                 <Chip key={e} active={filter === e} onClick={() => setFilter(e)}>{e}</Chip>
               ))}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <Switch id="demos" checked={showDemos} onCheckedChange={setShowDemos} />
+              <Label htmlFor="demos" className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground cursor-pointer">
+                Mostrar demos
+              </Label>
             </div>
           </div>
 
