@@ -5,7 +5,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 import { hubspotFetch, corsHeaders } from '../_shared/hubspot.ts';
 
 const BATCH_SIZE = 100;
-const MAX_BATCHES_PER_RUN = 80; // hasta 8000 deals por invocación
+const MAX_BATCHES_PER_RUN = 30; // hasta 3000 deals por invocación
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -46,16 +46,29 @@ Deno.serve(async (req) => {
       .from('hubspot_sync_state').select('cursor').eq('entity', 'associations').single();
     const startAfter = reset ? null : (state?.cursor || null);
 
-    // Cargar deals desde external_ids (todos los building deals sincronizados desde HubSpot)
-    let query = supabase
-      .from('external_ids')
-      .select('entity_id, provider_id')
-      .eq('provider', 'hubspot')
-      .eq('provider_object_type', 'deal')
-      .order('provider_id', { ascending: true })
-      .limit(BATCH_SIZE * MAX_BATCHES_PER_RUN);
-    if (startAfter) query = query.gt('provider_id', startAfter);
-    const { data: deals, error: dealsErr } = await query;
+    // Cargar deals desde external_ids paginando por chunks de 1000 (límite Supabase)
+    const TARGET = BATCH_SIZE * MAX_BATCHES_PER_RUN;
+    const deals: { entity_id: string; provider_id: string }[] = [];
+    let pageAfter: string | null = startAfter;
+    while (deals.length < TARGET) {
+      const remaining = TARGET - deals.length;
+      const limit = Math.min(1000, remaining);
+      let q = supabase
+        .from('external_ids')
+        .select('entity_id, provider_id')
+        .eq('provider', 'hubspot')
+        .eq('provider_object_type', 'deal')
+        .order('provider_id', { ascending: true })
+        .limit(limit);
+      if (pageAfter) q = q.gt('provider_id', pageAfter);
+      const { data: chunk, error: cErr } = await q;
+      if (cErr) throw cErr;
+      if (!chunk || chunk.length === 0) break;
+      deals.push(...chunk);
+      pageAfter = chunk[chunk.length - 1].provider_id;
+      if (chunk.length < limit) break;
+    }
+    const dealsErr = null as any;
     if (dealsErr) throw dealsErr;
     if (!deals || deals.length === 0) {
       // wrap-up
@@ -155,7 +168,7 @@ Deno.serve(async (req) => {
       }).eq('entity', 'associations');
     }
 
-    const hasMore = deals.length === BATCH_SIZE * MAX_BATCHES_PER_RUN;
+    const hasMore = deals.length >= TARGET;
     const finishedAt = new Date().toISOString();
 
     await supabase.from('hubspot_sync_log').update({
