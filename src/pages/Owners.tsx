@@ -13,7 +13,7 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
-import { Users, Search, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { Users, Search, Check, ChevronLeft, ChevronRight, Crown } from "lucide-react";
 import { NewOwnerDialog } from "@/components/forms/NewEntityDialogs";
 
 type Owner = {
@@ -44,10 +44,12 @@ const PERSONA_LABEL: Record<string, string> = Object.fromEntries(PERSONAS.map((p
 export default function Owners() {
   const { t } = useI18n();
   const [data, setData] = useState<Owner[]>([]);
+  const [influencerCounts, setInfluencerCounts] = useState<Record<string, number>>({});
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [personaFilter, setPersonaFilter] = useState<string>("all");
   const [tipoFilter, setTipoFilter] = useState<"all" | "persona_fisica" | "persona_juridica">("all");
+  const [onlyInfluencers, setOnlyInfluencers] = useState(false);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -58,7 +60,7 @@ export default function Owners() {
     return () => clearTimeout(t);
   }, [q]);
 
-  useEffect(() => { setPage(0); }, [debouncedQ, personaFilter, tipoFilter]);
+  useEffect(() => { setPage(0); }, [debouncedQ, personaFilter, tipoFilter, onlyInfluencers]);
 
   const [metricsTipo, setMetricsTipo] = useState({ fisicas: 0, juridicas: 0 });
 
@@ -81,6 +83,15 @@ export default function Owners() {
 
   const load = async () => {
     setLoading(true);
+    let influencerOwnerIds: string[] | null = null;
+    if (onlyInfluencers) {
+      const { data: bos } = await supabase
+        .from("building_owners").select("owner_id").eq("es_influencer", true);
+      influencerOwnerIds = Array.from(new Set((bos ?? []).map((r: any) => r.owner_id)));
+      if (influencerOwnerIds.length === 0) {
+        setData([]); setTotal(0); setInfluencerCounts({}); setLoading(false); return;
+      }
+    }
     let query = supabase
       .from("v_propietarios" as any)
       .select("id,nombre,email,telefono,buyer_persona,consentimiento,updated_at,tipo,cif", { count: "exact" })
@@ -92,6 +103,7 @@ export default function Owners() {
     }
     if (personaFilter !== "all") query = query.eq("buyer_persona", personaFilter);
     if (tipoFilter !== "all") query = query.eq("tipo", tipoFilter);
+    if (influencerOwnerIds) query = query.in("id", influencerOwnerIds);
 
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -99,11 +111,20 @@ export default function Owners() {
 
     setData(((data as unknown) as Owner[]) ?? []);
     setTotal(count ?? 0);
+
+    const ids = ((data as unknown) as Owner[] ?? []).map((o) => o.id);
+    if (ids.length) {
+      const { data: rows } = await supabase
+        .from("building_owners").select("owner_id").in("owner_id", ids).eq("es_influencer", true);
+      const counts: Record<string, number> = {};
+      for (const r of (rows ?? []) as { owner_id: string }[]) counts[r.owner_id] = (counts[r.owner_id] || 0) + 1;
+      setInfluencerCounts(counts);
+    } else setInfluencerCounts({});
     setLoading(false);
   };
 
   useEffect(() => { loadMetrics(); }, []);
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, personaFilter, tipoFilter, page]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, personaFilter, tipoFilter, page, onlyInfluencers]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const showingFrom = total === 0 ? 0 : page * PAGE_SIZE + 1;
@@ -157,6 +178,12 @@ export default function Owners() {
                 <Chip key={p.value} active={personaFilter === p.value} onClick={() => setPersonaFilter(p.value)}>{p.label}</Chip>
               ))}
             </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Rol</span>
+              <Chip active={onlyInfluencers} onClick={() => setOnlyInfluencers((v) => !v)}>
+                <span className="inline-flex items-center gap-1"><Crown className="h-3 w-3" /> Influencers</span>
+              </Chip>
+            </div>
           </div>
 
           {/* Mobile cards */}
@@ -196,6 +223,7 @@ export default function Owners() {
                   <TableHead className="min-w-[280px]">{t.owners.title}</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Persona</TableHead>
+                  <TableHead className="text-right">Edificios influencer</TableHead>
                   <TableHead>{t.owners.consent}</TableHead>
                   <TableHead className="text-right">{t.owners.lastContact}</TableHead>
                 </TableRow>
@@ -203,7 +231,7 @@ export default function Owners() {
               <TableBody>
                 {data.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                       Sin coincidencias.
                     </TableCell>
                   </TableRow>
@@ -224,6 +252,11 @@ export default function Owners() {
                     </TableCell>
                     <TableCell><Badge variant={o.tipo === "persona_juridica" ? "secondary" : "outline"}>{o.tipo === "persona_juridica" ? "Jurídica" : "Física"}</Badge></TableCell>
                     <TableCell><Badge variant={o.buyer_persona === "sin_clasificar" ? "outline" : "gold"}>{PERSONA_LABEL[o.buyer_persona] ?? o.buyer_persona}</Badge></TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {influencerCounts[o.id] ? (
+                        <span className="inline-flex items-center gap-1 text-gold"><Crown className="h-3 w-3" />{influencerCounts[o.id]}</span>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
                     <TableCell>
                       {o.consentimiento ? (
                         <span className="inline-flex items-center gap-1 text-success"><Check className="h-3.5 w-3.5" /><span className="text-xs">Sí</span></span>
