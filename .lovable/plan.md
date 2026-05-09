@@ -1,31 +1,32 @@
-# Crear admin agustin.cifuentes@afflux.es
+# Fix redirect loop tras login
 
-## Credenciales
+## Causa
+`ProtectedRoute` recibe `isAuthenticated` como prop (default `false`) pero `App.tsx` nunca se la pasa → siempre redirige a `/login`. Y como `Login.tsx` redirige al detectar sesión, se crea un loop infinito (`Maximum update depth exceeded`).
 
+## Solución (1 archivo)
+
+Reescribir `src/components/auth/ProtectedRoute.tsx` para que consuma `useAuth()` directamente:
+
+```tsx
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { DEMO_MODE } from "@/lib/config";
+
+export function ProtectedRoute({ children }) {
+  const { session, loading } = useAuth();
+  const location = useLocation();
+  if (DEMO_MODE) return children ?? <Outlet />;
+  if (loading) return null; // o un splash mínimo
+  if (!session) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  return children ?? <Outlet />;
+}
 ```
-Email:    agustin.cifuentes@afflux.es
-Password: Bosco2305
-Rol:      admin
-URL:      /login → "Acceder con contraseña"
-```
 
-## Pasos
+Esto:
+- Elimina el redirect mientras se hidrata la sesión (`loading=true`).
+- Usa la sesión real, no el prop hardcoded a `false`.
+- Soporta tanto wrap (`<ProtectedRoute><X/></ProtectedRoute>`) como layout-route con `<Outlet/>` (App.tsx usa este patrón).
 
-1. **Insert directo en `auth.users`** vía SQL admin con `crypt()` + bcrypt:
-   - `email_confirmed_at = now()` (auto-confirmado, sin necesitar email)
-   - `raw_user_meta_data = {"full_name":"Agustín Cifuentes"}`
-   - `aud='authenticated'`, `role='authenticated'`
+Tras el fix, el flujo será: login → toast "Sesión iniciada" → `Login.tsx` ve `session` → `navigate("/")` → `ProtectedRoute` ve sesión → renderiza `AppLayout` + Dashboard.
 
-2. **Trigger `handle_new_user`** crea automáticamente:
-   - Fila en `profiles`
-   - Fila en `user_roles` con rol `admin` (es el primer usuario → lógica del trigger ya actualizada)
-
-3. **Verificar** con SELECT sobre `auth.users` + `profiles` + `user_roles` confirmando los 3 registros y rol admin.
-
-4. **Login**: ir a `/login`, click "Acceder con contraseña", introducir email + `Bosco2305`. Sesión activa.
-
-## Notas
-
-- HIBP está activo: `Bosco2305` puede aparecer en breaches y el cambio futuro a una débil sería rechazado, pero el insert directo bypassa esa validación (admin-side).
-- Nada de HubSpot. Cero writes externos.
-- Tras login, sigo encadenando con C.2 → C.3+C.4 → D → E.
+No hay cambios en backend ni en otros componentes.
