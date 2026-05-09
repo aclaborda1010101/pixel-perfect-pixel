@@ -58,9 +58,28 @@ Deno.serve(async (req) => {
   let failed = 0;
   let assocCreated = 0;
 
+  let archivedMode = false;
+  try {
+    const b = await req.clone().json().catch(() => ({}));
+    archivedMode = !!b?.archived;
+  } catch { /* ignore */ }
+  const stateEntity = archivedMode ? 'contacts_archived' : 'contacts';
+
+  // Ensure state row exists for archived mode
+  if (archivedMode) {
+    await supabase.from('hubspot_sync_state').upsert(
+      { entity: 'contacts_archived', last_run_status: 'running', last_run_at: new Date().toISOString() },
+      { onConflict: 'entity' },
+    );
+  } else {
+    await supabase.from('hubspot_sync_state').update({
+      last_run_status: 'running', last_run_at: new Date().toISOString(), last_error: null,
+    }).eq('entity', 'contacts');
+  }
+
   try {
     const { data: state } = await supabase
-      .from('hubspot_sync_state').select('cursor').eq('entity', 'contacts').single();
+      .from('hubspot_sync_state').select('cursor').eq('entity', stateEntity).single();
     let after: string | undefined = state?.cursor || undefined;
 
     let reset = false;
@@ -73,7 +92,7 @@ Deno.serve(async (req) => {
     for (let page = 0; page < MAX_PAGES_PER_RUN; page++) {
       const params = new URLSearchParams();
       params.set('limit', String(PAGE_LIMIT));
-      params.set('archived', 'false');
+      params.set('archived', archivedMode ? 'true' : 'false');
       CONTACT_PROPERTIES.forEach((p) => params.append('properties', p));
       params.append('associations', 'deals');
       if (after) params.set('after', after);
@@ -99,7 +118,7 @@ Deno.serve(async (req) => {
             email: props.email?.trim() || null,
             telefono: props.phone?.trim() || null,
             rol: mapRol(props),
-            metadatos: { ...props, _hubspot_contact_id: contact.id },
+            metadatos: { ...props, _hubspot_contact_id: contact.id, archived: archivedMode },
             last_synced_at: new Date().toISOString(),
           };
 
@@ -182,7 +201,7 @@ Deno.serve(async (req) => {
       after = data?.paging?.next?.after;
       await supabase.from('hubspot_sync_state').update({
         cursor: after || null,
-      }).eq('entity', 'contacts');
+      }).eq('entity', stateEntity);
 
       if (!after) break;
     }
@@ -209,10 +228,10 @@ Deno.serve(async (req) => {
       last_run_at: finishedAt,
       last_full_sync_at: !state?.cursor ? finishedAt : null,
       total_synced: totalContacts || 0,
-    }).eq('entity', 'contacts');
+    }).eq('entity', stateEntity);
 
     const { data: stateAfter } = await supabase
-      .from('hubspot_sync_state').select('cursor').eq('entity', 'contacts').single();
+      .from('hubspot_sync_state').select('cursor').eq('entity', stateEntity).single();
 
     return new Response(JSON.stringify({
       ok: true,
@@ -237,7 +256,7 @@ Deno.serve(async (req) => {
     await supabase.from('hubspot_sync_state').update({
       last_run_status: 'error',
       last_error: msg,
-    }).eq('entity', 'contacts');
+    }).eq('entity', stateEntity);
     return new Response(JSON.stringify({ ok: false, error: msg, upserted, failed }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
