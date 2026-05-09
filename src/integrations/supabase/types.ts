@@ -130,6 +130,9 @@ export type Database = {
           building_id: string
           created_at: string
           cuota: number | null
+          es_influencer: boolean
+          influencer_reason: string | null
+          influencer_score: number | null
           metadatos: Json
           owner_id: string
           rol_notas: string | null
@@ -139,6 +142,9 @@ export type Database = {
           building_id: string
           created_at?: string
           cuota?: number | null
+          es_influencer?: boolean
+          influencer_reason?: string | null
+          influencer_score?: number | null
           metadatos?: Json
           owner_id: string
           rol_notas?: string | null
@@ -148,6 +154,9 @@ export type Database = {
           building_id?: string
           created_at?: string
           cuota?: number | null
+          es_influencer?: boolean
+          influencer_reason?: string | null
+          influencer_score?: number | null
           metadatos?: Json
           owner_id?: string
           rol_notas?: string | null
