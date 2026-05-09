@@ -1,1 +1,4 @@
 project_id = "vsbrupwznqaaoiflvliu"
+
+[functions.analyze_nota_simple]
+verify_jwt = true
