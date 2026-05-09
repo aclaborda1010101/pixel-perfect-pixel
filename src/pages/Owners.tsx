@@ -23,19 +23,30 @@ type Owner = {
   telefono: string | null;
   rol: string;
   subrole: string;
+  buyer_persona: string;
   consentimiento: boolean;
   updated_at: string;
 };
 
 const PAGE_SIZE = 50;
-const ROLES = ["desconocido", "propietario", "heredero", "representante", "inquilino"];
+const PERSONAS: { value: string; label: string }[] = [
+  { value: "sin_clasificar", label: "Sin clasificar" },
+  { value: "cansado", label: "Cansado" },
+  { value: "desplazado", label: "Desplazado" },
+  { value: "controla", label: "Controla" },
+  { value: "ego", label: "Ego" },
+  { value: "no_traspasa", label: "No traspasa" },
+  { value: "vive_edificio", label: "Vive edificio" },
+  { value: "no_primero", label: "No primero" },
+];
+const PERSONA_LABEL: Record<string, string> = Object.fromEntries(PERSONAS.map((p) => [p.value, p.label]));
 
 export default function Owners() {
   const { t } = useI18n();
   const [data, setData] = useState<Owner[]>([]);
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
-  const [rolFilter, setRolFilter] = useState<string>("all");
+  const [personaFilter, setPersonaFilter] = useState<string>("all");
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -46,13 +57,13 @@ export default function Owners() {
     return () => clearTimeout(t);
   }, [q]);
 
-  useEffect(() => { setPage(0); }, [debouncedQ, rolFilter]);
+  useEffect(() => { setPage(0); }, [debouncedQ, personaFilter]);
 
   const loadMetrics = async () => {
     const [tot, cons, sin] = await Promise.all([
       supabase.from("owners").select("id", { count: "exact", head: true }),
       supabase.from("owners").select("id", { count: "exact", head: true }).eq("consentimiento", true),
-      supabase.from("owners").select("id", { count: "exact", head: true }).eq("rol", "desconocido" as any),
+      supabase.from("owners").select("id", { count: "exact", head: true }).eq("buyer_persona", "sin_clasificar" as any),
     ]);
     setMetrics({
       total: tot.count ?? 0,
@@ -65,14 +76,14 @@ export default function Owners() {
     setLoading(true);
     let query = supabase
       .from("owners")
-      .select("id,nombre,email,telefono,rol,subrole,consentimiento,updated_at", { count: "exact" })
+      .select("id,nombre,email,telefono,rol,subrole,buyer_persona,consentimiento,updated_at", { count: "exact" })
       .order("updated_at", { ascending: false });
 
     if (debouncedQ.trim()) {
       const s = debouncedQ.trim().replace(/[%,]/g, "");
       query = query.or(`nombre.ilike.%${s}%,email.ilike.%${s}%,telefono.ilike.%${s}%`);
     }
-    if (rolFilter !== "all") query = query.eq("rol", rolFilter as any);
+    if (personaFilter !== "all") query = query.eq("buyer_persona", personaFilter as any);
 
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -84,7 +95,7 @@ export default function Owners() {
   };
 
   useEffect(() => { loadMetrics(); }, []);
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, rolFilter, page]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, personaFilter, page]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const showingFrom = total === 0 ? 0 : page * PAGE_SIZE + 1;
@@ -102,7 +113,7 @@ export default function Owners() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card><div className="p-5"><Eyebrow>Total</Eyebrow><div className="mt-2"><MetricValue size="lg">{metrics.total.toLocaleString()}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Con consentimiento</Eyebrow><div className="mt-2"><MetricValue size="lg">{metrics.consentidos.toLocaleString()}</MetricValue></div></div></Card>
-        <Card><div className="p-5"><Eyebrow>Sin rol catalogado</Eyebrow><div className="mt-2"><MetricValue size="lg">{metrics.sinRol.toLocaleString()}</MetricValue></div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Sin clasificar</Eyebrow><div className="mt-2"><MetricValue size="lg">{metrics.sinRol.toLocaleString()}</MetricValue></div></div></Card>
       </div>
 
       {metrics.total === 0 ? (
@@ -126,9 +137,9 @@ export default function Owners() {
               />
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
-              <Chip active={rolFilter === "all"} onClick={() => setRolFilter("all")}>Todos</Chip>
-              {ROLES.map((r) => (
-                <Chip key={r} active={rolFilter === r} onClick={() => setRolFilter(r)}>{r}</Chip>
+              <Chip active={personaFilter === "all"} onClick={() => setPersonaFilter("all")}>Todos</Chip>
+              {PERSONAS.map((p) => (
+                <Chip key={p.value} active={personaFilter === p.value} onClick={() => setPersonaFilter(p.value)}>{p.label}</Chip>
               ))}
             </div>
           </div>
@@ -144,7 +155,7 @@ export default function Owners() {
                       <div className="truncate text-base font-medium text-foreground">{o.nombre}</div>
                       <div className="font-mono text-[12px] uppercase tracking-eyebrow text-muted-foreground truncate">{o.email ?? o.telefono ?? "—"}</div>
                     </div>
-                    <Badge variant="outline" className="shrink-0">{o.rol}</Badge>
+                    <Badge variant={o.buyer_persona === "sin_clasificar" ? "outline" : "gold"} className="shrink-0">{PERSONA_LABEL[o.buyer_persona] ?? o.buyer_persona}</Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
@@ -165,7 +176,7 @@ export default function Owners() {
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="min-w-[280px]">{t.owners.title}</TableHead>
-                  <TableHead>{t.owners.role}</TableHead>
+                  <TableHead>Persona</TableHead>
                   <TableHead>{t.owners.consent}</TableHead>
                   <TableHead className="text-right">{t.owners.lastContact}</TableHead>
                 </TableRow>
@@ -188,7 +199,7 @@ export default function Owners() {
                         {o.email ?? o.telefono ?? "—"}
                       </div>
                     </TableCell>
-                    <TableCell><Badge variant="outline">{o.rol}</Badge></TableCell>
+                    <TableCell><Badge variant={o.buyer_persona === "sin_clasificar" ? "outline" : "gold"}>{PERSONA_LABEL[o.buyer_persona] ?? o.buyer_persona}</Badge></TableCell>
                     <TableCell>
                       {o.consentimiento ? (
                         <span className="inline-flex items-center gap-1 text-success"><Check className="h-3.5 w-3.5" /><span className="text-xs">Sí</span></span>

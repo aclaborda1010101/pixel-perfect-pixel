@@ -38,6 +38,10 @@ export default function Dashboard() {
   const { t } = useI18n();
   const [k, setK] = useState({ pendingAnalysis: 0, pendingActions: 0, uncataloged: 0 });
   const [recent, setRecent] = useState<any[]>([]);
+  const [sync, setSync] = useState({
+    buildings: 0, owners: 0, calls: 0,
+    hsCalls: 0, hsNotes: 0, hsTasks: 0,
+  });
 
   useEffect(() => {
     (async () => {
@@ -54,6 +58,23 @@ export default function Dashboard() {
         uncataloged: c.count ?? 0,
       });
       setRecent(r.data ?? []);
+
+      const [bld, own, cal, hcal, hnot, htsk] = await Promise.all([
+        supabase.from("buildings").select("id", { count: "exact", head: true }),
+        supabase.from("owners").select("id", { count: "exact", head: true }),
+        supabase.from("calls").select("id", { count: "exact", head: true }),
+        supabase.from("hubspot_calls").select("id", { count: "exact", head: true }),
+        supabase.from("hubspot_notes").select("id", { count: "exact", head: true }),
+        supabase.from("hubspot_tasks").select("id", { count: "exact", head: true }),
+      ]);
+      setSync({
+        buildings: bld.count ?? 0,
+        owners: own.count ?? 0,
+        calls: cal.count ?? 0,
+        hsCalls: hcal.count ?? 0,
+        hsNotes: hnot.count ?? 0,
+        hsTasks: htsk.count ?? 0,
+      });
     })();
   }, []);
 
@@ -141,6 +162,29 @@ export default function Dashboard() {
           );
         })}
       </div>
+
+      {/* Sincronización HubSpot */}
+      <Card>
+        <CardHeader>
+          <Eyebrow>Sincronización · HubSpot (read-only)</Eyebrow>
+          <CardTitle>Datos en cartera</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            { label: "Edificios", value: sync.buildings },
+            { label: "Propietarios", value: sync.owners },
+            { label: "Llamadas", value: sync.calls },
+            { label: "HubSpot calls", value: sync.hsCalls },
+            { label: "HubSpot notes", value: sync.hsNotes },
+            { label: "HubSpot tasks", value: sync.hsTasks },
+          ].map((s) => (
+            <div key={s.label}>
+              <Eyebrow>{s.label}</Eyebrow>
+              <div className="mt-1"><MetricValue size="lg">{s.value.toLocaleString()}</MetricValue></div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Próximas acciones */}

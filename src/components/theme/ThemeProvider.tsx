@@ -10,7 +10,7 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 const STORAGE_KEY = "afflux.theme";
-// Afflux Brain: el panel interno corre en oscuro por defecto.
+// Afflux Property: el panel interno corre en oscuro por defecto.
 const DEFAULT_THEME: Theme = "dark";
 
 function applyTheme(theme: Theme): "light" | "dark" {

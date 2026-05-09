@@ -980,6 +980,7 @@ export type Database = {
       }
       owners: {
         Row: {
+          buyer_persona: Database["public"]["Enums"]["buyer_persona"]
           consentimiento: boolean
           created_at: string
           email: string | null
@@ -996,6 +997,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          buyer_persona?: Database["public"]["Enums"]["buyer_persona"]
           consentimiento?: boolean
           created_at?: string
           email?: string | null
@@ -1012,6 +1014,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          buyer_persona?: Database["public"]["Enums"]["buyer_persona"]
           consentimiento?: boolean
           created_at?: string
           email?: string | null
@@ -1167,6 +1170,15 @@ export type Database = {
         | "contactado"
         | "en_estudio"
         | "descartado"
+      buyer_persona:
+        | "cansado"
+        | "desplazado"
+        | "controla"
+        | "ego"
+        | "no_traspasa"
+        | "vive_edificio"
+        | "no_primero"
+        | "sin_clasificar"
       cadence_step_kind: "llamada" | "whatsapp" | "email" | "visita"
       call_direction: "entrante" | "saliente"
       compliance_status: "pendiente" | "aprobado" | "rechazado"
@@ -1340,6 +1352,16 @@ export const Constants = {
         "contactado",
         "en_estudio",
         "descartado",
+      ],
+      buyer_persona: [
+        "cansado",
+        "desplazado",
+        "controla",
+        "ego",
+        "no_traspasa",
+        "vive_edificio",
+        "no_primero",
+        "sin_clasificar",
       ],
       cadence_step_kind: ["llamada", "whatsapp", "email", "visita"],
       call_direction: ["entrante", "saliente"],

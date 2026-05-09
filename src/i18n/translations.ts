@@ -103,7 +103,7 @@ const _translations = {
     },
     beta: {
       title: "Funcionalidad en construcción",
-      desc: "Esta sección está disponible para evaluación pero no forma parte del MVP actual de Afflux Brain.",
+      desc: "Esta sección está disponible para evaluación pero no forma parte del MVP actual de Afflux Property.",
     },
     placeholders: {
       leadsTitle: "Leads marketing",
@@ -164,7 +164,7 @@ const _translations = {
     },
   },
   en: {
-    appName: "Afflux Brain",
+    appName: "Afflux Property",
     appTagline: "Operational intelligence for Madrid",
     nav: {
       groupOperativa: "Operations",
@@ -237,7 +237,7 @@ const _translations = {
     },
     beta: {
       title: "Feature under construction",
-      desc: "Available for evaluation but not part of the current Afflux Brain MVP.",
+      desc: "Available for evaluation but not part of the current Afflux Property MVP.",
     },
     placeholders: {
       leadsTitle: "Marketing leads",
