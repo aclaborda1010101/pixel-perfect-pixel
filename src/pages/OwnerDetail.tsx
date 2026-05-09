@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Crumbs } from "@/components/common/Crumbs";
@@ -19,6 +20,18 @@ import { RagSearch } from "@/components/agents/RagSearch";
 import { WhatsappComposer } from "@/components/comms/WhatsappComposer";
 import { SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
 
+const PERSONAS: { value: string; label: string }[] = [
+  { value: "sin_clasificar", label: "Sin clasificar" },
+  { value: "cansado", label: "Cansado" },
+  { value: "desplazado", label: "Desplazado" },
+  { value: "controla", label: "Controla" },
+  { value: "ego", label: "Ego" },
+  { value: "no_traspasa", label: "No traspasa" },
+  { value: "vive_edificio", label: "Vive edificio" },
+  { value: "no_primero", label: "No primero" },
+];
+const PERSONA_LABEL: Record<string, string> = Object.fromEntries(PERSONAS.map((p) => [p.value, p.label]));
+
 type Owner = {
   id: string;
   nombre: string;
@@ -26,6 +39,7 @@ type Owner = {
   telefono: string | null;
   rol: string;
   subrole: string;
+  buyer_persona: string;
   rol_confianza: number | null;
   rol_justificacion: string | null;
   consentimiento: boolean;
@@ -75,13 +89,8 @@ export default function OwnerDetail() {
         subtitle={owner.email ?? owner.telefono ?? ""}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="info" className="gap-1">
-              {owner.rol}
-              {owner.rol_confianza != null && (
-                <span className="ml-1 font-mono text-[10px] opacity-80">
-                  · {(owner.rol_confianza * 100).toFixed(0)}%
-                </span>
-              )}
+            <Badge variant={owner.buyer_persona === "sin_clasificar" ? "outline" : "gold"}>
+              {PERSONA_LABEL[owner.buyer_persona] ?? owner.buyer_persona}
             </Badge>
             {owner.subrole && owner.subrole !== "ninguno" && (
               <Badge variant="outline">{SUBROLE_LABEL[owner.subrole] ?? owner.subrole}</Badge>
@@ -127,6 +136,29 @@ export default function OwnerDetail() {
                   <Field label="Teléfono" value={owner.telefono} />
                   <Field label="Consentimiento" value={owner.consentimiento ? "Sí" : "No"} />
                   <Field label="Justificación rol" value={owner.rol_justificacion} />
+                  <div>
+                    <Eyebrow>Buyer persona</Eyebrow>
+                    <div className="mt-1">
+                      <Select
+                        value={owner.buyer_persona}
+                        onValueChange={async (v) => {
+                          const prev = owner.buyer_persona;
+                          setOwner({ ...owner, buyer_persona: v });
+                          const { error } = await supabase.from("owners").update({ buyer_persona: v as any }).eq("id", owner.id);
+                          if (error) setOwner({ ...owner, buyer_persona: prev });
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-[220px] text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PERSONAS.map((p) => (
+                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                   <div className="md:col-span-2">
                     <Field label="Notas breves" value={owner.notas_breves} />
                   </div>
