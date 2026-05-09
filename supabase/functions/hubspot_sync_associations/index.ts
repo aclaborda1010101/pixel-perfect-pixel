@@ -2,7 +2,7 @@
 // vía /crm/v4/associations/deals/contacts/batch/read y rellena building_owners.
 // Idempotente: skip si (building_id, owner_id) ya existe.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
-import { hubspotFetch, corsHeaders } from '../_shared/hubspot.ts';
+import { hubspotFetch, corsHeaders, CONTACT_PROPERTIES } from '../_shared/hubspot.ts';
 
 const BATCH_SIZE = 100;
 const MAX_BATCHES_PER_RUN = 30; // hasta 3000 deals por invocación
@@ -32,6 +32,7 @@ Deno.serve(async (req) => {
   let inserted = 0;
   let pairsSeen = 0;
   let failed = 0;
+  let ownersCreated = 0;
 
   try {
     let reset = false;
@@ -128,6 +129,65 @@ Deno.serve(async (req) => {
             .in('provider_id', chunk);
           (cs || []).forEach((c) => contactMap.set(c.provider_id, c.entity_id));
         }
+        // Fetch missing contacts on-the-fly via HubSpot batch_read
+        const missing = ids.filter((id) => !contactMap.has(id));
+        if (missing.length > 0) {
+          for (let k = 0; k < missing.length; k += 100) {
+            const chunk = missing.slice(k, k + 100);
+            try {
+              const body = JSON.stringify({
+                inputs: chunk.map((id) => ({ id })),
+                properties: CONTACT_PROPERTIES,
+                propertiesWithHistory: [],
+              });
+              const resp = await hubspotFetch('/crm/v3/objects/contacts/batch/read?archived=true', {
+                method: 'POST', body,
+              });
+              const fetched = resp?.results || [];
+              for (const c of fetched) {
+                const props = c.properties || {};
+                const fn = (props.firstname || '').trim();
+                const ln = (props.lastname || '').trim();
+                const nombre = (`${fn} ${ln}`).trim() || (props.email || 'Sin nombre');
+                const tipo = (props.tipologia_de_propietario || '').toLowerCase();
+                const rol = tipo.includes('inversor') ? 'inversor'
+                  : tipo.includes('lead') ? 'lead'
+                  : tipo.includes('candidato') ? 'candidato'
+                  : (tipo.includes('propietario') || props.dni__nif__cif) ? 'propietario'
+                  : 'desconocido';
+                const { data: ins, error: insErr } = await supabase
+                  .from('owners').insert({
+                    nombre, email: props.email || null, telefono: props.phone || null, rol,
+                    metadatos: { ...props, _hubspot_contact_id: c.id, archived: true, source: 'assoc_inflate' },
+                    last_synced_at: new Date().toISOString(),
+                  }).select('id').single();
+                if (insErr || !ins) { failed++; continue; }
+                const ownerId = ins.id;
+                const { error: extErr } = await supabase.from('external_ids').insert({
+                  entity_type: 'owner', entity_id: ownerId,
+                  provider: 'hubspot', provider_object_type: 'contact', provider_id: String(c.id),
+                  metadatos: { hs_object_id: c.id, source: 'assoc_inflate' },
+                });
+                if (extErr) {
+                  // Race: another process inserted; resolve via lookup
+                  const { data: w } = await supabase.from('external_ids')
+                    .select('entity_id').eq('provider', 'hubspot')
+                    .eq('provider_object_type', 'contact').eq('provider_id', String(c.id)).maybeSingle();
+                  if (w?.entity_id) {
+                    contactMap.set(String(c.id), w.entity_id);
+                    await supabase.from('owners').delete().eq('id', ownerId);
+                  }
+                } else {
+                  contactMap.set(String(c.id), ownerId);
+                  ownersCreated++;
+                }
+              }
+            } catch (e) {
+              console.error('[assoc] inflate fail:', e);
+              failed++;
+            }
+          }
+        }
       }
 
       const rows: any[] = [];
@@ -208,6 +268,7 @@ Deno.serve(async (req) => {
       batches,
       pairs_seen: pairsSeen,
       inserted,
+      owners_created: ownersCreated,
       failed,
       has_more: hasMore,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
