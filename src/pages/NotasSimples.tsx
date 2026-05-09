@@ -31,6 +31,34 @@ function fmtDate(d: string) {
   catch { return d; }
 }
 
+function fileNameFromUrl(u: string | null) {
+  if (!u) return null;
+  const tail = u.split("/").pop() ?? u;
+  // path es `${uuid}-${cleanName}`. UUID = 36 chars + '-'
+  return tail.length > 37 ? tail.slice(37) : tail;
+}
+
+function FallbackEdificio({ n }: { n: NotaSimpleEnriched }) {
+  const sj = (n.structured_json ?? {}) as any;
+  const titular = sj?.titulares?.[0]?.nombre as string | undefined;
+  const ref = sj?.finca?.ref_catastral as string | undefined;
+  const refShort = ref ? `…${ref.slice(-8)}` : null;
+  const fname = fileNameFromUrl(n.file_url);
+  if (titular || refShort || fname) {
+    return (
+      <div>
+        <div className="font-medium truncate max-w-[280px]">
+          {titular ?? fname ?? "— sin asignar —"}
+        </div>
+        <div className="text-xs text-muted-foreground truncate max-w-[280px]">
+          {[refShort, titular ? fname : null].filter(Boolean).join(" · ") || "sin edificio asignado"}
+        </div>
+      </div>
+    );
+  }
+  return <span className="text-muted-foreground">— sin asignar —</span>;
+}
+
 export default function NotasSimples() {
   const { items, loading } = useNotasSimples();
   const [open, setOpen] = useState(false);
@@ -75,8 +103,14 @@ export default function NotasSimples() {
                   <TableRow key={n.id} className="cursor-pointer"
                     onClick={() => navigate(`/notas-simples/${n.id}`)}>
                     <TableCell className="font-medium">
-                      {n.building?.direccion ?? <span className="text-muted-foreground">— sin asignar —</span>}
-                      {n.building?.ciudad && <div className="text-xs text-muted-foreground">{n.building.ciudad}</div>}
+                      {n.building?.direccion ? (
+                        <>
+                          <div>{n.building.direccion}</div>
+                          {n.building.ciudad && <div className="text-xs text-muted-foreground">{n.building.ciudad}</div>}
+                        </>
+                      ) : (
+                        <FallbackEdificio n={n} />
+                      )}
                     </TableCell>
                     <TableCell>{n.owner?.nombre ?? <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{fmtDate(n.created_at)}</TableCell>

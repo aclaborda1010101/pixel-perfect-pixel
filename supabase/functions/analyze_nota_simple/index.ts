@@ -218,6 +218,22 @@ Deno.serve(async (req) => {
       error_message: null,
     }).eq("id", notaId);
 
+    // 5b) auto-link a building por ref_catastral si la nota no tenía building_id
+    let autoLinked = false;
+    const refCat: string | undefined = structured?.finca?.ref_catastral;
+    if (refCat && !nota.building_id) {
+      const { data: bld } = await supabase
+        .from("buildings")
+        .select("id")
+        .eq("catastro_ref", refCat)
+        .limit(1)
+        .maybeSingle();
+      if (bld?.id) {
+        await supabase.from("notas_simples").update({ building_id: bld.id }).eq("id", notaId);
+        autoLinked = true;
+      }
+    }
+
     // 6) log agent_runs
     await supabase.from("agent_runs").insert({
       agent_name: "analyze_nota_simple",
@@ -227,10 +243,16 @@ Deno.serve(async (req) => {
       latencia_ms: Date.now() - t0,
       tokens_in: usage.prompt_tokens ?? null,
       tokens_out: usage.completion_tokens ?? null,
-      resultado: { riesgo: structured.riesgo, n_titulares: structured.titulares?.length ?? 0, n_cargas: structured.cargas?.length ?? 0 },
+      resultado: {
+        riesgo: structured.riesgo,
+        n_titulares: structured.titulares?.length ?? 0,
+        n_cargas: structured.cargas?.length ?? 0,
+        auto_linked_building: autoLinked,
+        ref_catastral: refCat ?? null,
+      },
     });
 
-    return jsonResponse({ ok: true, nota_simple_id: notaId, structured });
+    return jsonResponse({ ok: true, nota_simple_id: notaId, structured, auto_linked_building: autoLinked });
   } catch (e) {
     const msg = String((e as Error)?.message ?? e);
     console.error("analyze_nota_simple error:", msg);

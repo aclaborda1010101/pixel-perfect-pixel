@@ -20,7 +20,7 @@ function fmtPct(p?: number | null) {
 
 export default function NotaSimpleDetail() {
   const { id } = useParams<{ id: string }>();
-  const { nota, pdfUrl, loading, reanalyze } = useNotaSimple(id);
+  const { nota, pdfUrl, pdfBlobUrl, loading, reanalyze } = useNotaSimple(id);
   const [busy, setBusy] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
 
@@ -96,7 +96,11 @@ export default function NotaSimpleDetail() {
               )}
             </CardHeader>
             <CardContent className="p-0 h-[calc(80vh-60px)]">
-              {pdfUrl ? (
+              {pdfBlobUrl ? (
+                <object data={pdfBlobUrl} type="application/pdf" className="w-full h-full">
+                  <iframe src={pdfBlobUrl} className="w-full h-full border-0" title="Nota simple PDF" />
+                </object>
+              ) : pdfUrl ? (
                 <iframe src={pdfUrl} className="w-full h-full border-0" title="Nota simple PDF" />
               ) : <div className="p-4 text-sm text-muted-foreground">Sin PDF</div>}
             </CardContent>
@@ -190,13 +194,13 @@ export default function NotaSimpleDetail() {
       </div>
 
       {/* PDF overlay mobile */}
-      {pdfOpen && pdfUrl && (
+      {pdfOpen && (pdfBlobUrl || pdfUrl) && (
         <div className="fixed inset-0 z-50 bg-background lg:hidden">
           <div className="flex items-center justify-between p-3 border-b border-border">
             <div className="text-sm font-medium">PDF</div>
             <Button size="sm" variant="ghost" onClick={() => setPdfOpen(false)}>Cerrar</Button>
           </div>
-          <iframe src={pdfUrl} className="w-full h-[calc(100vh-49px)] border-0" title="PDF" />
+          <iframe src={pdfBlobUrl ?? pdfUrl ?? ""} className="w-full h-[calc(100vh-49px)] border-0" title="PDF" />
         </div>
       )}
     </div>
