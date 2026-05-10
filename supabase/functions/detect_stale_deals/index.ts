@@ -112,10 +112,11 @@ Deno.serve(async (req) => {
       const { data: t } = await supabase.from('hubspot_tasks').select('hs_task_completion_date,hs_lastmodifieddate,hs_task_subject').contains('associated_deal_ids', [dealId]).order('hs_lastmodifieddate',{ascending:false}).limit(1);
       lastTask = t?.[0] || null;
     }
+    // Señales de actividad real (NO last_synced_at — eso es nuestro pull, no actividad del cliente)
     const candidates = [
       lastCall?.hs_timestamp, lastNote?.hs_timestamp,
       lastTask?.hs_task_completion_date || lastTask?.hs_lastmodifieddate,
-      b.last_synced_at, meta.hs_lastmodifieddate,
+      meta.hs_lastmodifieddate,
     ].filter(Boolean).map((x:string)=> new Date(x).getTime()).filter(Number.isFinite);
     const lastActivity = candidates.length ? Math.max(...candidates) : 0;
     const days = lastActivity ? Math.floor((Date.now()-lastActivity)/86400000) : 9999;
