@@ -136,6 +136,7 @@ Deno.serve(async (req) => {
     const { error: insErr } = await supabase.from('next_actions').upsert({
       scope_type:'building', scope_id: b.id,
       titulo, detalle, vencimiento: vencStr, estado:'pendiente', origen:'pipeline_hygiene',
+      created_at: new Date().toISOString(),
     }, { onConflict: 'scope_type,scope_id,origen' });
     if (insErr) { errors++; console.error('hygiene insert', insErr); continue; }
     problems.forEach(c => { dist[c]=(dist[c]||0)+1; total_problems++; });

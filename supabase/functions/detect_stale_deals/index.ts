@@ -167,6 +167,7 @@ Deno.serve(async (req) => {
       vencimiento: urgencyToDueDate(urg),
       estado: 'pendiente',
       origen: 'stale_deal_reviver',
+      created_at: new Date().toISOString(),
     }, { onConflict: 'scope_type,scope_id,origen' });
     if (insErr) { errors++; console.error('insert fail', insErr); continue; }
     suggested++;
