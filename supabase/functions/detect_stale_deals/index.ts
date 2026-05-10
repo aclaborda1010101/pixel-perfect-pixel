@@ -7,7 +7,7 @@ import { hubspotFetch, corsHeaders } from '../_shared/hubspot.ts';
 const STALE_DAYS = 14;
 const TERMINAL_REGEX = /(ganado|perdido|cerrado|no\s*vende|descartad|no\s*interesa|fuera\s*de\s*precio|closed[_\s]?(won|lost)|lost|won)/i;
 const HARDCODED_TERMINAL = new Set(['closedwon','closedlost']);
-const MAX_PER_RUN = 25;
+const MAX_PER_RUN = 10;
 
 type StageMap = Record<string,{label:string;terminal:boolean}>;
 
