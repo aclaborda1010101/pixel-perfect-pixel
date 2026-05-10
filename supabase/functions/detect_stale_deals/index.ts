@@ -75,6 +75,9 @@ Deno.serve(async (req) => {
 
   const stageMap = await loadDealStageMap();
   const stageMapSize = Object.keys(stageMap).length;
+  if (body.debug === 'stagemap') {
+    return new Response(JSON.stringify(stageMap, null, 2), { headers: { ...corsHeaders, 'Content-Type':'application/json' } });
+  }
 
   // Selecciona buildings candidatos
   let q = supabase.from('buildings').select('id, direccion, ciudad, numero_propietarios, last_synced_at, metadatos').order('last_synced_at', { ascending: true });
