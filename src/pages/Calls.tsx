@@ -62,7 +62,7 @@ export default function Calls() {
       query = query.not("transcripcion", "is", null).neq("transcripcion", "");
     }
     if (dirFilter !== "all") {
-      query = query.eq("direccion", dirFilter);
+      query = query.eq("direccion", dirFilter as "entrante" | "saliente");
     }
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
