@@ -267,12 +267,14 @@ export type Database = {
           objeciones: string[] | null
           outcome: string | null
           owner_id: string | null
+          pivot_moments: Json
           preguntas_abiertas: number | null
           preguntas_cerradas: number | null
           ratio_comercial_cliente: number | null
           resumen: string | null
           sentiment: string | null
           siguiente_accion: string | null
+          tacticas_usadas: string[]
           tecnica_score: number | null
           transcripcion: string | null
           transcripcion_url: string | null
@@ -293,12 +295,14 @@ export type Database = {
           objeciones?: string[] | null
           outcome?: string | null
           owner_id?: string | null
+          pivot_moments?: Json
           preguntas_abiertas?: number | null
           preguntas_cerradas?: number | null
           ratio_comercial_cliente?: number | null
           resumen?: string | null
           sentiment?: string | null
           siguiente_accion?: string | null
+          tacticas_usadas?: string[]
           tecnica_score?: number | null
           transcripcion?: string | null
           transcripcion_url?: string | null
@@ -319,12 +323,14 @@ export type Database = {
           objeciones?: string[] | null
           outcome?: string | null
           owner_id?: string | null
+          pivot_moments?: Json
           preguntas_abiertas?: number | null
           preguntas_cerradas?: number | null
           ratio_comercial_cliente?: number | null
           resumen?: string | null
           sentiment?: string | null
           siguiente_accion?: string | null
+          tacticas_usadas?: string[]
           tecnica_score?: number | null
           transcripcion?: string | null
           transcripcion_url?: string | null
