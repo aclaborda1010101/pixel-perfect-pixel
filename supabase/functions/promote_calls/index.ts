@@ -89,7 +89,8 @@ Deno.serve(async (req) => {
         const firstContact = (r.associated_contact_ids || [])[0];
         const ownerId = firstContact ? cmap.get(String(firstContact)) : null;
         if (!ownerId) { skippedNoOwner++; continue; }
-        const durSec = r.hs_call_duration ? Math.round(r.hs_call_duration / 1000) : null;
+        // Distinguir 0 (no contestada / buzón) de NULL (sin sincronizar): si HubSpot ya devolvió valor, lo reflejamos.
+        const durSec = r.hs_call_duration == null ? null : Math.round((r.hs_call_duration || 0) / 1000);
         const titulo = (r.hs_call_title || '').trim();
         const body = (r.hs_call_body || '').trim();
         const resumen = `[hs:${r.hs_id}]${titulo ? ' ' + titulo : ''}`.slice(0, 4000);
