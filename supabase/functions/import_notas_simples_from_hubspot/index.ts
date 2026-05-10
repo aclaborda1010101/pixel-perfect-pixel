@@ -1,3 +1,4 @@
+import { hubspotFetch } from '../_shared/hubspot.ts';
 // import_notas_simples_from_hubspot — escanea HubSpot Files (PDF) cuyo nombre
 // contenga "nota simple" / "nota_simple" / "-NS" / "Nota Simple" (case-insensitive),
 // descarga, sube a bucket Supabase 'notas-simples', crea fila notas_simples
@@ -36,18 +37,24 @@ async function hsDirect(path: string, init?: RequestInit) {
 // Debug endpoint: probar PAT contra distintos endpoints
 async function debugPat() {
   const out: any = {};
-  for (const ep of [
-    '/account-info/v3/details',
-    '/crm/v3/owners?limit=1',
-    '/files/v3/files?limit=1',
-  ]) {
+  // 1) PAT directo
+  for (const ep of ['/account-info/v3/details', '/files/v3/files?limit=1']) {
     try {
       const r = await fetch(`${HUBSPOT_API}${ep}`, { headers: patHeaders() });
-      const txt = await r.text();
-      out[ep] = { status: r.status, body: txt.slice(0, 200) };
-    } catch (e: any) {
-      out[ep] = { error: String(e?.message || e).slice(0, 200) };
-    }
+      out[`pat ${ep}`] = { status: r.status, body: (await r.text()).slice(0, 120) };
+    } catch (e: any) { out[`pat ${ep}`] = { error: String(e?.message || e).slice(0, 120) }; }
+  }
+  // 2) Gateway Lovable (sin PAT, con HUBSPOT_API_KEY)
+  for (const ep of [
+    { m: 'GET', p: '/files/v3/files?limit=1' },
+    { m: 'GET', p: '/files/v3/files/?limit=1' },
+    { m: 'POST', p: '/files/v3/files/search', body: JSON.stringify({ limit: 1 }) },
+    { m: 'POST', p: '/files/v3/files/search', body: JSON.stringify({ properties: [], limit: 1, after: 0 }) },
+  ]) {
+    try {
+      const r = await hubspotFetch(ep.p, { method: ep.m, body: ep.body });
+      out[`gw ${ep.m} ${ep.p}`] = { ok: true, sample: JSON.stringify(r).slice(0, 200) };
+    } catch (e: any) { out[`gw ${ep.m} ${ep.p}`] = { error: String(e?.message || e).slice(0, 200) }; }
   }
   return out;
 }
