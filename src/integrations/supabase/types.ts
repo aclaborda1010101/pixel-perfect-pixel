@@ -1809,18 +1809,39 @@ export type Database = {
           total_count: number
         }[]
       }
-      rpc_inversores_paginated: {
-        Args: { p_limit?: number; p_offset?: number; p_search?: string }
-        Returns: {
-          email: string
-          id: string
-          metadatos: Json
-          nombre: string
-          telefono: string
-          total_count: number
-          updated_at: string
-        }[]
-      }
+      rpc_inversores_paginated:
+        | {
+            Args: { p_limit?: number; p_offset?: number; p_search?: string }
+            Returns: {
+              email: string
+              id: string
+              metadatos: Json
+              nombre: string
+              telefono: string
+              total_count: number
+              updated_at: string
+            }[]
+          }
+        | {
+            Args: {
+              p_buyer_persona?: string
+              p_distrito?: string
+              p_limit?: number
+              p_offset?: number
+              p_order?: string
+              p_search?: string
+              p_tipo?: string
+            }
+            Returns: {
+              email: string
+              id: string
+              metadatos: Json
+              nombre: string
+              telefono: string
+              total_count: number
+              updated_at: string
+            }[]
+          }
       rpc_rag_search: {
         Args: {
           filter_origen?: string
