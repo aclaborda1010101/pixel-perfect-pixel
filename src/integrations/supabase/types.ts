@@ -254,6 +254,9 @@ export type Database = {
         Row: {
           analisis_confianza: number | null
           analyzed_at: string | null
+          comercial_email: string | null
+          comercial_hs_id: string | null
+          comercial_nombre: string | null
           created_at: string
           direccion: Database["public"]["Enums"]["call_direction"]
           duracion_seg: number | null
@@ -277,6 +280,9 @@ export type Database = {
         Insert: {
           analisis_confianza?: number | null
           analyzed_at?: string | null
+          comercial_email?: string | null
+          comercial_hs_id?: string | null
+          comercial_nombre?: string | null
           created_at?: string
           direccion?: Database["public"]["Enums"]["call_direction"]
           duracion_seg?: number | null
@@ -300,6 +306,9 @@ export type Database = {
         Update: {
           analisis_confianza?: number | null
           analyzed_at?: string | null
+          comercial_email?: string | null
+          comercial_hs_id?: string | null
+          comercial_nombre?: string | null
           created_at?: string
           direccion?: Database["public"]["Enums"]["call_direction"]
           duracion_seg?: number | null
@@ -332,6 +341,7 @@ export type Database = {
       }
       coach_reports: {
         Row: {
+          comercial_hs_id: string | null
           fortalezas: Json
           frases_ganadoras: string[]
           generated_at: string
@@ -345,6 +355,7 @@ export type Database = {
           week_start: string
         }
         Insert: {
+          comercial_hs_id?: string | null
           fortalezas?: Json
           frases_ganadoras?: string[]
           generated_at?: string
@@ -358,6 +369,7 @@ export type Database = {
           week_start: string
         }
         Update: {
+          comercial_hs_id?: string | null
           fortalezas?: Json
           frases_ganadoras?: string[]
           generated_at?: string
@@ -509,6 +521,7 @@ export type Database = {
           hs_createdate: string | null
           hs_id: string
           hs_lastmodifieddate: string | null
+          hs_owner_id: string | null
           hs_timestamp: string | null
           id: string
           raw: Json
@@ -530,6 +543,7 @@ export type Database = {
           hs_createdate?: string | null
           hs_id: string
           hs_lastmodifieddate?: string | null
+          hs_owner_id?: string | null
           hs_timestamp?: string | null
           id?: string
           raw?: Json
@@ -551,6 +565,7 @@ export type Database = {
           hs_createdate?: string | null
           hs_id?: string
           hs_lastmodifieddate?: string | null
+          hs_owner_id?: string | null
           hs_timestamp?: string | null
           id?: string
           raw?: Json
@@ -698,6 +713,45 @@ export type Database = {
           hs_timestamp?: string | null
           id?: string
           raw?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      hubspot_owners: {
+        Row: {
+          archived: boolean
+          created_at: string
+          email: string | null
+          first_name: string | null
+          full_name: string | null
+          hs_owner_id: string
+          last_name: string | null
+          raw: Json
+          synced_at: string
+          updated_at: string
+        }
+        Insert: {
+          archived?: boolean
+          created_at?: string
+          email?: string | null
+          first_name?: string | null
+          full_name?: string | null
+          hs_owner_id: string
+          last_name?: string | null
+          raw?: Json
+          synced_at?: string
+          updated_at?: string
+        }
+        Update: {
+          archived?: boolean
+          created_at?: string
+          email?: string | null
+          first_name?: string | null
+          full_name?: string | null
+          hs_owner_id?: string
+          last_name?: string | null
+          raw?: Json
+          synced_at?: string
           updated_at?: string
         }
         Relationships: []
