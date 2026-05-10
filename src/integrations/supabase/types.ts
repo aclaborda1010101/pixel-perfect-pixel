@@ -621,6 +621,57 @@ export type Database = {
         }
         Relationships: []
       }
+      hubspot_communications: {
+        Row: {
+          associated_contact_ids: string[]
+          associated_deal_ids: string[]
+          created_at: string
+          hs_communication_body: string | null
+          hs_communication_channel_type: string | null
+          hs_communication_logged_from: string | null
+          hs_createdate: string | null
+          hs_id: string
+          hs_lastmodifieddate: string | null
+          hs_owner_id: string | null
+          hs_timestamp: string | null
+          id: string
+          raw: Json
+          updated_at: string
+        }
+        Insert: {
+          associated_contact_ids?: string[]
+          associated_deal_ids?: string[]
+          created_at?: string
+          hs_communication_body?: string | null
+          hs_communication_channel_type?: string | null
+          hs_communication_logged_from?: string | null
+          hs_createdate?: string | null
+          hs_id: string
+          hs_lastmodifieddate?: string | null
+          hs_owner_id?: string | null
+          hs_timestamp?: string | null
+          id?: string
+          raw?: Json
+          updated_at?: string
+        }
+        Update: {
+          associated_contact_ids?: string[]
+          associated_deal_ids?: string[]
+          created_at?: string
+          hs_communication_body?: string | null
+          hs_communication_channel_type?: string | null
+          hs_communication_logged_from?: string | null
+          hs_createdate?: string | null
+          hs_id?: string
+          hs_lastmodifieddate?: string | null
+          hs_owner_id?: string | null
+          hs_timestamp?: string | null
+          id?: string
+          raw?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hubspot_list_memberships: {
         Row: {
           added_at: string | null
