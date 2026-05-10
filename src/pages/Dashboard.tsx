@@ -39,7 +39,7 @@ export default function Dashboard() {
   const [k, setK] = useState({ pendingAnalysis: 0, pendingActions: 0, uncataloged: 0 });
   const [recent, setRecent] = useState<any[]>([]);
   const [sync, setSync] = useState({
-    buildings: 0, owners: 0, companies: 0, calls: 0,
+    buildings: 0, owners: 0, companies: 0, calls: 0, callsAnalizables: 0,
     hsCalls: 0, hsNotes: 0, hsTasks: 0,
   });
 
@@ -59,11 +59,12 @@ export default function Dashboard() {
       });
       setRecent(r.data ?? []);
 
-      const [bld, own, comp, cal, hcal, hnot, htsk] = await Promise.all([
+      const [bld, own, comp, cal, calAna, hcal, hnot, htsk] = await Promise.all([
         supabase.from("buildings").select("id", { count: "exact", head: true }),
         supabase.from("owners").select("id", { count: "exact", head: true }),
         supabase.from("companies" as any).select("id", { count: "exact", head: true }),
         supabase.from("calls").select("id", { count: "exact", head: true }),
+        supabase.from("calls").select("id", { count: "exact", head: true }).not("transcripcion", "is", null).neq("transcripcion", ""),
         supabase.from("hubspot_calls").select("id", { count: "exact", head: true }),
         supabase.from("hubspot_notes").select("id", { count: "exact", head: true }),
         supabase.from("hubspot_tasks").select("id", { count: "exact", head: true }),
@@ -73,6 +74,7 @@ export default function Dashboard() {
         owners: own.count ?? 0,
         companies: comp.count ?? 0,
         calls: cal.count ?? 0,
+        callsAnalizables: calAna.count ?? 0,
         hsCalls: hcal.count ?? 0,
         hsNotes: hnot.count ?? 0,
         hsTasks: htsk.count ?? 0,
@@ -176,14 +178,15 @@ export default function Dashboard() {
             { label: "Edificios", value: sync.buildings },
             { label: "Propietarios", value: sync.owners },
             { label: "Empresas", value: sync.companies },
-            { label: "Llamadas", value: sync.calls },
+            { label: "Llamadas", value: sync.callsAnalizables, sublabel: `${sync.calls.toLocaleString()} totales` },
             { label: "HubSpot calls", value: sync.hsCalls },
             { label: "HubSpot notes", value: sync.hsNotes },
             { label: "HubSpot tasks", value: sync.hsTasks },
-          ].map((s) => (
+          ].map((s: any) => (
             <div key={s.label}>
               <Eyebrow>{s.label}</Eyebrow>
               <div className="mt-1"><MetricValue size="lg">{s.value.toLocaleString()}</MetricValue></div>
+              {s.sublabel && <div className="mt-1 text-xs text-muted-foreground">{s.sublabel}</div>}
             </div>
           ))}
         </CardContent>
