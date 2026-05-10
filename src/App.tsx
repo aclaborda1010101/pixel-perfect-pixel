@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -7,33 +8,54 @@ import NotFound from "./pages/NotFound.tsx";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { AppLayout } from "@/components/layout/AppLayout";
-import Dashboard from "./pages/Dashboard";
-import Owners from "./pages/Owners";
-import OwnerDetail from "./pages/OwnerDetail";
-import Buildings from "./pages/Buildings";
-import Assets from "./pages/Assets";
-import Calls from "./pages/Calls";
-import Investors from "./pages/Investors";
-import Assistant from "./pages/Assistant";
-import Settings from "./pages/Settings";
-import CallAnalysis from "./pages/CallAnalysis";
-import AssetDetail from "./pages/AssetDetail";
-import BuildingDetail from "./pages/BuildingDetail";
-import PrepareCallWizard from "./pages/wizards/PrepareCallWizard";
-import AnalyzeCallWizard from "./pages/wizards/AnalyzeCallWizard";
-import Leads from "./pages/Leads";
-import NotasSimples from "./pages/NotasSimples";
-import NotaSimpleDetail from "./pages/NotaSimpleDetail";
-import Mensajes from "./pages/Mensajes";
-import NextActions from "./pages/NextActions";
-import Productividad from "./pages/Productividad";
-import Login from "./pages/auth/Login";
-import RecoverPassword from "./pages/auth/RecoverPassword";
-import ResetPassword from "./pages/auth/ResetPassword";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AuthProvider } from "@/hooks/useAuth";
 
-const queryClient = new QueryClient();
+// Code-splitting: cada ruta carga sólo cuando se visita.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Owners = lazy(() => import("./pages/Owners"));
+const OwnerDetail = lazy(() => import("./pages/OwnerDetail"));
+const Buildings = lazy(() => import("./pages/Buildings"));
+const Assets = lazy(() => import("./pages/Assets"));
+const Calls = lazy(() => import("./pages/Calls"));
+const Investors = lazy(() => import("./pages/Investors"));
+const Assistant = lazy(() => import("./pages/Assistant"));
+const Settings = lazy(() => import("./pages/Settings"));
+const CallAnalysis = lazy(() => import("./pages/CallAnalysis"));
+const AssetDetail = lazy(() => import("./pages/AssetDetail"));
+const BuildingDetail = lazy(() => import("./pages/BuildingDetail"));
+const PrepareCallWizard = lazy(() => import("./pages/wizards/PrepareCallWizard"));
+const AnalyzeCallWizard = lazy(() => import("./pages/wizards/AnalyzeCallWizard"));
+const Leads = lazy(() => import("./pages/Leads"));
+const NotasSimples = lazy(() => import("./pages/NotasSimples"));
+const NotaSimpleDetail = lazy(() => import("./pages/NotaSimpleDetail"));
+const Mensajes = lazy(() => import("./pages/Mensajes"));
+const NextActions = lazy(() => import("./pages/NextActions"));
+const Productividad = lazy(() => import("./pages/Productividad"));
+const Login = lazy(() => import("./pages/auth/Login"));
+const RecoverPassword = lazy(() => import("./pages/auth/RecoverPassword"));
+const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
+
+// React Query: cachea datos entre navegaciones. Volver a una vista ya cargada es instantáneo.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,            // 1 min: no refetch al volver
+      gcTime: 5 * 60_000,           // 5 min en cache
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      retry: 1,
+    },
+  },
+});
+
+function RouteFallback() {
+  return (
+    <div className="flex h-[60vh] items-center justify-center">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+    </div>
+  );
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -44,6 +66,7 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <AuthProvider>
+            <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/recuperar" element={<RecoverPassword />} />
@@ -75,6 +98,7 @@ const App = () => (
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
             </AuthProvider>
           </BrowserRouter>
         </TooltipProvider>

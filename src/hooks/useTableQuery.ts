@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export type FilterOp = "eq" | "neq" | "ilike" | "gte" | "lte" | "is" | "in" | "not.is";
@@ -44,21 +44,14 @@ export type UseTableQueryResult<T> = {
 export function useTableQuery<T = any>({
   table, select = "*", filters = [], search, order, page, pageSize, enabled = true,
 }: UseTableQueryOpts): UseTableQueryResult<T> {
-  const [rows, setRows] = useState<T[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
-
   const filtersKey = JSON.stringify(filters);
   const searchKey = search ? `${search.term}|${search.columns.join(",")}` : "";
   const orderKey = order ? `${order.column}|${order.ascending}` : "";
 
-  const load = useCallback(async () => {
-    if (!enabled) return;
-    setLoading(true);
-    setError(null);
-    try {
+  const { data, isFetching, error, refetch } = useQuery({
+    queryKey: ["tableQuery", table, select, filtersKey, searchKey, orderKey, page, pageSize],
+    enabled,
+    queryFn: async () => {
       let q: any = (supabase.from(table as any) as any).select(select, { count: "exact" });
 
       for (const f of filters) {
@@ -87,25 +80,20 @@ export function useTableQuery<T = any>({
       const to = from + pageSize - 1;
       const { data, count, error: err } = await q.range(from, to);
       if (err) throw err;
-      setRows((data ?? []) as T[]);
-      setTotalCount(count ?? 0);
-    } catch (e: any) {
-      setError(e?.message ?? "Error cargando datos");
-      setRows([]);
-      setTotalCount(0);
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [table, select, filtersKey, searchKey, orderKey, page, pageSize, enabled, tick]);
+      return { rows: (data ?? []) as T[], totalCount: count ?? 0 };
+    },
+    placeholderData: (prev) => prev, // mantiene datos previos durante paginación → sin parpadeo
+  });
 
-  useEffect(() => { load(); }, [load]);
-
+  const rows = data?.rows ?? [];
+  const totalCount = data?.totalCount ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const hasMore = (page + 1) * pageSize < totalCount;
 
   return {
-    rows, totalCount, totalPages, hasMore, loading, error,
-    refetch: () => setTick((t) => t + 1),
+    rows, totalCount, totalPages, hasMore,
+    loading: isFetching,
+    error: error ? (error as any).message ?? "Error cargando datos" : null,
+    refetch: () => { refetch(); },
   };
 }
