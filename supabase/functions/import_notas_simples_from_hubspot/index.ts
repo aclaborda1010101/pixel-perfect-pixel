@@ -6,7 +6,29 @@
 //
 // Body opcional: { chain?: bool=true, max_pages?: number, dry_run?: bool }
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
-import { hubspotFetch, corsHeaders } from '../_shared/hubspot.ts';
+import { corsHeaders } from '../_shared/hubspot.ts';
+
+// Direct HubSpot API (bypass gateway) usando Private App Token con scopes files/files.ui_hidden.read
+const HUBSPOT_API = 'https://api.hubapi.com';
+function patHeaders(): Record<string, string> {
+  const pat = Deno.env.get('HUBSPOT_PAT');
+  if (!pat) throw new Error('HUBSPOT_PAT is not configured');
+  return {
+    'Authorization': `Bearer ${pat}`,
+    'Content-Type': 'application/json',
+  };
+}
+async function hsDirect(path: string, init?: RequestInit) {
+  const res = await fetch(`${HUBSPOT_API}${path}`, {
+    ...init,
+    headers: { ...patHeaders(), ...(init?.headers || {}) },
+  });
+  const text = await res.text();
+  let body: any = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+  if (!res.ok) throw new Error(`HubSpot ${path} ${res.status}: ${JSON.stringify(body).slice(0,400)}`);
+  return body;
+}
 
 const PAGE_LIMIT = 100;
 const MAX_PAGES_PER_RUN_DEFAULT = 6;
@@ -64,8 +86,8 @@ async function findBuildingId(supabase: any, filename: string): Promise<string |
 }
 
 async function downloadHubspotFile(fileId: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
-  // signed-url
-  const signed: any = await hubspotFetch(`/files/v3/files/${fileId}/signed-url`).catch(() => null);
+  // signed-url (direct PAT)
+  const signed: any = await hsDirect(`/files/v3/files/${fileId}/signed-url`).catch(() => null);
   const url: string | undefined = signed?.url;
   if (!url) return null;
   const r = await fetch(url);
@@ -96,11 +118,12 @@ Deno.serve(async (req) => {
 
   try {
     while (pages < maxPages) {
-      // Usar POST /files/v3/files/search (el GET /files/v3/files devuelve 405 vía gateway)
-      const res: any = await hubspotFetch(`/files/v3/files/search`, {
-        method: 'POST',
-        body: JSON.stringify({ limit: PAGE_LIMIT, after, sort: ['-createdAt'] }),
-      });
+      // GET /files/v3/files con paginación (PAT directo, no gateway)
+      const qs = new URLSearchParams();
+      qs.set('limit', String(PAGE_LIMIT));
+      if (after) qs.set('after', after);
+      qs.set('sort', '-createdAt');
+      const res: any = await hsDirect(`/files/v3/files?${qs.toString()}`);
       const items: any[] = Array.isArray(res?.results) ? res.results : [];
       pages++;
       for (const f of items) {
