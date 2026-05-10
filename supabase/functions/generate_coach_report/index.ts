@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
       frases_ganadoras: rep.frases_ganadoras,
       plan_accion: rep.plan_accion,
       total_calls: rep.total_calls,
-      metricas: rep.metricas,
+      metricas: { ...rep.metricas, top_pivots: rep.top_pivots || [], recomendaciones: rep.recomendaciones || [] },
       generated_at: new Date().toISOString(),
     });
     if (error) throw new Error(error.message);
