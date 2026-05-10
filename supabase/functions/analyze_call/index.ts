@@ -19,8 +19,12 @@ const VALID_ESTADOS_ANTES = ['cerrado','resistente','esceptico','dudoso','abiert
 const VALID_ESTADOS_DESPUES = ['curioso','considerando','comprometido','sigue_cerrado','cerrado_negativo'];
 const VALID_IMPACTO = ['alto','medio','bajo'];
 
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function buildPrompt(transcript: string, dur: number): string {
-  return `Eres un analista experto en llamadas comerciales inmobiliarias en España. Analiza la siguiente transcripción y devuelve EXCLUSIVAMENTE un JSON válido (sin texto adicional) con este schema:
+  return `Eres un analista experto en llamadas comerciales inmobiliarias en España. El texto que recibes puede ser (a) una transcripción literal de la llamada o (b) una nota post-llamada escrita por el propio comercial describiendo qué pasó. Adáptate a ambos casos. Devuelve EXCLUSIVAMENTE un JSON válido (sin texto adicional) con este schema:
 
 {
   "outcome": "interesado|dudoso|no_interesado|no_contestado|agente_bloqueado|otro",
@@ -45,13 +49,14 @@ function buildPrompt(transcript: string, dur: number): string {
 }
 
 REGLAS CRÍTICAS SOBRE pivot_moments (ANÁLISIS CAUSAL — NO CORRELACIONAL):
-- Un "momento pivote" es un punto exacto en la conversación donde el cliente CAMBIA DE ESTADO (resistente→considerando, escéptico→curioso, abierto→cerrado_negativo, etc.).
-- Para cada pivote, extrae la frase EXACTA y LITERAL del comercial inmediatamente anterior al cambio (1–2 oraciones, sin parafrasear).
-- Clasifica la táctica que usó el comercial en esa frase (una sola, la dominante).
+- Un "momento pivote" es un punto exacto donde el cliente CAMBIA DE ESTADO (resistente→considerando, escéptico→curioso, abierto→cerrado_negativo, etc.).
+- Si el texto es una transcripción: extrae la frase EXACTA y LITERAL del comercial justo antes del cambio (1–2 oraciones, sin parafrasear).
+- Si el texto es una nota post-llamada: reconstruye la frase/argumento que el comercial dice haber usado y que provocó el cambio. Cítalo como frase reconstruida lo más fiel posible al original (1–2 oraciones), sin inventar datos.
+- Clasifica la táctica que usó el comercial (una sola, la dominante).
 - Indica estado del cliente ANTES y DESPUÉS de ese movimiento del comercial.
 - Impacto: "alto" si cambió radicalmente la dirección de la call; "medio" si abrió una conversación; "bajo" si fue un micro-avance.
 - Devuelve entre 0 y 5 pivotes. Si la call no tiene NINGÚN cambio de estado claro (ni positivo ni negativo), devuelve [].
-- NO inventes frases. Si no puedes citar literal, NO incluyas el pivote.
+- NO inventes hechos ni datos. Si no hay evidencia de cambio de estado, devuelve [].
 - Pivotes negativos también cuentan (cuando el comercial dijo algo que cerró al cliente).
 
 OTRAS REGLAS:
@@ -64,7 +69,7 @@ OTRAS REGLAS:
 DURACIÓN: ${dur}s
 TRANSCRIPCIÓN:
 """
-${transcript.slice(0, 24000)}
+${stripHtml(transcript).slice(0, 24000)}
 """`;
 }
 
