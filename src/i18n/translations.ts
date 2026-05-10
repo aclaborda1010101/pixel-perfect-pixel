@@ -20,6 +20,7 @@ const _translations = {
       assistant: "Asistente IA",
       mensajes: "Mensajes",
       nextActions: "Próximas acciones",
+      productividad: "Productividad",
       settings: "Configuración",
       assets: "Activos",
       betaBadge: "Beta",
