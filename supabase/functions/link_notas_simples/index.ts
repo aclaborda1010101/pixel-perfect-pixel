@@ -43,6 +43,45 @@ function mapRol(r?: string | null): string {
   return "otro";
 }
 
+// Extrae una dirección legible del texto `linderos` o de structured_json.
+// Devuelve { direccion, ciudad } o null si no consigue extraer nada útil.
+function extractAddress(sj: any): { direccion: string; ciudad: string | null } | null {
+  // 1. Campos directos
+  const direct = (sj?.direccion || sj?.finca?.direccion || "").toString().trim();
+  if (direct.length > 8) {
+    return { direccion: direct, ciudad: sj?.ciudad ?? sj?.finca?.ciudad ?? null };
+  }
+  // 2. Parsear linderos: "Casa en la calle de la Abada, de Madrid, número cuatro"
+  const linderos = (sj?.linderos ?? "").toString();
+  if (!linderos) return null;
+  // Buscar patrón "(calle|plaza|paseo|avenida|...) <nombre>"
+  const re = /\b(calle|c\/|plaza|pza\.?|paseo|p[ºo°]\.?|avenida|av\.?|ronda|travesía|carretera|ctra\.?|camino|via)\s+(?:de\s+(?:la|los|las|el)\s+|de\s+|del\s+)?([A-Za-zÀ-ÿñÑ][A-Za-zÀ-ÿñÑ0-9\s\.\-']{3,60}?)(?=,|\s+n[úu]mero|\s+n[ºo°\.]|\.|;|\s+de\s+(?:Madrid|Barcelona|[A-Z]))/i;
+  const m = linderos.match(re);
+  if (!m) return null;
+  const tipo = m[1].toLowerCase().replace(/\.?$/, "");
+  const tipoFmt = tipo.startsWith("c/") || tipo === "calle" ? "Calle"
+    : tipo.startsWith("pza") || tipo === "plaza" ? "Plaza"
+    : tipo.startsWith("p") && tipo.includes("seo") ? "Paseo"
+    : tipo.startsWith("av") ? "Avenida"
+    : tipo.startsWith("ctra") ? "Carretera"
+    : tipo.charAt(0).toUpperCase() + tipo.slice(1);
+  const nombre = m[2].trim().replace(/\s+/g, " ");
+  // Detectar ciudad en el linderos
+  const ciudadMatch = linderos.match(/de\s+(Madrid|Barcelona|Valencia|Sevilla|Bilbao|Málaga|Zaragoza|[A-ZÁÉÍÓÚ][a-záéíóúñ]+)/);
+  const ciudad = ciudadMatch ? ciudadMatch[1] : null;
+  // Detectar número
+  const numMatch = linderos.match(/n[úu]mero\s+([\w\d]+)/i) || linderos.match(/,?\s*(\d{1,4})\b/);
+  const numero = numMatch ? numMatch[1] : "";
+  // Convertir números escritos a dígito si vienen como palabra (cuatro->4)
+  const palabrasNum: Record<string, string> = {
+    uno: "1", dos: "2", tres: "3", cuatro: "4", cinco: "5", seis: "6", siete: "7", ocho: "8", nueve: "9", diez: "10",
+    once: "11", doce: "12", trece: "13", catorce: "14", quince: "15", veinte: "20",
+  };
+  const numFinal = palabrasNum[numero.toLowerCase()] ?? numero;
+  const direccion = `${tipoFmt} ${nombre}${numFinal ? " " + numFinal : ""}`.trim();
+  return { direccion, ciudad };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -80,6 +119,10 @@ Deno.serve(async (req) => {
     building_companies_upserted: 0,
     owner_relations_detected: 0,
     notas_linked_to_building: 0,
+    building_match_catastro: 0,
+    building_match_fuzzy: 0,
+    building_created_auto: 0,
+    building_no_match: 0,
     errors: [] as Array<{ nota_id: string; error: string }>,
   };
 
@@ -90,25 +133,88 @@ Deno.serve(async (req) => {
       const finca = sj.finca ?? {};
       const refCat = normDoc(finca.ref_catastral);
 
-      // 1) Match / asegurar building por ref_catastral o dirección
+      // 1) Match / asegurar building (catastro → fuzzy direccion → auto-crear)
       let buildingId: string | null = nota.building_id ?? null;
+      let matchKind: "existing_catastro" | "existing_fuzzy" | "auto_created" | "none" = "none";
+
+      // 1a) Catastro normalizado (ambos lados)
       if (!buildingId && refCat) {
-        const { data: b } = await sb.from("buildings")
-          .select("id")
-          .ilike("catastro_ref", refCat)
-          .limit(1).maybeSingle();
-        if (b?.id) buildingId = b.id;
-      }
-      if (!buildingId) {
-        const dirRaw = (sj.direccion || sj.finca?.direccion || "").toString().trim();
-        if (dirRaw.length > 8) {
-          const { data: b } = await sb.from("buildings")
+        // Comparar normalizando ambos lados vía SQL function (usa el índice funcional)
+        const { data: b } = await sb.rpc("normalize_catastro", { p: refCat }).then(async (r: any) => {
+          const normRef = r?.data ?? refCat;
+          return await sb.from("buildings")
             .select("id")
-            .ilike("direccion", `%${dirRaw.slice(0, 60)}%`)
+            .filter("catastro_ref", "not.is", null)
+            // Búsqueda por igualdad con el normalizado vía sql expression: imposible desde el SDK,
+            // así que usamos un OR ilike sobre la versión con y sin formato.
+            .or(`catastro_ref.eq.${normRef},catastro_ref.eq.${refCat}`)
             .limit(1).maybeSingle();
-          if (b?.id) buildingId = b.id;
+        }).catch(() => ({ data: null }));
+        if (b?.id) {
+          buildingId = b.id;
+          matchKind = "existing_catastro";
+          stats.building_match_catastro++;
         }
       }
+
+      // 1a-bis) Fallback: si el catastro de la nota viene con espacios y no se ha encontrado, probamos en bruto
+      if (!buildingId && refCat) {
+        // Buscamos en BD con normalize_catastro(catastro_ref) = refCat via vista no disponible;
+        // así que cargamos buildings cuya cat empiece igual sin formateo.
+        const prefix = refCat.slice(0, 7);
+        const { data: cands } = await sb.from("buildings")
+          .select("id, catastro_ref")
+          .ilike("catastro_ref", `%${prefix}%`)
+          .limit(20);
+        const hit = (cands ?? []).find((c: any) => normDoc(c.catastro_ref) === refCat);
+        if (hit) {
+          buildingId = hit.id;
+          matchKind = "existing_catastro";
+          stats.building_match_catastro++;
+        }
+      }
+
+      // 1b) Fuzzy match por dirección extraída
+      const extracted = extractAddress(sj);
+      if (!buildingId && extracted) {
+        const { data: fid } = await sb.rpc("match_building_fuzzy", {
+          p_direccion: extracted.direccion,
+          p_ciudad: extracted.ciudad,
+          p_threshold: 0.4,
+        });
+        if (fid) {
+          buildingId = fid as unknown as string;
+          matchKind = "existing_fuzzy";
+          stats.building_match_fuzzy++;
+        }
+      }
+
+      // 1c) Auto-crear building si no hay match
+      if (!buildingId && !dryRun && (extracted || refCat)) {
+        const direccionFinal = extracted?.direccion || `[Sin dirección] ${refCat ?? "ref desconocida"}`;
+        const ciudadFinal = extracted?.ciudad || "Desconocida";
+        const { data: created, error: cErr } = await sb.from("buildings").insert({
+          direccion: direccionFinal,
+          ciudad: ciudadFinal,
+          catastro_ref: refCat || null,
+          estado: "identificado",
+          metadatos: {
+            source: "nota_simple_auto",
+            nota_simple_id: nota.id,
+            sync_to_hubspot: false,
+            linderos_excerpt: (sj.linderos ?? "").toString().slice(0, 240),
+          },
+        }).select("id").single();
+        if (cErr) throw new Error(`buildings auto-insert: ${cErr.message}`);
+        buildingId = created!.id;
+        matchKind = "auto_created";
+        stats.building_created_auto++;
+      }
+
+      if (!buildingId) {
+        stats.building_no_match++;
+      }
+
       if (buildingId && !nota.building_id && !dryRun) {
         await sb.from("notas_simples").update({ building_id: buildingId }).eq("id", nota.id);
         stats.notas_linked_to_building++;
