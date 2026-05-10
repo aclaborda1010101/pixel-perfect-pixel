@@ -1,55 +1,67 @@
-## Diagnóstico cruce calls ↔ hubspot_calls (sobre 3.879 filas)
+## Resumen
+Cambios sólo de UI en `/next-actions`:
+1. Traducir terminología al castellano.
+2. Sustituir chips de filtro por **dos desplegables** (Origen, Urgencia).
+3. Añadir **"Próximas acciones"** al menú lateral, dentro del grupo **IA** (junto a Asistente y Mensajes).
 
+## 1. Glosario (etiquetas en UI, sin tocar BD)
+
+| Interno | UI |
+|---|---|
+| Stale Deal Reviver / `stale_deal_reviver` | **Oportunidades dormidas** |
+| Pipeline Hygiene Coach / `pipeline_hygiene` | **Higiene del pipeline** |
+
+Definiciones cortas que se mostrarán como ayuda bajo el título de la página:
+- **Oportunidades dormidas**: edificios sin actividad en HubSpot (llamadas, notas, tareas o cambios) durante más de 14 días y que no están en una etapa final.
+- **Higiene del pipeline**: deals con datos incompletos — sin tarea siguiente, sin fecha de cierre, sin propietario, en negociación >30 días, sin importe o sin contacto asociado.
+
+## 2. `src/pages/NextActions.tsx`
+
+- Cabecera: bajo el título, párrafo `text-muted-foreground` con las dos definiciones.
+- Botones:
+  - "Recalcular Stale" → **"Recalcular dormidas"**
+  - "Recalcular Hygiene" → **"Recalcular higiene"**
+- Reemplazar la fila de chips por dos `Select` (shadcn) en una fila:
+
+  ```text
+  [ Origen: Todos ▾ ]   [ Urgencia: Todas ▾ ]      12 de 758 acciones
+  ```
+
+  - **Origen**: `Todos` · `Oportunidades dormidas` · `Higiene del pipeline`. Sigue filtrando por valor interno (`stale_deal_reviver`, `pipeline_hygiene`).
+  - **Urgencia**: `Todas` · `Alta` · `Media` · `Baja`. Mantiene la lógica de buscar `[ALTA] / [MEDIA] / [BAJA]` en `titulo`.
+- Columna **Origen** de la tabla: en lugar del código crudo, un `Badge` con la etiqueta en castellano (color distinto para dormidas vs higiene).
+- Estado vacío: "No hay acciones con esos filtros".
+
+## 3. Menú lateral — `src/components/layout/AppSidebar.tsx`
+
+Añadir entrada en el grupo **IA** (`groupIA`), justo después de Mensajes:
+
+```ts
+const ia: Item[] = [
+  { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
+  { url: "/mensajes",  label: t.nav.mensajes,  icon: Megaphone },
+  { url: "/next-actions", label: "Próximas acciones", icon: ListChecks },
+];
 ```
-total                       3.879
-├─ from_hubspot              3.849  (resumen LIKE '[hs:...]')
-└─ native                       30
 
-rec + body  (analizables ya)   1.437
-body only   (sin grabación)    1.109   ← analizables igualmente
-rec only    (sin body)           454   ← grabadas SIN texto, RECUPERABLES
-neither     (vacías)             879   ← irrecuperables
+- Importar `ListChecks` de `lucide-react`.
+- Si existe `t.nav.nextActions` en `src/i18n/`, usarlo; si no, hardcode `"Próximas acciones"` (consistente con otras etiquetas) y añadir la clave en el i18n provider en una iteración posterior si se requiere bilingüe.
+- `BottomNav.tsx`: revisar si replica los grupos del sidebar; si lo hace, añadir también la entrada para mantener paridad móvil. Si no lo hace, no tocar.
 
-analizables actuales (transcripcion ≠ ∅) = 1.437 + 1.109 = 2.546
-```
+## 4. Lo que NO cambia
+- Edge functions `detect_stale_deals` y `detect_pipeline_hygiene`.
+- Valores almacenados en `next_actions.origen` (siguen siendo `stale_deal_reviver` y `pipeline_hygiene`).
+- Cron jobs `stale-daily` y `hygiene-daily`.
+- HubSpot read-only.
+- Lógica del Dashboard (sólo se traducirán strings si aparece literalmente "Pipeline Hygiene" o "Stale Deal Reviver" en la tile que enlaza a `/next-actions`).
 
-### Lectura del 2.897 esperado vs 2.546 real
-
-- Tu hipótesis "grabadas en HubSpot ≈ 2.897" no encaja con los datos: con `recording_url` solo hay **1.891** (1.437+454).
-- El gap real son **454 calls grabadas pero sin `hs_call_body`**. HubSpot pone la transcripción auto-generada en otra property que no pulleamos.
-- Las 879 "neither" son engagements de llamada sin body ni grabación (notas escuetas tipo "no contesta", llamadas perdidas registradas a mano). Son irrecuperables.
-
-### Properties candidatas a añadir al pull (HubSpot CRM Calls)
-
-Pulleamos hoy:
-```
-hs_call_title, hs_call_body, hs_call_status, hs_call_direction,
-hs_call_disposition, hs_call_duration, hs_call_recording_url,
-hs_call_to_number, hs_call_from_number, hs_timestamp,
-hs_createdate, hs_lastmodifieddate
-```
-
-Faltan (todas read-only, gratis pullear):
-- **`hs_call_transcription`** o **`hs_call_recording_transcript`** — texto plano de la transcripción auto-generada por HubSpot. Esta es la que nos interesa.
-- `hs_call_summary` / `hs_call_ai_summary` — resumen IA de HubSpot (bonus).
-- `hs_call_video_recording_url` — para Zoom/Teams.
-
-> Los nombres internos varían por portal (algunos llevan sufijo `__c` o están en namespace custom). Lo seguro es probar con un `GET /crm/v3/properties/calls` primero para ver qué tiene este portal y elegir el internal name correcto.
-
-### Plan
-
-1. **Discovery** (1 query a HubSpot, read-only): GET `/crm/v3/properties/calls` → filtrar por nombre que contenga `transcript|summary` → te reporto los internal names exactos disponibles en tu portal.
-2. **Añadir** esas properties al array `calls:[...]` en `hubspot_sync_engagements/index.ts` y a las columnas equivalentes en `hubspot_calls` (nuevas columnas `hs_call_transcription text`, `hs_call_summary text` vía migración).
-3. **Re-pull** `hubspot_sync_engagements` con `force_refresh=true` solo para calls — chunks normales hasta cursor vacío.
-4. **Modificar `promote_calls`**: cuando `hs_call_body` esté vacío pero `hs_call_transcription` exista, usar la transcripción como `transcripcion` en la tabla operativa. Idempotente: UPDATE de las 454 filas existentes.
-5. Reporte: nuevo `analizables` final (esperado entre 2.546 y 3.000).
-6. **Después**, aplicar UI:
-   - `/llamadas`: chip "Solo analizables" (default ON) | "Todas" — filtra por `transcripcion ≠ ∅` en cliente. Tarjeta KPI muestra `analizables` como valor principal y `total` como subtítulo.
-   - Dashboard: tile "Llamadas" muestra `analizables`, total como subtítulo. Añadimos un 2º count en el `Promise.all`.
-   - Sin DELETE, sin tocar HubSpot, idempotente.
-
-## Lo que necesito de ti
-
-¿Lanzo el discovery de properties (paso 1) para confirmar los internal names exactos antes de migrar/re-pullear? Si sí, sigo encadenando 1→6 sin pausa.
-
-Alternativa rápida: si prefieres no esperar al re-pull, aplico solo la UI ahora con 2.546 como número correcto (las 454 quedan como deuda técnica documentada). Tú decides.
+## Detalles técnicos
+- Componentes shadcn: `Select`, `SelectTrigger`, `SelectContent`, `SelectItem`, `SelectValue`, `Badge`.
+- Mapa de etiquetas reutilizable:
+  ```ts
+  const ORIGEN_LABEL: Record<string,string> = {
+    stale_deal_reviver: "Oportunidades dormidas",
+    pipeline_hygiene:   "Higiene del pipeline",
+  };
+  ```
+- Sin nuevas dependencias.
