@@ -171,11 +171,13 @@ Deno.serve(async (req) => {
           const fn = String(props.firstname || '').trim();
           const ln = String(props.lastname || '').trim();
           const nombre = (`${fn} ${ln}`).trim() || (props.email || `Sin nombre (${c.id})`);
+          // Map to valid owner_role enum: particular|heredero|inversor_pasivo|operador_profesional|institucional|desconocido
           const tipo = String(props.tipologia_de_propietario || '').toLowerCase();
-          const rol = tipo.includes('inversor') ? 'inversor'
-            : tipo.includes('lead') ? 'lead'
-            : tipo.includes('candidato') ? 'candidato'
-            : (tipo.includes('propietario') || props.dni__nif__cif) ? 'propietario'
+          const rol = tipo.includes('inversor') ? 'inversor_pasivo'
+            : tipo.includes('institucional') ? 'institucional'
+            : tipo.includes('heredero') ? 'heredero'
+            : tipo.includes('operador') ? 'operador_profesional'
+            : (tipo.includes('propietario') || props.dni__nif__cif) ? 'particular'
             : 'desconocido';
           return {
             nombre,
