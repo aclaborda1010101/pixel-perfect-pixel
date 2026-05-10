@@ -74,6 +74,7 @@ export default function Productividad() {
   const [analyzed, setAnalyzed] = useState(0);
   const [pending, setPending] = useState(0);
   const [coachRange, setCoachRange] = useState<DateRange | undefined>({ from: daysAgo(30), to: new Date() });
+  const [selCoachComercial, setSelCoachComercial] = useState<string>("all");
 
   async function load() {
     setLoading(true);
@@ -250,9 +251,17 @@ export default function Productividad() {
     const to = coachRange?.to ? isoDay(coachRange.to) : isoDay(new Date());
     setCoachLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("generate_coach_report", { body: { from, to, chain: true } });
+      const body = selCoachComercial === "all"
+        ? { from, to, chain: true }
+        : { from, to, comercial_hs_id: selCoachComercial };
+      const { data, error } = await supabase.functions.invoke("generate_coach_report", { body });
       if (error) throw error;
-      toast.success(`Coach generado para ${data?.ok_count || 0} comerciales (${data?.remaining || 0} restantes)`);
+      if (selCoachComercial === "all") {
+        toast.success(`Coach generado para ${data?.ok_count || 0} comerciales (${data?.remaining || 0} restantes)`);
+      } else {
+        const nombre = comercialNameById.get(selCoachComercial) || selCoachComercial.slice(0, 8);
+        toast.success(`Reporte generado para ${nombre} (${data?.report?.total_calls ?? 0} calls)`);
+      }
       setTimeout(load, 1500);
     } catch (e: any) {
       toast.error(`Error: ${e.message || e}`);
@@ -466,6 +475,16 @@ export default function Productividad() {
               <Button size="sm" variant="ghost" onClick={() => setQuickRange(7)}>7d</Button>
               <Button size="sm" variant="ghost" onClick={() => setQuickRange(30)}>30d</Button>
               <Button size="sm" variant="ghost" onClick={() => setQuickRange(90)}>90d</Button>
+              <span className="ml-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Comercial</span>
+              <Select value={selCoachComercial} onValueChange={setSelCoachComercial}>
+                <SelectTrigger className="h-9 w-[240px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los comerciales</SelectItem>
+                  {comercialesWithCalls.filter(o => o.id !== "__none__").slice(0, 50).map(o => (
+                    <SelectItem key={o.id} value={o.id}>{o.nombre} · {o.calls}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button onClick={generateCoachAll} disabled={coachLoading} size="sm" className="ml-auto">
                 {coachLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
                 Generar Coach IA
