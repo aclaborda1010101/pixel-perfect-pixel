@@ -927,6 +927,8 @@ export type Database = {
           id: string
           origen: string | null
           owner_id: string | null
+          scope_id: string | null
+          scope_type: string | null
           titulo: string
           vencimiento: string | null
         }
@@ -938,6 +940,8 @@ export type Database = {
           id?: string
           origen?: string | null
           owner_id?: string | null
+          scope_id?: string | null
+          scope_type?: string | null
           titulo: string
           vencimiento?: string | null
         }
@@ -949,6 +953,8 @@ export type Database = {
           id?: string
           origen?: string | null
           owner_id?: string | null
+          scope_id?: string | null
+          scope_type?: string | null
           titulo?: string
           vencimiento?: string | null
         }
