@@ -9,8 +9,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
-const MAX_PER_RUN = 50;
-const SLEEP_BETWEEN_MS = 50; // Deepgram ~100 conc, no audio-seconds cap
+const MAX_PER_RUN = 30;
+const CONCURRENCY = 15; // Deepgram soporta ~100 concurrentes; 15 es conservador
 const DG_URL = 'https://api.deepgram.com/v1/listen?model=nova-3&language=es&smart_format=true&diarize=true&utterances=true&punctuate=true&filler_words=false';
 const GW = 'https://connector-gateway.lovable.dev/hubspot';
 const COMERCIAL_HINTS = ['aflux', 'fasano', 'soy ', 'le llamo', 'te llamo', 'le llamo de', 'le llamamos', 'inmobiliaria'];
@@ -264,7 +264,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify(r, null, 2), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
-  // BATCH
+  // BATCH — paralelo + respuesta inmediata
   const chain: boolean = body.chain !== false;
   const force: boolean = !!body.force;
 
@@ -280,63 +280,73 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
-  let processed = 0, ok = 0, fail = 0;
-  let lastFecha: string | null = null;
-  const errors: string[] = [];
-  for (const row of (rows || [])) {
-    processed++;
-    if (row.fecha) lastFecha = row.fecha;
-    const r = await transcribeOne(supabase, row, force);
-    if (r.ok) ok++;
-    else { fail++; if (errors.length < 5) errors.push(`${row.id}: ${r.error}`); }
-    // Throttle para no superar 20 RPM de Groq
-    if (processed < (rows?.length || 0)) {
-      await new Promise((res) => setTimeout(res, SLEEP_BETWEEN_MS));
-    }
-  }
+  const batch = rows || [];
+  const accepted = batch.length;
 
-  let pq = supabase.from('calls').select('id', { count: 'exact', head: true })
-    .not('transcripcion_url', 'is', null);
-  if (!force) pq = pq.neq('transcripcion_source', 'deepgram').neq('transcripcion_source', 'error');
-  const { count } = await pq;
-  const pending = count || 0;
+  // Procesa el batch en background con un pool de CONCURRENCY workers
+  const work = (async () => {
+    let ok = 0, fail = 0, processed = 0;
+    const errors: string[] = [];
+    let idx = 0;
+    const worker = async () => {
+      while (true) {
+        const i = idx++;
+        if (i >= batch.length) return;
+        const row = batch[i];
+        try {
+          const r = await transcribeOne(supabase, row, force);
+          processed++;
+          if (r.ok) ok++;
+          else { fail++; if (errors.length < 5) errors.push(`${row.id}: ${r.error}`); }
+        } catch (e: any) {
+          processed++;
+          fail++;
+          if (errors.length < 5) errors.push(`${row.id}: ${String(e?.message || e).slice(0, 200)}`);
+        }
+      }
+    };
+    const workers = Array.from({ length: Math.min(CONCURRENCY, batch.length) }, () => worker());
+    await Promise.all(workers);
 
-  await supabase.from('hubspot_sync_state').upsert({
-    entity: 'transcribe_backfill',
-    last_run_at: new Date().toISOString(),
-    last_run_status: pending > 0 && processed > 0 ? 'continuing' : 'done',
-    total_synced: ok,
-    cursor: null,
-    metadatos: { processed, ok, fail, pending, last_chunk_ms: Date.now() - t0, errors_sample: errors },
-  }, { onConflict: 'entity' });
+    // pending count tras el batch
+    let pq = supabase.from('calls').select('id', { count: 'exact', head: true }).not('transcripcion_url', 'is', null);
+    if (!force) pq = pq.neq('transcripcion_source', 'deepgram').neq('transcripcion_source', 'error');
+    const { count } = await pq;
+    const pending = count || 0;
 
-  let chained = false;
-  if (chain && processed >= MAX_PER_RUN && pending > 0) {
-    try {
+    const elapsed = Date.now() - t0;
+    console.log(`[transcribe_call batch] processed=${processed} ok=${ok} fail=${fail} pending=${pending} elapsed_ms=${elapsed}`);
+
+    await supabase.from('hubspot_sync_state').upsert({
+      entity: 'transcribe_backfill',
+      last_run_at: new Date().toISOString(),
+      last_run_status: pending > 0 && processed > 0 ? 'continuing' : 'done',
+      total_synced: ok,
+      cursor: null,
+      metadatos: { processed, ok, fail, pending, last_chunk_ms: elapsed, errors_sample: errors, concurrency: CONCURRENCY },
+    }, { onConflict: 'entity' });
+
+    if (chain && processed >= MAX_PER_RUN && pending > 0) {
       const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/transcribe_call`;
-      // @ts-ignore EdgeRuntime
-      EdgeRuntime.waitUntil(fetch(url, {
+      await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
         body: JSON.stringify({ chain: true, force }),
-      }).catch(() => {}));
-      chained = true;
-    } catch (e) { console.error('chain fail', e); }
-  } else if (chain && pending === 0 && processed > 0) {
-    // Fase 6: backfill terminado → disparar analyze_call sobre las recién transcritas (analyzed_at=null)
-    try {
+      }).catch((e) => console.error('chain fail', e));
+    } else if (chain && pending === 0 && processed > 0) {
       const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/analyze_call`;
-      // @ts-ignore EdgeRuntime
-      EdgeRuntime.waitUntil(fetch(url, {
+      await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
         body: JSON.stringify({ chain: true }),
-      }).catch(() => {}));
-    } catch (e) { console.error('analyze chain fail', e); }
-  }
+      }).catch((e) => console.error('analyze chain fail', e));
+    }
+  })();
+
+  // @ts-ignore EdgeRuntime
+  EdgeRuntime.waitUntil(work);
 
   return new Response(JSON.stringify({
-    ok: true, processed, ok_count: ok, fail_count: fail, pending, errors_sample: errors,
-    chained, phase: chained ? 'continuing' : 'done', latencia_ms: Date.now() - t0,
-  }, null, 2), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    ok: true, accepted, concurrency: CONCURRENCY, status: 'processing_in_background',
+  }, null, 2), { status: 202, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 });

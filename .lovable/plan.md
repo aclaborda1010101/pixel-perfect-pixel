@@ -1,91 +1,50 @@
-## Coach IA causal: momentos pivote y tácticas
+## Problema
 
-Cambio del modelo de "frases ganadoras" (correlación) a **momentos pivote** (causa): detectar dentro de cada transcripción cuándo el cliente cambia de estado y qué hizo el comercial justo antes.
+El backfill de Deepgram avanza a tirones (~9 calls/hora). La función procesa 50 calls **en serie** dentro de un mismo invoke; el HTTP request timeout corta la ejecución antes de terminar el batch, la chain se rompe y hay que esperar a que el cron diario lo dispare otra vez. Con 1,848 pendientes a este ritmo serían ~8 días.
 
-### 1. Migration
+## Causa raíz
 
-`ALTER TABLE calls`:
-- `pivot_moments jsonb DEFAULT '[]'::jsonb`
-- `tacticas_usadas text[] DEFAULT '{}'`
+En `transcribe_call/index.ts` el bucle `for (const row of rows)` espera cada `transcribeOne` (descarga HubSpot + Deepgram + update DB) secuencialmente. Una call de 5min puede tardar 30-60s. 50 calls × media de ~10s = ~8min de wall time → timeout del edge gateway.
 
-Schema de cada `pivot_moment`:
-```json
-{
-  "posicion_relativa": 0.42,
-  "estado_cliente_antes": "resistente",
-  "trigger_frase": "Entiendo que ya lo intentó con otra agencia y no salió. ¿Qué fue exactamente lo que falló?",
-  "tactica": "validacion_emocional",
-  "estado_cliente_despues": "considerando",
-  "impacto": "alto",
-  "objecion_neutralizada": "ya_intentado"
-}
-```
+## Solución: procesamiento paralelo + respuesta inmediata
 
-Tácticas válidas: `preguntas_abiertas`, `neutralizacion_objecion`, `reframe`, `validacion_emocional`, `prueba_social`, `personalizacion`, `urgencia_legitima`, `escucha_activa`, `cierre_directo`.
+### Cambios en `supabase/functions/transcribe_call/index.ts`
 
-Estados antes: `cerrado | resistente | esceptico | dudoso | abierto`.
-Estados después: `curioso | considerando | comprometido | sigue_cerrado | cerrado_negativo`.
-Impacto: `alto | medio | bajo`.
+1. **Concurrencia controlada (pool de 15 workers paralelos)**
+   - Reemplazar el `for` serial por un pool: 15 calls procesándose en paralelo a la vez.
+   - Deepgram soporta ~100 concurrentes y HubSpot gateway aguanta de sobra; 15 es conservador.
+   - Tiempo de batch: pasa de ~8min a ~30-60s.
 
-Índice GIN sobre `pivot_moments` y `tacticas_usadas` para filtrado rápido.
+2. **Reducir `MAX_PER_RUN` de 50 → 30**
+   - Batch más pequeño + paralelo = termina en <60s con margen, la chain HTTP se cierra limpiamente.
 
-### 2. Edge function `analyze_call`
+3. **Respuesta temprana con `EdgeRuntime.waitUntil`** (modo batch)
+   - Devolver `202 accepted` inmediatamente y procesar en background.
+   - Así el timeout HTTP del invocador (cron / curl) ya no puede cortar el procesamiento.
+   - El re-chain también se dispara en background.
 
-- Reescribir el prompt en castellano. Pasos: leer transcripción entera, identificar 0–5 momentos donde el cliente cambia de estado, para cada uno extraer la **frase exacta del comercial inmediatamente anterior** (1–2 oraciones literales), clasificar táctica, estado antes/después, impacto, objeción neutralizada (opcional).
-- Si no hay pivots → `[]` (no inventar).
-- Mantener campos previos (`outcome`, `sentiment`, `objeciones`, `tecnica_score`, etc.) y añadir `pivot_moments` + `tacticas_usadas` (derivado del set de `tactica` de los pivots).
-- Aceptar `force_reanalyze: true` en el body batch: ignora `analyzed_at IS NULL` y procesa por orden de fecha.
-- `MAX_PER_RUN=20`, encadena con `EdgeRuntime.waitUntil` mientras queden pendientes. Cursor en `hubspot_sync_state` entity `analyze_calls_recall`.
+4. **Quitar el `SLEEP_BETWEEN_MS`** (era para Groq RPM, ya no aplica con Deepgram + paralelismo).
 
-### 3. Recall sobre 2.546 calls
+5. **Logging por batch** (`console.log` con processed/ok/fail/elapsed) para tener visibilidad sin depender de HTTP response.
 
-- Ejecutar `analyze_call` con `{ chain: true, force_reanalyze: true }` y dejar que se encadene en chunks de 20.
-- Una vez terminado (`pending=0`), correr query agregada y reportar:
-  - Total recalculadas
-  - Distribución de tácticas (count por táctica)
-  - Distribución de impacto (alto/medio/bajo)
-  - Top 5 pivot_moments con `impacto=alto` (frase + táctica + comercial)
-  - Ratio pivot_moments por call (avg, p95)
+### Lo que **no cambia**
 
-### 4. UI: sub-tab "Movimientos ganadores"
+- Lógica de transcripción, diarización Comercial/Cliente, speaker_stats, refresh URL HubSpot.
+- Schema de DB, agent_runs, hubspot_sync_state.
+- Cron `transcribe-daily` (sigue disparando una vez al día como red de seguridad).
+- Modo single (`{call_id}`) sigue síncrono.
 
-En `Productividad.tsx`, renombrar `Objeciones & frases` → `Movimientos ganadores`.
+### ETA esperado tras el cambio
 
-Reemplazar listas de frases sueltas por tarjetas tipo:
+- 1,848 pendientes ÷ 15 paralelo × ~8s media = **~17 minutos** total.
+- Para ser realistas con varianza y re-chains: **~30-45 minutos**.
 
-```text
-[ resistente ] → validacion_emocional → "Entiendo que ya lo intentó..." → [ considerando ]   impacto: alto
-```
+### Disparo
 
-Filtros (popover): táctica (multi), buyer_persona del owner, comercial. Datos: query directa a `calls` filtrando `pivot_moments` + join a `owners` para buyer_persona.
+Tras desplegar, hago un POST a `/transcribe_call` con `{chain:true}` para arrancar la cadena.
 
-### 5. Coach IA causal
+### Riesgos / mitigación
 
-Reescribir prompt de `generate_coach_report`:
-- Input: pivot_moments + métricas del comercial en el rango.
-- Output JSON: 
-  - `top_pivots` (3 momentos propios alto-impacto con contexto)
-  - `tacticas_efectivas` / `tacticas_fallidas` (con ratios)
-  - `recomendaciones` (texto contextual por buyer_persona + objeción)
-  - `plan_accion` (3–5 pasos)
-- La `CoachCard` en frontend renderiza esos bloques nuevos.
-
-### 6. Dashboard tile "Táctica más efectiva"
-
-En `Productividad.tsx` (tab Resumen), añadir tile que calcule sobre los últimos 30d: `tactica` con mayor ratio `impacto=alto / total_uso`. Muestra nombre, ratio, count.
-
-### Reglas
-
-- HubSpot read-only.
-- Idempotente: `pivot_moments` se sobrescribe en cada análisis.
-- `MAX_PER_RUN=20`, encadenado.
-- `force_reanalyze=true` solo para esta recalibración.
-
-### Entregables al final
-
-1. Migration aplicada.
-2. `analyze_call` redeployed y validado en 1 call.
-3. Recall de 2.546 completo + reporte agregado.
-4. UI "Movimientos ganadores" funcionando.
-5. Coach IA con output causal.
-6. Tile "Táctica más efectiva" en dashboard.
+- **Rate limit Deepgram**: el reintento con backoff exponencial ya está; con 15 paralelos estamos muy por debajo del límite.
+- **Memoria edge function**: cada call carga el MP3 en RAM. 15 × ~5MB = 75MB, dentro del límite (256MB).
+- **Updates DB concurrentes**: cada call hace UPDATE sobre su propio `id`, sin contención.
