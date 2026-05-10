@@ -264,6 +264,7 @@ export type Database = {
           frases_clave_negativas: string[] | null
           frases_clave_positivas: string[] | null
           id: string
+          metadatos: Json
           notas_post_llamada: string | null
           objeciones: string[] | null
           outcome: string | null
@@ -294,6 +295,7 @@ export type Database = {
           frases_clave_negativas?: string[] | null
           frases_clave_positivas?: string[] | null
           id?: string
+          metadatos?: Json
           notas_post_llamada?: string | null
           objeciones?: string[] | null
           outcome?: string | null
@@ -324,6 +326,7 @@ export type Database = {
           frases_clave_negativas?: string[] | null
           frases_clave_positivas?: string[] | null
           id?: string
+          metadatos?: Json
           notas_post_llamada?: string | null
           objeciones?: string[] | null
           outcome?: string | null
