@@ -160,20 +160,14 @@ Deno.serve(async (req) => {
     const urg = ['alta','media','baja'].includes(ai.urgencia) ? ai.urgencia : 'media';
     dist[urg] = (dist[urg]||0)+1;
 
-    // Upsert idempotente vía índice único (scope_type,scope_id,origen,date)
-    const today = new Date().toISOString().slice(0,10);
-    // Try delete-then-insert para idempotencia (no hay onConflict por expression)
-    await supabase.from('next_actions').delete()
-      .eq('scope_type','building').eq('scope_id', b.id).eq('origen','stale_deal_reviver')
-      .gte('created_at', today+'T00:00:00Z').lte('created_at', today+'T23:59:59Z');
-    const { error: insErr } = await supabase.from('next_actions').insert({
+    const { error: insErr } = await supabase.from('next_actions').upsert({
       scope_type: 'building', scope_id: b.id,
       titulo: `[${urg.toUpperCase()}] ${ai.razon || ai.proxima_accion}`.slice(0,200),
       detalle: ai.mensaje_sugerido || null,
       vencimiento: urgencyToDueDate(urg),
       estado: 'pendiente',
       origen: 'stale_deal_reviver',
-    });
+    }, { onConflict: 'scope_type,scope_id,origen' });
     if (insErr) { errors++; console.error('insert fail', insErr); continue; }
     suggested++;
     if (top.length < 5) top.push({ building_id: b.id, direccion: b.direccion, dias: days, urgencia: urg, accion: ai.proxima_accion, razon: ai.razon, mensaje: ai.mensaje_sugerido });
