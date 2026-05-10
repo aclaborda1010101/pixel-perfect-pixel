@@ -95,7 +95,7 @@ export default function Productividad() {
     const since = new Date(Date.now() - RANGES[selRange]*86400000).toISOString();
     const [{ data: callsData }, statRes] = await Promise.all([
       supabase.from("calls")
-        .select("id, owner_id, comercial_hs_id, comercial_email, comercial_nombre, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, analyzed_at")
+        .select("id, owner_id, comercial_hs_id, comercial_email, comercial_nombre, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, pivot_moments, tacticas_usadas, analyzed_at")
         .gte("fecha", since)
         .not("analyzed_at", "is", null)
         .order("fecha", { ascending: false })
@@ -103,7 +103,7 @@ export default function Productividad() {
       supabase.from("calls").select("id", { count: "exact", head: true })
         .not("transcripcion", "is", null).is("analyzed_at", null),
     ]);
-    setCalls((callsData || []) as Call[]);
+    setCalls(((callsData || []) as unknown) as Call[]);
     setPending(statRes.count || 0);
     const { count: analyzedCount } = await supabase.from("calls").select("id", { count: "exact", head: true }).not("analyzed_at", "is", null);
     setAnalyzed(analyzedCount || 0);
@@ -181,17 +181,39 @@ export default function Productividad() {
     return Object.entries(m).sort((a,b) => b[1]-a[1]).slice(0, 10);
   }, [filtered]);
 
-  // frases ganadoras / perdedoras
-  const frasesGan = useMemo(() => {
-    const all: string[] = [];
-    filtered.filter(c => c.outcome === "interesado").forEach(c => (c.frases_clave_positivas || []).forEach(f => all.push(f)));
-    return all.slice(0, 10);
+  // Movimientos ganadores: pivots agregados con info de comercial
+  const allPivots = useMemo(() => {
+    const out: (PivotMoment & { call_id: string; comercial: string; fecha: string })[] = [];
+    for (const c of filtered) {
+      const cname = c.comercial_nombre || c.comercial_hs_id || "—";
+      for (const p of (c.pivot_moments || [])) {
+        out.push({ ...p, call_id: c.id, comercial: cname, fecha: c.fecha });
+      }
+    }
+    return out;
   }, [filtered]);
-  const frasesPerd = useMemo(() => {
-    const all: string[] = [];
-    filtered.filter(c => c.outcome === "no_interesado").forEach(c => (c.frases_clave_negativas || []).forEach(f => all.push(f)));
-    return all.slice(0, 10);
-  }, [filtered]);
+
+  // Estadísticas por táctica para el tile "Táctica más efectiva" (sobre el rango filtrado)
+  const tacticaStats = useMemo(() => {
+    const m: Record<string, { total: number; alto: number; medio: number; bajo: number; pos: number; neg: number }> = {};
+    for (const p of allPivots) {
+      const t = p.tactica;
+      if (!t) continue;
+      m[t] = m[t] || { total: 0, alto: 0, medio: 0, bajo: 0, pos: 0, neg: 0 };
+      const s = m[t];
+      s.total++;
+      if (p.impacto === "alto") s.alto++;
+      else if (p.impacto === "medio") s.medio++;
+      else if (p.impacto === "bajo") s.bajo++;
+      if (["curioso","considerando","comprometido"].includes(p.estado_cliente_despues)) s.pos++;
+      else if (p.estado_cliente_despues === "cerrado_negativo") s.neg++;
+    }
+    return Object.entries(m).map(([tactica, s]) => ({
+      tactica, ...s,
+      ratio_alto: s.total ? +(s.alto / s.total * 100).toFixed(1) : 0,
+    })).sort((a,b) => b.ratio_alto - a.ratio_alto);
+  }, [allPivots]);
+  const topTactica = tacticaStats.find(t => t.total >= 3) || tacticaStats[0];
 
   // heatmap day x hour
   function buildHeatmap(filterFn?: (c: Call) => boolean) {
