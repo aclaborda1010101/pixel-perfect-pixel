@@ -1,6 +1,4 @@
-// generate_coach_report — F.1.c Coach IA semanal
-// Single: { owner_id, week_start? }   -> genera reporte para 1 comercial
-// Batch:  { chain?: true } sin owner_id -> procesa MAX_REPORTS_PER_RUN comerciales activos
+// generate_coach_report — F.1.c Coach IA semanal (por comercial real de HubSpot)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 
 const corsHeaders = {
@@ -13,7 +11,7 @@ const MAX_REPORTS_PER_RUN = 5;
 
 function lastMondayISO(d = new Date()): string {
   const x = new Date(d);
-  const day = x.getUTCDay(); // 0=dom
+  const day = x.getUTCDay();
   const diff = (day === 0 ? 6 : day - 1);
   x.setUTCDate(x.getUTCDate() - diff);
   x.setUTCHours(0, 0, 0, 0);
@@ -25,17 +23,16 @@ function addDaysISO(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function buildReport(supabase: any, owner_id: string, week_start: string) {
+async function buildReport(supabase: any, comercial_hs_id: string, week_start: string) {
   const week_end = addDaysISO(week_start, 7);
-  // calls de la semana
   const { data: calls } = await supabase.from('calls')
-    .select('id, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, resumen, siguiente_accion')
-    .eq('owner_id', owner_id)
+    .select('id, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, resumen, siguiente_accion, comercial_nombre')
+    .eq('comercial_hs_id', comercial_hs_id)
     .gte('fecha', week_start)
     .lt('fecha', week_end);
   const list = calls || [];
+  const comercial_nombre = list.find((c: any) => c.comercial_nombre)?.comercial_nombre || comercial_hs_id;
 
-  // métricas
   const total = list.length;
   const interesados = list.filter((c: any) => c.outcome === 'interesado').length;
   const no_int = list.filter((c: any) => c.outcome === 'no_interesado').length;
@@ -51,7 +48,7 @@ async function buildReport(supabase: any, owner_id: string, week_start: string) 
   const perdedoras = list.filter((c: any) => c.outcome === 'no_interesado').flatMap((c: any) => c.frases_clave_negativas || []).slice(0, 30);
 
   const metricas = {
-    total, interesados, no_interesados: no_int,
+    comercial_nombre, total, interesados, no_interesados: no_int,
     conversion: total ? +(interesados / total * 100).toFixed(1) : 0,
     sentiment_positivo_pct: total ? +(pos / total * 100).toFixed(1) : 0,
     sentiment_negativo_pct: total ? +(neg / total * 100).toFixed(1) : 0,
@@ -63,7 +60,7 @@ async function buildReport(supabase: any, owner_id: string, week_start: string) 
 
   if (total === 0) {
     return {
-      week_start, week_end, total_calls: 0, metricas,
+      week_start, week_end, total_calls: 0, metricas, comercial_nombre,
       fortalezas: [], mejoras: [],
       frases_ganadoras: [],
       plan_accion: [{ titulo: 'Sin actividad esta semana', detalle: 'No se registran llamadas. Revisa cadencia y agenda.' }],
@@ -71,7 +68,7 @@ async function buildReport(supabase: any, owner_id: string, week_start: string) 
   }
 
   const LK = Deno.env.get('LOVABLE_API_KEY')!;
-  const prompt = `Eres un coach comercial senior especializado en captación inmobiliaria en España. Genera un reporte de coaching personalizado en castellano basándote EXCLUSIVAMENTE en estos datos reales del comercial durante la semana ${week_start} a ${week_end}.
+  const prompt = `Eres un coach comercial senior especializado en captación inmobiliaria en España. Genera un reporte de coaching personalizado en castellano para el comercial ${comercial_nombre} basándote EXCLUSIVAMENTE en estos datos reales de la semana ${week_start} a ${week_end}.
 
 DATOS:
 ${JSON.stringify(metricas, null, 2)}
@@ -86,8 +83,8 @@ Devuelve EXCLUSIVAMENTE este JSON:
 {
   "fortalezas": [{"titulo":"...","detalle":"..."}, ... 3 items],
   "mejoras": [{"titulo":"...","detalle":"..."}, ... 3 items],
-  "frases_ganadoras": ["frase 1", ... hasta 5 frases concretas, idealmente literales del listado anterior],
-  "plan_accion": [{"titulo":"...","detalle":"...","kpi":"..."}, ... 3-5 items concretos para la próxima semana]
+  "frases_ganadoras": ["frase 1", ... hasta 5],
+  "plan_accion": [{"titulo":"...","detalle":"...","kpi":"..."}, ... 3-5 items]
 }
 
 Sé específico, directo y accionable. Cita números reales. Tono profesional, en castellano.`;
@@ -106,7 +103,7 @@ Sé específico, directo y accionable. Cita números reales. Tono profesional, e
   const ai = JSON.parse(j?.choices?.[0]?.message?.content || '{}');
 
   return {
-    week_start, week_end, total_calls: total, metricas,
+    week_start, week_end, total_calls: total, metricas, comercial_nombre,
     fortalezas: Array.isArray(ai.fortalezas) ? ai.fortalezas.slice(0, 5) : [],
     mejoras: Array.isArray(ai.mejoras) ? ai.mejoras.slice(0, 5) : [],
     frases_ganadoras: Array.isArray(ai.frases_ganadoras) ? ai.frases_ganadoras.filter((x: any) => typeof x === 'string').slice(0, 8) : [],
@@ -123,10 +120,15 @@ Deno.serve(async (req) => {
 
   const week_start: string = body.week_start || lastMondayISO();
 
-  const persistOne = async (owner_id: string) => {
-    const rep = await buildReport(supabase, owner_id, week_start);
+  const persistOne = async (comercial_hs_id: string) => {
+    const rep = await buildReport(supabase, comercial_hs_id, week_start);
+    // owner_id es NOT NULL en esquema; usar un owner_id real de las calls del comercial como placeholder
+    const { data: anyCall } = await supabase.from('calls').select('owner_id')
+      .eq('comercial_hs_id', comercial_hs_id).not('owner_id','is',null).limit(1).maybeSingle();
+    const placeholderOwner = anyCall?.owner_id || '00000000-0000-0000-0000-000000000000';
     const { error } = await supabase.from('coach_reports').upsert({
-      owner_id,
+      comercial_hs_id,
+      owner_id: placeholderOwner,
       week_start: rep.week_start,
       week_end: rep.week_end,
       fortalezas: rep.fortalezas,
@@ -136,16 +138,16 @@ Deno.serve(async (req) => {
       total_calls: rep.total_calls,
       metricas: rep.metricas,
       generated_at: new Date().toISOString(),
-    }, { onConflict: 'owner_id,week_start' });
+    }, { onConflict: 'comercial_hs_id,week_start' });
     if (error) throw new Error(error.message);
     return rep;
   };
 
-  // SINGLE
-  if (body.owner_id) {
+  if (body.comercial_hs_id || body.owner_id) {
     try {
-      const rep = await persistOne(body.owner_id);
-      return new Response(JSON.stringify({ ok: true, owner_id: body.owner_id, report: rep }),
+      const cid = body.comercial_hs_id || body.owner_id;
+      const rep = await persistOne(cid);
+      return new Response(JSON.stringify({ ok: true, comercial_hs_id: cid, report: rep }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     } catch (e: any) {
       return new Response(JSON.stringify({ ok: false, error: String(e.message || e) }),
@@ -153,31 +155,28 @@ Deno.serve(async (req) => {
     }
   }
 
-  // BATCH: comerciales con al menos 1 call en la semana
   const week_end = addDaysISO(week_start, 7);
-  const { data: ownersWithCalls } = await supabase.from('calls')
-    .select('owner_id').gte('fecha', week_start).lt('fecha', week_end).not('owner_id', 'is', null);
-  const ownerIds = Array.from(new Set((ownersWithCalls || []).map((r: any) => r.owner_id)));
+  const { data: callsRows } = await supabase.from('calls')
+    .select('comercial_hs_id').gte('fecha', week_start).lt('fecha', week_end).not('comercial_hs_id', 'is', null);
+  const ownerIds = Array.from(new Set((callsRows || []).map((r: any) => r.comercial_hs_id)));
 
-  // Excluye los ya generados esta semana
-  const { data: doneRep } = await supabase.from('coach_reports').select('owner_id').eq('week_start', week_start);
-  const doneSet = new Set((doneRep || []).map((r: any) => r.owner_id));
+  const { data: doneRep } = await supabase.from('coach_reports').select('comercial_hs_id').eq('week_start', week_start).not('comercial_hs_id','is',null);
+  const doneSet = new Set((doneRep || []).map((r: any) => r.comercial_hs_id));
   const pending = ownerIds.filter((id: any) => !doneSet.has(id)).slice(0, MAX_REPORTS_PER_RUN);
 
   let ok = 0, fail = 0;
   const reports: any[] = [];
-  for (const oid of pending) {
+  for (const cid of pending) {
     try {
-      const rep = await persistOne(oid as string);
-      reports.push({ owner_id: oid, fortalezas_n: rep.fortalezas.length, total_calls: rep.total_calls });
+      const rep = await persistOne(cid as string);
+      reports.push({ comercial_hs_id: cid, comercial_nombre: rep.comercial_nombre, fortalezas_n: rep.fortalezas.length, total_calls: rep.total_calls });
       ok++;
     } catch (e: any) {
-      console.error('coach fail', oid, e);
+      console.error('coach fail', cid, e);
       fail++;
     }
   }
 
-  // Chain si quedan más
   const remaining = ownerIds.filter((id: any) => !doneSet.has(id)).length - pending.length;
   let chained = false;
   if (body.chain !== false && remaining > 0) {
