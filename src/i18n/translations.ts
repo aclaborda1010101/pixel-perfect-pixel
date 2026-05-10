@@ -184,6 +184,7 @@ const _translations = {
       assistant: "AI Assistant",
       mensajes: "Messages",
       nextActions: "Next actions",
+      productividad: "Productivity",
       settings: "Settings",
       assets: "Assets",
       betaBadge: "Beta",
