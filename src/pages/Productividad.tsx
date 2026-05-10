@@ -68,7 +68,6 @@ function daysSince(iso: string) {
 export default function Productividad() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [coachLoading, setCoachLoading] = useState(false);
   const [calls, setCalls] = useState<Call[]>([]);
   const [selOwner, setSelOwner] = useState<string>("all");
   const [selRange, setSelRange] = useState<string>("90d");
