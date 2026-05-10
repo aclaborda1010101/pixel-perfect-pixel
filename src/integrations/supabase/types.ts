@@ -125,6 +125,63 @@ export type Database = {
           },
         ]
       }
+      building_companies: {
+        Row: {
+          building_id: string
+          company_id: string
+          created_at: string
+          fecha_fin: string | null
+          fecha_inicio: string | null
+          id: string
+          metadatos: Json
+          percentage: number | null
+          role: Database["public"]["Enums"]["building_company_role"]
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          building_id: string
+          company_id: string
+          created_at?: string
+          fecha_fin?: string | null
+          fecha_inicio?: string | null
+          id?: string
+          metadatos?: Json
+          percentage?: number | null
+          role?: Database["public"]["Enums"]["building_company_role"]
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          building_id?: string
+          company_id?: string
+          created_at?: string
+          fecha_fin?: string | null
+          fecha_inicio?: string | null
+          id?: string
+          metadatos?: Json
+          percentage?: number | null
+          role?: Database["public"]["Enums"]["building_company_role"]
+          source?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_companies_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_companies_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       building_owners: {
         Row: {
           building_id: string
@@ -1221,6 +1278,70 @@ export type Database = {
           },
         ]
       }
+      nota_simple_titulares: {
+        Row: {
+          cif_dni: string | null
+          company_id: string | null
+          created_at: string
+          id: string
+          metadatos: Json
+          nombre_extraido: string | null
+          nota_simple_id: string
+          owner_id: string | null
+          porcentaje: number | null
+          rol: Database["public"]["Enums"]["nota_titular_rol"]
+          updated_at: string
+        }
+        Insert: {
+          cif_dni?: string | null
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          metadatos?: Json
+          nombre_extraido?: string | null
+          nota_simple_id: string
+          owner_id?: string | null
+          porcentaje?: number | null
+          rol?: Database["public"]["Enums"]["nota_titular_rol"]
+          updated_at?: string
+        }
+        Update: {
+          cif_dni?: string | null
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          metadatos?: Json
+          nombre_extraido?: string | null
+          nota_simple_id?: string
+          owner_id?: string | null
+          porcentaje?: number | null
+          rol?: Database["public"]["Enums"]["nota_titular_rol"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nota_simple_titulares_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nota_simple_titulares_nota_simple_id_fkey"
+            columns: ["nota_simple_id"]
+            isOneToOne: false
+            referencedRelation: "notas_simples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nota_simple_titulares_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notas_simples: {
         Row: {
           building_id: string | null
@@ -1325,6 +1446,111 @@ export type Database = {
           valor?: Json
         }
         Relationships: []
+      }
+      owner_companies: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          metadatos: Json
+          owner_id: string
+          percentage: number | null
+          role: Database["public"]["Enums"]["owner_company_role"]
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          metadatos?: Json
+          owner_id: string
+          percentage?: number | null
+          role: Database["public"]["Enums"]["owner_company_role"]
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          metadatos?: Json
+          owner_id?: string
+          percentage?: number | null
+          role?: Database["public"]["Enums"]["owner_company_role"]
+          source?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_companies_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_companies_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_relations: {
+        Row: {
+          created_at: string
+          id: string
+          metadatos: Json
+          notes: string | null
+          owner_a_id: string
+          owner_b_id: string
+          percentage: number | null
+          relation_type: Database["public"]["Enums"]["owner_relation_type"]
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          metadatos?: Json
+          notes?: string | null
+          owner_a_id: string
+          owner_b_id: string
+          percentage?: number | null
+          relation_type: Database["public"]["Enums"]["owner_relation_type"]
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          metadatos?: Json
+          notes?: string | null
+          owner_a_id?: string
+          owner_b_id?: string
+          percentage?: number | null
+          relation_type?: Database["public"]["Enums"]["owner_relation_type"]
+          source?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_relations_owner_a_id_fkey"
+            columns: ["owner_a_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_relations_owner_b_id_fkey"
+            columns: ["owner_b_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       owners: {
         Row: {
@@ -1601,6 +1827,12 @@ export type Database = {
         | "oficina"
         | "industrial"
         | "otro"
+      building_company_role:
+        | "titular"
+        | "usufructuario"
+        | "banco_acreedor"
+        | "arrendador"
+        | "otro"
       building_status:
         | "identificado"
         | "contactado"
@@ -1620,6 +1852,20 @@ export type Database = {
       compliance_status: "pendiente" | "aprobado" | "rechazado"
       match_status: "propuesto" | "aprobado" | "rechazado" | "contactado"
       next_action_status: "pendiente" | "completada" | "cancelada"
+      nota_titular_rol: "pleno" | "usufructo" | "nuda_propiedad" | "otro"
+      owner_company_role:
+        | "socio"
+        | "administrador"
+        | "apoderado"
+        | "empleado"
+        | "titular_via_sociedad"
+      owner_relation_type:
+        | "heredero_de"
+        | "conyuge_de"
+        | "representante_de"
+        | "apoderado_de"
+        | "padre_de"
+        | "socio_de"
       owner_role:
         | "particular"
         | "heredero"
@@ -1783,6 +2029,13 @@ export const Constants = {
         "industrial",
         "otro",
       ],
+      building_company_role: [
+        "titular",
+        "usufructuario",
+        "banco_acreedor",
+        "arrendador",
+        "otro",
+      ],
       building_status: [
         "identificado",
         "contactado",
@@ -1804,6 +2057,22 @@ export const Constants = {
       compliance_status: ["pendiente", "aprobado", "rechazado"],
       match_status: ["propuesto", "aprobado", "rechazado", "contactado"],
       next_action_status: ["pendiente", "completada", "cancelada"],
+      nota_titular_rol: ["pleno", "usufructo", "nuda_propiedad", "otro"],
+      owner_company_role: [
+        "socio",
+        "administrador",
+        "apoderado",
+        "empleado",
+        "titular_via_sociedad",
+      ],
+      owner_relation_type: [
+        "heredero_de",
+        "conyuge_de",
+        "representante_de",
+        "apoderado_de",
+        "padre_de",
+        "socio_de",
+      ],
       owner_role: [
         "particular",
         "heredero",
