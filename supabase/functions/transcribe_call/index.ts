@@ -267,7 +267,6 @@ Deno.serve(async (req) => {
   // BATCH
   const chain: boolean = body.chain !== false;
   const force: boolean = !!body.force;
-  const stateEntity = 'whisper_backfill';
 
   let q = supabase.from('calls')
     .select('id, resumen, transcripcion_url, transcripcion_source, duracion_seg, fecha, metadatos')
