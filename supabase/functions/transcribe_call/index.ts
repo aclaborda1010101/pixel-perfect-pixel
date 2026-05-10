@@ -244,6 +244,17 @@ Deno.serve(async (req) => {
       }).catch(() => {}));
       chained = true;
     } catch (e) { console.error('chain fail', e); }
+  } else if (chain && pending === 0 && processed > 0) {
+    // Fase 6: backfill terminado → disparar analyze_call sobre las recién transcritas (analyzed_at=null)
+    try {
+      const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/analyze_call`;
+      // @ts-ignore EdgeRuntime
+      EdgeRuntime.waitUntil(fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
+        body: JSON.stringify({ chain: true }),
+      }).catch(() => {}));
+    } catch (e) { console.error('analyze chain fail', e); }
   }
 
   return new Response(JSON.stringify({
