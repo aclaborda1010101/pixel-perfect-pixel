@@ -1,68 +1,77 @@
-## Problema
+## Objetivo
 
-`calls.owner_id` apunta al **propietario/lead** (contacto), no al **comercial asignado**. En HubSpot el comercial está en la propiedad `hubspot_owner_id` de la llamada (campo "Actividad asignada a"), que actualmente NO estamos sincronizando. Por eso el agrupado por "comercial" en `/productividad` muestra nombres de propietarios (FRANCISCA PAULA, JUAN AGUSTÍN…) en lugar de David, Miguel, Jesús y Cristina.
+Arreglar las métricas engañosas en `/productividad` y dar control sobre la ventana temporal del Coach IA.
 
-## Solución (4 fases encadenadas)
+## A. Frontend `/productividad` — métricas honestas
 
-### Fase 1 — Backend: capturar comercial real desde HubSpot
+En `src/pages/Productividad.tsx`:
 
-**1.1 Migration** (idempotente, sin tocar datos):
-- `hubspot_calls`: añadir `hs_owner_id text`, índice `(hs_owner_id)`.
-- Nueva tabla `hubspot_owners` (catálogo de comerciales HubSpot):
-  - `hs_owner_id text PK`, `email text`, `first_name text`, `last_name text`, `full_name text`, `archived boolean`, `raw jsonb`, `synced_at timestamptz`.
-  - RLS preview-all + service write.
-- `calls`: añadir `comercial_hs_id text`, `comercial_email text`, `comercial_nombre text`, índice `(comercial_hs_id, fecha)`.
-- `coach_reports`: añadir `comercial_hs_id text` (UNIQUE `(comercial_hs_id, week_start)` además del actual por owner_id).
+1. **Duración media** (KPI + tabla comparativa): excluir `outcome = 'no_contestado'` y `duracion_seg = 0`. Si la muestra resultante es <5, mostrar `—` en vez de un número engañoso.
+2. **Mostrar tamaño de muestra** junto a la duración: `94s · n=160`.
+3. **Tabla comparativa**: subir umbral a `calls >= 10` y añadir columna "Última actividad" (días desde la última call). Ordenar por conversión, manteniendo activos arriba.
+4. **Card de comercial inactivo**: badge `Inactivo · última call hace Xd` cuando última call > 14 días.
 
-**1.2 Sync: añadir `hubspot_owner_id` a `PROPS.calls`** en `hubspot_sync_engagements` y persistirlo en `hubspot_calls.hs_owner_id`.
+## B. Backend backfill duración (one-shot)
 
-**1.3 Edge function nueva `hubspot_sync_owners`**:
-- GET paginado de `/crm/v3/owners` (tiene email + firstName + lastName).
-- Upsert en `hubspot_owners`.
+Migration idempotente que rellena `calls.duracion_seg = 0` para las 1611 calls que tienen match en `hubspot_calls` con `hs_call_duration = 0`. Distingue claramente "no contestada" (0s) de "sin sincronizar" (NULL). No inventa datos — solo copia los 0s reales que ya existen en HubSpot.
 
-**1.4 Re-sync**:
-- `hubspot_sync_owners` → poblar catálogo (~10 filas).
-- `hubspot_sync_engagements?type=calls&reset=true` encadenado → repobla `hubspot_calls.hs_owner_id` (5.914 filas).
+```sql
+UPDATE calls c
+SET duracion_seg = 0
+FROM hubspot_calls hc
+WHERE c.duracion_seg IS NULL
+  AND hc.hs_id = substring(c.resumen FROM 'hs:(\d+)')
+  AND hc.hs_call_duration = 0;
+```
 
-### Fase 2 — Backfill `calls.comercial_*`
+También actualizar `promote_calls/index.ts` para que en futuras promociones rellene `duracion_seg = 0` cuando HubSpot devuelve 0 (en vez de dejarlo NULL).
 
-**Edge function `backfill_calls_comercial`** (one-shot, idempotente, encadenable):
-- Para cada `calls` con `[hs:<id>]` en `resumen` → lee `hubspot_calls.hs_owner_id` por hs_id → JOIN con `hubspot_owners` → escribe `comercial_hs_id`, `comercial_email`, `comercial_nombre`.
-- Procesa 1.000 por chunk, persiste cursor en `hubspot_sync_state` (entity=`backfill_calls_comercial`), self-chain hasta done.
+## C. Coach IA — ventana temporal seleccionable
 
-Además, actualizar `promote_calls` para que en futuras promociones rellene los 3 campos directamente.
+### Backend `generate_coach_report/index.ts`
 
-### Fase 3 — Frontend `/productividad` por comercial real
+- Aceptar parámetros opcionales `from` (fecha) y `to` (fecha) en el body. Si no se pasan, default = últimos 30 días.
+- Filtrar calls del comercial dentro del rango.
+- **Skip comerciales con <10 calls en el rango**: registrar como "inactivo, sin reporte" y no llamar al LLM.
+- Borrar reportes previos del mismo `(comercial_hs_id, week_start)` antes de upsert para idempotencia.
+- Persistir `week_start = from` y `week_end = to` para que la UI muestre la ventana real.
 
-- Cambiar todos los agregados/dropdown/tabla en `Productividad.tsx`:
-  - El `Select` "Comercial" pasa a listar entradas únicas de `calls.comercial_hs_id` (con `comercial_nombre`).
-  - El filtro `selOwner` aplica sobre `comercial_hs_id`.
-  - La **tabla comparativa** agrupa por `comercial_hs_id`.
-  - Los heatmaps y KPIs siguen igual pero filtrados por comercial real.
-- Manejo de "sin asignar": filas con `comercial_hs_id IS NULL` agrupadas como "—".
+### Frontend tab "Coach IA"
 
-### Fase 4 — Coach IA por comercial real
+- Añadir dos shadcn `DatePicker` (rango from/to) + botón "Generar reportes".
+- Quick-picks: "Últimos 7 días", "Últimos 30 días", "Últimos 90 días".
+- Cada tarjeta muestra arriba: `Periodo: 2026-04-10 → 2026-05-10 · 63 llamadas`.
+- Comerciales inactivos en el rango: tarjeta gris con badge "Sin actividad en este periodo · histórico: N calls".
 
-- `generate_coach_report`:
-  - Cambia clave de agregación de `owner_id` → `comercial_hs_id`.
-  - Selecciona comerciales activos desde `calls.comercial_hs_id` (no desde lista de propietarios).
-  - UPSERT por `(comercial_hs_id, week_start)`.
-- UI tab "Coach IA" muestra tarjetas por comercial real (David, Miguel, Jesús, Cristina) con su `comercial_nombre`.
-- Disparo manual: borrar reportes previos de la semana actual + regenerar → mostrar 1 ejemplo en el reporte final.
+## D. Detalles técnicos
 
-### Reglas
+```text
+Productividad.tsx
+├─ kpis: filtrar no_contestado y dur=0 antes de avg
+├─ tablaComerciales: misma lógica + columna ultima_call_dias
+└─ Coach IA tab:
+   ├─ DateRangePicker (shadcn)
+   ├─ QuickRanges chips
+   └─ generateCoachAll({from, to})
 
-- HubSpot read-only (cero writes).
-- Idempotencia en migration, backfill y upserts.
-- No se toca `owners.id` ni la relación con propietarios; solo añadimos columnas nuevas a `calls`.
-- Self-chaining con cursor en cualquier batch que pueda timeout.
-- Sin avanzar a E.1 hasta tu confirmación final.
+generate_coach_report/index.ts
+├─ body schema: { from?: string, to?: string, chain?: bool }
+├─ default range: now-30d → now
+├─ por cada comercial activo:
+│   ├─ if calls_in_range < 10 → skip (registro inactivo)
+│   └─ else → LLM + upsert con week_start=from, week_end=to
+```
 
-### Reporte final que te entregaré
+## Reglas
 
-1. Owners HubSpot sincronizados (esperado ~10, con David / Miguel / Jesús / Cristina identificados por email).
-2. % de `calls` con `comercial_hs_id` resuelto (esperado ~95%+, las que tenemos hs_id).
-3. Tabla comparativa real con los 4 comerciales: nº calls, conversión, sentiment, score técnica.
-4. Reporte coach generado para cada uno + fragmento de ejemplo.
+- HubSpot read-only, sin nuevas escrituras.
+- Migration idempotente (solo actualiza filas con NULL).
+- Sin tocar la lógica de mapeo comercial ya validada.
+- Sin avanzar a E.1 hasta tu confirmación final tras revisar el resultado.
 
-¿Apruebo y arranco?
+## Reporte final que entregaré
+
+1. Migración aplicada: X calls actualizadas con `duracion_seg = 0`.
+2. KPI duración antes/después por comercial (esperado: subida significativa al filtrar 0s y no_contestado).
+3. Reportes coach regenerados con ventana = últimos 30 días por defecto, mostrando `n` calls real por comercial.
+4. Captura de la nueva UI con date range picker funcional.
