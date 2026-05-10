@@ -1,3 +1,4 @@
+import { hubspotFetch } from '../_shared/hubspot.ts';
 // import_notas_simples_from_hubspot — escanea HubSpot Files (PDF) cuyo nombre
 // contenga "nota simple" / "nota_simple" / "-NS" / "Nota Simple" (case-insensitive),
 // descarga, sube a bucket Supabase 'notas-simples', crea fila notas_simples
@@ -6,7 +7,57 @@
 //
 // Body opcional: { chain?: bool=true, max_pages?: number, dry_run?: bool }
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
-import { hubspotFetch, corsHeaders } from '../_shared/hubspot.ts';
+import { corsHeaders } from '../_shared/hubspot.ts';
+
+// Direct HubSpot API (bypass gateway) usando Private App Token con scopes files/files.ui_hidden.read
+const HUBSPOT_API = 'https://api.hubapi.com';
+function patHeaders(): Record<string, string> {
+  const pat = Deno.env.get('HUBSPOT_PAT');
+  if (!pat) throw new Error('HUBSPOT_PAT is not configured');
+  return {
+    'Authorization': `Bearer ${pat}`,
+    'Content-Type': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+}
+async function hsDirect(path: string, init?: RequestInit) {
+  const res = await fetch(`${HUBSPOT_API}${path}`, {
+    ...init,
+    headers: { ...patHeaders(), ...(init?.headers || {}) },
+  });
+  const text = await res.text();
+  let body: any = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+  if (!res.ok) throw new Error(`HubSpot ${path} ${res.status}: ${JSON.stringify(body).slice(0,400)}`);
+  return body;
+}
+
+// Debug endpoint: probar PAT contra distintos endpoints
+async function debugPat() {
+  const out: any = {};
+  // 1) PAT directo
+  for (const ep of ['/account-info/v3/details', '/files/v3/files?limit=1']) {
+    try {
+      const r = await fetch(`${HUBSPOT_API}${ep}`, { headers: patHeaders() });
+      out[`pat ${ep}`] = { status: r.status, body: (await r.text()).slice(0, 120) };
+    } catch (e: any) { out[`pat ${ep}`] = { error: String(e?.message || e).slice(0, 120) }; }
+  }
+  // 2) Gateway Lovable (sin PAT, con HUBSPOT_API_KEY)
+  for (const ep of [
+    { m: 'GET', p: '/files/v3/files?limit=1' },
+    { m: 'GET', p: '/files/v3/files/?limit=1' },
+    { m: 'POST', p: '/files/v3/files/search', body: JSON.stringify({ limit: 1 }) },
+    { m: 'POST', p: '/files/v3/files/search', body: JSON.stringify({ properties: [], limit: 1, after: 0 }) },
+  ]) {
+    try {
+      const r = await hubspotFetch(ep.p, { method: ep.m, body: ep.body });
+      out[`gw ${ep.m} ${ep.p}`] = { ok: true, sample: JSON.stringify(r).slice(0, 200) };
+    } catch (e: any) { out[`gw ${ep.m} ${ep.p}`] = { error: String(e?.message || e).slice(0, 200) }; }
+  }
+  return out;
+}
 
 const PAGE_LIMIT = 100;
 const MAX_PAGES_PER_RUN_DEFAULT = 6;
@@ -64,8 +115,8 @@ async function findBuildingId(supabase: any, filename: string): Promise<string |
 }
 
 async function downloadHubspotFile(fileId: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
-  // signed-url
-  const signed: any = await hubspotFetch(`/files/v3/files/${fileId}/signed-url`).catch(() => null);
+  // signed-url (direct PAT)
+  const signed: any = await hsDirect(`/files/v3/files/${fileId}/signed-url`).catch(() => null);
   const url: string | undefined = signed?.url;
   if (!url) return null;
   const r = await fetch(url);
@@ -80,6 +131,11 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
   let body: any = {};
   try { body = await req.json(); } catch { /* ok */ }
+  if (body?.debug) {
+    const d = await debugPat();
+    return new Response(JSON.stringify({ ok: true, debug: d }, null, 2),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
   const chain: boolean = body?.chain !== false;
   const dryRun: boolean = !!body?.dry_run;
   const maxPages: number = Number.isFinite(body?.max_pages) ? Number(body.max_pages) : MAX_PAGES_PER_RUN_DEFAULT;
@@ -96,11 +152,12 @@ Deno.serve(async (req) => {
 
   try {
     while (pages < maxPages) {
-      // Usar POST /files/v3/files/search (el GET /files/v3/files devuelve 405 vía gateway)
-      const res: any = await hubspotFetch(`/files/v3/files/search`, {
-        method: 'POST',
-        body: JSON.stringify({ limit: PAGE_LIMIT, after, sort: ['-createdAt'] }),
-      });
+      // GET /files/v3/files con paginación (PAT directo, no gateway)
+      const qs = new URLSearchParams();
+      qs.set('limit', String(PAGE_LIMIT));
+      if (after) qs.set('after', after);
+      qs.set('sort', '-createdAt');
+      const res: any = await hsDirect(`/files/v3/files?${qs.toString()}`);
       const items: any[] = Array.isArray(res?.results) ? res.results : [];
       pages++;
       for (const f of items) {
