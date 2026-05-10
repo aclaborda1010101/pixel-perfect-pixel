@@ -1532,6 +1532,57 @@ export type Database = {
           similarity: number
         }[]
       }
+      notas_simples_kpis: {
+        Args: {
+          p_building_id?: string
+          p_divisible?: string
+          p_from?: string
+          p_owner_id?: string
+          p_riesgo?: string
+          p_search?: string
+          p_status?: string
+          p_tipo_carga?: string
+          p_to?: string
+        }
+        Returns: {
+          importe_cargas: number
+          listas: number
+          riesgo_alto: number
+          sin_edificio: number
+          total: number
+        }[]
+      }
+      notas_simples_search: {
+        Args: {
+          p_building_id?: string
+          p_divisible?: string
+          p_from?: string
+          p_limit?: number
+          p_offset?: number
+          p_owner_id?: string
+          p_riesgo?: string
+          p_search?: string
+          p_status?: string
+          p_tipo_carga?: string
+          p_to?: string
+        }
+        Returns: {
+          building_ciudad: string
+          building_direccion: string
+          building_id: string
+          created_at: string
+          error_message: string
+          file_url: string
+          id: string
+          owner_id: string
+          owner_nombre: string
+          processed_at: string
+          riesgo: string
+          status: string
+          structured_json: Json
+          total_count: number
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "manager" | "agent" | "viewer"
