@@ -136,15 +136,13 @@ Deno.serve(async (req) => {
 
     const venc = new Date(); venc.setDate(venc.getDate()+1);
     const vencStr = venc.toISOString().slice(0,10);
-    const rows = problems.map(code => ({
+    // El índice único permite UNA fila por (building, origen, día) → consolidar problemas
+    const titulo = `[HYGIENE x${problems.length}] ${problems.map(c=>c.toUpperCase()).join(',')} — ${b.direccion}`.slice(0,200);
+    const detalle = problems.map(c => `(${c}) ${PROBLEMS[c].titulo.replace(/^\[HYGIENE-./,'').trim()}: ${PROBLEMS[c].detalle}`).join('\n') + `\nEtapa: ${stageLabel || '?'}`;
+    const { error: insErr } = await supabase.from('next_actions').insert({
       scope_type:'building', scope_id: b.id,
-      titulo: PROBLEMS[code].titulo,
-      detalle: PROBLEMS[code].detalle + ` (Edificio: ${b.direccion}, etapa: ${stageLabel || '?'})`,
-      vencimiento: vencStr,
-      estado:'pendiente',
-      origen:'pipeline_hygiene',
-    }));
-    const { error: insErr } = await supabase.from('next_actions').insert(rows);
+      titulo, detalle, vencimiento: vencStr, estado:'pendiente', origen:'pipeline_hygiene',
+    });
     if (insErr) { errors++; console.error('hygiene insert', insErr); continue; }
     problems.forEach(c => { dist[c]=(dist[c]||0)+1; total_problems++; });
     perBuilding.push({ building_id: b.id, direccion: b.direccion, problems });
