@@ -79,11 +79,16 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify(stageMap, null, 2), { headers: { ...corsHeaders, 'Content-Type':'application/json' } });
   }
 
-  // Selecciona buildings candidatos: pre-filtra por hs_lastmodifieddate antiguo
+  // Selecciona buildings candidatos: pre-filtra por hs_lastmodifieddate antiguo + excluye terminal
   const cutoff = new Date(Date.now() - STALE_DAYS*86400000).toISOString();
+  const terminalIds = Object.entries(stageMap).filter(([_,v])=>v.terminal).map(([k])=>k);
   let q = supabase.from('buildings').select('id, direccion, ciudad, numero_propietarios, last_synced_at, metadatos');
   if (onlyId) q = q.eq('id', onlyId);
-  else q = q.lt('metadatos->>hs_lastmodifieddate', cutoff).limit(400);
+  else {
+    q = q.lt('metadatos->>hs_lastmodifieddate', cutoff);
+    if (terminalIds.length) q = q.not('metadatos->>dealstage','in',`(${terminalIds.map(x=>`"${x}"`).join(',')})`);
+    q = q.limit(MAX_PER_RUN);
+  }
   const { data: bs, error: bErr } = await q;
   if (bErr) return new Response(JSON.stringify({ ok:false, error:bErr.message }), { status:500, headers:{...corsHeaders,'Content-Type':'application/json'}});
 
