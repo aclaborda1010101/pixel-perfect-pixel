@@ -252,38 +252,71 @@ export type Database = {
       }
       calls: {
         Row: {
+          analisis_confianza: number | null
+          analyzed_at: string | null
           created_at: string
           direccion: Database["public"]["Enums"]["call_direction"]
           duracion_seg: number | null
           fecha: string
+          frases_clave_negativas: string[] | null
+          frases_clave_positivas: string[] | null
           id: string
+          objeciones: string[] | null
+          outcome: string | null
           owner_id: string | null
+          preguntas_abiertas: number | null
+          preguntas_cerradas: number | null
+          ratio_comercial_cliente: number | null
           resumen: string | null
+          sentiment: string | null
           siguiente_accion: string | null
+          tecnica_score: number | null
           transcripcion: string | null
           transcripcion_url: string | null
         }
         Insert: {
+          analisis_confianza?: number | null
+          analyzed_at?: string | null
           created_at?: string
           direccion?: Database["public"]["Enums"]["call_direction"]
           duracion_seg?: number | null
           fecha?: string
+          frases_clave_negativas?: string[] | null
+          frases_clave_positivas?: string[] | null
           id?: string
+          objeciones?: string[] | null
+          outcome?: string | null
           owner_id?: string | null
+          preguntas_abiertas?: number | null
+          preguntas_cerradas?: number | null
+          ratio_comercial_cliente?: number | null
           resumen?: string | null
+          sentiment?: string | null
           siguiente_accion?: string | null
+          tecnica_score?: number | null
           transcripcion?: string | null
           transcripcion_url?: string | null
         }
         Update: {
+          analisis_confianza?: number | null
+          analyzed_at?: string | null
           created_at?: string
           direccion?: Database["public"]["Enums"]["call_direction"]
           duracion_seg?: number | null
           fecha?: string
+          frases_clave_negativas?: string[] | null
+          frases_clave_positivas?: string[] | null
           id?: string
+          objeciones?: string[] | null
+          outcome?: string | null
           owner_id?: string | null
+          preguntas_abiertas?: number | null
+          preguntas_cerradas?: number | null
+          ratio_comercial_cliente?: number | null
           resumen?: string | null
+          sentiment?: string | null
           siguiente_accion?: string | null
+          tecnica_score?: number | null
           transcripcion?: string | null
           transcripcion_url?: string | null
         }
@@ -296,6 +329,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      coach_reports: {
+        Row: {
+          fortalezas: Json
+          frases_ganadoras: string[]
+          generated_at: string
+          id: string
+          mejoras: Json
+          metricas: Json
+          owner_id: string
+          plan_accion: Json
+          total_calls: number | null
+          week_end: string
+          week_start: string
+        }
+        Insert: {
+          fortalezas?: Json
+          frases_ganadoras?: string[]
+          generated_at?: string
+          id?: string
+          mejoras?: Json
+          metricas?: Json
+          owner_id: string
+          plan_accion?: Json
+          total_calls?: number | null
+          week_end: string
+          week_start: string
+        }
+        Update: {
+          fortalezas?: Json
+          frases_ganadoras?: string[]
+          generated_at?: string
+          id?: string
+          mejoras?: Json
+          metricas?: Json
+          owner_id?: string
+          plan_accion?: Json
+          total_calls?: number | null
+          week_end?: string
+          week_start?: string
+        }
+        Relationships: []
       }
       companies: {
         Row: {

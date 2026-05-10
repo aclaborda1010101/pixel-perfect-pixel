@@ -26,6 +26,7 @@ import NotasSimples from "./pages/NotasSimples";
 import NotaSimpleDetail from "./pages/NotaSimpleDetail";
 import Mensajes from "./pages/Mensajes";
 import NextActions from "./pages/NextActions";
+import Productividad from "./pages/Productividad";
 import Login from "./pages/auth/Login";
 import RecoverPassword from "./pages/auth/RecoverPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
@@ -66,6 +67,8 @@ const App = () => (
                 <Route path="/notas-simples/:id" element={<NotaSimpleDetail />} />
                 <Route path="/mensajes" element={<Mensajes />} />
                 <Route path="/next-actions" element={<NextActions />} />
+                <Route path="/productividad" element={<Productividad />} />
+                <Route path="/admin/productividad" element={<Productividad />} />
                 <Route path="/asistente" element={<Assistant />} />
                 <Route path="/asistente-ia" element={<Assistant />} />
                 <Route path="/ajustes" element={<Settings />} />
