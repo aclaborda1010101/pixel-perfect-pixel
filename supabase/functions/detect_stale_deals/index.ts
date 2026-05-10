@@ -79,10 +79,11 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify(stageMap, null, 2), { headers: { ...corsHeaders, 'Content-Type':'application/json' } });
   }
 
-  // Selecciona buildings candidatos
-  let q = supabase.from('buildings').select('id, direccion, ciudad, numero_propietarios, last_synced_at, metadatos').order('last_synced_at', { ascending: true });
+  // Selecciona buildings candidatos: pre-filtra por hs_lastmodifieddate antiguo
+  const cutoff = new Date(Date.now() - STALE_DAYS*86400000).toISOString();
+  let q = supabase.from('buildings').select('id, direccion, ciudad, numero_propietarios, last_synced_at, metadatos');
   if (onlyId) q = q.eq('id', onlyId);
-  else q = q.limit(800);
+  else q = q.lt('metadatos->>hs_lastmodifieddate', cutoff).limit(400);
   const { data: bs, error: bErr } = await q;
   if (bErr) return new Response(JSON.stringify({ ok:false, error:bErr.message }), { status:500, headers:{...corsHeaders,'Content-Type':'application/json'}});
 
