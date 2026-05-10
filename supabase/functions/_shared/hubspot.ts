@@ -66,6 +66,10 @@ export const CONTACT_PROPERTIES = [
   'monday_id', 'barrios_completos', 'distrito_zona', 'fuente', 'tipologia_de_propietario',
   'direccion_del_edificio', 'ano_de_nacimiento', 'tipo_de_inversor',
   'capital_de_inversion', 'telefono_secundario', 'telefono_terciario',
+  // D.2 enrich
+  'associatedcompanyid', 'motivo_venta', 'empresa_propia', 'edad',
+  'relacion_familiar', 'profesion', 'situacion', 'primer_apellido',
+  'fecha_nacimiento', 'lugar_residencia', 'anos_propietario',
 ];
 
 // (no helper extra; cada función importa createClient directamente)
