@@ -151,7 +151,7 @@ export default function Dashboard() {
       />
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {tiles.map((tile) => {
           const TrendIcon = tile.trend === "up" ? TrendingUp : TrendingDown;
           const trendCls = tile.trend === "up" ? "text-success" : "text-destructive";
@@ -184,7 +184,7 @@ export default function Dashboard() {
           <Eyebrow>Sincronización · HubSpot (read-only)</Eyebrow>
           <CardTitle>Datos en cartera</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
           {[
             { label: "Edificios", value: sync.buildings },
             { label: "Propietarios", value: sync.owners },
