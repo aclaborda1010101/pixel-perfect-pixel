@@ -126,7 +126,9 @@ Deno.serve(async (req) => {
     const { data: anyCall } = await supabase.from('calls').select('owner_id')
       .eq('comercial_hs_id', comercial_hs_id).not('owner_id','is',null).limit(1).maybeSingle();
     const placeholderOwner = anyCall?.owner_id || '00000000-0000-0000-0000-000000000000';
-    const { error } = await supabase.from('coach_reports').upsert({
+    await supabase.from('coach_reports').delete()
+      .eq('comercial_hs_id', comercial_hs_id).eq('week_start', rep.week_start);
+    const { error } = await supabase.from('coach_reports').insert({
       comercial_hs_id,
       owner_id: placeholderOwner,
       week_start: rep.week_start,
@@ -138,7 +140,7 @@ Deno.serve(async (req) => {
       total_calls: rep.total_calls,
       metricas: rep.metricas,
       generated_at: new Date().toISOString(),
-    }, { onConflict: 'comercial_hs_id,week_start' });
+    });
     if (error) throw new Error(error.message);
     return rep;
   };
