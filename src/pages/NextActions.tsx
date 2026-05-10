@@ -40,7 +40,7 @@ export default function NextActions() {
       .order("created_at", { ascending: false });
 
     if (filtroOrigen !== "todos") query = query.eq("origen", filtroOrigen);
-    if (filtroEstado !== "todos") query = query.eq("estado", filtroEstado);
+    if (filtroEstado !== "todos") query = query.eq("estado", filtroEstado as any);
     if (filtroUrg !== "todas") query = query.ilike("titulo", `%[${filtroUrg.toUpperCase()}]%`);
     if (qDeb) {
       const s = qDeb.replace(/[%,]/g, "");
@@ -145,8 +145,8 @@ export default function NextActions() {
             <SelectContent>
               <SelectItem value="todos">Todos</SelectItem>
               <SelectItem value="pendiente">Pendiente</SelectItem>
-              <SelectItem value="hecha">Hecha</SelectItem>
-              <SelectItem value="descartada">Descartada</SelectItem>
+              <SelectItem value="completada">Completada</SelectItem>
+              <SelectItem value="cancelada">Cancelada</SelectItem>
             </SelectContent>
           </Select>
         </div>
