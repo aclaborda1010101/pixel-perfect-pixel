@@ -378,7 +378,7 @@ export default function Productividad() {
           <TabsTrigger value="overview">Resumen</TabsTrigger>
           <TabsTrigger value="heatmap">Heatmap</TabsTrigger>
           <TabsTrigger value="comparativa">Comparativa</TabsTrigger>
-          <TabsTrigger value="objeciones">Objeciones & frases</TabsTrigger>
+          <TabsTrigger value="objeciones">Movimientos ganadores</TabsTrigger>
           <TabsTrigger value="coach">Coach IA</TabsTrigger>
         </TabsList>
 
@@ -390,7 +390,11 @@ export default function Productividad() {
             <Kpi label="Duración media" value={fmtSec(kpis.durMed)} hint={kpis.durN >= 5 ? `n=${kpis.durN} conversaciones` : `muestra <5 (n=${kpis.durN})`} />
             <Kpi label="Conversión interesado" value={fmtPct(kpis.pctInteresados)} hint={`${kpis.interesados} interesados`} />
             <Kpi label="Sentiment +" value={fmtPct(kpis.pctPos)} hint={`${kpis.neg} negativos`} />
-            <Kpi label="Score técnica" value={kpis.tecMed ? kpis.tecMed.toFixed(0) : "—"} hint={`ratio ${(kpis.ratioMed*100).toFixed(0)}%`} />
+            <Kpi
+              label="Táctica más efectiva"
+              value={topTactica ? topTactica.tactica.replace(/_/g, " ") : "—"}
+              hint={topTactica ? `${topTactica.alto}/${topTactica.total} alto · ${topTactica.ratio_alto}%` : "sin pivots"}
+            />
           </div>
 
           <Card>
