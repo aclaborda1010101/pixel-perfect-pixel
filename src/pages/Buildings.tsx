@@ -22,7 +22,7 @@ import { Building2, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { NewBuildingDialog } from "@/components/forms/NewEntityDialogs";
 
 const PAGE_SIZE = 50;
-const ESTADOS = ["identificado", "contactado", "negociacion", "cerrado", "descartado"];
+const ESTADOS = ["identificado", "contactado", "en_estudio", "descartado"];
 
 function applyNonDemoFilter<T extends { or: (filters: string) => T }>(query: T) {
   return query.or("metadatos->>seed.is.null,metadatos->>seed.eq.false");
