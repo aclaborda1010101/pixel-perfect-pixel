@@ -93,19 +93,35 @@ export default function Productividad() {
   async function load() {
     setLoading(true);
     const since = new Date(Date.now() - RANGES[selRange]*86400000).toISOString();
-    const [{ data: callsData }, statRes] = await Promise.all([
-      supabase.from("calls")
-        .select("id, owner_id, comercial_hs_id, comercial_email, comercial_nombre, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, pivot_moments, tacticas_usadas, analyzed_at")
+    const cols = "id, owner_id, comercial_hs_id, comercial_email, comercial_nombre, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, pivot_moments, tacticas_usadas, analyzed_at";
+    // 1) Total count del rango (sin traer filas)
+    const { count: rangeCount } = await supabase.from("calls").select("id", { count: "exact", head: true })
+      .gte("fecha", since).not("analyzed_at", "is", null);
+    // 2) Paginación por chunks de 1000 hasta cubrir todo el rango
+    const PAGE = 1000;
+    const total = rangeCount || 0;
+    const all: Call[] = [];
+    for (let from = 0; from < total; from += PAGE) {
+      const to = Math.min(from + PAGE - 1, total - 1);
+      const { data, error } = await supabase.from("calls")
+        .select(cols)
         .gte("fecha", since)
         .not("analyzed_at", "is", null)
         .order("fecha", { ascending: false })
-        .limit(5000),
+        .range(from, to);
+      if (error) { toast.error(`Error cargando llamadas: ${error.message}`); break; }
+      if (data) all.push(...((data as unknown) as Call[]));
+      if (!data || data.length < PAGE) break;
+    }
+    setCalls(all);
+    // 3) Pending y analyzed totales (head=true, sin filas)
+    const [{ count: pendingCount }, { count: analyzedCount }] = await Promise.all([
       supabase.from("calls").select("id", { count: "exact", head: true })
         .not("transcripcion", "is", null).is("analyzed_at", null),
+      supabase.from("calls").select("id", { count: "exact", head: true })
+        .not("analyzed_at", "is", null),
     ]);
-    setCalls(((callsData || []) as unknown) as Call[]);
-    setPending(statRes.count || 0);
-    const { count: analyzedCount } = await supabase.from("calls").select("id", { count: "exact", head: true }).not("analyzed_at", "is", null);
+    setPending(pendingCount || 0);
     setAnalyzed(analyzedCount || 0);
     setLoading(false);
   }
