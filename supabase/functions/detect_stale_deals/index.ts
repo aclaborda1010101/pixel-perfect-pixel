@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
   let body: any = {};
   try { body = await req.json(); } catch { /* ok */ }
   const onlyId: string | undefined = body.building_id;
+  const chain: boolean = body.chain !== false; // default true
 
   const stageMap = await loadDealStageMap();
   const stageMapSize = Object.keys(stageMap).length;
@@ -82,11 +83,18 @@ Deno.serve(async (req) => {
   // Selecciona buildings candidatos: pre-filtra por hs_lastmodifieddate antiguo + excluye terminal
   const cutoff = new Date(Date.now() - STALE_DAYS*86400000).toISOString();
   const terminalIds = Object.entries(stageMap).filter(([_,v])=>v.terminal).map(([k])=>k);
+  // IDs ya procesados hoy (idempotencia + cursor implícito)
+  const todayStart = new Date().toISOString().slice(0,10)+'T00:00:00Z';
+  const { data: doneToday } = await supabase.from('next_actions')
+    .select('scope_id').eq('scope_type','building').eq('origen','stale_deal_reviver')
+    .gte('created_at', todayStart);
+  const doneSet = new Set((doneToday||[]).map((r:any)=>r.scope_id).filter(Boolean));
   let q = supabase.from('buildings').select('id, direccion, ciudad, numero_propietarios, last_synced_at, metadatos');
   if (onlyId) q = q.eq('id', onlyId);
   else {
     q = q.lt('metadatos->>hs_lastmodifieddate', cutoff);
     if (terminalIds.length) q = q.not('metadatos->>dealstage','in',`(${terminalIds.map(x=>`"${x}"`).join(',')})`);
+    if (doneSet.size) q = q.not('id','in',`(${Array.from(doneSet).map(x=>`"${x}"`).join(',')})`);
     q = q.limit(MAX_PER_RUN);
   }
   const { data: bs, error: bErr } = await q;
@@ -152,20 +160,15 @@ Deno.serve(async (req) => {
     const urg = ['alta','media','baja'].includes(ai.urgencia) ? ai.urgencia : 'media';
     dist[urg] = (dist[urg]||0)+1;
 
-    // Upsert idempotente vía índice único (scope_type,scope_id,origen,date)
-    const today = new Date().toISOString().slice(0,10);
-    // Try delete-then-insert para idempotencia (no hay onConflict por expression)
-    await supabase.from('next_actions').delete()
-      .eq('scope_type','building').eq('scope_id', b.id).eq('origen','stale_deal_reviver')
-      .gte('created_at', today+'T00:00:00Z').lte('created_at', today+'T23:59:59Z');
-    const { error: insErr } = await supabase.from('next_actions').insert({
+    const { error: insErr } = await supabase.from('next_actions').upsert({
       scope_type: 'building', scope_id: b.id,
       titulo: `[${urg.toUpperCase()}] ${ai.razon || ai.proxima_accion}`.slice(0,200),
       detalle: ai.mensaje_sugerido || null,
       vencimiento: urgencyToDueDate(urg),
       estado: 'pendiente',
       origen: 'stale_deal_reviver',
-    });
+      created_at: new Date().toISOString(),
+    }, { onConflict: 'scope_type,scope_id,origen' });
     if (insErr) { errors++; console.error('insert fail', insErr); continue; }
     suggested++;
     if (top.length < 5) top.push({ building_id: b.id, direccion: b.direccion, dias: days, urgencia: urg, accion: ai.proxima_accion, razon: ai.razon, mensaje: ai.mensaje_sugerido });
@@ -177,10 +180,26 @@ Deno.serve(async (req) => {
     scope_id: onlyId || null,
     modelo: 'google/gemini-3-flash-preview',
     latencia_ms: Date.now()-t0,
-    resultado: { scanned, stale, suggested, skipped_terminal, skipped_recent, errors, dist, stageMapSize },
+    resultado: { scanned, stale, suggested, skipped_terminal, skipped_recent, errors, dist, stageMapSize, already_done_today: doneSet.size },
   });
+
+  // Self-chain: si procesamos un chunk completo y no es onlyId, lanzar siguiente
+  let chained = false;
+  if (chain && !onlyId && scanned >= MAX_PER_RUN) {
+    try {
+      const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/detect_stale_deals`;
+      // fire-and-forget
+      EdgeRuntime.waitUntil(fetch(url, {
+        method:'POST',
+        headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
+        body: JSON.stringify({ chain: true }),
+      }).catch(()=>{}));
+      chained = true;
+    } catch (e) { console.error('chain fail', e); }
+  }
 
   return new Response(JSON.stringify({
     ok: true, scanned, stale, suggested, skipped_terminal, skipped_recent, errors, distribucion: dist, top, stageMapSize,
+    already_done_today: doneSet.size, chained, phase: chained ? 'continuing' : 'done',
   }, null, 2), { headers: { ...corsHeaders, 'Content-Type':'application/json' } });
 });
