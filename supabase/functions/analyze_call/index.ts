@@ -1,6 +1,6 @@
-// analyze_call — F.1.a: analiza transcripciones de calls con Lovable AI
-// Modo single: { call_id }  -> analiza una y devuelve resultado
-// Modo batch:  { chain: true | omitido } -> coge MAX_PER_RUN sin analyzar y encadena
+// analyze_call — análisis CAUSAL: detecta momentos pivote dentro de cada transcripción
+// Modo single: { call_id }
+// Modo batch:  { chain?: bool, force_reanalyze?: bool }
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 
 const corsHeaders = {
@@ -14,9 +14,17 @@ const MIN_CHARS = 200;
 
 const VALID_OUTCOMES = ['interesado','dudoso','no_interesado','no_contestado','agente_bloqueado','otro'];
 const VALID_SENTIMENT = ['positivo','neutro','negativo'];
+const VALID_TACTICAS = ['preguntas_abiertas','neutralizacion_objecion','reframe','validacion_emocional','prueba_social','personalizacion','urgencia_legitima','escucha_activa','cierre_directo'];
+const VALID_ESTADOS_ANTES = ['cerrado','resistente','esceptico','dudoso','abierto'];
+const VALID_ESTADOS_DESPUES = ['curioso','considerando','comprometido','sigue_cerrado','cerrado_negativo'];
+const VALID_IMPACTO = ['alto','medio','bajo'];
+
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
 function buildPrompt(transcript: string, dur: number): string {
-  return `Eres un analista experto en llamadas comerciales inmobiliarias en España. Analiza la siguiente transcripción y devuelve EXCLUSIVAMENTE un JSON con este schema (sin texto adicional):
+  return `Eres un analista experto en llamadas comerciales inmobiliarias en España. El texto que recibes puede ser (a) una transcripción literal de la llamada o (b) una nota post-llamada escrita por el propio comercial describiendo qué pasó. Adáptate a ambos casos. Devuelve EXCLUSIVAMENTE un JSON válido (sin texto adicional) con este schema:
 
 {
   "outcome": "interesado|dudoso|no_interesado|no_contestado|agente_bloqueado|otro",
@@ -26,25 +34,42 @@ function buildPrompt(transcript: string, dur: number): string {
   "preguntas_abiertas": int,
   "preguntas_cerradas": int,
   "ratio_comercial_cliente": 0.0-1.0,
-  "frases_clave_positivas": ["frase literal 1", "frase literal 2"],
-  "frases_clave_negativas": ["frase literal 1"],
+  "pivot_moments": [
+    {
+      "posicion_relativa": 0.0-1.0,
+      "estado_cliente_antes": "cerrado|resistente|esceptico|dudoso|abierto",
+      "trigger_frase": "frase LITERAL del comercial 1-2 oraciones",
+      "tactica": "preguntas_abiertas|neutralizacion_objecion|reframe|validacion_emocional|prueba_social|personalizacion|urgencia_legitima|escucha_activa|cierre_directo",
+      "estado_cliente_despues": "curioso|considerando|comprometido|sigue_cerrado|cerrado_negativo",
+      "impacto": "alto|medio|bajo",
+      "objecion_neutralizada": "precio|herederos|ya_en_venta|no_quiere_vender|timing|legal|ya_intentado|otro"
+    }
+  ],
   "analisis_confianza": 0.0-1.0
 }
 
-REGLAS:
-- "agente_bloqueado" = la persona que contesta es un portero, conserje, secretaria, asistente o filtro que NO deja hablar con el propietario.
-- "no_contestado" = buzón, no responden, contestador, transcripción muy corta o vacía.
-- "ratio_comercial_cliente" = fracción del tiempo que habla el comercial (0=todo cliente, 1=todo comercial). Estima por palabras.
-- "tecnica_score": evalúa apertura, escucha activa, manejo de objeciones, cierre (0-100).
-- "frases_clave_positivas": frases LITERALES del comercial o cliente que indican interés/avance.
-- "frases_clave_negativas": frases LITERALES que muestran rechazo, freno o objeción dura.
-- "objeciones": array de etiquetas estandarizadas (puede ser ["sin_objecion"] si no hubo).
-- Si la transcripción es < 200 caracteres o vacía: outcome="no_contestado", sentiment="neutro", objeciones=["sin_objecion"], score=0, analisis_confianza<=0.3.
+REGLAS CRÍTICAS SOBRE pivot_moments (ANÁLISIS CAUSAL — NO CORRELACIONAL):
+- Un "momento pivote" es un punto exacto donde el cliente CAMBIA DE ESTADO (resistente→considerando, escéptico→curioso, abierto→cerrado_negativo, etc.).
+- Si el texto es una transcripción: extrae la frase EXACTA y LITERAL del comercial justo antes del cambio (1–2 oraciones, sin parafrasear).
+- Si el texto es una nota post-llamada: reconstruye la frase/argumento que el comercial dice haber usado y que provocó el cambio. Cítalo como frase reconstruida lo más fiel posible al original (1–2 oraciones), sin inventar datos.
+- Clasifica la táctica que usó el comercial (una sola, la dominante).
+- Indica estado del cliente ANTES y DESPUÉS de ese movimiento del comercial.
+- Impacto: "alto" si cambió radicalmente la dirección de la call; "medio" si abrió una conversación; "bajo" si fue un micro-avance.
+- Devuelve entre 0 y 5 pivotes. Si la call no tiene NINGÚN cambio de estado claro (ni positivo ni negativo), devuelve [].
+- NO inventes hechos ni datos. Si no hay evidencia de cambio de estado, devuelve [].
+- Pivotes negativos también cuentan (cuando el comercial dijo algo que cerró al cliente).
+
+OTRAS REGLAS:
+- "agente_bloqueado" = portero/secretaria que filtra al propietario.
+- "no_contestado" = buzón, contestador, transcripción muy corta o vacía.
+- "ratio_comercial_cliente" = fracción del tiempo que habla el comercial (0..1).
+- "frases_clave_positivas" / "frases_clave_negativas": ya no se usan, omite estos campos.
+- Si transcripción < 200 chars: outcome="no_contestado", pivot_moments=[].
 
 DURACIÓN: ${dur}s
 TRANSCRIPCIÓN:
 """
-${transcript.slice(0, 18000)}
+${stripHtml(transcript).slice(0, 24000)}
 """`;
 }
 
@@ -54,7 +79,7 @@ async function aiAnalyze(transcript: string, dur: number): Promise<any> {
     method: 'POST',
     headers: { Authorization: `Bearer ${LK}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'google/gemini-3-flash-preview',
+      model: 'google/gemini-2.5-flash',
       messages: [{ role: 'user', content: buildPrompt(transcript, dur) }],
       response_format: { type: 'json_object' },
     }),
@@ -68,10 +93,32 @@ async function aiAnalyze(transcript: string, dur: number): Promise<any> {
   return { parsed: JSON.parse(txt), usage: j?.usage || {} };
 }
 
+function sanitizePivot(p: any): any | null {
+  if (!p || typeof p !== 'object') return null;
+  const tactica = VALID_TACTICAS.includes(p?.tactica) ? p.tactica : null;
+  const ea = VALID_ESTADOS_ANTES.includes(p?.estado_cliente_antes) ? p.estado_cliente_antes : null;
+  const ed = VALID_ESTADOS_DESPUES.includes(p?.estado_cliente_despues) ? p.estado_cliente_despues : null;
+  const imp = VALID_IMPACTO.includes(p?.impacto) ? p.impacto : null;
+  const frase = typeof p?.trigger_frase === 'string' ? p.trigger_frase.trim().slice(0, 600) : '';
+  if (!tactica || !ea || !ed || !imp || frase.length < 5) return null;
+  return {
+    posicion_relativa: Number.isFinite(p?.posicion_relativa) ? Math.max(0, Math.min(1, Number(p.posicion_relativa))) : 0.5,
+    estado_cliente_antes: ea,
+    trigger_frase: frase,
+    tactica,
+    estado_cliente_despues: ed,
+    impacto: imp,
+    objecion_neutralizada: typeof p?.objecion_neutralizada === 'string' ? p.objecion_neutralizada.slice(0, 60) : null,
+  };
+}
+
 function sanitize(a: any): any {
   const outcome = VALID_OUTCOMES.includes(a?.outcome) ? a.outcome : 'otro';
   const sentiment = VALID_SENTIMENT.includes(a?.sentiment) ? a.sentiment : 'neutro';
   const obj = Array.isArray(a?.objeciones) ? a.objeciones.filter((x: any) => typeof x === 'string').slice(0, 8) : [];
+  const pivotsRaw = Array.isArray(a?.pivot_moments) ? a.pivot_moments.slice(0, 5) : [];
+  const pivots = pivotsRaw.map(sanitizePivot).filter(Boolean);
+  const tacticas = Array.from(new Set(pivots.map((p: any) => p.tactica)));
   return {
     outcome,
     sentiment,
@@ -80,8 +127,8 @@ function sanitize(a: any): any {
     preguntas_abiertas: Number.isFinite(a?.preguntas_abiertas) ? Math.max(0, Math.floor(Number(a.preguntas_abiertas))) : null,
     preguntas_cerradas: Number.isFinite(a?.preguntas_cerradas) ? Math.max(0, Math.floor(Number(a.preguntas_cerradas))) : null,
     ratio_comercial_cliente: Number.isFinite(a?.ratio_comercial_cliente) ? Math.max(0, Math.min(1, Number(a.ratio_comercial_cliente))) : null,
-    frases_clave_positivas: Array.isArray(a?.frases_clave_positivas) ? a.frases_clave_positivas.filter((x: any) => typeof x === 'string').slice(0, 5) : [],
-    frases_clave_negativas: Array.isArray(a?.frases_clave_negativas) ? a.frases_clave_negativas.filter((x: any) => typeof x === 'string').slice(0, 5) : [],
+    pivot_moments: pivots,
+    tacticas_usadas: tacticas,
     analisis_confianza: Number.isFinite(a?.analisis_confianza) ? Math.max(0, Math.min(1, Number(a.analisis_confianza))) : 0.6,
   };
 }
@@ -93,7 +140,7 @@ async function analyzeOne(supabase: any, callRow: any): Promise<{ ok: boolean; e
 
   let parsed: any = null;
   let usage: any = {};
-  let modelo = 'google/gemini-3-flash-preview';
+  let modelo = 'google/gemini-2.5-flash';
 
   if (!transcript || transcript.length < MIN_CHARS) {
     parsed = {
@@ -101,7 +148,7 @@ async function analyzeOne(supabase: any, callRow: any): Promise<{ ok: boolean; e
       objeciones: ['sin_objecion'], tecnica_score: 0,
       preguntas_abiertas: 0, preguntas_cerradas: 0,
       ratio_comercial_cliente: null,
-      frases_clave_positivas: [], frases_clave_negativas: [],
+      pivot_moments: [],
       analisis_confianza: 0.2,
     };
     modelo = 'heuristic';
@@ -138,7 +185,7 @@ async function analyzeOne(supabase: any, callRow: any): Promise<{ ok: boolean; e
     tokens_in: usage?.prompt_tokens || null,
     tokens_out: usage?.completion_tokens || null,
     confianza: clean.analisis_confianza,
-    resultado: { outcome: clean.outcome, sentiment: clean.sentiment },
+    resultado: { outcome: clean.outcome, sentiment: clean.sentiment, n_pivots: clean.pivot_moments.length, tacticas: clean.tacticas_usadas },
   });
 
   return { ok: true, result: { id: callRow.id, ...clean } };
@@ -165,12 +212,26 @@ Deno.serve(async (req) => {
 
   // BATCH
   const chain: boolean = body.chain !== false;
-  const { data: rows, error } = await supabase.from('calls')
-    .select('id, transcripcion, duracion_seg')
-    .is('analyzed_at', null)
+  const force: boolean = !!body.force_reanalyze;
+  const stateEntity = force ? 'analyze_calls_recall' : 'analyze_calls';
+
+  let q = supabase.from('calls')
+    .select('id, transcripcion, duracion_seg, fecha')
     .not('transcripcion', 'is', null)
     .order('fecha', { ascending: false })
     .limit(MAX_PER_RUN);
+
+  if (force) {
+    // Recall: procesar las que NO tengan tacticas_usadas marcado tras el recall
+    // Usamos cursor por fecha guardado en sync_state para avanzar.
+    const { data: st } = await supabase.from('hubspot_sync_state').select('cursor').eq('entity', stateEntity).maybeSingle();
+    const cursor = st?.cursor;
+    if (cursor) q = q.lt('fecha', cursor);
+  } else {
+    q = q.is('analyzed_at', null);
+  }
+
+  const { data: rows, error } = await q;
   if (error) {
     return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
@@ -178,8 +239,10 @@ Deno.serve(async (req) => {
   let processed = 0, ok = 0, fail = 0;
   const dist: Record<string, number> = {};
   const sent: Record<string, number> = {};
+  let lastFecha: string | null = null;
   for (const row of (rows || [])) {
     processed++;
+    if (row.fecha) lastFecha = row.fecha;
     const r = await analyzeOne(supabase, row);
     if (r.ok) {
       ok++;
@@ -190,27 +253,37 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Cursor + estado
-  const { count: pending } = await supabase.from('calls').select('id', { count: 'exact', head: true })
-    .is('analyzed_at', null).not('transcripcion', 'is', null);
+  // Pendientes
+  let pending = 0;
+  if (force) {
+    const { count } = await supabase.from('calls').select('id', { count: 'exact', head: true })
+      .not('transcripcion', 'is', null)
+      .lt('fecha', lastFecha || new Date().toISOString());
+    pending = count || 0;
+  } else {
+    const { count } = await supabase.from('calls').select('id', { count: 'exact', head: true })
+      .is('analyzed_at', null).not('transcripcion', 'is', null);
+    pending = count || 0;
+  }
 
   await supabase.from('hubspot_sync_state').upsert({
-    entity: 'analyze_calls',
+    entity: stateEntity,
     last_run_at: new Date().toISOString(),
-    last_run_status: pending && pending > 0 ? 'continuing' : 'done',
+    last_run_status: pending > 0 && processed > 0 ? 'continuing' : 'done',
     total_synced: ok,
-    metadatos: { processed, ok, fail, pending, dist, sent, last_chunk_ms: Date.now() - t0 },
+    cursor: force ? lastFecha : null,
+    metadatos: { processed, ok, fail, pending, dist, sent, last_chunk_ms: Date.now() - t0, force },
   }, { onConflict: 'entity' });
 
   let chained = false;
-  if (chain && processed >= MAX_PER_RUN && (pending || 0) > 0) {
+  if (chain && processed >= MAX_PER_RUN && pending > 0) {
     try {
       const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/analyze_call`;
       // @ts-ignore EdgeRuntime
       EdgeRuntime.waitUntil(fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
-        body: JSON.stringify({ chain: true }),
+        body: JSON.stringify({ chain: true, force_reanalyze: force }),
       }).catch(() => {}));
       chained = true;
     } catch (e) { console.error('chain fail', e); }
@@ -218,6 +291,6 @@ Deno.serve(async (req) => {
 
   return new Response(JSON.stringify({
     ok: true, processed, ok_count: ok, fail_count: fail, pending, dist, sent,
-    chained, phase: chained ? 'continuing' : 'done', latencia_ms: Date.now() - t0,
+    chained, force, phase: chained ? 'continuing' : 'done', latencia_ms: Date.now() - t0,
   }, null, 2), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 });

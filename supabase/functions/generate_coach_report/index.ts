@@ -30,7 +30,7 @@ function daysAgoISO(n: number): string {
 
 async function buildReport(supabase: any, comercial_hs_id: string, week_start: string, week_end: string) {
   const { data: calls } = await supabase.from('calls')
-    .select('id, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, resumen, siguiente_accion, comercial_nombre')
+    .select('id, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, pivot_moments, tacticas_usadas, owner_id, comercial_nombre')
     .eq('comercial_hs_id', comercial_hs_id)
     .gte('fecha', week_start)
     .lte('fecha', week_end + 'T23:59:59Z');
@@ -51,8 +51,36 @@ async function buildReport(supabase: any, comercial_hs_id: string, week_start: s
   const objCount: Record<string, number> = {};
   for (const c of list) for (const o of (c.objeciones || [])) objCount[o] = (objCount[o] || 0) + 1;
   const top_objeciones = Object.entries(objCount).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5);
-  const ganadoras = list.filter((c: any) => c.outcome === 'interesado').flatMap((c: any) => c.frases_clave_positivas || []).slice(0, 30);
-  const perdedoras = list.filter((c: any) => c.outcome === 'no_interesado').flatMap((c: any) => c.frases_clave_negativas || []).slice(0, 30);
+
+  // Análisis causal: agrega pivot_moments
+  const allPivots: any[] = [];
+  for (const c of list) {
+    for (const p of (c.pivot_moments || [])) allPivots.push({ ...p, call_id: c.id, fecha: c.fecha, outcome: c.outcome });
+  }
+  const tacticaStats: Record<string, { total: number; alto: number; medio: number; bajo: number; positivo: number; negativo: number }> = {};
+  for (const p of allPivots) {
+    const t = p.tactica;
+    if (!t) continue;
+    tacticaStats[t] = tacticaStats[t] || { total: 0, alto: 0, medio: 0, bajo: 0, positivo: 0, negativo: 0 };
+    const s = tacticaStats[t];
+    s.total++;
+    if (p.impacto === 'alto') s.alto++;
+    else if (p.impacto === 'medio') s.medio++;
+    else if (p.impacto === 'bajo') s.bajo++;
+    if (p.estado_cliente_despues === 'curioso' || p.estado_cliente_despues === 'considerando' || p.estado_cliente_despues === 'comprometido') s.positivo++;
+    else if (p.estado_cliente_despues === 'cerrado_negativo') s.negativo++;
+  }
+  const tacticaArr = Object.entries(tacticaStats).map(([tactica, s]: any) => ({
+    tactica, total: s.total, alto: s.alto,
+    ratio_alto: s.total ? +(s.alto / s.total * 100).toFixed(1) : 0,
+    ratio_positivo: s.total ? +(s.positivo / s.total * 100).toFixed(1) : 0,
+    ratio_negativo: s.total ? +(s.negativo / s.total * 100).toFixed(1) : 0,
+  }));
+  const tacticas_efectivas = [...tacticaArr].sort((a, b) => b.ratio_alto - a.ratio_alto).slice(0, 5);
+  const tacticas_fallidas = [...tacticaArr].filter(t => t.ratio_negativo > 0).sort((a, b) => b.ratio_negativo - a.ratio_negativo).slice(0, 5);
+  const top_pivots_alto = allPivots
+    .filter((p: any) => p.impacto === 'alto')
+    .slice(0, 8);
 
   const metricas = {
     comercial_nombre, total, interesados, no_interesados: no_int,
@@ -63,6 +91,10 @@ async function buildReport(supabase: any, comercial_hs_id: string, week_start: s
     ratio_comercial_cliente_medio: ratios.length ? +(ratios.reduce((a: any, b: any) => a + b, 0) / ratios.length).toFixed(2) : null,
     duracion_media_seg: dur.length ? Math.round(dur.reduce((a: any, b: any) => a + b, 0) / dur.length) : null,
     top_objeciones,
+    pivot_moments_total: allPivots.length,
+    pivot_moments_por_call: total ? +(allPivots.length / total).toFixed(2) : 0,
+    tacticas_efectivas,
+    tacticas_fallidas,
   };
 
   if (total < MIN_CALLS_FOR_REPORT) {
@@ -81,26 +113,31 @@ async function buildReport(supabase: any, comercial_hs_id: string, week_start: s
   }
 
   const LK = Deno.env.get('LOVABLE_API_KEY')!;
-  const prompt = `Eres un coach comercial senior especializado en captación inmobiliaria en España. Genera un reporte de coaching personalizado en castellano para el comercial ${comercial_nombre} basándote EXCLUSIVAMENTE en estos datos reales del periodo ${week_start} a ${week_end}.
+  const prompt = `Eres un coach comercial senior especializado en captación inmobiliaria en España. Genera un reporte de coaching CAUSAL en castellano para ${comercial_nombre} basándote EXCLUSIVAMENTE en estos datos reales del periodo ${week_start} a ${week_end}.
 
-DATOS:
+MÉTRICAS:
 ${JSON.stringify(metricas, null, 2)}
 
-EJEMPLOS DE FRASES GANADORAS DETECTADAS (de calls con resultado=interesado):
-${ganadoras.slice(0, 10).map((f: string) => `- "${f}"`).join('\n') || '- (ninguna)'}
+TOP MOMENTOS PIVOTE DE ALTO IMPACTO (sus propias calls):
+${top_pivots_alto.map((p: any) => `- [${p.estado_cliente_antes} → ${p.estado_cliente_despues}] tactica=${p.tactica} | "${p.trigger_frase}" (objeción: ${p.objecion_neutralizada || '-'})`).join('\n') || '- (ninguno detectado)'}
 
-EJEMPLOS DE FRASES PERDEDORAS DETECTADAS (de calls con resultado=no_interesado):
-${perdedoras.slice(0, 10).map((f: string) => `- "${f}"`).join('\n') || '- (ninguna)'}
+TÁCTICAS QUE LE FUNCIONAN (mayor % de impacto alto):
+${tacticas_efectivas.map((t: any) => `- ${t.tactica}: ${t.alto}/${t.total} alto (${t.ratio_alto}%)`).join('\n') || '- (sin datos)'}
+
+TÁCTICAS QUE LE FALLAN (mayor % de cierre negativo):
+${tacticas_fallidas.map((t: any) => `- ${t.tactica}: ${t.ratio_negativo}% acaba en cerrado_negativo`).join('\n') || '- (sin datos)'}
 
 Devuelve EXCLUSIVAMENTE este JSON:
 {
-  "fortalezas": [{"titulo":"...","detalle":"..."}, ... 3 items],
-  "mejoras": [{"titulo":"...","detalle":"..."}, ... 3 items],
-  "frases_ganadoras": ["frase 1", ... hasta 5],
-  "plan_accion": [{"titulo":"...","detalle":"...","kpi":"..."}, ... 3-5 items]
+  "fortalezas": [{"titulo":"...","detalle":"..."}, ... 2-3 items, citando tácticas concretas con sus ratios],
+  "mejoras": [{"titulo":"...","detalle":"..."}, ... 2-3 items, identificando patrones que están fallando],
+  "frases_ganadoras": ["frase 1", ... hasta 5 — usa las trigger_frase reales del comercial cuando tengan impacto alto],
+  "top_pivots": [{"estado_antes":"...","estado_despues":"...","tactica":"...","frase":"...","por_que_funciono":"..."}, ... hasta 3],
+  "recomendaciones": [{"contexto":"cuando aparece objeción X con buyer_persona Y","recomendacion":"usa táctica Z porque convierte W%"}, ... hasta 3],
+  "plan_accion": [{"titulo":"...","detalle":"...","kpi":"..."}, ... 3-5 items concretos]
 }
 
-Sé específico, directo y accionable. Cita números reales. Tono profesional, en castellano.`;
+CRÍTICO: cita números reales y tácticas concretas. NO generalices. Si una táctica tiene ratio bajo, recomienda probar otra y di cuál. Tono profesional, directo, en castellano.`;
 
   const r = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
@@ -121,6 +158,8 @@ Sé específico, directo y accionable. Cita números reales. Tono profesional, e
     mejoras: Array.isArray(ai.mejoras) ? ai.mejoras.slice(0, 5) : [],
     frases_ganadoras: Array.isArray(ai.frases_ganadoras) ? ai.frases_ganadoras.filter((x: any) => typeof x === 'string').slice(0, 8) : [],
     plan_accion: Array.isArray(ai.plan_accion) ? ai.plan_accion.slice(0, 6) : [],
+    top_pivots: Array.isArray(ai.top_pivots) ? ai.top_pivots.slice(0, 3) : [],
+    recomendaciones: Array.isArray(ai.recomendaciones) ? ai.recomendaciones.slice(0, 5) : [],
   };
 }
 
@@ -153,7 +192,7 @@ Deno.serve(async (req) => {
       frases_ganadoras: rep.frases_ganadoras,
       plan_accion: rep.plan_accion,
       total_calls: rep.total_calls,
-      metricas: rep.metricas,
+      metricas: { ...rep.metricas, top_pivots: rep.top_pivots || [], recomendaciones: rep.recomendaciones || [] },
       generated_at: new Date().toISOString(),
     });
     if (error) throw new Error(error.message);
