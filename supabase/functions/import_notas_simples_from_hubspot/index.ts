@@ -96,9 +96,11 @@ Deno.serve(async (req) => {
 
   try {
     while (pages < maxPages) {
-      const qs = new URLSearchParams({ limit: String(PAGE_LIMIT) });
-      if (after) qs.set('after', after);
-      const res: any = await hubspotFetch(`/files/v3/files?${qs.toString()}`);
+      // Usar POST /files/v3/files/search (el GET /files/v3/files devuelve 405 vía gateway)
+      const res: any = await hubspotFetch(`/files/v3/files/search`, {
+        method: 'POST',
+        body: JSON.stringify({ limit: PAGE_LIMIT, after, sort: ['-createdAt'] }),
+      });
       const items: any[] = Array.isArray(res?.results) ? res.results : [];
       pages++;
       for (const f of items) {
