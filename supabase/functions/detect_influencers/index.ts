@@ -133,23 +133,51 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { /* */ }
 
   try {
+    const MAX_BUILDINGS = Number((body as any).max_buildings) || 60;
     let buildingIds: string[] = [];
     if (body.building_id) {
       buildingIds = [body.building_id];
     } else {
-      const { data } = await supabase
-        .from('building_owners').select('building_id');
+      // Page through building_owners (Supabase 1000 cap) to find multi-owner buildings
       const counts: Record<string, number> = {};
-      for (const r of (data || []) as { building_id: string }[]) {
-        counts[r.building_id] = (counts[r.building_id] || 0) + 1;
+      const PAGE = 1000;
+      let from = 0;
+      while (true) {
+        const { data: rows, error } = await supabase
+          .from('building_owners').select('building_id').range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (!rows || rows.length === 0) break;
+        for (const r of rows as { building_id: string }[]) {
+          counts[r.building_id] = (counts[r.building_id] || 0) + 1;
+        }
+        if (rows.length < PAGE) break;
+        from += PAGE;
       }
-      buildingIds = Object.entries(counts).filter(([, n]) => n > 1).map(([id]) => id);
+      const multi = Object.entries(counts).filter(([, n]) => n > 1).map(([id]) => id);
+      // Skip already-processed buildings (any row with es_influencer=true)
+      const done = new Set<string>();
+      const dPAGE = 1000;
+      let dFrom = 0;
+      while (true) {
+        const { data: rows, error } = await supabase
+          .from('building_owners').select('building_id').eq('es_influencer', true)
+          .range(dFrom, dFrom + dPAGE - 1);
+        if (error) throw error;
+        if (!rows || rows.length === 0) break;
+        for (const r of rows as { building_id: string }[]) done.add(r.building_id);
+        if (rows.length < dPAGE) break;
+        dFrom += dPAGE;
+      }
+      buildingIds = multi.filter((id) => !done.has(id)).sort();
     }
+
+    const totalRemaining = buildingIds.length;
+    const chunk = buildingIds.slice(0, MAX_BUILDINGS);
 
     let processed = 0;
     let identified = 0;
     const sample: any[] = [];
-    for (const bid of buildingIds) {
+    for (const bid of chunk) {
       const r = await processBuilding(supabase, bid);
       processed++;
       if (r.winner_owner_id) {
@@ -158,10 +186,13 @@ Deno.serve(async (req) => {
       }
     }
 
+    const remaining = Math.max(0, totalRemaining - processed);
     return new Response(JSON.stringify({
       ok: true,
       buildings_processed: processed,
       influencers_identified: identified,
+      remaining,
+      done: remaining === 0,
       sample_top: sample,
     }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (e) {
