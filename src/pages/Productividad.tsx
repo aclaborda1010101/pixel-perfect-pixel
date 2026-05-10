@@ -23,10 +23,23 @@ type Call = {
   objeciones: string[] | null;
   tecnica_score: number | null;
   ratio_comercial_cliente: number | null;
-  frases_clave_positivas: string[] | null;
-  frases_clave_negativas: string[] | null;
+  pivot_moments: PivotMoment[] | null;
+  tacticas_usadas: string[] | null;
   analyzed_at: string | null;
 };
+type PivotMoment = {
+  posicion_relativa?: number;
+  estado_cliente_antes: string;
+  trigger_frase: string;
+  tactica: string;
+  estado_cliente_despues: string;
+  impacto: "alto" | "medio" | "bajo";
+  objecion_neutralizada?: string | null;
+};
+const TACTICAS = [
+  "preguntas_abiertas","neutralizacion_objecion","reframe","validacion_emocional",
+  "prueba_social","personalizacion","urgencia_legitima","escucha_activa","cierre_directo"
+];
 type CoachReport = {
   id: string;
   owner_id: string | null;
