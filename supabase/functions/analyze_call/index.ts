@@ -211,7 +211,7 @@ Deno.serve(async (req) => {
   const stateEntity = force ? 'analyze_calls_recall' : 'analyze_calls';
 
   let q = supabase.from('calls')
-    .select('id, transcripcion, duracion_seg')
+    .select('id, transcripcion, duracion_seg, fecha')
     .not('transcripcion', 'is', null)
     .order('fecha', { ascending: false })
     .limit(MAX_PER_RUN);
@@ -237,9 +237,7 @@ Deno.serve(async (req) => {
   let lastFecha: string | null = null;
   for (const row of (rows || [])) {
     processed++;
-    // capturar fecha para cursor
-    const { data: f } = await supabase.from('calls').select('fecha').eq('id', row.id).maybeSingle();
-    if (f?.fecha) lastFecha = f.fecha;
+    if (row.fecha) lastFecha = row.fecha;
     const r = await analyzeOne(supabase, row);
     if (r.ok) {
       ok++;
