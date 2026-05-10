@@ -8,6 +8,7 @@ const corsHeaders = {
 };
 
 const MAX_REPORTS_PER_RUN = 5;
+const MIN_CALLS_FOR_REPORT = 10;
 
 function lastMondayISO(d = new Date()): string {
   const x = new Date(d);
@@ -22,14 +23,17 @@ function addDaysISO(iso: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+function todayISO(): string { return new Date().toISOString().slice(0, 10); }
+function daysAgoISO(n: number): string {
+  const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10);
+}
 
-async function buildReport(supabase: any, comercial_hs_id: string, week_start: string) {
-  const week_end = addDaysISO(week_start, 7);
+async function buildReport(supabase: any, comercial_hs_id: string, week_start: string, week_end: string) {
   const { data: calls } = await supabase.from('calls')
     .select('id, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, resumen, siguiente_accion, comercial_nombre')
     .eq('comercial_hs_id', comercial_hs_id)
     .gte('fecha', week_start)
-    .lt('fecha', week_end);
+    .lte('fecha', week_end + 'T23:59:59Z');
   const list = calls || [];
   const comercial_nombre = list.find((c: any) => c.comercial_nombre)?.comercial_nombre || comercial_hs_id;
 
@@ -40,7 +44,10 @@ async function buildReport(supabase: any, comercial_hs_id: string, week_start: s
   const neg = list.filter((c: any) => c.sentiment === 'negativo').length;
   const tec = list.filter((c: any) => c.tecnica_score != null).map((c: any) => c.tecnica_score);
   const ratios = list.filter((c: any) => c.ratio_comercial_cliente != null).map((c: any) => c.ratio_comercial_cliente);
-  const dur = list.filter((c: any) => c.duracion_seg).map((c: any) => c.duracion_seg);
+  // Duración media solo cuenta llamadas reales: excluye no contestadas y duración 0/null
+  const dur = list
+    .filter((c: any) => c.outcome !== 'no_contestado' && c.duracion_seg && c.duracion_seg > 0)
+    .map((c: any) => c.duracion_seg);
   const objCount: Record<string, number> = {};
   for (const c of list) for (const o of (c.objeciones || [])) objCount[o] = (objCount[o] || 0) + 1;
   const top_objeciones = Object.entries(objCount).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5);
@@ -58,17 +65,23 @@ async function buildReport(supabase: any, comercial_hs_id: string, week_start: s
     top_objeciones,
   };
 
-  if (total === 0) {
+  if (total < MIN_CALLS_FOR_REPORT) {
     return {
-      week_start, week_end, total_calls: 0, metricas, comercial_nombre,
+      week_start, week_end, total_calls: total, metricas, comercial_nombre,
       fortalezas: [], mejoras: [],
       frases_ganadoras: [],
-      plan_accion: [{ titulo: 'Sin actividad esta semana', detalle: 'No se registran llamadas. Revisa cadencia y agenda.' }],
+      plan_accion: [{
+        titulo: total === 0 ? 'Sin actividad en este periodo' : 'Muestra insuficiente para coaching',
+        detalle: total === 0
+          ? 'No se registran llamadas en el rango seleccionado. Revisa cadencia y agenda.'
+          : `Solo ${total} llamadas en el rango. Mínimo ${MIN_CALLS_FOR_REPORT} para generar un plan fiable.`,
+      }],
+      skipped: true,
     };
   }
 
   const LK = Deno.env.get('LOVABLE_API_KEY')!;
-  const prompt = `Eres un coach comercial senior especializado en captación inmobiliaria en España. Genera un reporte de coaching personalizado en castellano para el comercial ${comercial_nombre} basándote EXCLUSIVAMENTE en estos datos reales de la semana ${week_start} a ${week_end}.
+  const prompt = `Eres un coach comercial senior especializado en captación inmobiliaria en España. Genera un reporte de coaching personalizado en castellano para el comercial ${comercial_nombre} basándote EXCLUSIVAMENTE en estos datos reales del periodo ${week_start} a ${week_end}.
 
 DATOS:
 ${JSON.stringify(metricas, null, 2)}
@@ -118,10 +131,12 @@ Deno.serve(async (req) => {
   let body: any = {};
   try { body = await req.json(); } catch { /* ok */ }
 
-  const week_start: string = body.week_start || lastMondayISO();
+  // Acepta `from`/`to` (rango libre) o `week_start` (legacy, semana de 7d). Default = últimos 30d.
+  const week_start: string = body.from || body.week_start || daysAgoISO(30);
+  const week_end: string = body.to || (body.week_start ? addDaysISO(body.week_start, 6) : todayISO());
 
   const persistOne = async (comercial_hs_id: string) => {
-    const rep = await buildReport(supabase, comercial_hs_id, week_start);
+    const rep = await buildReport(supabase, comercial_hs_id, week_start, week_end);
     // owner_id es NOT NULL en esquema; usar un owner_id real de las calls del comercial como placeholder
     const { data: anyCall } = await supabase.from('calls').select('owner_id')
       .eq('comercial_hs_id', comercial_hs_id).not('owner_id','is',null).limit(1).maybeSingle();
@@ -157,9 +172,8 @@ Deno.serve(async (req) => {
     }
   }
 
-  const week_end = addDaysISO(week_start, 7);
   const { data: callsRows } = await supabase.from('calls')
-    .select('comercial_hs_id').gte('fecha', week_start).lt('fecha', week_end).not('comercial_hs_id', 'is', null);
+    .select('comercial_hs_id').gte('fecha', week_start).lte('fecha', week_end + 'T23:59:59Z').not('comercial_hs_id', 'is', null);
   const ownerIds = Array.from(new Set((callsRows || []).map((r: any) => r.comercial_hs_id)));
 
   const { data: doneRep } = await supabase.from('coach_reports').select('comercial_hs_id').eq('week_start', week_start).not('comercial_hs_id','is',null);
@@ -188,14 +202,14 @@ Deno.serve(async (req) => {
       EdgeRuntime.waitUntil(fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
-        body: JSON.stringify({ week_start, chain: true }),
+        body: JSON.stringify({ from: week_start, to: week_end, chain: true }),
       }).catch(() => {}));
       chained = true;
     } catch (e) { console.error('chain fail', e); }
   }
 
   return new Response(JSON.stringify({
-    ok: true, week_start, candidates: ownerIds.length, processed: pending.length,
+    ok: true, week_start, week_end, candidates: ownerIds.length, processed: pending.length,
     ok_count: ok, fail_count: fail, remaining, chained,
     phase: chained ? 'continuing' : 'done', reports, latencia_ms: Date.now() - t0,
   }, null, 2), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
