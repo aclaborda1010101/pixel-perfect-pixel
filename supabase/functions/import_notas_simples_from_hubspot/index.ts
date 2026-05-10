@@ -16,7 +16,7 @@ function patHeaders(): Record<string, string> {
   return {
     'Authorization': `Bearer ${pat}`,
     'Content-Type': 'application/json',
-    'User-Agent': 'AffluxOS/1.0 (notas-simples-import; +https://affluxos.com)',
+    'User-Agent': 'Mozilla/5.0 (compatible; HubSpot-Integration/1.0)',
     'Accept': 'application/json',
   };
 }
@@ -30,6 +30,25 @@ async function hsDirect(path: string, init?: RequestInit) {
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
   if (!res.ok) throw new Error(`HubSpot ${path} ${res.status}: ${JSON.stringify(body).slice(0,400)}`);
   return body;
+}
+
+// Debug endpoint: probar PAT contra distintos endpoints
+async function debugPat() {
+  const out: any = {};
+  for (const ep of [
+    '/account-info/v3/details',
+    '/crm/v3/owners?limit=1',
+    '/files/v3/files?limit=1',
+  ]) {
+    try {
+      const r = await fetch(`${HUBSPOT_API}${ep}`, { headers: patHeaders() });
+      const txt = await r.text();
+      out[ep] = { status: r.status, body: txt.slice(0, 200) };
+    } catch (e: any) {
+      out[ep] = { error: String(e?.message || e).slice(0, 200) };
+    }
+  }
+  return out;
 }
 
 const PAGE_LIMIT = 100;
@@ -104,6 +123,11 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
   let body: any = {};
   try { body = await req.json(); } catch { /* ok */ }
+  if (body?.debug) {
+    const d = await debugPat();
+    return new Response(JSON.stringify({ ok: true, debug: d }, null, 2),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
   const chain: boolean = body?.chain !== false;
   const dryRun: boolean = !!body?.dry_run;
   const maxPages: number = Number.isFinite(body?.max_pages) ? Number(body.max_pages) : MAX_PAGES_PER_RUN_DEFAULT;
