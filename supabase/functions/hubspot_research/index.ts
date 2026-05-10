@@ -15,17 +15,25 @@ async function safe<T>(p: Promise<T>): Promise<T | { __error: string }> {
 }
 
 async function fieldCoverage(objectType: string, propertyName: string): Promise<number | null> {
-  // search count for prop has_property
-  try {
-    const r: any = await hubspotFetch(`/crm/v3/objects/${objectType}/search`, {
-      method: 'POST',
-      body: JSON.stringify({
-        filterGroups: [{ filters: [{ propertyName, operator: 'HAS_PROPERTY' }] }],
-        limit: 1,
-      }),
-    });
-    return typeof r?.total === 'number' ? r.total : null;
-  } catch { return null; }
+  // Try HAS_PROPERTY first, then fallback to NEQ '' (works for strings) and IS_NOT_EMPTY
+  const ops = [
+    { operator: 'HAS_PROPERTY' },
+    { operator: 'NEQ', value: '' },
+    { operator: 'IS_NOT_EMPTY' },
+  ];
+  for (const f of ops) {
+    try {
+      const r: any = await hubspotFetch(`/crm/v3/objects/${objectType}/search`, {
+        method: 'POST',
+        body: JSON.stringify({
+          filterGroups: [{ filters: [{ propertyName, ...f }] }],
+          limit: 1,
+        }),
+      });
+      if (typeof r?.total === 'number' && r.total > 0) return r.total;
+    } catch { /* try next */ }
+  }
+  return 0;
 }
 
 Deno.serve(async (req) => {
