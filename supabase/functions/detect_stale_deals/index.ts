@@ -7,7 +7,7 @@ import { hubspotFetch, corsHeaders } from '../_shared/hubspot.ts';
 const STALE_DAYS = 14;
 const TERMINAL_REGEX = /(ganado|perdido|cerrado|no\s*vende|descartad|no\s*interesa|fuera\s*de\s*precio|closed[_\s]?(won|lost)|lost|won)/i;
 const HARDCODED_TERMINAL = new Set(['closedwon','closedlost']);
-const MAX_PER_RUN = 50;
+const MAX_PER_RUN = 25;
 
 type StageMap = Record<string,{label:string;terminal:boolean}>;
 
@@ -97,7 +97,6 @@ Deno.serve(async (req) => {
   const top: any[] = [];
 
   for (const b of (bs||[])) {
-    if (suggested >= MAX_PER_RUN && !onlyId) break;
     scanned++;
     const meta:any = b.metadatos || {};
     const dealstageId = meta.dealstage ? String(meta.dealstage) : null;
