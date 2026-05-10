@@ -540,6 +540,10 @@ export default function Productividad() {
 
 function CoachCard({ report, nombre, windowLabel }: { report: CoachReport; nombre: string; windowLabel: string }) {
   const m = report.metricas || {};
+  const topPivots: any[] = Array.isArray(m.top_pivots) ? m.top_pivots : [];
+  const recomendaciones: any[] = Array.isArray(m.recomendaciones) ? m.recomendaciones : [];
+  const tacticasEf: any[] = Array.isArray(m.tacticas_efectivas) ? m.tacticas_efectivas : [];
+  const tacticasFa: any[] = Array.isArray(m.tacticas_fallidas) ? m.tacticas_fallidas : [];
   return (
     <Card>
       <CardHeader>
@@ -550,8 +554,68 @@ function CoachCard({ report, nombre, windowLabel }: { report: CoachReport; nombr
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
         <div className="text-muted-foreground">
-          {report.total_calls} llamadas · conversión {m.conversion ?? "—"}% · sent+ {m.sentiment_positivo_pct ?? "—"}% · dur. media {m.duracion_media_seg ? `${Math.round(m.duracion_media_seg)}s` : "—"}
+          {report.total_calls} llamadas · conversión {m.conversion ?? "—"}% · sent+ {m.sentiment_positivo_pct ?? "—"}% · dur. media {m.duracion_media_seg ? `${Math.round(m.duracion_media_seg)}s` : "—"} · {m.pivot_moments_total ?? 0} pivots ({m.pivot_moments_por_call ?? 0}/call)
         </div>
+        {(tacticasEf.length > 0 || tacticasFa.length > 0) && (
+          <div className="grid gap-2 md:grid-cols-2">
+            {tacticasEf.length > 0 && (
+              <div>
+                <div className="mb-1 font-mono text-[10px] uppercase text-emerald-500">Tácticas que te funcionan</div>
+                <ul className="space-y-1">
+                  {tacticasEf.slice(0, 4).map((t, i) => (
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <Badge variant="secondary" className="font-mono text-[10px]">{t.tactica.replace(/_/g, " ")}</Badge>
+                      <span className="tabular-nums text-muted-foreground">{t.alto}/{t.total} alto · {t.ratio_alto}%</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {tacticasFa.length > 0 && (
+              <div>
+                <div className="mb-1 font-mono text-[10px] uppercase text-rose-500">Tácticas que te fallan</div>
+                <ul className="space-y-1">
+                  {tacticasFa.slice(0, 4).map((t, i) => (
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <Badge variant="outline" className="font-mono text-[10px]">{t.tactica.replace(/_/g, " ")}</Badge>
+                      <span className="tabular-nums text-muted-foreground">{t.ratio_negativo}% cierre negativo</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        {topPivots.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-primary">Top momentos pivote</div>
+            <ul className="space-y-2">
+              {topPivots.map((p, i) => (
+                <li key={i} className="rounded border border-border-faint p-2">
+                  <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                    <Badge variant="outline">{p.estado_antes}</Badge>
+                    <span>→</span>
+                    <Badge variant="secondary">{(p.tactica || "").replace(/_/g, " ")}</Badge>
+                    <span>→</span>
+                    <Badge variant="outline">{p.estado_despues}</Badge>
+                  </div>
+                  <p className="mt-1 italic">"{p.frase}"</p>
+                  {p.por_que_funciono && <p className="mt-1 text-muted-foreground">{p.por_que_funciono}</p>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {recomendaciones.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-amber-500">Recomendaciones contextuales</div>
+            <ul className="space-y-1">
+              {recomendaciones.map((r, i) => (
+                <li key={i}><strong>{r.contexto}</strong> — <span className="text-muted-foreground">{r.recomendacion}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
         {Array.isArray(report.fortalezas) && report.fortalezas.length > 0 && (
           <div>
             <div className="mb-1 font-mono text-[10px] uppercase text-emerald-500">Fortalezas</div>
@@ -594,6 +658,126 @@ function CoachCard({ report, nombre, windowLabel }: { report: CoachReport; nombr
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function MovimientosGanadores({
+  pivots, tacticaStats, topObjeciones,
+}: {
+  pivots: (PivotMoment & { call_id: string; comercial: string; fecha: string })[];
+  tacticaStats: { tactica: string; total: number; alto: number; ratio_alto: number; pos: number; neg: number }[];
+  topObjeciones: [string, number][];
+}) {
+  const [filtTactica, setFiltTactica] = useState<string>("all");
+  const [filtImpacto, setFiltImpacto] = useState<string>("alto");
+  const [filtComercial, setFiltComercial] = useState<string>("all");
+
+  const comerciales = useMemo(() => {
+    const s = new Set(pivots.map(p => p.comercial));
+    return Array.from(s).sort();
+  }, [pivots]);
+
+  const visible = useMemo(() => pivots
+    .filter(p => filtTactica === "all" || p.tactica === filtTactica)
+    .filter(p => filtImpacto === "all" || p.impacto === filtImpacto)
+    .filter(p => filtComercial === "all" || p.comercial === filtComercial)
+    .sort((a,b) => {
+      const ord = { alto: 0, medio: 1, bajo: 2 } as any;
+      return (ord[a.impacto] ?? 9) - (ord[b.impacto] ?? 9);
+    })
+    .slice(0, 60),
+  [pivots, filtTactica, filtImpacto, filtComercial]);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Tácticas detectadas</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {tacticaStats.length === 0 && <p className="text-xs text-muted-foreground">Sin pivots todavía. El análisis causal está en curso.</p>}
+          {tacticaStats.map(t => (
+            <div key={t.tactica} className="flex items-center gap-3 text-xs">
+              <span className="w-44 truncate font-mono text-[10px] uppercase">{t.tactica.replace(/_/g, " ")}</span>
+              <div className="flex-1 rounded bg-surface-1">
+                <div className="h-2 rounded bg-emerald-500" style={{ width: `${Math.min(100, t.ratio_alto)}%` }} />
+              </div>
+              <span className="w-40 text-right tabular-nums text-muted-foreground">
+                {t.total} usos · {t.alto} alto ({t.ratio_alto}%)
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-sm">Movimientos detectados</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Select value={filtTactica} onValueChange={setFiltTactica}>
+                <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue placeholder="Táctica" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las tácticas</SelectItem>
+                  {TACTICAS.map(t => <SelectItem key={t} value={t}>{t.replace(/_/g, " ")}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={filtImpacto} onValueChange={setFiltImpacto}>
+                <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue placeholder="Impacto" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="alto">Alto</SelectItem>
+                  <SelectItem value="medio">Medio</SelectItem>
+                  <SelectItem value="bajo">Bajo</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filtComercial} onValueChange={setFiltComercial}>
+                <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue placeholder="Comercial" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los comerciales</SelectItem>
+                  {comerciales.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {visible.length === 0 && <p className="text-xs text-muted-foreground">No hay movimientos con estos filtros.</p>}
+          {visible.map((p, i) => (
+            <div key={i} className="rounded border border-border-faint p-3">
+              <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                <Badge variant="outline">{p.estado_cliente_antes}</Badge>
+                <span className="text-muted-foreground">→</span>
+                <Badge variant="secondary" className="font-mono">{p.tactica.replace(/_/g, " ")}</Badge>
+                <span className="text-muted-foreground">→</span>
+                <Badge variant="outline">{p.estado_cliente_despues}</Badge>
+                <Badge variant={p.impacto === "alto" ? "default" : "outline"} className="ml-2">
+                  impacto {p.impacto}
+                </Badge>
+                {p.objecion_neutralizada && (
+                  <Badge variant="outline" className="text-[9px]">obj: {p.objecion_neutralizada}</Badge>
+                )}
+              </div>
+              <p className="mt-2 text-xs italic">"{p.trigger_frase}"</p>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                {p.comercial} · {new Date(p.fecha).toLocaleDateString()}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Top objeciones del rango</CardTitle></CardHeader>
+        <CardContent className="space-y-1">
+          {topObjeciones.length === 0 && <p className="text-xs text-muted-foreground">Sin datos</p>}
+          {topObjeciones.map(([k, n]) => (
+            <div key={k} className="flex items-center justify-between text-xs">
+              <Badge variant="secondary">{k}</Badge>
+              <span className="tabular-nums text-muted-foreground">{n}</span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
