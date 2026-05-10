@@ -9,8 +9,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
-const MAX_PER_RUN = 25;
-const SLEEP_BETWEEN_MS = 250; // Deepgram ~100 conc, no audio-seconds cap
+const MAX_PER_RUN = 50;
+const SLEEP_BETWEEN_MS = 50; // Deepgram ~100 conc, no audio-seconds cap
 const DG_URL = 'https://api.deepgram.com/v1/listen?model=nova-3&language=es&smart_format=true&diarize=true&utterances=true&punctuate=true&filler_words=false';
 const GW = 'https://connector-gateway.lovable.dev/hubspot';
 const COMERCIAL_HINTS = ['aflux', 'fasano', 'soy ', 'le llamo', 'te llamo', 'le llamo de', 'le llamamos', 'inmobiliaria'];
