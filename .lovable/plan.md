@@ -1,81 +1,68 @@
-## F.1 Coach Comercial — Plan de ejecución
+## Problema
 
-Tres fases encadenadas sin pausa tras tu aprobación.
+`calls.owner_id` apunta al **propietario/lead** (contacto), no al **comercial asignado**. En HubSpot el comercial está en la propiedad `hubspot_owner_id` de la llamada (campo "Actividad asignada a"), que actualmente NO estamos sincronizando. Por eso el agrupado por "comercial" en `/productividad` muestra nombres de propietarios (FRANCISCA PAULA, JUAN AGUSTÍN…) en lugar de David, Miguel, Jesús y Cristina.
 
-### F.1.a — Backend análisis de transcripciones
+## Solución (4 fases encadenadas)
 
-**1. Migration `calls`** (añadir columnas + índices, sin tocar datos):
-- `outcome text` CHECK in ('interesado','dudoso','no_interesado','no_contestado','agente_bloqueado','otro')
-- `sentiment text` CHECK in ('positivo','neutro','negativo')
-- `objeciones text[]` default `'{}'`
-- `tecnica_score numeric`, `preguntas_abiertas int`, `preguntas_cerradas int`
-- `ratio_comercial_cliente numeric`
-- `frases_clave_positivas text[]`, `frases_clave_negativas text[]`
-- `analisis_confianza numeric`, `analyzed_at timestamptz`
-- Índices: `(owner_id, fecha)`, `(outcome)`, `(sentiment)`
+### Fase 1 — Backend: capturar comercial real desde HubSpot
 
-**2. Edge function `analyze_call`** (`POST {call_id}`):
-- Lee `calls.transcripcion`. Si null/<200 chars → marca `outcome='no_contestado'` sin llamar IA.
-- Llama Lovable AI Gateway → `google/gemini-3-flash-preview` con `response_format: json_object` y prompt en castellano que devuelve el schema completo.
-- Persiste columnas + fila en `agent_runs` (agent_name=`analyze_call`, latencia, tokens, confianza).
-- Idempotente: re-ejecutar sobre la misma call sobreescribe.
+**1.1 Migration** (idempotente, sin tocar datos):
+- `hubspot_calls`: añadir `hs_owner_id text`, índice `(hs_owner_id)`.
+- Nueva tabla `hubspot_owners` (catálogo de comerciales HubSpot):
+  - `hs_owner_id text PK`, `email text`, `first_name text`, `last_name text`, `full_name text`, `archived boolean`, `raw jsonb`, `synced_at timestamptz`.
+  - RLS preview-all + service write.
+- `calls`: añadir `comercial_hs_id text`, `comercial_email text`, `comercial_nombre text`, índice `(comercial_hs_id, fecha)`.
+- `coach_reports`: añadir `comercial_hs_id text` (UNIQUE `(comercial_hs_id, week_start)` además del actual por owner_id).
 
-**3. Edge function `analyze_calls_batch`** (orquestador):
-- Cursor en `hubspot_sync_state` (entity=`analyze_calls`).
-- `MAX_PER_RUN=20`, encadena con `fetch` self-invoke hasta `phase=done`.
-- Procesa solo `transcripcion IS NOT NULL AND analyzed_at IS NULL`.
+**1.2 Sync: añadir `hubspot_owner_id` a `PROPS.calls`** en `hubspot_sync_engagements` y persistirlo en `hubspot_calls.hs_owner_id`.
 
-### F.1.b — Frontend `/productividad` (admin)
+**1.3 Edge function nueva `hubspot_sync_owners`**:
+- GET paginado de `/crm/v3/owners` (tiene email + firstName + lastName).
+- Upsert en `hubspot_owners`.
 
-Ruta nueva, entrada en sidebar grupo IA con icono `BarChart3`. Acceso restringido por `has_role(admin)`. Componentes:
+**1.4 Re-sync**:
+- `hubspot_sync_owners` → poblar catálogo (~10 filas).
+- `hubspot_sync_engagements?type=calls&reset=true` encadenado → repobla `hubspot_calls.hs_owner_id` (5.914 filas).
 
-1. **Header**: Select comercial (Todos / Marta / David / Jesús; Cristina deshabilitada) + Select rango (7d/30d/90d/personalizado).
-2. **Cards KPI**: total calls, % atendidas, duración media, conversión stage, stale rate, sentiment medio.
-3. **Heatmap día×hora** con tabs *Cuándo llama* / *Cuándo convierte* (grid 7×24 con `hsl(var(--primary)/X)`).
-4. **Tabla comparativa** comerciales.
-5. **Barras outcome** + **top objeciones** + **frases ganadoras/perdedoras** + card **mejor combinación**.
+### Fase 2 — Backfill `calls.comercial_*`
 
-Datos: queries directos a `calls` agregadas en cliente (volumen <10k filas, manejable).
+**Edge function `backfill_calls_comercial`** (one-shot, idempotente, encadenable):
+- Para cada `calls` con `[hs:<id>]` en `resumen` → lee `hubspot_calls.hs_owner_id` por hs_id → JOIN con `hubspot_owners` → escribe `comercial_hs_id`, `comercial_email`, `comercial_nombre`.
+- Procesa 1.000 por chunk, persiste cursor en `hubspot_sync_state` (entity=`backfill_calls_comercial`), self-chain hasta done.
 
-### F.1.c — Coach IA semanal
+Además, actualizar `promote_calls` para que en futuras promociones rellene los 3 campos directamente.
 
-**Tabla nueva `coach_reports`**:
-- `id, owner_id, week_start date, week_end date, fortalezas jsonb, mejoras jsonb, frases_ganadoras text[], plan_accion jsonb, generated_at`
-- UNIQUE `(owner_id, week_start)`, RLS preview-all.
+### Fase 3 — Frontend `/productividad` por comercial real
 
-**Edge function `generate_coach_report`** (`POST {owner_id?, week_start?}`):
-- Si no llega owner_id → procesa todos los comerciales activos en chunks de `MAX_REPORTS_PER_RUN=5`, cursor en `hubspot_sync_state`.
-- Agrega calls de la semana + outcome/sentiment/objeciones/técnica.
-- Llama Lovable AI con prompt en castellano → JSON con fortalezas/mejoras/frases/plan_accion.
-- UPSERT por `(owner_id, week_start)`.
+- Cambiar todos los agregados/dropdown/tabla en `Productividad.tsx`:
+  - El `Select` "Comercial" pasa a listar entradas únicas de `calls.comercial_hs_id` (con `comercial_nombre`).
+  - El filtro `selOwner` aplica sobre `comercial_hs_id`.
+  - La **tabla comparativa** agrupa por `comercial_hs_id`.
+  - Los heatmaps y KPIs siguen igual pero filtrados por comercial real.
+- Manejo de "sin asignar": filas con `comercial_hs_id IS NULL` agrupadas como "—".
 
-**Cron**: `coach-weekly` lunes 8AM (vía `supabase--insert` con SQL `cron.schedule`).
+### Fase 4 — Coach IA por comercial real
 
-**UI**: tab "Coach IA" en `/productividad` con cards por comercial + selector de semana.
-
-### Orden de ejecución
-
-1. Migration calls + tabla coach_reports → **espero approve**.
-2. Crear `analyze_call`, `analyze_calls_batch`, `generate_coach_report` edge functions.
-3. Lanzar batch analyze_calls (encadenado).
-4. Construir página `/productividad` + entrada sidebar + ruta + guard admin.
-5. Programar cron coach-weekly (vía insert tool).
-6. Disparar primer `generate_coach_report` para los 3 comerciales activos.
-7. Reporte final con métricas que pediste.
+- `generate_coach_report`:
+  - Cambia clave de agregación de `owner_id` → `comercial_hs_id`.
+  - Selecciona comerciales activos desde `calls.comercial_hs_id` (no desde lista de propietarios).
+  - UPSERT por `(comercial_hs_id, week_start)`.
+- UI tab "Coach IA" muestra tarjetas por comercial real (David, Miguel, Jesús, Cristina) con su `comercial_nombre`.
+- Disparo manual: borrar reportes previos de la semana actual + regenerar → mostrar 1 ejemplo en el reporte final.
 
 ### Reglas
 
-- HubSpot read-only (cero writes a HubSpot).
-- Idempotencia en ambos UPSERTs.
-- Sin tocar `buyer_persona`, `rol`, `subrole`.
-- Si timeout en cualquier batch → persistir cursor + auto-chain.
-- Sin avanzar a E.1 hasta tu confirmación.
+- HubSpot read-only (cero writes).
+- Idempotencia en migration, backfill y upserts.
+- No se toca `owners.id` ni la relación con propietarios; solo añadimos columnas nuevas a `calls`.
+- Self-chaining con cursor en cualquier batch que pueda timeout.
+- Sin avanzar a E.1 hasta tu confirmación final.
 
-### Notas técnicas
+### Reporte final que te entregaré
 
-- Edge functions usan `LOVABLE_API_KEY` (ya disponible).
-- `analyze_call` corre con `verify_jwt=false` (default) para permitir auto-chain server-side.
-- Prompts viven en el backend, nunca en cliente.
-- `/productividad` también accesible desde `/admin/productividad` (alias en App.tsx).
+1. Owners HubSpot sincronizados (esperado ~10, con David / Miguel / Jesús / Cristina identificados por email).
+2. % de `calls` con `comercial_hs_id` resuelto (esperado ~95%+, las que tenemos hs_id).
+3. Tabla comparativa real con los 4 comerciales: nº calls, conversión, sentiment, score técnica.
+4. Reporte coach generado para cada uno + fragmento de ejemplo.
 
 ¿Apruebo y arranco?

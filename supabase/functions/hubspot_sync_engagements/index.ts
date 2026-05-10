@@ -11,7 +11,7 @@ type EngType = 'tasks' | 'calls' | 'notes';
 
 const PROPS: Record<EngType, string[]> = {
   tasks: ['hs_task_subject','hs_task_body','hs_task_status','hs_task_priority','hs_task_type','hs_timestamp','hs_task_completion_date','hs_createdate','hs_lastmodifieddate'],
-  calls: ['hs_call_title','hs_call_body','hs_call_status','hs_call_direction','hs_call_disposition','hs_call_duration','hs_call_recording_url','hs_call_to_number','hs_call_from_number','hs_timestamp','hs_createdate','hs_lastmodifieddate'],
+  calls: ['hs_call_title','hs_call_body','hs_call_status','hs_call_direction','hs_call_disposition','hs_call_duration','hs_call_recording_url','hs_call_to_number','hs_call_from_number','hs_timestamp','hs_createdate','hs_lastmodifieddate','hubspot_owner_id'],
   notes: ['hs_note_body','hs_timestamp','hs_createdate','hs_lastmodifieddate'],
 };
 
@@ -71,6 +71,7 @@ function toRow(type: EngType, e: any): Record<string, unknown> {
       hs_call_recording_url: p.hs_call_recording_url || null,
       hs_call_to_number: p.hs_call_to_number || null,
       hs_call_from_number: p.hs_call_from_number || null,
+      hs_owner_id: p.hubspot_owner_id || null,
     };
   }
   return {
