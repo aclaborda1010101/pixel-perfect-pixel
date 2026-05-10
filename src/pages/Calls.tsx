@@ -28,10 +28,11 @@ export default function Calls() {
   const [rows, setRows] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [dirFilter, setDirFilter] = useState<string>("all");
+  const [analyzableOnly, setAnalyzableOnly] = useState<boolean>(true);
 
   useEffect(() => {
     supabase.from("calls")
-      .select("id, fecha, duracion_seg, direccion, resumen, owner_id, owners(nombre)")
+      .select("id, fecha, duracion_seg, direccion, resumen, transcripcion, owner_id, owners(nombre)")
       .order("fecha", { ascending: false })
       .then(({ data }) => setRows(data ?? []));
   }, []);
@@ -39,16 +40,17 @@ export default function Calls() {
   const filtered = useMemo(
     () =>
       rows
+        .filter((r) => !analyzableOnly || (r.transcripcion && String(r.transcripcion).trim() !== ""))
         .filter((r) => dirFilter === "all" || r.direccion === dirFilter)
         .filter((r) =>
           [r.owners?.nombre, r.resumen].some((f) =>
             (f ?? "").toLowerCase().includes(q.toLowerCase()),
           ),
         ),
-    [rows, q, dirFilter],
+    [rows, q, dirFilter, analyzableOnly],
   );
 
-  const analyzed = rows.filter((r) => r.resumen).length;
+  const analizables = rows.filter((r) => r.transcripcion && String(r.transcripcion).trim() !== "").length;
   const avgDur = rows.length ? Math.round(rows.reduce((a, r) => a + (r.duracion_seg || 0), 0) / rows.length) : 0;
 
   return (
@@ -65,8 +67,8 @@ export default function Calls() {
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card><div className="p-5"><Eyebrow>Total llamadas</Eyebrow><div className="mt-2"><MetricValue size="lg">{rows.length}</MetricValue></div></div></Card>
-        <Card><div className="p-5"><Eyebrow>Analizadas</Eyebrow><div className="mt-2"><MetricValue size="lg">{analyzed}</MetricValue></div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Analizables</Eyebrow><div className="mt-2"><MetricValue size="lg">{analizables.toLocaleString()}</MetricValue></div><div className="mt-1 text-xs text-muted-foreground">de {rows.length.toLocaleString()} totales</div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Sin transcripción</Eyebrow><div className="mt-2"><MetricValue size="lg">{(rows.length - analizables).toLocaleString()}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Duración media</Eyebrow><div className="mt-2"><MetricValue size="lg">{fmtDur(avgDur)}</MetricValue></div></div></Card>
       </div>
 
@@ -84,6 +86,18 @@ export default function Calls() {
             <div className="relative flex-1 min-w-[220px] max-w-sm">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar propietario, resumen…" className="h-8 pl-8 text-sm" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              {([
+                { v: true, label: "Solo analizables" },
+                { v: false, label: "Todas" },
+              ] as const).map((opt) => (
+                <button key={String(opt.v)} type="button" onClick={() => setAnalyzableOnly(opt.v)}
+                  className={"rounded-[3px] border px-2 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow transition-colors " +
+                    (analyzableOnly === opt.v ? "border-gold/60 bg-gold-soft/40 text-gold" : "border-border bg-transparent text-muted-foreground hover:border-gold/40 hover:text-foreground")}>
+                  {opt.label}
+                </button>
+              ))}
             </div>
             <div className="flex items-center gap-1.5">
               {(["all", "saliente", "entrante"] as const).map((d) => (
