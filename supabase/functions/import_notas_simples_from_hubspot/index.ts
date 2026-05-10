@@ -16,6 +16,8 @@ function patHeaders(): Record<string, string> {
   return {
     'Authorization': `Bearer ${pat}`,
     'Content-Type': 'application/json',
+    'User-Agent': 'AffluxOS/1.0 (notas-simples-import; +https://affluxos.com)',
+    'Accept': 'application/json',
   };
 }
 async function hsDirect(path: string, init?: RequestInit) {
