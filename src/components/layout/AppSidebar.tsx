@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Building2, Users, TrendingUp,
   Inbox, FileText, PhoneCall,
-  MessageSquare, Megaphone,
+  MessageSquare, Megaphone, ListChecks,
   Settings as SettingsIcon, Search,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -58,6 +58,7 @@ export function AppSidebar() {
   const ia: Item[] = [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
     { url: "/mensajes", label: t.nav.mensajes, icon: Megaphone },
+    { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
   ];
   const cuenta: Item[] = [
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
