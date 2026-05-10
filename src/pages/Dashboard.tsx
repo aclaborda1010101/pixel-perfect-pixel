@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,32 +36,19 @@ const sentimentMeta = {
 
 export default function Dashboard() {
   const { t } = useI18n();
-  const [k, setK] = useState({ pendingAnalysis: 0, pendingActions: 0, uncataloged: 0, hygieneIssues: 0 });
-  const [recent, setRecent] = useState<any[]>([]);
-  const [sync, setSync] = useState({
-    buildings: 0, owners: 0, companies: 0, calls: 0, callsAnalizables: 0,
-    hsCalls: 0, hsNotes: 0, hsTasks: 0,
-  });
 
-  useEffect(() => {
-    (async () => {
-      const [a, b, c, h, r] = await Promise.all([
+  // Una sola tanda paralela de TODAS las queries del dashboard, cacheada vía react-query.
+  // staleTime hereda del QueryClient global (1 min) → volver al dashboard es instantáneo.
+  const { data } = useQuery({
+    queryKey: ["dashboard:overview"],
+    queryFn: async () => {
+      const [a, b, c, h, r, bld, own, comp, cal, calAna, hcal, hnot, htsk] = await Promise.all([
         supabase.from("calls").select("id", { count: "exact", head: true }).is("resumen", null),
         supabase.from("next_actions").select("id", { count: "exact", head: true }).eq("estado", "pendiente"),
         supabase.from("owners").select("id", { count: "exact", head: true }).eq("rol", "desconocido"),
-        supabase.from("next_actions").select("id", { count: "exact", head: true }).eq("origen", "pipeline_hygiene").eq("estado","pendiente"),
+        supabase.from("next_actions").select("id", { count: "exact", head: true }).eq("origen", "pipeline_hygiene").eq("estado", "pendiente"),
         supabase.from("calls").select("id, fecha, duracion_seg, resumen, owner_id, owners(nombre)")
           .order("fecha", { ascending: false }).limit(6),
-      ]);
-      setK({
-        pendingAnalysis: a.count ?? 0,
-        pendingActions: b.count ?? 0,
-        uncataloged: c.count ?? 0,
-        hygieneIssues: h.count ?? 0,
-      });
-      setRecent(r.data ?? []);
-
-      const [bld, own, comp, cal, calAna, hcal, hnot, htsk] = await Promise.all([
         supabase.from("buildings").select("id", { count: "exact", head: true }),
         supabase.from("owners").select("id", { count: "exact", head: true }),
         supabase.from("companies" as any).select("id", { count: "exact", head: true }),
@@ -71,18 +58,30 @@ export default function Dashboard() {
         supabase.from("hubspot_notes").select("id", { count: "exact", head: true }),
         supabase.from("hubspot_tasks").select("id", { count: "exact", head: true }),
       ]);
-      setSync({
-        buildings: bld.count ?? 0,
-        owners: own.count ?? 0,
-        companies: comp.count ?? 0,
-        calls: cal.count ?? 0,
-        callsAnalizables: calAna.count ?? 0,
-        hsCalls: hcal.count ?? 0,
-        hsNotes: hnot.count ?? 0,
-        hsTasks: htsk.count ?? 0,
-      });
-    })();
-  }, []);
+      return {
+        k: {
+          pendingAnalysis: a.count ?? 0,
+          pendingActions: b.count ?? 0,
+          uncataloged: c.count ?? 0,
+          hygieneIssues: h.count ?? 0,
+        },
+        recent: r.data ?? [],
+        sync: {
+          buildings: bld.count ?? 0,
+          owners: own.count ?? 0,
+          companies: comp.count ?? 0,
+          calls: cal.count ?? 0,
+          callsAnalizables: calAna.count ?? 0,
+          hsCalls: hcal.count ?? 0,
+          hsNotes: hnot.count ?? 0,
+          hsTasks: htsk.count ?? 0,
+        },
+      };
+    },
+  });
+  const k = data?.k ?? { pendingAnalysis: 0, pendingActions: 0, uncataloged: 0, hygieneIssues: 0 };
+  const recent = data?.recent ?? [];
+  const sync = data?.sync ?? { buildings: 0, owners: 0, companies: 0, calls: 0, callsAnalizables: 0, hsCalls: 0, hsNotes: 0, hsTasks: 0 };
 
   const tiles = [
     {
