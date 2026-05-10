@@ -29,6 +29,7 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   const t0 = Date.now();
@@ -56,7 +57,11 @@ Deno.serve(async (req) => {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze_nota_simple`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${SERVICE_KEY}`,
+          // Forward the caller's JWT (verify_jwt=true en analyze_nota_simple
+          // rechaza el service_role key en algunos entornos). El JWT del caller
+          // ya está validado por el gateway antes de llegar aquí.
+          Authorization: auth,
+          apikey: ANON_KEY,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ nota_simple_id: id }),
@@ -65,7 +70,17 @@ Deno.serve(async (req) => {
       if (!res.ok) {
         results.push({ id, ok: false, error: `${res.status}: ${txt.slice(0, 200)}` });
       } else {
-        results.push({ id, ok: true });
+        // Parsear respuesta — analyze devuelve {ok:true, ...} o {error:...}
+        try {
+          const j = JSON.parse(txt);
+          if (j?.ok === true) {
+            results.push({ id, ok: true });
+          } else {
+            results.push({ id, ok: false, error: j?.error ?? "no ok flag" });
+          }
+        } catch {
+          results.push({ id, ok: false, error: `non-json: ${txt.slice(0, 200)}` });
+        }
       }
     } catch (e) {
       results.push({ id, ok: false, error: String((e as Error).message ?? e).slice(0, 200) });
