@@ -9,7 +9,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
-const MAX_PER_RUN = 30;
+const MAX_PER_RUN = 15;
+const SLEEP_BETWEEN_MS = 3500; // ~17 RPM, under Groq free tier 20 RPM
 const GROQ_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const GW = 'https://connector-gateway.lovable.dev/hubspot';
 
@@ -75,6 +76,11 @@ async function transcribeWithGroq(bytes: Uint8Array, contentType: string): Promi
     if (r.ok) return await r.json();
     const txt = await r.text();
     lastErr = `groq ${r.status}: ${txt.slice(0, 300)}`;
+    if (r.status === 429) {
+      // rate limit → wait & retry
+      await new Promise((res) => setTimeout(res, 5000 * (attempt + 1)));
+      continue;
+    }
     if (r.status < 500) throw new Error(lastErr);
     await new Promise((res) => setTimeout(res, 800 * (attempt + 1)));
   }
@@ -115,13 +121,17 @@ async function transcribeOne(supabase: any, call: any, force: boolean): Promise<
   try {
     resp = await transcribeWithGroq(dl.bytes, dl.contentType);
   } catch (e: any) {
-    await supabase.from('calls').update({ transcripcion_source: 'error' }).eq('id', call.id);
+    const msg = String(e.message || e);
+    // Si fue rate limit, NO marcar error: dejar que reintente en la próxima ronda.
+    if (!/429|rate limit/i.test(msg)) {
+      await supabase.from('calls').update({ transcripcion_source: 'error' }).eq('id', call.id);
+    }
     await supabase.from('agent_runs').insert({
       agent_name: 'transcribe_call', scope_type: 'call', scope_id: call.id,
       modelo: 'whisper-large-v3-turbo', latencia_ms: Date.now() - t0,
-      error: String(e.message || e).slice(0, 500),
+      error: msg.slice(0, 500),
     });
-    return { ok: false, error: String(e.message || e) };
+    return { ok: false, error: msg };
   }
 
   const text: string = (resp?.text || '').trim();
@@ -213,6 +223,10 @@ Deno.serve(async (req) => {
     const r = await transcribeOne(supabase, row, force);
     if (r.ok) ok++;
     else { fail++; if (errors.length < 5) errors.push(`${row.id}: ${r.error}`); }
+    // Throttle para no superar 20 RPM de Groq
+    if (processed < (rows?.length || 0)) {
+      await new Promise((res) => setTimeout(res, SLEEP_BETWEEN_MS));
+    }
   }
 
   // Pendientes
