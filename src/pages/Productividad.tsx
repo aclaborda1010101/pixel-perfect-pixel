@@ -474,104 +474,113 @@ export default function Productividad() {
 
         {/* COACH IA */}
         <TabsContent value="coach" className="space-y-3">
-          <Card>
-            <CardContent className="flex flex-wrap items-center gap-2 p-3">
-              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Periodo del análisis</span>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className={cn("h-9 justify-start text-left font-normal", !coachRange && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                    {coachRange?.from ? (
-                      coachRange.to ? (
-                        <>{format(coachRange.from, "dd MMM")} – {format(coachRange.to, "dd MMM yyyy")}</>
-                      ) : format(coachRange.from, "dd MMM yyyy")
-                    ) : <span>Selecciona rango</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="range"
-                    selected={coachRange}
-                    onSelect={setCoachRange}
-                    numberOfMonths={2}
-                    className={cn("p-3 pointer-events-auto")}
-                  />
-                </PopoverContent>
-              </Popover>
-              <Button size="sm" variant="ghost" onClick={() => setQuickRange(7)}>7d</Button>
-              <Button size="sm" variant="ghost" onClick={() => setQuickRange(30)}>30d</Button>
-              <Button size="sm" variant="ghost" onClick={() => setQuickRange(90)}>90d</Button>
-              <span className="ml-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Comercial</span>
-              <Select value={selCoachComercial} onValueChange={setSelCoachComercial}>
-                <SelectTrigger className="h-9 w-[240px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los comerciales</SelectItem>
-                  {comercialesWithCalls.filter(o => o.id !== "__none__").slice(0, 50).map(o => (
-                    <SelectItem key={o.id} value={o.id}>{o.nombre} · {o.calls}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button onClick={generateCoachAll} disabled={coachLoading} size="sm" className="ml-auto">
-                {coachLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
-                Generar Coach IA
-              </Button>
-            </CardContent>
-          </Card>
-          {reports.length === 0 && (
+          {selOwner === "all" || selOwner === "__none__" ? (
             <Card><CardContent className="p-6 text-sm text-muted-foreground">
-              Aún no hay reportes coach. Pulsa <strong>Generar Coach IA</strong> arriba.
+              Selecciona un comercial en el filtro superior para ver su análisis Coach IA.
             </CardContent></Card>
+          ) : (
+            <Tabs value={coachWindow} onValueChange={setCoachWindow}>
+              <div className="flex items-center justify-between gap-2">
+                <TabsList>
+                  {COACH_WINDOWS.map(w => (
+                    <TabsTrigger key={w.key} value={w.key}>{w.label}</TabsTrigger>
+                  ))}
+                </TabsList>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentCoachLoading}
+                  onClick={() => loadCoachFor(selOwner, coachWindow, { force: true })}
+                >
+                  {currentCoachLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
+                  Regenerar
+                </Button>
+              </div>
+              {COACH_WINDOWS.map(w => (
+                <TabsContent key={w.key} value={w.key} className="mt-3">
+                  {currentCoachLoading && coachWindow === w.key ? (
+                    <Card><CardContent className="p-6 text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" /> Generando análisis Coach IA…
+                    </CardContent></Card>
+                  ) : currentCoachReport && coachWindow === w.key ? (
+                    <CoachCard
+                      report={currentCoachReport}
+                      nombre={comercialNameById.get(selOwner) || selOwner}
+                      windowLabel={w.label}
+                    />
+                  ) : (
+                    <Card><CardContent className="p-6 text-sm text-muted-foreground">
+                      Sin datos en este periodo.
+                    </CardContent></Card>
+                  )}
+                </TabsContent>
+              ))}
+            </Tabs>
           )}
-          <div className="grid gap-3 md:grid-cols-2">
-            {reports.map(r => (
-              <Card key={r.id}>
-                <CardHeader>
-                  <CardTitle className="text-sm">
-                    {(r.comercial_hs_id && comercialNameById.get(r.comercial_hs_id)) || (r.owner_id ? r.owner_id.slice(0,8) : "—")}
-                    <span className="ml-2 font-mono text-[10px] text-muted-foreground">{r.week_start} → {r.week_end}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-xs">
-                  <div className="text-muted-foreground">{r.total_calls} llamadas · conversión {r.metricas?.conversion ?? "—"}% · sent+ {r.metricas?.sentiment_positivo_pct ?? "—"}%</div>
-                  {Array.isArray(r.fortalezas) && r.fortalezas.length > 0 && (
-                    <div>
-                      <div className="mb-1 font-mono text-[10px] uppercase text-emerald-500">Fortalezas</div>
-                      <ul className="space-y-1">
-                        {r.fortalezas.map((f: any, i: number) => (
-                          <li key={i}><strong>{f.titulo}</strong> — <span className="text-muted-foreground">{f.detalle}</span></li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {Array.isArray(r.mejoras) && r.mejoras.length > 0 && (
-                    <div>
-                      <div className="mb-1 font-mono text-[10px] uppercase text-amber-500">Mejoras</div>
-                      <ul className="space-y-1">
-                        {r.mejoras.map((f: any, i: number) => (
-                          <li key={i}><strong>{f.titulo}</strong> — <span className="text-muted-foreground">{f.detalle}</span></li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {Array.isArray(r.plan_accion) && r.plan_accion.length > 0 && (
-                    <div>
-                      <div className="mb-1 font-mono text-[10px] uppercase text-primary">Plan próxima semana</div>
-                      <ul className="space-y-1">
-                        {r.plan_accion.map((p: any, i: number) => (
-                          <li key={i}><strong>{p.titulo}</strong> — <span className="text-muted-foreground">{p.detalle}</span> {p.kpi && <em className="text-[10px]">[{p.kpi}]</em>}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
         </TabsContent>
       </Tabs>
 
       {loading && <p className="text-xs text-muted-foreground">Cargando…</p>}
     </div>
+  );
+}
+
+function CoachCard({ report, nombre, windowLabel }: { report: CoachReport; nombre: string; windowLabel: string }) {
+  const m = report.metricas || {};
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">
+          {nombre}
+          <span className="ml-2 font-mono text-[10px] text-muted-foreground">{windowLabel} · {report.week_start} → {report.week_end}</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-xs">
+        <div className="text-muted-foreground">
+          {report.total_calls} llamadas · conversión {m.conversion ?? "—"}% · sent+ {m.sentiment_positivo_pct ?? "—"}% · dur. media {m.duracion_media_seg ? `${Math.round(m.duracion_media_seg)}s` : "—"}
+        </div>
+        {Array.isArray(report.fortalezas) && report.fortalezas.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-emerald-500">Fortalezas</div>
+            <ul className="space-y-1">
+              {report.fortalezas.map((f: any, i: number) => (
+                <li key={i}><strong>{f.titulo}</strong> — <span className="text-muted-foreground">{f.detalle}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(report.mejoras) && report.mejoras.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-amber-500">Mejoras</div>
+            <ul className="space-y-1">
+              {report.mejoras.map((f: any, i: number) => (
+                <li key={i}><strong>{f.titulo}</strong> — <span className="text-muted-foreground">{f.detalle}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(report.frases_ganadoras) && report.frases_ganadoras.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-emerald-500">Frases ganadoras</div>
+            <ul className="space-y-1">
+              {report.frases_ganadoras.map((f: string, i: number) => (
+                <li key={i} className="border-l-2 border-emerald-500/40 pl-2">{f}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(report.plan_accion) && report.plan_accion.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-primary">Plan de acción</div>
+            <ul className="space-y-1">
+              {report.plan_accion.map((p: any, i: number) => (
+                <li key={i}><strong>{p.titulo}</strong> — <span className="text-muted-foreground">{p.detalle}</span> {p.kpi && <em className="text-[10px]">[{p.kpi}]</em>}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
