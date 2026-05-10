@@ -499,6 +499,40 @@ export default function OwnerDetail() {
           <EmptyState icon={Briefcase} title="Deals" description="Las oportunidades vinculadas a este propietario aparecerán aquí cuando estén disponibles en el pipeline." />
         </TabsContent>
 
+        {/* GRAFO */}
+        <TabsContent value="grafo">
+          <RelationshipGraph
+            center={{
+              kind: "owner",
+              label: owner.nombre,
+              sublabel: `${owner.rol}${owner.subrole && owner.subrole !== "ninguno" ? " · " + (SUBROLE_LABEL[owner.subrole] ?? owner.subrole) : ""}`,
+            }}
+            buildings={buildings.map((b: any) => ({
+              id: b.id,
+              kind: "building" as const,
+              label: b.direccion || "Sin dirección",
+              sublabel: b.ciudad,
+              href: `/edificios/${b.id}`,
+              badge: b.subrole && b.subrole !== "ninguno" ? b.subrole : undefined,
+            }))}
+            companies={companies.map((c: any) => ({
+              id: c.id,
+              kind: "company" as const,
+              label: c.nombre,
+              sublabel: c.cif,
+              href: `/empresas/${c.id}`,
+              badge: c.role,
+            }))}
+            notas={titulares.map((tt: any) => ({
+              id: tt.id,
+              kind: "nota" as const,
+              label: tt.nota?.structured_json?.finca?.ref_catastral || "Nota simple",
+              sublabel: tt.rol + (tt.porcentaje ? ` · ${tt.porcentaje}%` : ""),
+              href: tt.nota_simple_id ? `/notas-simples/${tt.nota_simple_id}` : undefined,
+            }))}
+          />
+        </TabsContent>
+
         {/* IA */}
         <TabsContent value="ai" className="space-y-4">
           <CatalogRoleButton ownerId={owner.id} onDone={() => window.location.reload()} />
