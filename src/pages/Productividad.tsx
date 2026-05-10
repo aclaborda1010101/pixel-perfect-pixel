@@ -13,6 +13,9 @@ import { Loader2, RefreshCcw, Sparkles } from "lucide-react";
 type Call = {
   id: string;
   owner_id: string | null;
+  comercial_hs_id: string | null;
+  comercial_email: string | null;
+  comercial_nombre: string | null;
   fecha: string;
   duracion_seg: number | null;
   outcome: string | null;
@@ -24,10 +27,10 @@ type Call = {
   frases_clave_negativas: string[] | null;
   analyzed_at: string | null;
 };
-type OwnerLite = { id: string; nombre: string };
 type CoachReport = {
   id: string;
-  owner_id: string;
+  owner_id: string | null;
+  comercial_hs_id: string | null;
   week_start: string;
   week_end: string;
   fortalezas: any;
@@ -54,7 +57,6 @@ export default function Productividad() {
   const [refreshing, setRefreshing] = useState(false);
   const [coachLoading, setCoachLoading] = useState(false);
   const [calls, setCalls] = useState<Call[]>([]);
-  const [owners, setOwners] = useState<OwnerLite[]>([]);
   const [reports, setReports] = useState<CoachReport[]>([]);
   const [selOwner, setSelOwner] = useState<string>("all");
   const [selRange, setSelRange] = useState<string>("90d");
@@ -64,14 +66,13 @@ export default function Productividad() {
   async function load() {
     setLoading(true);
     const since = new Date(Date.now() - RANGES[selRange]*86400000).toISOString();
-    const [{ data: callsData }, { data: ownersData }, { data: repsData }, statRes] = await Promise.all([
+    const [{ data: callsData }, { data: repsData }, statRes] = await Promise.all([
       supabase.from("calls")
-        .select("id, owner_id, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, analyzed_at")
+        .select("id, owner_id, comercial_hs_id, comercial_email, comercial_nombre, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, analyzed_at")
         .gte("fecha", since)
         .not("analyzed_at", "is", null)
         .order("fecha", { ascending: false })
         .limit(5000),
-      supabase.from("owners").select("id, nombre").limit(2000),
       supabase.from("coach_reports")
         .select("*")
         .order("week_start", { ascending: false })
@@ -80,7 +81,6 @@ export default function Productividad() {
         .not("transcripcion", "is", null).is("analyzed_at", null),
     ]);
     setCalls((callsData || []) as Call[]);
-    setOwners((ownersData || []) as OwnerLite[]);
     setReports((repsData || []) as CoachReport[]);
     setPending(statRes.count || 0);
     const { count: analyzedCount } = await supabase.from("calls").select("id", { count: "exact", head: true }).not("analyzed_at", "is", null);
@@ -90,24 +90,31 @@ export default function Productividad() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [selRange]);
 
-  const ownerById = useMemo(() => {
+  // Mapa hs_owner_id -> nombre comercial (extraído de las propias calls)
+  const comercialNameById = useMemo(() => {
     const m = new Map<string,string>();
-    owners.forEach(o => m.set(o.id, o.nombre));
+    for (const c of calls) {
+      if (c.comercial_hs_id && c.comercial_nombre) m.set(c.comercial_hs_id, c.comercial_nombre);
+    }
     return m;
-  }, [owners]);
+  }, [calls]);
 
-  // owners con calls (para el dropdown)
-  const ownersWithCalls = useMemo(() => {
+  // comerciales con calls (para el dropdown)
+  const comercialesWithCalls = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const c of calls) if (c.owner_id) counts.set(c.owner_id, (counts.get(c.owner_id) || 0) + 1);
+    for (const c of calls) {
+      const k = c.comercial_hs_id || "__none__";
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
     return Array.from(counts.entries())
-      .map(([id, n]) => ({ id, nombre: ownerById.get(id) || id.slice(0,8), calls: n }))
+      .map(([id, n]) => ({ id, nombre: id === "__none__" ? "Sin asignar" : (comercialNameById.get(id) || id.slice(0,8)), calls: n }))
       .sort((a,b) => b.calls - a.calls);
-  }, [calls, ownerById]);
+  }, [calls, comercialNameById]);
 
   const filtered = useMemo(() => {
     if (selOwner === "all") return calls;
-    return calls.filter(c => c.owner_id === selOwner);
+    if (selOwner === "__none__") return calls.filter(c => !c.comercial_hs_id);
+    return calls.filter(c => c.comercial_hs_id === selOwner);
   }, [calls, selOwner]);
 
   const kpis = useMemo(() => {
@@ -181,11 +188,11 @@ export default function Productividad() {
   const tablaComerciales = useMemo(() => {
     const m = new Map<string, Call[]>();
     for (const c of calls) {
-      const k = c.owner_id || "—";
+      const k = c.comercial_hs_id || "__none__";
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push(c);
     }
-    return Array.from(m.entries()).map(([oid, list]) => {
+    return Array.from(m.entries()).map(([cid, list]) => {
       const total = list.length;
       const inter = list.filter(c => c.outcome === "interesado").length;
       const dur = list.filter(c => c.duracion_seg).map(c => c.duracion_seg!);
@@ -193,8 +200,8 @@ export default function Productividad() {
       const ratio = list.filter(c => c.ratio_comercial_cliente != null).map(c => c.ratio_comercial_cliente!);
       const pos = list.filter(c => c.sentiment === "positivo").length;
       return {
-        owner_id: oid,
-        nombre: ownerById.get(oid) || oid.slice(0,8),
+        owner_id: cid,
+        nombre: cid === "__none__" ? "Sin asignar" : (comercialNameById.get(cid) || cid.slice(0,8)),
         calls: total,
         durMed: dur.length ? Math.round(dur.reduce((a,b)=>a+b,0)/dur.length) : 0,
         conversion: total ? inter/total*100 : 0,
@@ -203,7 +210,7 @@ export default function Productividad() {
         tec: tec.length ? tec.reduce((a,b)=>a+b,0)/tec.length : 0,
       };
     }).filter(r => r.calls >= 3).sort((a,b) => b.conversion - a.conversion).slice(0, 20);
-  }, [calls, ownerById]);
+  }, [calls, comercialNameById]);
 
   async function recalcAnalyze() {
     setRefreshing(true);
@@ -243,7 +250,7 @@ export default function Productividad() {
             <SelectTrigger className="h-9 w-[260px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              {ownersWithCalls.slice(0, 50).map(o => (
+              {comercialesWithCalls.slice(0, 50).map(o => (
                 <SelectItem key={o.id} value={o.id}>{o.nombre} · {o.calls}</SelectItem>
               ))}
             </SelectContent>
@@ -407,7 +414,7 @@ export default function Productividad() {
               <Card key={r.id}>
                 <CardHeader>
                   <CardTitle className="text-sm">
-                    {ownerById.get(r.owner_id) || r.owner_id.slice(0,8)}
+                    {(r.comercial_hs_id && comercialNameById.get(r.comercial_hs_id)) || (r.owner_id ? r.owner_id.slice(0,8) : "—")}
                     <span className="ml-2 font-mono text-[10px] text-muted-foreground">{r.week_start} → {r.week_end}</span>
                   </CardTitle>
                 </CardHeader>
