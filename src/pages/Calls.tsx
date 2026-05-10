@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,29 +29,62 @@ export default function Calls() {
   const [q, setQ] = useState("");
   const [dirFilter, setDirFilter] = useState<string>("all");
   const [analyzableOnly, setAnalyzableOnly] = useState<boolean>(true);
+  const [stats, setStats] = useState({ total: 0, analizables: 0, sinTranscripcion: 0, avgDur: 0 });
+  const [page, setPage] = useState(0);
+  const [pageCount, setPageCount] = useState(0);
+  const [loadingList, setLoadingList] = useState(false);
+  const PAGE_SIZE = 50;
 
+  // Global stats via RPC (real totals, not capped at 1000)
   useEffect(() => {
-    supabase.from("calls")
-      .select("id, fecha, duracion_seg, direccion, resumen, transcripcion, owner_id, owners(nombre)")
-      .order("fecha", { ascending: false })
-      .then(({ data }) => setRows(data ?? []));
+    supabase.rpc("calls_stats" as any).then(({ data }) => {
+      const r = Array.isArray(data) ? data[0] : data;
+      if (!r) return;
+      setStats({
+        total: Number(r.total) || 0,
+        analizables: Number(r.analizables) || 0,
+        sinTranscripcion: Number(r.sin_transcripcion) || 0,
+        avgDur: Math.round(Number(r.avg_duracion) || 0),
+      });
+    });
   }, []);
 
+  // Reset pagination when server-side filters change
+  useEffect(() => { setPage(0); }, [dirFilter, analyzableOnly]);
+
+  // Paginated list with native range()
+  const fetchPage = useCallback(async () => {
+    setLoadingList(true);
+    let query = supabase.from("calls")
+      .select("id, fecha, duracion_seg, direccion, resumen, transcripcion, owner_id, owners(nombre)", { count: "exact" })
+      .order("fecha", { ascending: false });
+    if (analyzableOnly) {
+      query = query.not("transcripcion", "is", null).neq("transcripcion", "");
+    }
+    if (dirFilter !== "all") {
+      query = query.eq("direccion", dirFilter as "entrante" | "saliente");
+    }
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data, count } = await query.range(from, to);
+    setRows(data ?? []);
+    setPageCount(count ? Math.ceil(count / PAGE_SIZE) : 0);
+    setLoadingList(false);
+  }, [page, dirFilter, analyzableOnly]);
+
+  useEffect(() => { fetchPage(); }, [fetchPage]);
+
+  // Free-text search applies on the current page only
   const filtered = useMemo(
-    () =>
-      rows
-        .filter((r) => !analyzableOnly || (r.transcripcion && String(r.transcripcion).trim() !== ""))
-        .filter((r) => dirFilter === "all" || r.direccion === dirFilter)
-        .filter((r) =>
-          [r.owners?.nombre, r.resumen].some((f) =>
-            (f ?? "").toLowerCase().includes(q.toLowerCase()),
-          ),
-        ),
-    [rows, q, dirFilter, analyzableOnly],
+    () => rows.filter((r) =>
+      !q ||
+      [r.owners?.nombre, r.resumen].some((f) => (f ?? "").toLowerCase().includes(q.toLowerCase())),
+    ),
+    [rows, q],
   );
 
-  const analizables = rows.filter((r) => r.transcripcion && String(r.transcripcion).trim() !== "").length;
-  const avgDur = rows.length ? Math.round(rows.reduce((a, r) => a + (r.duracion_seg || 0), 0) / rows.length) : 0;
+  const analizables = stats.analizables;
+  const avgDur = stats.avgDur;
 
   return (
     <div className="space-y-6">
@@ -67,12 +100,12 @@ export default function Calls() {
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card><div className="p-5"><Eyebrow>Analizables</Eyebrow><div className="mt-2"><MetricValue size="lg">{analizables.toLocaleString()}</MetricValue></div><div className="mt-1 text-xs text-muted-foreground">de {rows.length.toLocaleString()} totales</div></div></Card>
-        <Card><div className="p-5"><Eyebrow>Sin transcripción</Eyebrow><div className="mt-2"><MetricValue size="lg">{(rows.length - analizables).toLocaleString()}</MetricValue></div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Analizables</Eyebrow><div className="mt-2"><MetricValue size="lg">{analizables.toLocaleString()}</MetricValue></div><div className="mt-1 text-xs text-muted-foreground">de {stats.total.toLocaleString()} totales</div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Sin transcripción</Eyebrow><div className="mt-2"><MetricValue size="lg">{stats.sinTranscripcion.toLocaleString()}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Duración media</Eyebrow><div className="mt-2"><MetricValue size="lg">{fmtDur(avgDur)}</MetricValue></div></div></Card>
       </div>
 
-      {rows.length === 0 ? (
+      {stats.total === 0 ? (
         <EmptyState
           icon={PhoneCall}
           title="Aún no has registrado llamadas"
@@ -169,6 +202,23 @@ export default function Calls() {
             </TableBody>
           </Table>
           </div>
+          {pageCount > 1 && (
+            <div className="flex items-center justify-between gap-3 border-t border-border-faint px-4 py-3">
+              <div className="text-xs text-muted-foreground">
+                Página <span className="font-mono tabular-nums">{page + 1}</span> de <span className="font-mono tabular-nums">{pageCount}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button type="button" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0 || loadingList}
+                  className="rounded-[3px] border border-border bg-transparent px-2 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground transition-colors hover:border-gold/40 hover:text-foreground disabled:opacity-40 disabled:hover:border-border disabled:hover:text-muted-foreground">
+                  ← Anterior
+                </button>
+                <button type="button" onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={page >= pageCount - 1 || loadingList}
+                  className="rounded-[3px] border border-border bg-transparent px-2 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground transition-colors hover:border-gold/40 hover:text-foreground disabled:opacity-40 disabled:hover:border-border disabled:hover:text-muted-foreground">
+                  Siguiente →
+                </button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
     </div>

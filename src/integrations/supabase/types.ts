@@ -1379,6 +1379,15 @@ export type Database = {
       }
     }
     Functions: {
+      calls_stats: {
+        Args: never
+        Returns: {
+          analizables: number
+          avg_duracion: number
+          sin_transcripcion: number
+          total: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
