@@ -264,6 +264,7 @@ export type Database = {
           frases_clave_negativas: string[] | null
           frases_clave_positivas: string[] | null
           id: string
+          notas_post_llamada: string | null
           objeciones: string[] | null
           outcome: string | null
           owner_id: string | null
@@ -277,6 +278,7 @@ export type Database = {
           tacticas_usadas: string[]
           tecnica_score: number | null
           transcripcion: string | null
+          transcripcion_source: string | null
           transcripcion_url: string | null
         }
         Insert: {
@@ -292,6 +294,7 @@ export type Database = {
           frases_clave_negativas?: string[] | null
           frases_clave_positivas?: string[] | null
           id?: string
+          notas_post_llamada?: string | null
           objeciones?: string[] | null
           outcome?: string | null
           owner_id?: string | null
@@ -305,6 +308,7 @@ export type Database = {
           tacticas_usadas?: string[]
           tecnica_score?: number | null
           transcripcion?: string | null
+          transcripcion_source?: string | null
           transcripcion_url?: string | null
         }
         Update: {
@@ -320,6 +324,7 @@ export type Database = {
           frases_clave_negativas?: string[] | null
           frases_clave_positivas?: string[] | null
           id?: string
+          notas_post_llamada?: string | null
           objeciones?: string[] | null
           outcome?: string | null
           owner_id?: string | null
@@ -333,6 +338,7 @@ export type Database = {
           tacticas_usadas?: string[]
           tecnica_score?: number | null
           transcripcion?: string | null
+          transcripcion_source?: string | null
           transcripcion_url?: string | null
         }
         Relationships: [
