@@ -15,17 +15,25 @@ async function safe<T>(p: Promise<T>): Promise<T | { __error: string }> {
 }
 
 async function fieldCoverage(objectType: string, propertyName: string): Promise<number | null> {
-  // search count for prop has_property
-  try {
-    const r: any = await hubspotFetch(`/crm/v3/objects/${objectType}/search`, {
-      method: 'POST',
-      body: JSON.stringify({
-        filterGroups: [{ filters: [{ propertyName, operator: 'HAS_PROPERTY' }] }],
-        limit: 1,
-      }),
-    });
-    return typeof r?.total === 'number' ? r.total : null;
-  } catch { return null; }
+  // Try HAS_PROPERTY first, then fallback to NEQ '' (works for strings) and IS_NOT_EMPTY
+  const ops = [
+    { operator: 'HAS_PROPERTY' },
+    { operator: 'NEQ', value: '' },
+    { operator: 'IS_NOT_EMPTY' },
+  ];
+  for (const f of ops) {
+    try {
+      const r: any = await hubspotFetch(`/crm/v3/objects/${objectType}/search`, {
+        method: 'POST',
+        body: JSON.stringify({
+          filterGroups: [{ filters: [{ propertyName, ...f }] }],
+          limit: 1,
+        }),
+      });
+      if (typeof r?.total === 'number' && r.total > 0) return r.total;
+    } catch { /* try next */ }
+  }
+  return 0;
 }
 
 Deno.serve(async (req) => {
@@ -179,7 +187,41 @@ Deno.serve(async (req) => {
     companies: companyPropList.filter((p) => p.calculated).map((p) => ({ name: p.name, label: p.label, formula: p.calculationFormula })),
   };
 
-  return new Response(JSON.stringify({ ok: true, latencia_ms: Date.now() - t0, ...out }, null, 2), {
+  const compact = (new URL(req.url)).searchParams.get('compact') === '1';
+  const payload: any = compact
+    ? {
+        ok: true, latencia_ms: Date.now() - t0,
+        totals: out.totals,
+        whatsapp: {
+          communications_total: out.whatsapp?.communications_total,
+          channels_seen: out.whatsapp?.communications_sample?.channels_seen,
+          custom_objects_matching: out.whatsapp?.custom_objects_matching,
+          contact_props_messaging: out.whatsapp?.contact_props_messaging,
+          company_props_messaging: out.whatsapp?.company_props_messaging,
+          installed_apps: out.whatsapp?.installed_apps_raw,
+        },
+        deals_summary: {
+          requested_count: out.deals?.requested_count,
+          requested_existing_count: out.deals?.requested_existing?.length,
+          requested_missing_in_hubspot: out.deals?.requested_missing_in_hubspot,
+          candidate_coverage: out.deals?.candidate_coverage,
+          total_deals: out.deals?.total_deals_for_pct,
+        },
+        companies_summary: {
+          total_props: out.companies?.total_props,
+          requested_existing: out.companies?.requested_existing,
+          requested_missing_in_hubspot: out.companies?.requested_missing_in_hubspot,
+          candidate_coverage: out.companies?.candidate_coverage,
+          total_companies: out.companies?.total_companies_for_pct,
+        },
+        contacts_summary: {
+          gap_high_coverage: out.contacts?.gap_high_coverage,
+          total_contacts: out.totals?.contacts,
+        },
+        pipelines: out.pipelines,
+      }
+    : { ok: true, latencia_ms: Date.now() - t0, ...out };
+  return new Response(JSON.stringify(payload, null, 2), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 });

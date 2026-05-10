@@ -37,8 +37,14 @@ export async function hubspotFetch(path: string, init?: RequestInit) {
 // Properties que queremos pedir a HubSpot para Deals (edificios)
 export const DEAL_PROPERTIES = [
   // estándar
-  'dealname', 'dealstage', 'pipeline', 'amount', 'address', 'city', 'zip', 'country',
-  'createdate', 'hs_lastmodifieddate',
+  'dealname', 'dealstage', 'pipeline', 'amount', 'address',
+  'createdate', 'hs_lastmodifieddate', 'closedate', 'hubspot_owner_id',
+  // métricas asociaciones / probabilidad
+  'num_associated_contacts', 'hs_deal_stage_probability',
+  // calculadas útiles
+  'hs_is_closed', 'hs_is_closed_won', 'hs_is_closed_lost', 'hs_closed_won_count',
+  'hs_days_to_close_raw', 'hs_v2_time_in_current_stage', 'hs_forecast_amount',
+  'hs_v2_date_entered_current_stage',
   // custom Afflux (verified internal names)
   'referencia_catastral',
   'metros_cuadrados__exactos_',

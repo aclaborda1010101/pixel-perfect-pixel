@@ -1328,28 +1328,43 @@ export type Database = {
       }
       whatsapp_messages: {
         Row: {
+          building_id: string | null
           created_at: string
           cuerpo: string
+          direccion: string | null
           enviado_at: string | null
+          hs_id: string | null
+          hubspot_owner_id: string | null
           id: string
+          metadatos: Json
           owner_id: string | null
           programado_para: string | null
           status: Database["public"]["Enums"]["whatsapp_status"]
         }
         Insert: {
+          building_id?: string | null
           created_at?: string
           cuerpo: string
+          direccion?: string | null
           enviado_at?: string | null
+          hs_id?: string | null
+          hubspot_owner_id?: string | null
           id?: string
+          metadatos?: Json
           owner_id?: string | null
           programado_para?: string | null
           status?: Database["public"]["Enums"]["whatsapp_status"]
         }
         Update: {
+          building_id?: string | null
           created_at?: string
           cuerpo?: string
+          direccion?: string | null
           enviado_at?: string | null
+          hs_id?: string | null
+          hubspot_owner_id?: string | null
           id?: string
+          metadatos?: Json
           owner_id?: string | null
           programado_para?: string | null
           status?: Database["public"]["Enums"]["whatsapp_status"]
