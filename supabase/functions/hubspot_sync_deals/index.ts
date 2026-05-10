@@ -62,11 +62,11 @@ Deno.serve(async (req) => {
       .single();
     let after: string | undefined = state?.cursor || undefined;
 
-    // Reset si se pasó "reset=true" en body
+    // Reset si se pasó "reset=true" o "force_refresh=true" en body
     let reset = false;
     try {
       const b = await req.json().catch(() => ({}));
-      reset = !!b?.reset;
+      reset = !!b?.reset || !!b?.force_refresh;
     } catch { /* ignore */ }
     if (reset) after = undefined;
 
