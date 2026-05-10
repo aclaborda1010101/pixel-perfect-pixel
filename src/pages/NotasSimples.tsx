@@ -172,8 +172,8 @@ export default function NotasSimples() {
   const load = useCallback(async () => {
     setLoading(true);
     const [{ data: rowsData, error: rerr }, { data: kpiData, error: kerr }] = await Promise.all([
-      supabase.rpc("notas_simples_search", { ...rpcArgs, p_limit: PAGE_SIZE, p_offset: page * PAGE_SIZE }),
-      supabase.rpc("notas_simples_kpis", rpcArgs),
+      (supabase as any).rpc("notas_simples_search", { ...rpcArgs, p_limit: PAGE_SIZE, p_offset: page * PAGE_SIZE }),
+      (supabase as any).rpc("notas_simples_kpis", rpcArgs),
     ]);
     if (rerr) toast.error(rerr.message);
     if (kerr) toast.error(kerr.message);
@@ -256,7 +256,7 @@ export default function NotasSimples() {
 
   const exportCsv = async () => {
     setBusy(true);
-    const { data, error } = await supabase.rpc("notas_simples_search", {
+    const { data, error } = await (supabase as any).rpc("notas_simples_search", {
       ...rpcArgs, p_limit: 5000, p_offset: 0,
     });
     setBusy(false);
