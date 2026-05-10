@@ -13,10 +13,11 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Users, Building2, FileText, PhoneCall, MessageSquare, StickyNote, CheckSquare,
-  Mail, Plus, MapPin, Calendar, Sparkles, Crown, Briefcase, X, AlertTriangle, ChevronDown,
+  Mail, Plus, MapPin, Calendar, Sparkles, Crown, Briefcase, X, AlertTriangle, ChevronDown, Network,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AddOwnerToBuildingDialog, SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
+import { RelationshipGraph } from "@/components/graph/RelationshipGraph";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -257,6 +258,7 @@ export default function BuildingDetail() {
             <TabsTrigger value="comms">Comunicaciones {comms.length || ""}</TabsTrigger>
             <TabsTrigger value="deals">Deals</TabsTrigger>
             <TabsTrigger value="docs">Documentos</TabsTrigger>
+            <TabsTrigger value="grafo"><Network className="mr-1 h-3 w-3" /> Grafo</TabsTrigger>
           </TabsList>
         </div>
 
@@ -576,6 +578,40 @@ export default function BuildingDetail() {
         {/* DOCUMENTOS */}
         <TabsContent value="docs">
           <EmptyState icon={FileText} title="Documentos" description="Archivo notarial, ITE, escrituras y cuotas. Próximamente." />
+        </TabsContent>
+
+        {/* GRAFO */}
+        <TabsContent value="grafo">
+          <RelationshipGraph
+            center={{
+              kind: "building",
+              label: building.direccion,
+              sublabel: [building.ciudad, building.catastro_ref].filter(Boolean).join(" · "),
+            }}
+            owners={personas.map((p: any) => ({
+              id: p.owner_id ?? p.id,
+              kind: "owner" as const,
+              label: p.owner?.nombre ?? p.nombre ?? "Propietario",
+              sublabel: [p.subrole && p.subrole !== "ninguno" ? (SUBROLE_LABEL[p.subrole] ?? p.subrole) : null, p.cuota ? `${p.cuota}%` : null].filter(Boolean).join(" · "),
+              href: `/propietarios/${p.owner_id ?? p.id}`,
+              badge: p.es_influencer ? "influencer" : undefined,
+            }))}
+            companies={empresas.map((e: any) => ({
+              id: e.company_id ?? e.id,
+              kind: "company" as const,
+              label: e.company?.nombre ?? e.nombre ?? "Empresa",
+              sublabel: [e.role, e.percentage ? `${e.percentage}%` : null].filter(Boolean).join(" · "),
+              href: `/empresas/${e.company_id ?? e.id}`,
+            }))}
+            notas={notas.map((n: any) => ({
+              id: n.id,
+              kind: "nota" as const,
+              label: n.structured_json?.finca?.ref_catastral || "Nota simple",
+              sublabel: n.status,
+              href: `/notas-simples/${n.id}`,
+              badge: n.riesgo || undefined,
+            }))}
+          />
         </TabsContent>
       </Tabs>
     </div>

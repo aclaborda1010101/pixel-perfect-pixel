@@ -117,11 +117,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "assets_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
             foreignKeyName: "assets_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "owners"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assets_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
           },
         ]
       }
@@ -174,11 +188,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "building_companies_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
             foreignKeyName: "building_companies_company_id_fkey"
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_companies_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "v_company_graph"
+            referencedColumns: ["company_id"]
           },
         ]
       }
@@ -305,6 +333,13 @@ export type Database = {
             referencedRelation: "owners"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cadence_steps_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
         ]
       }
       calls: {
@@ -408,6 +443,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "owners"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calls_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
           },
         ]
       }
@@ -1276,6 +1318,13 @@ export type Database = {
             referencedRelation: "owners"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "next_actions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
         ]
       }
       nota_simple_titulares: {
@@ -1327,6 +1376,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "nota_simple_titulares_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "v_company_graph"
+            referencedColumns: ["company_id"]
+          },
+          {
             foreignKeyName: "nota_simple_titulares_nota_simple_id_fkey"
             columns: ["nota_simple_id"]
             isOneToOne: false
@@ -1339,6 +1395,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "owners"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nota_simple_titulares_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
           },
         ]
       }
@@ -1424,6 +1487,13 @@ export type Database = {
             referencedRelation: "owners"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "notes_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
         ]
       }
       org_settings: {
@@ -1490,11 +1560,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "owner_companies_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "v_company_graph"
+            referencedColumns: ["company_id"]
+          },
+          {
             foreignKeyName: "owner_companies_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "owners"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_companies_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
           },
         ]
       }
@@ -1544,11 +1628,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "owner_relations_owner_a_id_fkey"
+            columns: ["owner_a_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
             foreignKeyName: "owner_relations_owner_b_id_fkey"
             columns: ["owner_b_id"]
             isOneToOne: false
             referencedRelation: "owners"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_relations_owner_b_id_fkey"
+            columns: ["owner_b_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
           },
         ]
       }
@@ -1705,10 +1803,59 @@ export type Database = {
             referencedRelation: "owners"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "whatsapp_messages_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
         ]
       }
     }
     Views: {
+      v_building_graph: {
+        Row: {
+          building_id: string | null
+          ciudad: string | null
+          companies_count: number | null
+          direccion: string | null
+          estado: Database["public"]["Enums"]["building_status"] | null
+          influencers_count: number | null
+          notas_count: number | null
+          numero_propietarios: number | null
+          owners_count: number | null
+        }
+        Relationships: []
+      }
+      v_company_graph: {
+        Row: {
+          buildings_count: number | null
+          buyer_persona: Database["public"]["Enums"]["buyer_persona"] | null
+          cif: string | null
+          company_id: string | null
+          nombre: string | null
+          notas_count: number | null
+          owners_count: number | null
+        }
+        Relationships: []
+      }
+      v_owner_graph: {
+        Row: {
+          buildings_count: number | null
+          calls_count: number | null
+          companies_count: number | null
+          email: string | null
+          nombre: string | null
+          notas_count: number | null
+          owner_id: string | null
+          relations_count: number | null
+          rol: Database["public"]["Enums"]["owner_role"] | null
+          subrole: Database["public"]["Enums"]["owner_subrole"] | null
+          telefono: string | null
+        }
+        Relationships: []
+      }
       v_propietarios: {
         Row: {
           buyer_persona: string | null
@@ -1741,6 +1888,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      match_building_fuzzy: {
+        Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
+        Returns: string
+      }
       match_knowledge_chunks: {
         Args: {
           filter_scope_id?: string
@@ -1758,6 +1909,7 @@ export type Database = {
           similarity: number
         }[]
       }
+      normalize_catastro: { Args: { p: string }; Returns: string }
       notas_simples_kpis: {
         Args: {
           p_building_id?: string
