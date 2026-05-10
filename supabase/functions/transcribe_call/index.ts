@@ -198,16 +198,12 @@ Deno.serve(async (req) => {
   const force: boolean = !!body.force;
   const stateEntity = 'whisper_backfill';
 
-  const { data: st } = await supabase.from('hubspot_sync_state').select('cursor').eq('entity', stateEntity).maybeSingle();
-  const cursor = st?.cursor;
-
   let q = supabase.from('calls')
     .select('id, resumen, transcripcion_url, transcripcion_source, duracion_seg, fecha')
     .not('transcripcion_url', 'is', null)
     .order('fecha', { ascending: false })
     .limit(MAX_PER_RUN);
   if (!force) q = q.neq('transcripcion_source', 'whisper').neq('transcripcion_source', 'error');
-  if (cursor) q = q.lt('fecha', cursor);
 
   const { data: rows, error } = await q;
   if (error) {
@@ -233,7 +229,6 @@ Deno.serve(async (req) => {
   let pq = supabase.from('calls').select('id', { count: 'exact', head: true })
     .not('transcripcion_url', 'is', null);
   if (!force) pq = pq.neq('transcripcion_source', 'whisper').neq('transcripcion_source', 'error');
-  if (lastFecha) pq = pq.lt('fecha', lastFecha);
   const { count } = await pq;
   const pending = count || 0;
 
@@ -242,7 +237,7 @@ Deno.serve(async (req) => {
     last_run_at: new Date().toISOString(),
     last_run_status: pending > 0 && processed > 0 ? 'continuing' : 'done',
     total_synced: ok,
-    cursor: pending > 0 ? lastFecha : null,
+    cursor: null,
     metadatos: { processed, ok, fail, pending, last_chunk_ms: Date.now() - t0, errors_sample: errors },
   }, { onConflict: 'entity' });
 
