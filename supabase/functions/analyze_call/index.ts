@@ -24,7 +24,7 @@ function stripHtml(s: string): string {
 }
 
 function buildPrompt(transcript: string, dur: number): string {
-  return `Eres un analista experto en llamadas comerciales inmobiliarias en España. El texto que recibes puede ser (a) una transcripción literal de la llamada o (b) una nota post-llamada escrita por el propio comercial describiendo qué pasó. Adáptate a ambos casos. Devuelve EXCLUSIVAMENTE un JSON válido (sin texto adicional) con este schema:
+  return `Eres un analista experto en llamadas comerciales inmobiliarias en España. El texto que recibes puede ser (a) una transcripción DIARIZADA con prefijos [Comercial] y [Cliente] por turno, (b) una transcripción plana sin diarización, o (c) una nota post-llamada del comercial. Adáptate. Si tiene prefijos [Comercial]/[Cliente], úsalos como verdad para asignar quién dice qué. Devuelve EXCLUSIVAMENTE un JSON válido (sin texto adicional):
 
 {
   "outcome": "interesado|dudoso|no_interesado|no_contestado|agente_bloqueado|otro",
@@ -39,6 +39,7 @@ function buildPrompt(transcript: string, dur: number): string {
       "posicion_relativa": 0.0-1.0,
       "estado_cliente_antes": "cerrado|resistente|esceptico|dudoso|abierto",
       "trigger_frase": "frase LITERAL del comercial 1-2 oraciones",
+      "speaker": "comercial",
       "tactica": "preguntas_abiertas|neutralizacion_objecion|reframe|validacion_emocional|prueba_social|personalizacion|urgencia_legitima|escucha_activa|cierre_directo",
       "estado_cliente_despues": "curioso|considerando|comprometido|sigue_cerrado|cerrado_negativo",
       "impacto": "alto|medio|bajo",
@@ -50,7 +51,8 @@ function buildPrompt(transcript: string, dur: number): string {
 
 REGLAS CRÍTICAS SOBRE pivot_moments (ANÁLISIS CAUSAL — NO CORRELACIONAL):
 - Un "momento pivote" es un punto exacto donde el cliente CAMBIA DE ESTADO (resistente→considerando, escéptico→curioso, abierto→cerrado_negativo, etc.).
-- Si el texto es una transcripción: extrae la frase EXACTA y LITERAL del comercial justo antes del cambio (1–2 oraciones, sin parafrasear).
+- Si el texto está diarizado, el "trigger_frase" SIEMPRE debe ser un turno marcado [Comercial] inmediatamente anterior al cambio en el cliente. NUNCA uses turnos [Cliente] como trigger. El campo "speaker" siempre debe valer "comercial".
+- Si el texto es transcripción plana: extrae la frase EXACTA y LITERAL del comercial justo antes del cambio (1–2 oraciones, sin parafrasear).
 - Si el texto es una nota post-llamada: reconstruye la frase/argumento que el comercial dice haber usado y que provocó el cambio. Cítalo como frase reconstruida lo más fiel posible al original (1–2 oraciones), sin inventar datos.
 - Clasifica la táctica que usó el comercial (una sola, la dominante).
 - Indica estado del cliente ANTES y DESPUÉS de ese movimiento del comercial.
@@ -62,7 +64,7 @@ REGLAS CRÍTICAS SOBRE pivot_moments (ANÁLISIS CAUSAL — NO CORRELACIONAL):
 OTRAS REGLAS:
 - "agente_bloqueado" = portero/secretaria que filtra al propietario.
 - "no_contestado" = buzón, contestador, transcripción muy corta o vacía.
-- "ratio_comercial_cliente" = fracción del tiempo que habla el comercial (0..1).
+- "ratio_comercial_cliente" = fracción del tiempo que habla el comercial (0..1). Si el texto está diarizado, estímalo contando turnos/longitud de [Comercial] vs [Cliente].
 - "frases_clave_positivas" / "frases_clave_negativas": ya no se usan, omite estos campos.
 - Si transcripción < 200 chars: outcome="no_contestado", pivot_moments=[].
 
@@ -105,6 +107,7 @@ function sanitizePivot(p: any): any | null {
     posicion_relativa: Number.isFinite(p?.posicion_relativa) ? Math.max(0, Math.min(1, Number(p.posicion_relativa))) : 0.5,
     estado_cliente_antes: ea,
     trigger_frase: frase,
+    speaker: 'comercial',
     tactica,
     estado_cliente_despues: ed,
     impacto: imp,
@@ -137,6 +140,7 @@ async function analyzeOne(supabase: any, callRow: any): Promise<{ ok: boolean; e
   const t0 = Date.now();
   const transcript = (callRow.transcripcion || '').trim();
   const dur = callRow.duracion_seg || 0;
+  const stats = callRow?.metadatos?.speaker_stats || null;
 
   let parsed: any = null;
   let usage: any = {};
@@ -167,6 +171,10 @@ async function analyzeOne(supabase: any, callRow: any): Promise<{ ok: boolean; e
   }
 
   const clean = sanitize(parsed);
+  // Si tenemos diarización Deepgram, sobreescribimos ratio con el valor exacto medido.
+  if (stats?.ratio_comercial != null) {
+    (clean as any).ratio_comercial_cliente = Number(stats.ratio_comercial);
+  }
   const { error: upErr } = await supabase.from('calls').update({
     ...clean,
     analyzed_at: new Date().toISOString(),
@@ -201,7 +209,7 @@ Deno.serve(async (req) => {
   // SINGLE
   if (body.call_id) {
     const { data: c, error } = await supabase.from('calls')
-      .select('id, transcripcion, duracion_seg').eq('id', body.call_id).maybeSingle();
+      .select('id, transcripcion, duracion_seg, metadatos').eq('id', body.call_id).maybeSingle();
     if (error || !c) {
       return new Response(JSON.stringify({ ok: false, error: error?.message || 'not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -216,7 +224,7 @@ Deno.serve(async (req) => {
   const stateEntity = force ? 'analyze_calls_recall' : 'analyze_calls';
 
   let q = supabase.from('calls')
-    .select('id, transcripcion, duracion_seg, fecha')
+    .select('id, transcripcion, duracion_seg, fecha, metadatos')
     .not('transcripcion', 'is', null)
     .order('fecha', { ascending: false })
     .limit(MAX_PER_RUN);
