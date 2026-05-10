@@ -96,8 +96,7 @@ Deno.serve(async (req) => {
 
   try {
     while (pages < maxPages) {
-      const qs = new URLSearchParams({ limit: String(PAGE_LIMIT), type: 'FILE', sort: '-createdAt' });
-      // FILE type covers all; we filter by .pdf extension and name regex client-side
+      const qs = new URLSearchParams({ limit: String(PAGE_LIMIT) });
       if (after) qs.set('after', after);
       const res: any = await hubspotFetch(`/files/v3/files?${qs.toString()}`);
       const items: any[] = Array.isArray(res?.results) ? res.results : [];
