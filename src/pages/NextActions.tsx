@@ -43,6 +43,17 @@ export default function NextActions() {
     finally { setRunning(false); }
   };
 
+  const recalcularHygiene = async () => {
+    setRunning(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("detect_pipeline_hygiene", { body: {} });
+      if (error) throw error;
+      toast.success(`Hygiene: ${data?.total_problems ?? 0} problemas en ${data?.with_problems ?? 0} edificios`);
+      await load();
+    } catch (e:any) { toast.error(e.message || "Error"); }
+    finally { setRunning(false); }
+  };
+
   const origenes = useMemo(() => Array.from(new Set(rows.map(r=>r.origen).filter(Boolean))) as string[], [rows]);
   const filtered = rows.filter(r => {
     if (filtroOrigen !== "todos" && r.origen !== filtroOrigen) return false;
@@ -57,7 +68,10 @@ export default function NextActions() {
           <h1 className="text-2xl font-semibold">Próximas acciones</h1>
           <p className="text-sm text-muted-foreground">{filtered.length} de {rows.length} acciones</p>
         </div>
-        <Button onClick={recalcular} disabled={running}>{running ? "Recalculando…" : "Recalcular"}</Button>
+        <div className="flex gap-2">
+          <Button onClick={recalcular} disabled={running} variant="outline">{running ? "…" : "Recalcular Stale"}</Button>
+          <Button onClick={recalcularHygiene} disabled={running}>{running ? "…" : "Recalcular Hygiene"}</Button>
+        </div>
       </div>
 
       <div className="flex gap-2 text-sm">
