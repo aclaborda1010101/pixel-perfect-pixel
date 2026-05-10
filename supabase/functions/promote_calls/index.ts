@@ -31,15 +31,26 @@ Deno.serve(async (req) => {
   try {
     // existing promoted hs_ids: stored in calls.transcripcion_url? We use a dedicated marker:
     // we store hs_call_id at the start of resumen as `[hs:<id>]` to allow idempotency without a column.
-    const { data: existingRows } = await supabase
-      .from('calls')
-      .select('resumen')
-      .ilike('resumen', '[hs:%');
     const existing = new Set<string>();
-    (existingRows || []).forEach((r) => {
-      const m = (r.resumen || '').match(/^\[hs:([^\]]+)\]/);
-      if (m) existing.add(m[1]);
-    });
+    {
+      const PAGE = 1000;
+      let from = 0;
+      while (true) {
+        const { data: rows, error } = await supabase
+          .from('calls')
+          .select('resumen')
+          .ilike('resumen', '[hs:%')
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (!rows || rows.length === 0) break;
+        for (const r of rows) {
+          const m = (r.resumen || '').match(/^\[hs:([^\]]+)\]/);
+          if (m) existing.add(m[1]);
+        }
+        if (rows.length < PAGE) break;
+        from += PAGE;
+      }
+    }
 
     let cursor: string | null = null;
     for (let b = 0; b < MAX_BATCHES; b++) {
