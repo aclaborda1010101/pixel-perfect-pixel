@@ -78,10 +78,13 @@ export default function NextActions() {
         {(["todas","alta","media","baja"] as const).map(u => (
           <button key={u} onClick={()=>setFiltroUrg(u)} className={`px-3 py-1 rounded-full border ${filtroUrg===u?"bg-primary text-primary-foreground":"bg-surface-1"}`}>{u}</button>
         ))}
-        <select value={filtroOrigen} onChange={e=>setFiltroOrigen(e.target.value)} className="px-2 py-1 rounded border bg-background ml-2">
-          <option value="todos">Todos los orígenes</option>
-          {origenes.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
+        <div className="ml-2 flex gap-2">
+          {(["todos","stale_deal_reviver","pipeline_hygiene"] as const).map(o => (
+            <button key={o} onClick={()=>setFiltroOrigen(o)} className={`px-3 py-1 rounded-full border ${filtroOrigen===o?"bg-primary text-primary-foreground":"bg-surface-1"}`}>
+              {o==="todos"?"Todos":o==="stale_deal_reviver"?"Stale Deal Reviver":"Pipeline Hygiene"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <Table>

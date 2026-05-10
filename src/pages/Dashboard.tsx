@@ -36,7 +36,7 @@ const sentimentMeta = {
 
 export default function Dashboard() {
   const { t } = useI18n();
-  const [k, setK] = useState({ pendingAnalysis: 0, pendingActions: 0, uncataloged: 0 });
+  const [k, setK] = useState({ pendingAnalysis: 0, pendingActions: 0, uncataloged: 0, hygieneIssues: 0 });
   const [recent, setRecent] = useState<any[]>([]);
   const [sync, setSync] = useState({
     buildings: 0, owners: 0, companies: 0, calls: 0, callsAnalizables: 0,
@@ -45,10 +45,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     (async () => {
-      const [a, b, c, r] = await Promise.all([
+      const [a, b, c, h, r] = await Promise.all([
         supabase.from("calls").select("id", { count: "exact", head: true }).is("resumen", null),
         supabase.from("next_actions").select("id", { count: "exact", head: true }).eq("estado", "pendiente"),
         supabase.from("owners").select("id", { count: "exact", head: true }).eq("rol", "desconocido"),
+        supabase.from("next_actions").select("id", { count: "exact", head: true }).eq("origen", "pipeline_hygiene").eq("estado","pendiente"),
         supabase.from("calls").select("id, fecha, duracion_seg, resumen, owner_id, owners(nombre)")
           .order("fecha", { ascending: false }).limit(6),
       ]);
@@ -56,6 +57,7 @@ export default function Dashboard() {
         pendingAnalysis: a.count ?? 0,
         pendingActions: b.count ?? 0,
         uncataloged: c.count ?? 0,
+        hygieneIssues: h.count ?? 0,
       });
       setRecent(r.data ?? []);
 
@@ -109,6 +111,15 @@ export default function Dashboard() {
       delta: "+5",
       trend: "up" as const,
       hint: "nuevos esta semana",
+    },
+    {
+      label: "Pipeline Hygiene",
+      value: k.hygieneIssues,
+      icon: ListChecks,
+      to: "/next-actions",
+      delta: "deals",
+      trend: "up" as const,
+      hint: "Problemas detectados",
     },
   ];
 
