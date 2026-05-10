@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -15,23 +16,51 @@ import { BetaBanner } from "@/components/common/BetaBanner";
 import { NewInvestorDialog } from "@/components/forms/NewEntityDialogs";
 import { Briefcase, Search } from "lucide-react";
 
+const PAGE_SIZE = 500;
+
 // Inversores = owners cuyo metadatos->>'tipo_de_inversor' viene poblado desde HubSpot.
-// La tabla `investors` queda como cartera manual auxiliar (vacía a día de hoy).
+// Carga vía RPC paginada para evitar el límite default de PostgREST (1000 filas).
 export default function Investors() {
   const { t } = useI18n();
   const [rows, setRows] = useState<any[]>([]);
   const [q, setQ] = useState("");
-  const load = async () => {
-    const { data } = await supabase
-      .from("owners")
-      .select("id, nombre, telefono, email, metadatos, updated_at")
-      .not("metadatos->>tipo_de_inversor", "is", null)
-      .neq("metadatos->>tipo_de_inversor", "")
-      .order("updated_at", { ascending: false })
-      .limit(5000);
-    setRows(data ?? []);
+  const [search, setSearch] = useState("");
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  const load = async (searchTerm: string) => {
+    setLoading(true);
+    try {
+      const all: any[] = [];
+      let offset = 0;
+      let totalCount = 0;
+      // Loop until we have all rows; each call also returns total_count.
+      // Safety cap at 50 pages (=25k rows).
+      for (let i = 0; i < 50; i++) {
+        const { data, error } = await supabase.rpc("rpc_inversores_paginated", {
+          p_search: searchTerm || null,
+          p_limit: PAGE_SIZE,
+          p_offset: offset,
+        });
+        if (error) { console.error("rpc_inversores_paginated", error); break; }
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        totalCount = Number(data[0]?.total_count ?? 0);
+        if (all.length >= totalCount) break;
+        offset += PAGE_SIZE;
+      }
+      setTotal(totalCount);
+      setRows(all);
+    } finally {
+      setLoading(false);
+    }
   };
-  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const handle = setTimeout(() => load(search), search ? 250 : 0);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const filtered = useMemo(
     () => rows.filter((i) => {
@@ -60,25 +89,36 @@ export default function Investors() {
       <PageHeader
         eyebrow="Cartera · Inversores"
         title={t.nav.investors}
-        subtitle={`${rows.length} inversores en CRM`}
-        actions={<NewInvestorDialog onCreated={load} />}
+        subtitle={loading ? "Cargando…" : `${total.toLocaleString("es-ES")} inversores en CRM · mostrando ${rows.length.toLocaleString("es-ES")}`}
+        actions={<NewInvestorDialog onCreated={() => load(search)} />}
       />
       <BetaBanner />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card><div className="p-5"><Eyebrow>Total inversores</Eyebrow><div className="mt-2"><MetricValue size="lg">{rows.length}</MetricValue></div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Total inversores</Eyebrow><div className="mt-2"><MetricValue size="lg">{total.toLocaleString("es-ES")}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Con capital declarado</Eyebrow><div className="mt-2"><MetricValue size="lg">{conCapital}</MetricValue></div></div></Card>
         <Card><div className="p-5"><Eyebrow>Tipologías cubiertas</Eyebrow><div className="mt-2"><MetricValue size="lg">{tipologias.size}</MetricValue></div></div></Card>
       </div>
 
-      {rows.length === 0 ? (
+      {rows.length === 0 && !loading ? (
         <EmptyState icon={Briefcase} title="Sin inversores en cartera" description="Crea inversores para empezar a generar matches con tus activos." />
       ) : (
         <Card className="overflow-hidden">
           <div className="flex flex-wrap items-center gap-3 border-b border-border-faint px-4 py-3">
             <div className="relative flex-1 min-w-[220px] max-w-sm">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar inversor…" className="h-8 pl-8 text-sm" />
+              <Input
+                value={q}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setSearch(e.target.value);
+                }}
+                placeholder="Buscar inversor…"
+                className="h-8 pl-8 text-sm"
+              />
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {loading ? "Cargando…" : `${filtered.length.toLocaleString("es-ES")} resultados`}
             </div>
           </div>
           {/* Mobile cards */}
