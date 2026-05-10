@@ -15,20 +15,45 @@ import { BetaBanner } from "@/components/common/BetaBanner";
 import { NewInvestorDialog } from "@/components/forms/NewEntityDialogs";
 import { Briefcase, Search } from "lucide-react";
 
+// Inversores = owners cuyo metadatos->>'tipo_de_inversor' viene poblado desde HubSpot.
+// La tabla `investors` queda como cartera manual auxiliar (vacía a día de hoy).
 export default function Investors() {
   const { t } = useI18n();
   const [rows, setRows] = useState<any[]>([]);
   const [q, setQ] = useState("");
-  const load = () => supabase.from("investors").select("*").order("updated_at", { ascending: false })
-    .then(({ data }) => setRows(data ?? []));
+  const load = async () => {
+    const { data } = await supabase
+      .from("owners")
+      .select("id, nombre, telefono, email, metadatos, updated_at")
+      .not("metadatos->>tipo_de_inversor", "is", null)
+      .neq("metadatos->>tipo_de_inversor", "")
+      .order("updated_at", { ascending: false })
+      .limit(5000);
+    setRows(data ?? []);
+  };
   useEffect(() => { load(); }, []);
 
   const filtered = useMemo(
-    () => rows.filter((i) => (i.nombre ?? "").toLowerCase().includes(q.toLowerCase())),
+    () => rows.filter((i) => {
+      const term = q.toLowerCase();
+      if (!term) return true;
+      return (
+        (i.nombre ?? "").toLowerCase().includes(term) ||
+        ((i.metadatos?.tipo_de_inversor ?? "") as string).toLowerCase().includes(term) ||
+        ((i.metadatos?.distrito_zona ?? "") as string).toLowerCase().includes(term)
+      );
+    }),
     [rows, q],
   );
 
-  const totalTicketMax = rows.reduce((a, r) => a + (Number(r.ticket_max) || 0), 0);
+  const tipologias = useMemo(
+    () => new Set(rows.map((r) => r.metadatos?.tipo_de_inversor).filter(Boolean)),
+    [rows],
+  );
+  const conCapital = useMemo(
+    () => rows.filter((r) => (r.metadatos?.capital_de_inversion ?? "") !== "").length,
+    [rows],
+  );
 
   return (
     <div className="space-y-6">
@@ -42,8 +67,8 @@ export default function Investors() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card><div className="p-5"><Eyebrow>Total inversores</Eyebrow><div className="mt-2"><MetricValue size="lg">{rows.length}</MetricValue></div></div></Card>
-        <Card><div className="p-5"><Eyebrow>Capital agregado (max)</Eyebrow><div className="mt-2"><MetricValue size="lg" unit="€">{totalTicketMax.toLocaleString()}</MetricValue></div></div></Card>
-        <Card><div className="p-5"><Eyebrow>Tipologías cubiertas</Eyebrow><div className="mt-2"><MetricValue size="lg">{new Set(rows.flatMap((r) => r.tipos_activo ?? [])).size}</MetricValue></div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Con capital declarado</Eyebrow><div className="mt-2"><MetricValue size="lg">{conCapital}</MetricValue></div></div></Card>
+        <Card><div className="p-5"><Eyebrow>Tipologías cubiertas</Eyebrow><div className="mt-2"><MetricValue size="lg">{tipologias.size}</MetricValue></div></div></Card>
       </div>
 
       {rows.length === 0 ? (
@@ -65,27 +90,26 @@ export default function Investors() {
                   <div className="text-base font-medium text-foreground break-words">{i.nombre}</div>
                 </div>
                 <div>
-                  <Eyebrow>Tipos de activo</Eyebrow>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {(i.tipos_activo ?? []).map((tp: string) => (
-                      <Badge key={tp} variant="outline">{tp}</Badge>
-                    ))}
-                    {(!i.tipos_activo || i.tipos_activo.length === 0) && <span className="text-xs text-muted-foreground">—</span>}
+                  <Eyebrow>Tipo</Eyebrow>
+                  <div className="mt-1.5">
+                    {i.metadatos?.tipo_de_inversor
+                      ? <Badge variant="outline">{i.metadatos.tipo_de_inversor}</Badge>
+                      : <span className="text-xs text-muted-foreground">—</span>}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <Eyebrow>Ticket min</Eyebrow>
-                    <div className="font-mono tabular-nums text-foreground">{i.ticket_min ? `${Number(i.ticket_min).toLocaleString()} €` : "—"}</div>
+                    <Eyebrow>Capital</Eyebrow>
+                    <div className="text-foreground break-words">{i.metadatos?.capital_de_inversion || "—"}</div>
                   </div>
                   <div className="text-right">
-                    <Eyebrow>Ticket max</Eyebrow>
-                    <div className="font-mono tabular-nums text-foreground">{i.ticket_max ? `${Number(i.ticket_max).toLocaleString()} €` : "—"}</div>
+                    <Eyebrow>Zona</Eyebrow>
+                    <div className="text-foreground break-words">{i.metadatos?.distrito_zona || "—"}</div>
                   </div>
                 </div>
                 <div>
-                  <Eyebrow>Ciudades</Eyebrow>
-                  <div className="text-sm text-muted-foreground break-words">{(i.ciudades ?? []).join(", ") || "—"}</div>
+                  <Eyebrow>Contacto</Eyebrow>
+                  <div className="text-sm text-muted-foreground break-words">{[i.telefono, i.email].filter(Boolean).join(" · ") || "—"}</div>
                 </div>
               </li>
             ))}
@@ -95,10 +119,10 @@ export default function Investors() {
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
                 <TableHead className="min-w-[220px]">Inversor</TableHead>
-                <TableHead>Tipos de activo</TableHead>
-                <TableHead className="text-right">Ticket min</TableHead>
-                <TableHead className="text-right">Ticket max</TableHead>
-                <TableHead>Ciudades</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Capital</TableHead>
+                <TableHead>Zona / Distrito</TableHead>
+                <TableHead>Contacto</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -106,22 +130,13 @@ export default function Investors() {
                 <TableRow key={i.id} className="bg-card">
                   <TableCell className="font-medium text-foreground">{i.nombre}</TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {(i.tipos_activo ?? []).map((tp: string) => (
-                        <Badge key={tp} variant="outline">{tp}</Badge>
-                      ))}
-                      {(!i.tipos_activo || i.tipos_activo.length === 0) && <span className="text-muted-foreground">—</span>}
-                    </div>
+                    {i.metadatos?.tipo_de_inversor
+                      ? <Badge variant="outline">{i.metadatos.tipo_de_inversor}</Badge>
+                      : <span className="text-muted-foreground">—</span>}
                   </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {i.ticket_min ? <>{Number(i.ticket_min).toLocaleString()}<span className="ml-1 text-muted-foreground">€</span></> : "—"}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    {i.ticket_max ? <>{Number(i.ticket_max).toLocaleString()}<span className="ml-1 text-muted-foreground">€</span></> : "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {(i.ciudades ?? []).join(", ") || "—"}
-                  </TableCell>
+                  <TableCell className="text-foreground">{i.metadatos?.capital_de_inversion || "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{i.metadatos?.distrito_zona || "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{[i.telefono, i.email].filter(Boolean).join(" · ") || "—"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
