@@ -1,34 +1,33 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Crumbs } from "@/components/common/Crumbs";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
-import { StatusBadge } from "@/components/common/StatusBadge";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Users, Boxes, PhoneCall, X, Mail, FileText, Plus, MapPin, CheckCircle2,
-  Calendar, PenSquare, PhoneOutgoing, Sparkles, Crown,
+  Users, Building2, FileText, PhoneCall, MessageSquare, StickyNote, CheckSquare,
+  Mail, Plus, MapPin, Calendar, Sparkles, Crown, Briefcase, X, AlertTriangle, ChevronDown,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AddOwnerToBuildingDialog, NewAssetDialog, SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
+import { AddOwnerToBuildingDialog, SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-function Chip({ children, tone = "default" }: { children: React.ReactNode; tone?: "default" | "gold" | "warning" }) {
+const PAGE_SIZE = 50;
+
+function Chip({ children, tone = "default" }: { children: React.ReactNode; tone?: "default" | "gold" | "warning" | "danger" }) {
   const cls =
-    tone === "gold"
-      ? "border-gold/60 bg-gold-soft/40 text-gold"
-      : tone === "warning"
-      ? "border-warning/40 bg-warning-soft/40 text-warning"
-      : "border-border text-muted-foreground";
+    tone === "gold" ? "border-gold/60 bg-gold-soft/40 text-gold"
+    : tone === "warning" ? "border-warning/40 bg-warning-soft/40 text-warning"
+    : tone === "danger" ? "border-destructive/40 bg-destructive/10 text-destructive"
+    : "border-border text-muted-foreground";
   return (
     <span className={cn("rounded-[3px] border px-2 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow", cls)}>
       {children}
@@ -36,36 +35,18 @@ function Chip({ children, tone = "default" }: { children: React.ReactNode; tone?
   );
 }
 
-// --- Mocks consistentes (Serrano 85) usados cuando no hay datos reales ---
-const MOCK_UNITS = [
-  { unidad: "1ºA", tipo: "Vivienda", m2: 112, propietarios: "F. Iturri", estado: "Sin contactar", cuota: "—" },
-  { unidad: "1ºB", tipo: "Vivienda", m2: 108, propietarios: "Hdros. Salinas (3)", estado: "Negociación", cuota: "—" },
-  { unidad: "2ºC", tipo: "Vivienda", m2: 134, propietarios: "Inmobiliaria Recoletos SL", estado: "Firmado", cuota: "12,5%" },
-  { unidad: "2ºD", tipo: "Vivienda", m2: 138, propietarios: "Antonio López", estado: "Firmado", cuota: "12,5%" },
-  { unidad: "3ºA", tipo: "Vivienda", m2: 142, propietarios: "Patrimonios Madrid SA", estado: "Firmado", cuota: "12,5%" },
-  { unidad: "3ºB", tipo: "Vivienda", m2: 140, propietarios: "Mª Carmen Ruiz", estado: "Negociación", cuota: "—" },
-  { unidad: "4ºA", tipo: "Vivienda", m2: 156, propietarios: "Hdros. Quintana (2)", estado: "Contactado", cuota: "—" },
-  { unidad: "Ático", tipo: "Vivienda", m2: 124, propietarios: "Sin localizar", estado: "Sin contactar", cuota: "—" },
-  { unidad: "Bajo", tipo: "Local", m2: 191, propietarios: "Comunidad", estado: "—", cuota: "—" },
-];
+function fmtEUR(n: number | null | undefined) {
+  if (n == null || !isFinite(Number(n))) return "—";
+  const v = Number(n);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M€`;
+  return `${v.toLocaleString("es-ES", { maximumFractionDigits: 0 })} €`;
+}
+function fmtDate(d?: string | null) { return d ? new Date(d).toLocaleDateString("es-ES") : "—"; }
+function fmtDateTime(d?: string | null) { return d ? new Date(d).toLocaleString("es-ES") : "—"; }
 
-const MOCK_TEAM = [
-  { ini: "AQ", nombre: "Álvaro Quintana", rol: "Lead" },
-  { ini: "MR", nombre: "Marta Romero", rol: "KYC" },
-  { ini: "LM", nombre: "Lucía Molina", rol: "Cadencias" },
-];
-
-const MOCK_NEXT_ACTIONS = [
-  { Icon: PhoneOutgoing, kind: "Llamada", who: "Mª Carmen Ruiz", where: "3ºB", note: "revisar cuota", when: "HOY 10:30" },
-  { Icon: PenSquare, kind: "Firma", who: "Antonio López", where: "2ºD", note: "Notaría Romero", when: "HOY 12:00" },
-  { Icon: Calendar, kind: "Cita", who: "F. Iturri", where: "1ºA", note: "objeción precio", when: "MAR" },
-];
-
-const ESTADO_TONE: Record<string, "gold" | "warning" | "default"> = {
-  Firmado: "gold",
-  Negociación: "warning",
-  Contactado: "default",
-  "Sin contactar": "default",
+type CommItem = {
+  id: string; kind: "call" | "whatsapp" | "note" | "task";
+  fecha: string; titulo: string; cuerpo: string; owner_id?: string | null; link?: string;
 };
 
 export default function BuildingDetail() {
@@ -73,30 +54,71 @@ export default function BuildingDetail() {
   const { t } = useI18n();
   const [building, setBuilding] = useState<any>(null);
   const [bos, setBos] = useState<any[]>([]);
-  const [assets, setAssets] = useState<any[]>([]);
+  const [bcs, setBcs] = useState<any[]>([]);
+  const [notas, setNotas] = useState<any[]>([]);
   const [calls, setCalls] = useState<any[]>([]);
+  const [whats, setWhats] = useState<any[]>([]);
+  const [ownerNotes, setOwnerNotes] = useState<any[]>([]);
+  const [hsTasks, setHsTasks] = useState<any[]>([]);
+  const [nextActions, setNextActions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // pagination per tab
+  const [showPersonas, setShowPersonas] = useState(PAGE_SIZE);
+  const [showEmpresas, setShowEmpresas] = useState(PAGE_SIZE);
+  const [showNotas, setShowNotas] = useState(PAGE_SIZE);
+  const [showComms, setShowComms] = useState(PAGE_SIZE);
 
   const load = useCallback(async () => {
     if (!id) return;
+    setLoading(true);
     const { data: b } = await supabase.from("buildings").select("*").eq("id", id).maybeSingle();
     setBuilding(b);
-    const { data: bo } = await supabase
-      .from("building_owners")
-      .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono)")
-      .eq("building_id", id);
+
+    const [{ data: bo }, { data: bc }, { data: ns }, { data: na }] = await Promise.all([
+      supabase.from("building_owners")
+        .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona)")
+        .eq("building_id", id),
+      supabase.from("building_companies")
+        .select("id, role, percentage, fecha_inicio, fecha_fin, source, company:company_id(id, nombre, cif, email, telefono)")
+        .eq("building_id", id),
+      supabase.from("notas_simples")
+        .select("id, status, riesgo, processed_at, created_at, file_url, structured_json")
+        .eq("building_id", id)
+        .order("created_at", { ascending: false }),
+      supabase.from("next_actions")
+        .select("id, titulo, detalle, vencimiento, estado, scope_type, scope_id")
+        .eq("scope_type", "building").eq("scope_id", id)
+        .order("vencimiento", { ascending: true, nullsFirst: false }).limit(20),
+    ]);
     setBos(bo ?? []);
-    const { data: ass } = await supabase.from("assets").select("*").eq("building_id", id);
-    setAssets(ass ?? []);
+    setBcs(bc ?? []);
+    setNotas(ns ?? []);
+    setNextActions(na ?? []);
+
     const ownerIds = (bo ?? []).map((r: any) => r.owner_id);
     if (ownerIds.length) {
-      const { data: cs } = await supabase
-        .from("calls")
-        .select("id, owner_id, fecha, resumen, direccion")
-        .in("owner_id", ownerIds)
-        .order("fecha", { ascending: false })
-        .limit(50);
+      const [{ data: cs }, { data: ws }, { data: nts }] = await Promise.all([
+        supabase.from("calls")
+          .select("id, owner_id, fecha, resumen, direccion, duracion_seg")
+          .in("owner_id", ownerIds).order("fecha", { ascending: false }).limit(500),
+        supabase.from("whatsapp_messages")
+          .select("id, owner_id, enviado_at, created_at, cuerpo, direccion, status")
+          .in("owner_id", ownerIds).order("created_at", { ascending: false }).limit(500),
+        supabase.from("notes")
+          .select("id, owner_id, texto, etiquetas, created_at")
+          .in("owner_id", ownerIds).order("created_at", { ascending: false }).limit(500),
+      ]);
       setCalls(cs ?? []);
-    } else setCalls([]);
+      setWhats(ws ?? []);
+      setOwnerNotes(nts ?? []);
+
+      // hubspot_tasks via owner email/phone is fuzzy; skip unless owner has hubspot id in metadatos
+      setHsTasks([]);
+    } else {
+      setCalls([]); setWhats([]); setOwnerNotes([]); setHsTasks([]);
+    }
+    setLoading(false);
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
@@ -104,10 +126,8 @@ export default function BuildingDetail() {
   const removeOwner = async (ownerId: string) => {
     const { error } = await supabase.from("building_owners").delete().eq("building_id", id).eq("owner_id", ownerId);
     if (error) return toast.error(error.message);
-    toast.success("Propietario quitado");
-    load();
+    toast.success("Propietario quitado"); load();
   };
-
   const recalcInfluencers = async () => {
     toast.info("Calculando influencer…");
     const { data, error } = await supabase.functions.invoke("detect_influencers", { body: { building_id: id } });
@@ -116,21 +136,62 @@ export default function BuildingDetail() {
     load();
   };
 
-  if (!building) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
+  // Derivados
+  const comms: CommItem[] = useMemo(() => {
+    const items: CommItem[] = [];
+    for (const c of calls) items.push({
+      id: `c-${c.id}`, kind: "call",
+      fecha: c.fecha, titulo: `Llamada ${c.direccion ?? ""}`.trim(),
+      cuerpo: c.resumen ?? "(sin resumen)", owner_id: c.owner_id, link: `/llamadas/${c.id}`,
+    });
+    for (const w of whats) items.push({
+      id: `w-${w.id}`, kind: "whatsapp",
+      fecha: w.enviado_at ?? w.created_at, titulo: `WhatsApp · ${w.status ?? "—"}`,
+      cuerpo: w.cuerpo ?? "", owner_id: w.owner_id,
+    });
+    for (const n of ownerNotes) items.push({
+      id: `n-${n.id}`, kind: "note",
+      fecha: n.created_at, titulo: "Nota interna",
+      cuerpo: n.texto ?? "", owner_id: n.owner_id,
+    });
+    for (const t of hsTasks) items.push({
+      id: `t-${t.id}`, kind: "task",
+      fecha: t.hs_timestamp ?? t.hs_createdate, titulo: t.hs_task_subject ?? "Tarea",
+      cuerpo: t.hs_task_body ?? "",
+    });
+    return items.sort((a, b) => +new Date(b.fecha || 0) - +new Date(a.fecha || 0));
+  }, [calls, whats, ownerNotes, hsTasks]);
+
+  const ownerNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    bos.forEach((r) => m.set(r.owner_id, r.owners?.nombre ?? "—"));
+    return m;
+  }, [bos]);
+
+  const ultimoContacto = comms[0];
+  const proximaAccion = nextActions.find((a) => a.estado !== "completada") ?? null;
+
+  const hipotecasActivas = useMemo(() => {
+    let total = 0; let count = 0; const acreedores = new Set<string>();
+    for (const n of notas) {
+      const cargas = (n.structured_json?.cargas ?? []) as any[];
+      for (const c of cargas) {
+        if (/hipoteca/i.test(c.tipo ?? "") && !/cancelad/i.test(c.notas ?? "")) {
+          const imp = Number(c.importe); if (isFinite(imp)) total += imp;
+          count++;
+          if (c.acreedor) acreedores.add(c.acreedor);
+        }
+      }
+    }
+    return { total, count, acreedores: Array.from(acreedores) };
+  }, [notas]);
+
+  if (loading || !building) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
   const existingOwnerIds = bos.map((r) => r.owner_id);
   const totalCuota = bos.reduce((a, r) => a + (Number(r.cuota) || 0), 0);
-
-  // KPIs derivados (con fallback a mocks consistentes Serrano 85)
-  const unidadesViv = assets.filter((a: any) => /vivienda/i.test(a.tipo ?? "")).length || 8;
-  const unidadesLoc = assets.filter((a: any) => /local/i.test(a.tipo ?? "")).length || 1;
-  const m2Total = assets.reduce((s: number, a: any) => s + (Number(a.superficie_m2) || 0), 0) || 1245;
-  const propietariosTotal = bos.length || 11;
-  const personasFis = bos.filter((r) => /fisica|física|persona/i.test(r.owners?.rol ?? "")).length || 9;
-  const sociedades = Math.max(propietariosTotal - personasFis, 0) || 2;
-  const pctAdq = totalCuota || 37.5;
-  const unidadesFirmadas = 3;
-  const valorEstimado = 6_450_000;
+  const personas = bos;
+  const empresas = bcs;
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -139,7 +200,7 @@ export default function BuildingDetail() {
       <PageHeader
         eyebrow={`Edificio · ${building.ciudad ?? "Madrid"}`}
         title={building.direccion}
-        subtitle={`${building.ciudad ?? "Madrid"}${building.codigo_postal ? ` · ${building.codigo_postal}` : ""}`}
+        subtitle={`${building.ciudad ?? "Madrid"}${building.codigo_postal ? ` · ${building.codigo_postal}` : ""}${building.catastro_ref ? ` · ${building.catastro_ref}` : ""}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm"><Mail className="h-4 w-4" />Email</Button>
@@ -149,388 +210,374 @@ export default function BuildingDetail() {
         }
       />
 
-      {/* Chips eyebrow bajo el header */}
       <div className="flex flex-wrap items-center gap-2">
-        <Chip>1928 · catalogado</Chip>
-        <Chip tone="warning">Negociación · 3/8 firmadas</Chip>
-        <Chip tone="gold">ITE vigente · 2031</Chip>
-        {building.division_horizontal && <Chip tone="gold">DH</Chip>}
         <Chip>{building.estado}</Chip>
+        {building.division_horizontal && <Chip tone="gold">División horizontal</Chip>}
+        {building.numero_propietarios != null && <Chip>{building.numero_propietarios} propietarios</Chip>}
+        {hipotecasActivas.count > 0 && <Chip tone="warning">{hipotecasActivas.count} hipoteca{hipotecasActivas.count > 1 ? "s" : ""}</Chip>}
+        {notas.some((n) => n.riesgo === "alto") && <Chip tone="danger">Riesgo alto</Chip>}
       </div>
 
-      {/* KPIs */}
+      {/* KPIs reales */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
         <Card><CardContent className="p-5">
-          <Eyebrow>Unidades</Eyebrow>
-          <div className="mt-2"><MetricValue size="lg">{unidadesViv + unidadesLoc}</MetricValue></div>
-          <p className="mt-1 text-xs text-muted-foreground">{unidadesViv} viviendas + {unidadesLoc} local</p>
+          <Eyebrow>Personas</Eyebrow>
+          <div className="mt-2"><MetricValue size="lg">{personas.length}</MetricValue></div>
+          <p className="mt-1 text-xs text-muted-foreground">propietarios físicos</p>
         </CardContent></Card>
         <Card><CardContent className="p-5">
-          <Eyebrow>m² totales</Eyebrow>
-          <div className="mt-2"><MetricValue size="lg">{m2Total.toLocaleString("es-ES")}</MetricValue></div>
-          <p className="mt-1 text-xs text-muted-foreground">catastral</p>
+          <Eyebrow>Empresas</Eyebrow>
+          <div className="mt-2"><MetricValue size="lg">{empresas.length}</MetricValue></div>
+          <p className="mt-1 text-xs text-muted-foreground">titulares jurídicos</p>
         </CardContent></Card>
         <Card><CardContent className="p-5">
-          <Eyebrow>Propietarios</Eyebrow>
-          <div className="mt-2"><MetricValue size="lg">{propietariosTotal}</MetricValue></div>
-          <p className="mt-1 text-xs text-muted-foreground">{personasFis} personas físicas · {sociedades} sociedades</p>
+          <Eyebrow>Cuota total</Eyebrow>
+          <div className="mt-2"><MetricValue size="lg" unit="%">{totalCuota.toFixed(0)}</MetricValue></div>
+          <p className="mt-1 text-xs text-muted-foreground">sumatorio cuotas</p>
         </CardContent></Card>
         <Card><CardContent className="p-5">
-          <Eyebrow>% Adquirido</Eyebrow>
-          <div className="mt-2"><MetricValue size="lg" unit="%">{pctAdq.toString().replace(".", ",")}</MetricValue></div>
-          <p className="mt-1 text-xs text-muted-foreground">{unidadesFirmadas} unidades firmadas</p>
+          <Eyebrow>Hipotecas activas</Eyebrow>
+          <div className="mt-2"><MetricValue size="lg">{fmtEUR(hipotecasActivas.total)}</MetricValue></div>
+          <p className="mt-1 text-xs text-muted-foreground">{hipotecasActivas.count} carga{hipotecasActivas.count === 1 ? "" : "s"}</p>
         </CardContent></Card>
         <Card><CardContent className="p-5">
-          <Eyebrow>Valor estimado</Eyebrow>
-          <div className="mt-2"><MetricValue size="lg">{(valorEstimado / 1_000_000).toLocaleString("es-ES", { minimumFractionDigits: 2 })} M€</MetricValue></div>
-          <p className="mt-1 text-xs text-muted-foreground">tasación interna abr 2026</p>
+          <Eyebrow>Notas simples</Eyebrow>
+          <div className="mt-2"><MetricValue size="lg">{notas.length}</MetricValue></div>
+          <p className="mt-1 text-xs text-muted-foreground">{notas.filter((n) => n.status === "listo").length} procesadas</p>
         </CardContent></Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <div className="min-w-0 space-y-6">
-          <Tabs defaultValue="resumen">
-            <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-            <TabsList className="w-max md:w-auto">
-              <TabsTrigger value="resumen">Resumen</TabsTrigger>
-              <TabsTrigger value="assets">Activos {assets.length || 9}</TabsTrigger>
-              <TabsTrigger value="owners">Propietarios {bos.length || 11}</TabsTrigger>
-              <TabsTrigger value="calls">Llamadas {calls.length || 38}</TabsTrigger>
-              <TabsTrigger value="docs">Documentos 24</TabsTrigger>
-              <TabsTrigger value="compliance">Compliance</TabsTrigger>
-              <TabsTrigger value="timeline">Timeline</TabsTrigger>
-            </TabsList>
-            </div>
-
-            <TabsContent value="resumen" className="space-y-6">
-              {/* Ubicación */}
-              <Card>
-                <CardHeader>
-                  <Eyebrow>Salamanca › Recoletos › Serrano 85</Eyebrow>
-                  <CardTitle>Ubicación</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div
-                    className="relative h-56 w-full overflow-hidden rounded-[4px] border border-border-faint bg-brand"
-                    aria-label="Mapa estilizado de la ubicación"
-                  >
-                    <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(to_right,hsl(var(--gold))_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--gold))_1px,transparent_1px)] [background-size:32px_32px]" />
-                    <div className="absolute left-1/2 top-1/2 h-px w-32 -translate-x-1/2 -translate-y-1/2 bg-gold/40" />
-                    <div className="absolute left-1/2 top-1/2 h-32 w-px -translate-x-1/2 -translate-y-1/2 bg-gold/40" />
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                      <div className="relative">
-                        <span className="absolute -inset-3 rounded-full border border-gold/40" />
-                        <span className="block h-2.5 w-2.5 rounded-full bg-gold shadow-[0_0_0_4px_hsl(var(--gold)/0.2)]" />
-                      </div>
-                    </div>
-                    <div className="absolute bottom-3 left-3">
-                      <Eyebrow className="text-gold/70">40.4275 N · 3.6856 W</Eyebrow>
-                    </div>
-                    <div className="absolute right-3 top-3 flex items-center gap-1 text-gold/60">
-                      <MapPin className="h-3.5 w-3.5" />
-                      <span className="font-mono text-[10px] uppercase tracking-eyebrow">Madrid</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Información catastral */}
-              <Card>
-                <CardHeader className="flex flex-row items-start justify-between">
-                  <div className="space-y-1">
-                    <Eyebrow>Registro</Eyebrow>
-                    <CardTitle>Información catastral</CardTitle>
-                  </div>
-                  <StatusBadge status="done" label="Verificado" />
-                </CardHeader>
-                <CardContent>
-                  <dl className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
-                    {[
-                      ["Referencia catastral", "8975408VK4787E"],
-                      ["Año construcción", "1928"],
-                      ["Última reforma integral", "1996"],
-                      ["Superficie parcela", "312 m²"],
-                      ["Superficie construida", "1.245 m²"],
-                      ["Plantas", "Bajo+4+ático"],
-                    ].map(([k, v]) => (
-                      <div key={k} className="flex items-baseline justify-between gap-4 border-b border-border-faint py-1.5">
-                        <dt className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{k}</dt>
-                        <dd className="font-mono text-sm tabular-nums text-foreground">{v}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </CardContent>
-              </Card>
-
-              {/* Tabla densa de unidades */}
-              <Card>
-                <CardHeader>
-                  <Eyebrow>División horizontal</Eyebrow>
-                  <CardTitle>Unidades</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Unidad</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead className="text-right">m²</TableHead>
-                        <TableHead>Propietarios</TableHead>
-                        <TableHead>Estado</TableHead>
-                        <TableHead className="text-right">Cuota Afflux</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {MOCK_UNITS.map((u) => (
-                        <TableRow key={u.unidad}>
-                          <TableCell className="font-mono text-sm tabular-nums">{u.unidad}</TableCell>
-                          <TableCell>{u.tipo}</TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">{u.m2}</TableCell>
-                          <TableCell className="text-muted-foreground">{u.propietarios}</TableCell>
-                          <TableCell>
-                            {u.estado === "—" ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : (
-                              <Chip tone={ESTADO_TONE[u.estado] ?? "default"}>{u.estado}</Chip>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-mono tabular-nums text-gold">{u.cuota}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Progreso de adquisición */}
-              <Card>
-                <CardHeader>
-                  <Eyebrow>Pipeline · Edificio</Eyebrow>
-                  <CardTitle>Progreso de adquisición</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-5">
-                  <div>
-                    <div className="flex items-baseline justify-between">
-                      <MetricValue size="xl">3/8</MetricValue>
-                      <span className="font-mono text-sm tabular-nums text-gold">37,5%</span>
-                    </div>
-                    <p className="mt-1 font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-                      firmadas · del total
-                    </p>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-1">
-                      <div className="h-full bg-gold" style={{ width: "37.5%" }} />
-                    </div>
-                  </div>
-                  <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {[
-                      { k: "Firmado", n: 3, m: 412, tone: "gold" as const },
-                      { k: "Negociación", n: 2, m: 222, tone: "warning" as const },
-                      { k: "Contactado", n: 1, m: 112, tone: "default" as const },
-                      { k: "Sin contactar", n: 2, m: 280, tone: "default" as const },
-                    ].map((s) => (
-                      <div key={s.k} className="rounded-[4px] border border-border-faint p-3">
-                        <Chip tone={s.tone}>{s.k}</Chip>
-                        <div className="mt-2 font-mono text-lg tabular-nums text-foreground">{s.n}</div>
-                        <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-                          {s.m} m²
-                        </div>
-                      </div>
-                    ))}
-                  </dl>
-                </CardContent>
-              </Card>
-
-              {/* Equipo asignado */}
-              <Card>
-                <CardHeader>
-                  <Eyebrow>Operación</Eyebrow>
-                  <CardTitle>Equipo asignado</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="grid gap-3 sm:grid-cols-3">
-                    {MOCK_TEAM.map((p) => (
-                      <li key={p.ini} className="flex items-center gap-3 rounded-[4px] border border-border-faint p-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full border border-gold/50 bg-gold-soft/40 font-mono text-xs text-gold">
-                          {p.ini}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm text-foreground">{p.nombre}</div>
-                          <Eyebrow>{p.rol}</Eyebrow>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-
-              {/* Próximas acciones */}
-              <Card>
-                <CardHeader>
-                  <Eyebrow>Agenda</Eyebrow>
-                  <CardTitle>Próximas acciones</CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
-                  {MOCK_NEXT_ACTIONS.map((a, i) => (
-                    <div key={i} className="rounded-[4px] border border-border bg-surface-1/30 p-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-[4px] border border-gold/40 bg-gold-soft/40 text-gold">
-                          <a.Icon className="h-4 w-4" />
-                        </div>
-                        <Eyebrow>{a.kind}</Eyebrow>
-                      </div>
-                      <div className="mt-3 text-sm text-foreground">{a.who} · {a.where}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{a.note}</div>
-                      <div className="mt-3 font-mono text-[11px] uppercase tracking-eyebrow text-gold">{a.when}</div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="owners" className="space-y-3">
-              <div className="flex justify-end gap-2">
-                <Button size="sm" variant="outline" onClick={recalcInfluencers}>
-                  <Sparkles className="mr-1 h-3 w-3" /> Recalcular influencers
-                </Button>
-                <AddOwnerToBuildingDialog buildingId={id} existingOwnerIds={existingOwnerIds} onAdded={load} />
-              </div>
-              {bos.length === 0 ? (
-                <EmptyState icon={Users} title="Sin propietarios asociados" description="Añade los propietarios que componen este edificio (herederos, usufructuarios, etc.) con su sub-rol y cuota." />
-              ) : (
-                <Card>
-                  <ul className="divide-y divide-border-faint">
-                    {bos.map((r) => (
-                      <li key={r.owner_id} className="flex flex-col items-start gap-2 px-4 py-3 transition-colors hover:bg-surface-1/30 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <Link to={`/propietarios/${r.owner_id}`} className="block truncate text-sm font-medium text-foreground hover:text-gold">{r.owners?.nombre}</Link>
-                            {r.es_influencer && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="inline-flex items-center gap-1 rounded-[3px] border border-gold/60 bg-gold-soft/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-gold">
-                                      <Crown className="h-3 w-3" /> Influencer
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <div className="text-xs">
-                                      <div className="font-mono">score {r.influencer_score ?? "—"}</div>
-                                      <div>{r.influencer_reason ?? "sin razón"}</div>
-                                    </div>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
-                          </div>
-                          <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-                            {r.owners?.email ?? r.owners?.telefono ?? "—"}
-                            {r.rol_notas ? ` · ${r.rol_notas}` : ""}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>}
-                          <Badge variant="outline">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
-                          {r.owners?.rol && <Badge variant="info">{r.owners.rol}</Badge>}
-                          <Button size="icon" variant="ghost" onClick={() => removeOwner(r.owner_id)}><X className="h-3 w-3" /></Button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              )}
-            </TabsContent>
-
-            <TabsContent value="assets" className="space-y-3">
-              <div className="flex justify-end">
-                <NewAssetDialog defaultBuildingId={id} onCreated={load} />
-              </div>
-              {assets.length === 0 ? (
-                <EmptyState icon={Boxes} title="Sin activos en este edificio" description="Crea activos asociados a este edificio (viviendas, locales, etc.)." />
-              ) : (
-                <Card>
-                  <ul className="divide-y divide-border-faint">
-                    {assets.map((a) => (
-                      <li key={a.id}>
-                        <Link to={`/activos/${a.id}`} className="block px-4 py-3 transition-colors hover:bg-surface-1/30">
-                          <div className="text-sm font-medium text-foreground">{a.tipo} · {a.ubicacion}</div>
-                          <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-                            {a.estado} · {a.superficie_m2 ?? "?"} m²
-                          </div>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              )}
-            </TabsContent>
-
-            <TabsContent value="calls">
-              {calls.length === 0 ? (
-                <EmptyState icon={PhoneCall} title="Sin llamadas registradas" description="Las llamadas con cualquiera de los propietarios del edificio aparecerán aquí." />
-              ) : (
-                <Card>
-                  <ul className="divide-y divide-border-faint">
-                    {calls.map((c) => (
-                      <li key={c.id}>
-                        <Link to={`/llamadas/${c.id}`} className="block px-4 py-3 transition-colors hover:bg-surface-1/30">
-                          <div className="text-sm text-foreground">{c.resumen ?? "(sin resumen)"}</div>
-                          <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-                            {new Date(c.fecha).toLocaleString()} · {c.direccion}
-                          </div>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              )}
-            </TabsContent>
-
-            <TabsContent value="docs">
-              <EmptyState icon={FileText} title="Documentos" description="Archivo notarial, ITE, escrituras y cuotas. Próximamente." />
-            </TabsContent>
-            <TabsContent value="compliance">
-              <EmptyState icon={CheckCircle2} title="Compliance" description="GDPR, KYC y auditoría humana asociada al edificio." />
-            </TabsContent>
-            <TabsContent value="timeline">
-              <EmptyState icon={Calendar} title="Timeline completo" description="Histórico de hitos, llamadas y firmas del edificio." />
-            </TabsContent>
-          </Tabs>
+      <Tabs defaultValue="resumen">
+        <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+          <TabsList className="w-max md:w-auto">
+            <TabsTrigger value="resumen">Resumen</TabsTrigger>
+            <TabsTrigger value="personas">Personas {personas.length || ""}</TabsTrigger>
+            <TabsTrigger value="empresas">Empresas {empresas.length || ""}</TabsTrigger>
+            <TabsTrigger value="notas">Notas Simples {notas.length || ""}</TabsTrigger>
+            <TabsTrigger value="comms">Comunicaciones {comms.length || ""}</TabsTrigger>
+            <TabsTrigger value="deals">Deals</TabsTrigger>
+            <TabsTrigger value="docs">Documentos</TabsTrigger>
+          </TabsList>
         </div>
 
-        {/* Timeline lateral */}
-        <aside className="min-w-0 space-y-4">
-          <Card>
-            <CardHeader>
-              <Eyebrow>Actividad reciente</Eyebrow>
-              <CardTitle>Timeline</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 pb-5">
-              {calls.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Sin actividad registrada todavía.</p>
-              ) : (
-                <ol className="relative space-y-4 border-l border-border-faint pl-4">
-                  {calls.slice(0, 6).map((c) => (
-                    <li key={c.id} className="relative">
-                      <span className="absolute -left-[19px] top-1.5 h-2 w-2 rounded-full border border-gold bg-background" />
-                      <Link to={`/llamadas/${c.id}`} className="block hover:text-foreground">
-                        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-                          {new Date(c.fecha).toLocaleDateString()}
-                        </div>
-                        <div className="mt-0.5 text-xs text-foreground line-clamp-2">{c.resumen ?? "(sin resumen)"}</div>
-                        <div className="mt-1.5">
-                          <StatusBadge status={c.resumen ? "analyzed" : "no_summary"} />
-                        </div>
-                      </Link>
-                    </li>
+        {/* RESUMEN */}
+        <TabsContent value="resumen" className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <Card>
+              <CardHeader><Eyebrow>Registro</Eyebrow><CardTitle>Catastro</CardTitle></CardHeader>
+              <CardContent>
+                <dl className="space-y-2">
+                  {[
+                    ["Referencia catastral", building.catastro_ref ?? "—"],
+                    ["Dirección", building.direccion],
+                    ["Ciudad", building.ciudad ?? "—"],
+                    ["CP", building.codigo_postal ?? "—"],
+                    ["DH", building.division_horizontal ? "Sí" : "No"],
+                    ["Sync", fmtDate(building.last_synced_at)],
+                  ].map(([k, v]) => (
+                    <div key={k} className="flex items-baseline justify-between gap-3 border-b border-border-faint py-1">
+                      <dt className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{k}</dt>
+                      <dd className="font-mono text-sm tabular-nums text-foreground text-right truncate">{v as any}</dd>
+                    </div>
                   ))}
-                </ol>
+                </dl>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><Eyebrow>Actividad</Eyebrow><CardTitle>Último contacto</CardTitle></CardHeader>
+              <CardContent>
+                {ultimoContacto ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Chip tone="gold">{ultimoContacto.kind}</Chip>
+                      <span className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{fmtDateTime(ultimoContacto.fecha)}</span>
+                    </div>
+                    <div className="text-sm text-foreground">{ultimoContacto.titulo}</div>
+                    <div className="text-xs text-muted-foreground line-clamp-3">{ultimoContacto.cuerpo}</div>
+                    {ultimoContacto.owner_id && (
+                      <Link to={`/propietarios/${ultimoContacto.owner_id}`} className="block text-xs text-gold hover:underline">
+                        {ownerNameById.get(ultimoContacto.owner_id) ?? "Ver propietario"} →
+                      </Link>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Sin actividad registrada.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><Eyebrow>Cargas</Eyebrow><CardTitle>Hipotecas activas</CardTitle></CardHeader>
+              <CardContent>
+                {hipotecasActivas.count > 0 ? (
+                  <div className="space-y-2">
+                    <MetricValue size="lg">{fmtEUR(hipotecasActivas.total)}</MetricValue>
+                    <p className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                      {hipotecasActivas.count} carga{hipotecasActivas.count === 1 ? "" : "s"} · {hipotecasActivas.acreedores.length} acreedor{hipotecasActivas.acreedores.length === 1 ? "" : "es"}
+                    </p>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {hipotecasActivas.acreedores.slice(0, 4).map((a) => <Chip key={a}>{a}</Chip>)}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Sin hipotecas detectadas en notas simples.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="md:col-span-2 lg:col-span-3">
+              <CardHeader><Eyebrow>Agenda</Eyebrow><CardTitle>Próxima acción</CardTitle></CardHeader>
+              <CardContent>
+                {proximaAccion ? (
+                  <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="text-sm text-foreground">{proximaAccion.titulo}</div>
+                      {proximaAccion.detalle && <div className="text-xs text-muted-foreground">{proximaAccion.detalle}</div>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Chip tone="gold">{proximaAccion.estado}</Chip>
+                      <span className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{fmtDate(proximaAccion.vencimiento)}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No hay acciones programadas para este edificio.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* PERSONAS */}
+        <TabsContent value="personas" className="space-y-3">
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="outline" onClick={recalcInfluencers}>
+              <Sparkles className="mr-1 h-3 w-3" /> Recalcular influencers
+            </Button>
+            <AddOwnerToBuildingDialog buildingId={id} existingOwnerIds={existingOwnerIds} onAdded={load} />
+          </div>
+          {personas.length === 0 ? (
+            <EmptyState icon={Users} title="Sin propietarios físicos" description="Añade propietarios con su rol y cuota." />
+          ) : (
+            <Card>
+              <ul className="divide-y divide-border-faint">
+                {personas.slice(0, showPersonas).map((r) => (
+                  <li key={r.owner_id} className="flex flex-col items-start gap-2 px-4 py-3 transition-colors hover:bg-surface-1/30 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Link to={`/propietarios/${r.owner_id}`} className="block truncate text-sm font-medium text-foreground hover:text-gold">{r.owners?.nombre}</Link>
+                        {r.es_influencer && (
+                          <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1 rounded-[3px] border border-gold/60 bg-gold-soft/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-gold">
+                              <Crown className="h-3 w-3" /> Influencer
+                            </span>
+                          </TooltipTrigger><TooltipContent>
+                            <div className="text-xs">
+                              <div className="font-mono">score {r.influencer_score ?? "—"}</div>
+                              <div>{r.influencer_reason ?? "sin razón"}</div>
+                            </div>
+                          </TooltipContent></Tooltip></TooltipProvider>
+                        )}
+                      </div>
+                      <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                        {r.owners?.email ?? r.owners?.telefono ?? "—"}
+                        {r.rol_notas ? ` · ${r.rol_notas}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>}
+                      <Badge variant="outline">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
+                      {r.owners?.rol && <Badge variant="info">{r.owners.rol}</Badge>}
+                      <Button size="icon" variant="ghost" onClick={() => removeOwner(r.owner_id)}><X className="h-3 w-3" /></Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {personas.length > showPersonas && (
+                <div className="p-3 text-center border-t border-border-faint">
+                  <Button variant="ghost" size="sm" onClick={() => setShowPersonas((s) => s + PAGE_SIZE)}>
+                    <ChevronDown className="mr-1 h-3 w-3" /> Mostrar más ({personas.length - showPersonas} restantes)
+                  </Button>
+                </div>
               )}
-            </CardContent>
-          </Card>
-        </aside>
-      </div>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* EMPRESAS */}
+        <TabsContent value="empresas" className="space-y-3">
+          {empresas.length === 0 ? (
+            <EmptyState icon={Building2} title="Sin empresas titulares" description="Las sociedades titulares aparecerán aquí cuando se vinculen desde notas simples u otros orígenes." />
+          ) : (
+            <Card>
+              <ul className="divide-y divide-border-faint">
+                {empresas.slice(0, showEmpresas).map((r) => (
+                  <li key={r.id} className="flex flex-col items-start gap-2 px-4 py-3 transition-colors hover:bg-surface-1/30 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-foreground">{r.company?.nombre ?? "—"}</div>
+                      <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                        {r.company?.cif ?? "sin CIF"}
+                        {r.company?.email ? ` · ${r.company.email}` : ""}
+                        {r.company?.telefono ? ` · ${r.company.telefono}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {r.percentage != null && <Badge variant="gold">{r.percentage}%</Badge>}
+                      <Badge variant="outline">{r.role}</Badge>
+                      {r.source && <Chip>{r.source}</Chip>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {empresas.length > showEmpresas && (
+                <div className="p-3 text-center border-t border-border-faint">
+                  <Button variant="ghost" size="sm" onClick={() => setShowEmpresas((s) => s + PAGE_SIZE)}>
+                    <ChevronDown className="mr-1 h-3 w-3" /> Mostrar más ({empresas.length - showEmpresas} restantes)
+                  </Button>
+                </div>
+              )}
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* NOTAS SIMPLES */}
+        <TabsContent value="notas" className="space-y-3">
+          {notas.length === 0 ? (
+            <EmptyState icon={FileText} title="Sin notas simples" description="Las notas simples vinculadas a este edificio aparecerán aquí." />
+          ) : (
+            <>
+              <div className="grid gap-3 md:grid-cols-2">
+                {notas.slice(0, showNotas).map((n) => {
+                  const sj = n.structured_json ?? {};
+                  const titulares = (sj.titulares ?? []) as any[];
+                  const cargas = (sj.cargas ?? []) as any[];
+                  return (
+                    <Card key={n.id} className="overflow-hidden">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <Eyebrow>{fmtDate(n.processed_at ?? n.created_at)}</Eyebrow>
+                            <CardTitle className="truncate text-base">
+                              {sj.finca?.ref_catastral ?? sj.finca?.numero ?? "Nota simple"}
+                            </CardTitle>
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            {n.riesgo && <Chip tone={n.riesgo === "alto" ? "danger" : n.riesgo === "medio" ? "warning" : "default"}>Riesgo {n.riesgo}</Chip>}
+                            <Chip tone={n.status === "listo" ? "gold" : "default"}>{n.status}</Chip>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-3 pt-0">
+                        {titulares.length > 0 && (
+                          <div>
+                            <Eyebrow>Titulares ({titulares.length})</Eyebrow>
+                            <ul className="mt-1 space-y-1">
+                              {titulares.slice(0, 4).map((t: any, i: number) => (
+                                <li key={i} className="flex items-baseline justify-between gap-2 text-xs">
+                                  <span className="truncate text-foreground">{t.nombre}</span>
+                                  <span className="font-mono tabular-nums text-muted-foreground">
+                                    {t.porcentaje ? `${t.porcentaje}%` : ""}{t.rol ? ` · ${t.rol}` : ""}
+                                  </span>
+                                </li>
+                              ))}
+                              {titulares.length > 4 && <li className="text-[11px] text-muted-foreground">+{titulares.length - 4} más</li>}
+                            </ul>
+                          </div>
+                        )}
+                        {cargas.length > 0 && (
+                          <div>
+                            <Eyebrow>Cargas ({cargas.length})</Eyebrow>
+                            <ul className="mt-1 space-y-1">
+                              {cargas.slice(0, 4).map((c: any, i: number) => (
+                                <li key={i} className="flex items-baseline justify-between gap-2 text-xs">
+                                  <span className="truncate text-foreground">
+                                    <Chip tone={/hipoteca/i.test(c.tipo ?? "") ? "warning" : "default"}>{c.tipo ?? "—"}</Chip>{" "}
+                                    {c.acreedor ?? ""}
+                                  </span>
+                                  <span className="font-mono tabular-nums text-muted-foreground">
+                                    {c.importe ? fmtEUR(Number(c.importe)) : ""}
+                                  </span>
+                                </li>
+                              ))}
+                              {cargas.length > 4 && <li className="text-[11px] text-muted-foreground">+{cargas.length - 4} más</li>}
+                            </ul>
+                          </div>
+                        )}
+                        <div className="flex justify-end pt-1">
+                          {n.file_url && (
+                            <a href={n.file_url} target="_blank" rel="noreferrer" className="text-xs text-gold hover:underline">Abrir PDF →</a>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+              {notas.length > showNotas && (
+                <div className="text-center">
+                  <Button variant="ghost" size="sm" onClick={() => setShowNotas((s) => s + PAGE_SIZE)}>
+                    <ChevronDown className="mr-1 h-3 w-3" /> Mostrar más ({notas.length - showNotas} restantes)
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* COMUNICACIONES */}
+        <TabsContent value="comms" className="space-y-3">
+          {comms.length === 0 ? (
+            <EmptyState icon={MessageSquare} title="Sin comunicaciones" description="Llamadas, WhatsApp, notas internas y tareas asociadas a los propietarios aparecerán aquí." />
+          ) : (
+            <Card>
+              <ol className="relative space-y-0 divide-y divide-border-faint">
+                {comms.slice(0, showComms).map((c) => {
+                  const Icon = c.kind === "call" ? PhoneCall : c.kind === "whatsapp" ? MessageSquare : c.kind === "note" ? StickyNote : CheckSquare;
+                  const tone = c.kind === "call" ? "default" : c.kind === "whatsapp" ? "gold" : c.kind === "note" ? "default" : "warning";
+                  return (
+                    <li key={c.id} className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-1/30">
+                      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] border border-border-faint bg-surface-1/40 text-muted-foreground">
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Chip tone={tone as any}>{c.kind}</Chip>
+                          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{fmtDateTime(c.fecha)}</span>
+                          {c.owner_id && (
+                            <Link to={`/propietarios/${c.owner_id}`} className="truncate text-[11px] text-muted-foreground hover:text-gold">
+                              · {ownerNameById.get(c.owner_id) ?? "owner"}
+                            </Link>
+                          )}
+                        </div>
+                        <div className="mt-1 text-sm text-foreground">{c.titulo}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{c.cuerpo}</div>
+                      </div>
+                      {c.link && <Link to={c.link} className="shrink-0 text-xs text-gold hover:underline">Abrir →</Link>}
+                    </li>
+                  );
+                })}
+              </ol>
+              {comms.length > showComms && (
+                <div className="p-3 text-center border-t border-border-faint">
+                  <Button variant="ghost" size="sm" onClick={() => setShowComms((s) => s + PAGE_SIZE)}>
+                    <ChevronDown className="mr-1 h-3 w-3" /> Mostrar más ({comms.length - showComms} restantes)
+                  </Button>
+                </div>
+              )}
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* DEALS */}
+        <TabsContent value="deals">
+          <EmptyState icon={Briefcase} title="Deals" description="Las oportunidades (deals) vinculadas a este edificio aparecerán aquí cuando estén disponibles en el pipeline." />
+        </TabsContent>
+
+        {/* DOCUMENTOS */}
+        <TabsContent value="docs">
+          <EmptyState icon={FileText} title="Documentos" description="Archivo notarial, ITE, escrituras y cuotas. Próximamente." />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
