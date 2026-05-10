@@ -233,7 +233,7 @@ export default function Productividad() {
     <div className="space-y-6 p-6">
       <PageHeader
         title="Productividad comercial"
-        description="Análisis de llamadas grabadas con IA: outcome, sentiment, objeciones, técnica y coaching semanal."
+        subtitle="Análisis de llamadas grabadas con IA: outcome, sentiment, objeciones, técnica y coaching semanal."
       />
 
       <div className="flex flex-wrap items-center gap-3">
