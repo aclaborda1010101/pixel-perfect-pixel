@@ -1809,6 +1809,28 @@ export type Database = {
           total_count: number
         }[]
       }
+      rpc_rag_search: {
+        Args: {
+          filter_origen?: string
+          filter_scope_id?: string
+          filter_scope_type?: string
+          match_count?: number
+          query_embedding?: string
+          query_text: string
+        }
+        Returns: {
+          contenido: string
+          fts_rank: number
+          hybrid_score: number
+          id: string
+          metadatos: Json
+          origen: string
+          referencia_id: string
+          scope_id: string
+          scope_type: string
+          similarity: number
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "manager" | "agent" | "viewer"
