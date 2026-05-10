@@ -1888,6 +1888,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      match_building_fuzzy: {
+        Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
+        Returns: string
+      }
       match_knowledge_chunks: {
         Args: {
           filter_scope_id?: string
@@ -1905,6 +1909,7 @@ export type Database = {
           similarity: number
         }[]
       }
+      normalize_catastro: { Args: { p: string }; Returns: string }
       notas_simples_kpis: {
         Args: {
           p_building_id?: string
