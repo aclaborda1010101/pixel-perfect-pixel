@@ -8,12 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/sonner";
 import { PageHeader } from "@/components/common/PageHeader";
-import { Loader2, RefreshCcw, Sparkles, CalendarIcon } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns";
-import { cn } from "@/lib/utils";
-import type { DateRange } from "react-day-picker";
+import { Loader2, RefreshCcw, Sparkles } from "lucide-react";
 
 type Call = {
   id: string;
@@ -48,6 +43,13 @@ type CoachReport = {
 };
 
 const RANGES: Record<string, number> = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+const COACH_WINDOWS: { key: string; label: string; days: number }[] = [
+  { key: "7d",   label: "Última semana",    days: 7 },
+  { key: "30d",  label: "Último mes",       days: 30 },
+  { key: "90d",  label: "Últimos 3 meses",  days: 90 },
+  { key: "365d", label: "Último año",       days: 365 },
+];
+const COACH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const DAYS = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 
 function fmtPct(n: number) { return Number.isFinite(n) ? `${n.toFixed(1)}%` : "—"; }
@@ -66,35 +68,29 @@ function daysSince(iso: string) {
 export default function Productividad() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [coachLoading, setCoachLoading] = useState(false);
   const [calls, setCalls] = useState<Call[]>([]);
-  const [reports, setReports] = useState<CoachReport[]>([]);
   const [selOwner, setSelOwner] = useState<string>("all");
   const [selRange, setSelRange] = useState<string>("90d");
   const [analyzed, setAnalyzed] = useState(0);
   const [pending, setPending] = useState(0);
-  const [coachRange, setCoachRange] = useState<DateRange | undefined>({ from: daysAgo(30), to: new Date() });
-  const [selCoachComercial, setSelCoachComercial] = useState<string>("all");
+  const [coachWindow, setCoachWindow] = useState<string>("30d");
+  const [coachCache, setCoachCache] = useState<Record<string, CoachReport>>({});
+  const [coachLoadingKey, setCoachLoadingKey] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     const since = new Date(Date.now() - RANGES[selRange]*86400000).toISOString();
-    const [{ data: callsData }, { data: repsData }, statRes] = await Promise.all([
+    const [{ data: callsData }, statRes] = await Promise.all([
       supabase.from("calls")
         .select("id, owner_id, comercial_hs_id, comercial_email, comercial_nombre, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, analyzed_at")
         .gte("fecha", since)
         .not("analyzed_at", "is", null)
         .order("fecha", { ascending: false })
         .limit(5000),
-      supabase.from("coach_reports")
-        .select("*")
-        .order("week_start", { ascending: false })
-        .limit(50),
       supabase.from("calls").select("id", { count: "exact", head: true })
         .not("transcripcion", "is", null).is("analyzed_at", null),
     ]);
     setCalls((callsData || []) as Call[]);
-    setReports((repsData || []) as CoachReport[]);
     setPending(statRes.count || 0);
     const { count: analyzedCount } = await supabase.from("calls").select("id", { count: "exact", head: true }).not("analyzed_at", "is", null);
     setAnalyzed(analyzedCount || 0);
@@ -246,31 +242,60 @@ export default function Productividad() {
     } finally { setRefreshing(false); }
   }
 
-  async function generateCoachAll() {
-    const from = coachRange?.from ? isoDay(coachRange.from) : isoDay(daysAgo(30));
-    const to = coachRange?.to ? isoDay(coachRange.to) : isoDay(new Date());
-    setCoachLoading(true);
-    try {
-      const body = selCoachComercial === "all"
-        ? { from, to, chain: true }
-        : { from, to, comercial_hs_id: selCoachComercial };
-      const { data, error } = await supabase.functions.invoke("generate_coach_report", { body });
-      if (error) throw error;
-      if (selCoachComercial === "all") {
-        toast.success(`Coach generado para ${data?.ok_count || 0} comerciales (${data?.remaining || 0} restantes)`);
-      } else {
-        const nombre = comercialNameById.get(selCoachComercial) || selCoachComercial.slice(0, 8);
-        toast.success(`Reporte generado para ${nombre} (${data?.report?.total_calls ?? 0} calls)`);
+  async function loadCoachFor(cid: string, windowKey: string, opts: { force?: boolean } = {}) {
+    if (!cid || cid === "all" || cid === "__none__") return;
+    const win = COACH_WINDOWS.find(w => w.key === windowKey);
+    if (!win) return;
+    const cacheKey = `${cid}_${windowKey}`;
+    const from = isoDay(daysAgo(win.days));
+    const to = isoDay(new Date());
+
+    if (!opts.force) {
+      // 1) Cache local en memoria
+      const mem = coachCache[cacheKey];
+      if (mem && Date.now() - new Date(mem.generated_at).getTime() < COACH_CACHE_TTL_MS) return;
+      // 2) Cache persistido en BBDD (<24h)
+      const { data: existing } = await supabase.from("coach_reports")
+        .select("*").eq("comercial_hs_id", cid).eq("week_start", from).maybeSingle();
+      if (existing && Date.now() - new Date(existing.generated_at).getTime() < COACH_CACHE_TTL_MS) {
+        setCoachCache(prev => ({ ...prev, [cacheKey]: existing as CoachReport }));
+        return;
       }
-      setTimeout(load, 1500);
+    }
+
+    setCoachLoadingKey(cacheKey);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate_coach_report", {
+        body: { from, to, comercial_hs_id: cid },
+      });
+      if (error) throw error;
+      // Releemos la fila persistida (el edge function la inserta tras generar)
+      const { data: fresh } = await supabase.from("coach_reports")
+        .select("*").eq("comercial_hs_id", cid).eq("week_start", from).maybeSingle();
+      if (fresh) {
+        setCoachCache(prev => ({ ...prev, [cacheKey]: fresh as CoachReport }));
+      } else if (data?.report) {
+        // fallback: usa la respuesta directa
+        setCoachCache(prev => ({ ...prev, [cacheKey]: { ...data.report, id: cacheKey, comercial_hs_id: cid, generated_at: new Date().toISOString() } as CoachReport }));
+      }
     } catch (e: any) {
-      toast.error(`Error: ${e.message || e}`);
-    } finally { setCoachLoading(false); }
+      toast.error(`Error generando coach: ${e.message || e}`);
+    } finally {
+      setCoachLoadingKey(null);
+    }
   }
 
-  function setQuickRange(days: number) {
-    setCoachRange({ from: daysAgo(days), to: new Date() });
-  }
+  // Auto-cargar Coach al cambiar comercial o ventana
+  useEffect(() => {
+    if (selOwner !== "all" && selOwner !== "__none__") {
+      loadCoachFor(selOwner, coachWindow);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selOwner, coachWindow]);
+
+  const currentCoachKey = selOwner !== "all" && selOwner !== "__none__" ? `${selOwner}_${coachWindow}` : null;
+  const currentCoachReport = currentCoachKey ? coachCache[currentCoachKey] : undefined;
+  const currentCoachLoading = currentCoachKey != null && coachLoadingKey === currentCoachKey;
 
   return (
     <div className="space-y-6 p-6">
@@ -448,104 +473,113 @@ export default function Productividad() {
 
         {/* COACH IA */}
         <TabsContent value="coach" className="space-y-3">
-          <Card>
-            <CardContent className="flex flex-wrap items-center gap-2 p-3">
-              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Periodo del análisis</span>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className={cn("h-9 justify-start text-left font-normal", !coachRange && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                    {coachRange?.from ? (
-                      coachRange.to ? (
-                        <>{format(coachRange.from, "dd MMM")} – {format(coachRange.to, "dd MMM yyyy")}</>
-                      ) : format(coachRange.from, "dd MMM yyyy")
-                    ) : <span>Selecciona rango</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="range"
-                    selected={coachRange}
-                    onSelect={setCoachRange}
-                    numberOfMonths={2}
-                    className={cn("p-3 pointer-events-auto")}
-                  />
-                </PopoverContent>
-              </Popover>
-              <Button size="sm" variant="ghost" onClick={() => setQuickRange(7)}>7d</Button>
-              <Button size="sm" variant="ghost" onClick={() => setQuickRange(30)}>30d</Button>
-              <Button size="sm" variant="ghost" onClick={() => setQuickRange(90)}>90d</Button>
-              <span className="ml-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Comercial</span>
-              <Select value={selCoachComercial} onValueChange={setSelCoachComercial}>
-                <SelectTrigger className="h-9 w-[240px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los comerciales</SelectItem>
-                  {comercialesWithCalls.filter(o => o.id !== "__none__").slice(0, 50).map(o => (
-                    <SelectItem key={o.id} value={o.id}>{o.nombre} · {o.calls}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button onClick={generateCoachAll} disabled={coachLoading} size="sm" className="ml-auto">
-                {coachLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
-                Generar Coach IA
-              </Button>
-            </CardContent>
-          </Card>
-          {reports.length === 0 && (
+          {selOwner === "all" || selOwner === "__none__" ? (
             <Card><CardContent className="p-6 text-sm text-muted-foreground">
-              Aún no hay reportes coach. Pulsa <strong>Generar Coach IA</strong> arriba.
+              Selecciona un comercial en el filtro superior para ver su análisis Coach IA.
             </CardContent></Card>
+          ) : (
+            <Tabs value={coachWindow} onValueChange={setCoachWindow}>
+              <div className="flex items-center justify-between gap-2">
+                <TabsList>
+                  {COACH_WINDOWS.map(w => (
+                    <TabsTrigger key={w.key} value={w.key}>{w.label}</TabsTrigger>
+                  ))}
+                </TabsList>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={currentCoachLoading}
+                  onClick={() => loadCoachFor(selOwner, coachWindow, { force: true })}
+                >
+                  {currentCoachLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
+                  Regenerar
+                </Button>
+              </div>
+              {COACH_WINDOWS.map(w => (
+                <TabsContent key={w.key} value={w.key} className="mt-3">
+                  {currentCoachLoading && coachWindow === w.key ? (
+                    <Card><CardContent className="p-6 text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" /> Generando análisis Coach IA…
+                    </CardContent></Card>
+                  ) : currentCoachReport && coachWindow === w.key ? (
+                    <CoachCard
+                      report={currentCoachReport}
+                      nombre={comercialNameById.get(selOwner) || selOwner}
+                      windowLabel={w.label}
+                    />
+                  ) : (
+                    <Card><CardContent className="p-6 text-sm text-muted-foreground">
+                      Sin datos en este periodo.
+                    </CardContent></Card>
+                  )}
+                </TabsContent>
+              ))}
+            </Tabs>
           )}
-          <div className="grid gap-3 md:grid-cols-2">
-            {reports.map(r => (
-              <Card key={r.id}>
-                <CardHeader>
-                  <CardTitle className="text-sm">
-                    {(r.comercial_hs_id && comercialNameById.get(r.comercial_hs_id)) || (r.owner_id ? r.owner_id.slice(0,8) : "—")}
-                    <span className="ml-2 font-mono text-[10px] text-muted-foreground">{r.week_start} → {r.week_end}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-xs">
-                  <div className="text-muted-foreground">{r.total_calls} llamadas · conversión {r.metricas?.conversion ?? "—"}% · sent+ {r.metricas?.sentiment_positivo_pct ?? "—"}%</div>
-                  {Array.isArray(r.fortalezas) && r.fortalezas.length > 0 && (
-                    <div>
-                      <div className="mb-1 font-mono text-[10px] uppercase text-emerald-500">Fortalezas</div>
-                      <ul className="space-y-1">
-                        {r.fortalezas.map((f: any, i: number) => (
-                          <li key={i}><strong>{f.titulo}</strong> — <span className="text-muted-foreground">{f.detalle}</span></li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {Array.isArray(r.mejoras) && r.mejoras.length > 0 && (
-                    <div>
-                      <div className="mb-1 font-mono text-[10px] uppercase text-amber-500">Mejoras</div>
-                      <ul className="space-y-1">
-                        {r.mejoras.map((f: any, i: number) => (
-                          <li key={i}><strong>{f.titulo}</strong> — <span className="text-muted-foreground">{f.detalle}</span></li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {Array.isArray(r.plan_accion) && r.plan_accion.length > 0 && (
-                    <div>
-                      <div className="mb-1 font-mono text-[10px] uppercase text-primary">Plan próxima semana</div>
-                      <ul className="space-y-1">
-                        {r.plan_accion.map((p: any, i: number) => (
-                          <li key={i}><strong>{p.titulo}</strong> — <span className="text-muted-foreground">{p.detalle}</span> {p.kpi && <em className="text-[10px]">[{p.kpi}]</em>}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
         </TabsContent>
       </Tabs>
 
       {loading && <p className="text-xs text-muted-foreground">Cargando…</p>}
     </div>
+  );
+}
+
+function CoachCard({ report, nombre, windowLabel }: { report: CoachReport; nombre: string; windowLabel: string }) {
+  const m = report.metricas || {};
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">
+          {nombre}
+          <span className="ml-2 font-mono text-[10px] text-muted-foreground">{windowLabel} · {report.week_start} → {report.week_end}</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-xs">
+        <div className="text-muted-foreground">
+          {report.total_calls} llamadas · conversión {m.conversion ?? "—"}% · sent+ {m.sentiment_positivo_pct ?? "—"}% · dur. media {m.duracion_media_seg ? `${Math.round(m.duracion_media_seg)}s` : "—"}
+        </div>
+        {Array.isArray(report.fortalezas) && report.fortalezas.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-emerald-500">Fortalezas</div>
+            <ul className="space-y-1">
+              {report.fortalezas.map((f: any, i: number) => (
+                <li key={i}><strong>{f.titulo}</strong> — <span className="text-muted-foreground">{f.detalle}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(report.mejoras) && report.mejoras.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-amber-500">Mejoras</div>
+            <ul className="space-y-1">
+              {report.mejoras.map((f: any, i: number) => (
+                <li key={i}><strong>{f.titulo}</strong> — <span className="text-muted-foreground">{f.detalle}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(report.frases_ganadoras) && report.frases_ganadoras.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-emerald-500">Frases ganadoras</div>
+            <ul className="space-y-1">
+              {report.frases_ganadoras.map((f: string, i: number) => (
+                <li key={i} className="border-l-2 border-emerald-500/40 pl-2">{f}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(report.plan_accion) && report.plan_accion.length > 0 && (
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase text-primary">Plan de acción</div>
+            <ul className="space-y-1">
+              {report.plan_accion.map((p: any, i: number) => (
+                <li key={i}><strong>{p.titulo}</strong> — <span className="text-muted-foreground">{p.detalle}</span> {p.kpi && <em className="text-[10px]">[{p.kpi}]</em>}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

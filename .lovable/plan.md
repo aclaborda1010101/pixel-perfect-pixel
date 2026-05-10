@@ -1,26 +1,46 @@
-## Selector de comercial en Coach IA
+## Coach IA contextual al comercial visualizado
 
-En la pestaña **Coach IA** de `/productividad`, junto al rango de fechas y al botón "Generar Coach IA", añadir un `Select` con la lista de comerciales reales (los mismos que ya alimenta `comercialesWithCalls`):
+### Cambio conceptual
 
-- Opción por defecto: **"Todos los comerciales"** → comportamiento actual (genera reportes para todos los activos en el rango).
-- Resto de opciones: cada comercial con su nombre real y nº de calls (ej. `Jesús Anzola · 507`).
+La pestaña **Coach IA** deja de ser una vista global "genera reportes para todos" y pasa a ser una vista del comercial actualmente seleccionado en el filtro superior, con cuatro ventanas temporales en sub-pestañas.
 
-### Backend
+### UI nueva
 
-`generate_coach_report` ya acepta `comercial_hs_id` en el body y devuelve un único reporte. Solo hay que pasarlo desde el frontend cuando esté seleccionado:
+```text
+[ Filtro global superior: Comercial = Jesús Anzola | Rango = 90d (afecta resto de tabs) ]
 
-```ts
-const body = selCoachComercial === "all"
-  ? { from, to, chain: true }
-  : { from, to, comercial_hs_id: selCoachComercial };
+Tab "Coach IA"
+  ├─ Sub-tabs: [ Última semana ] [ Último mes ] [ Últimos 3 meses ] [ Último año ]
+  └─ Contenido: tarjeta única con fortalezas / mejoras / frases / plan
+                + métricas del periodo (calls, conversión, sent+, dur. media)
+                + botón "Regenerar"
 ```
 
-### UX
-
-- Si se selecciona un comercial con <10 calls en el rango, el reporte resultante mostrará el plan "muestra insuficiente" que ya implementamos (sin llamar al LLM, sin coste).
-- Tras generar, el toast indica el comercial concreto: `Reporte generado para Jesús Anzola (507 calls)`.
-- La lista de tarjetas se sigue refrescando como hasta ahora vía `load()`.
+- Si en el filtro global hay **"Todos"** → la pestaña muestra un empty state: *"Selecciona un comercial en el filtro superior para ver su análisis Coach IA."*
+- Cada sub-tab mapea a un rango fijo terminado hoy: 7d, 30d, 90d, 365d.
+- Al entrar a una sub-tab:
+  1. Busca un reporte existente en `coach_reports` para `(comercial_hs_id, week_start = inicio_del_rango)`.
+  2. Si existe y `generated_at` < 24h → lo muestra directamente.
+  3. Si no existe o está caducado → llama al edge function con `{ from, to, comercial_hs_id }` y muestra spinner.
+- Botón **"Regenerar"** fuerza una nueva llamada al LLM aunque haya cache fresco.
 
 ### Cambios
 
-- `src/pages/Productividad.tsx`: nuevo state `selCoachComercial`, `Select` en el panel de Coach IA, lógica condicional en `generateCoachAll()`. Sin tocar backend ni esquema.
+**`src/pages/Productividad.tsx`**
+- Eliminar de la pestaña Coach: date range picker, quick-picks 7d/30d/90d, selector de comercial interno y botón "Generar Coach IA" global.
+- Añadir sub-tabs (`Tabs` shadcn) con 4 ventanas.
+- Hook `useCoachReport(comercial_hs_id, windowKey)` que:
+  - Consulta `coach_reports` por `(comercial_hs_id, week_start)`.
+  - Si vacío → invoca `generate_coach_report` con `{ from, to, comercial_hs_id }` y refresca.
+- Estado local de loading por sub-tab.
+
+**Backend (sin cambios)**
+- `generate_coach_report` ya soporta `from`/`to`/`comercial_hs_id` y persiste con delete-then-insert sobre `(comercial_hs_id, week_start)`. Reutilizamos tal cual; solo el frontend cambia la forma de consumirlo.
+
+### Persistencia
+
+Mantenemos `coach_reports` como cache (no como histórico): cada (comercial, ventana) tiene una sola fila vigente; al regenerar se sobrescribe. Esto evita llamadas LLM repetidas al cambiar de sub-tab y al recargar la página, sin acumular reportes obsoletos.
+
+### Nota
+
+El selector de **Rango** del filtro superior sigue afectando a Resumen / Heatmap / Comparativa / Objeciones, pero **no** a Coach IA (Coach tiene sus propias ventanas en sub-tabs). Esto evita confusión cuando el usuario está mirando "últimos 90d" arriba pero quiere ver un coaching de "última semana".
