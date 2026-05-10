@@ -480,34 +480,9 @@ export default function Productividad() {
           </Card>
         </TabsContent>
 
-        {/* OBJECIONES */}
-        <TabsContent value="objeciones" className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Top objeciones</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              {topObjeciones.length === 0 && <p className="text-xs text-muted-foreground">Sin datos</p>}
-              {topObjeciones.map(([k, n]) => (
-                <div key={k} className="flex items-center justify-between text-xs">
-                  <Badge variant="secondary">{k}</Badge>
-                  <span className="tabular-nums text-muted-foreground">{n}</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle className="text-sm text-emerald-500">Frases ganadoras</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-xs">
-              {frasesGan.length === 0 && <p className="text-muted-foreground">Sin datos</p>}
-              {frasesGan.map((f, i) => <p key={i} className="border-l-2 border-emerald-500/40 pl-2">{f}</p>)}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle className="text-sm text-rose-500">Frases perdedoras</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-xs">
-              {frasesPerd.length === 0 && <p className="text-muted-foreground">Sin datos</p>}
-              {frasesPerd.map((f, i) => <p key={i} className="border-l-2 border-rose-500/40 pl-2">{f}</p>)}
-            </CardContent>
-          </Card>
+        {/* MOVIMIENTOS GANADORES */}
+        <TabsContent value="objeciones" className="space-y-4">
+          <MovimientosGanadores pivots={allPivots} tacticaStats={tacticaStats} topObjeciones={topObjeciones} />
         </TabsContent>
 
         {/* COACH IA */}
