@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
               building_id: buildingLocalId,
               hubspot_owner_id: hsOwner,
               direccion: hsOwner ? 'saliente' : 'entrante',
-              status: 'enviado',
+              status: 'mock_enviado',
               metadatos: {
                 channel, contact_ids: contactIds, deal_ids: dealIds,
                 hs_createdate: props.hs_createdate,
