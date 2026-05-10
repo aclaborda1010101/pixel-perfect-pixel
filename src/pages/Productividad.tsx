@@ -8,12 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/sonner";
 import { PageHeader } from "@/components/common/PageHeader";
-import { Loader2, RefreshCcw, Sparkles, CalendarIcon } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns";
-import { cn } from "@/lib/utils";
-import type { DateRange } from "react-day-picker";
+import { Loader2, RefreshCcw, Sparkles } from "lucide-react";
 
 type Call = {
   id: string;
@@ -48,6 +43,13 @@ type CoachReport = {
 };
 
 const RANGES: Record<string, number> = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+const COACH_WINDOWS: { key: string; label: string; days: number }[] = [
+  { key: "7d",   label: "Última semana",    days: 7 },
+  { key: "30d",  label: "Último mes",       days: 30 },
+  { key: "90d",  label: "Últimos 3 meses",  days: 90 },
+  { key: "365d", label: "Último año",       days: 365 },
+];
+const COACH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const DAYS = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 
 function fmtPct(n: number) { return Number.isFinite(n) ? `${n.toFixed(1)}%` : "—"; }
@@ -68,33 +70,28 @@ export default function Productividad() {
   const [refreshing, setRefreshing] = useState(false);
   const [coachLoading, setCoachLoading] = useState(false);
   const [calls, setCalls] = useState<Call[]>([]);
-  const [reports, setReports] = useState<CoachReport[]>([]);
   const [selOwner, setSelOwner] = useState<string>("all");
   const [selRange, setSelRange] = useState<string>("90d");
   const [analyzed, setAnalyzed] = useState(0);
   const [pending, setPending] = useState(0);
-  const [coachRange, setCoachRange] = useState<DateRange | undefined>({ from: daysAgo(30), to: new Date() });
-  const [selCoachComercial, setSelCoachComercial] = useState<string>("all");
+  const [coachWindow, setCoachWindow] = useState<string>("30d");
+  const [coachCache, setCoachCache] = useState<Record<string, CoachReport>>({});
+  const [coachLoadingKey, setCoachLoadingKey] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     const since = new Date(Date.now() - RANGES[selRange]*86400000).toISOString();
-    const [{ data: callsData }, { data: repsData }, statRes] = await Promise.all([
+    const [{ data: callsData }, statRes] = await Promise.all([
       supabase.from("calls")
         .select("id, owner_id, comercial_hs_id, comercial_email, comercial_nombre, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, frases_clave_positivas, frases_clave_negativas, analyzed_at")
         .gte("fecha", since)
         .not("analyzed_at", "is", null)
         .order("fecha", { ascending: false })
         .limit(5000),
-      supabase.from("coach_reports")
-        .select("*")
-        .order("week_start", { ascending: false })
-        .limit(50),
       supabase.from("calls").select("id", { count: "exact", head: true })
         .not("transcripcion", "is", null).is("analyzed_at", null),
     ]);
     setCalls((callsData || []) as Call[]);
-    setReports((repsData || []) as CoachReport[]);
     setPending(statRes.count || 0);
     const { count: analyzedCount } = await supabase.from("calls").select("id", { count: "exact", head: true }).not("analyzed_at", "is", null);
     setAnalyzed(analyzedCount || 0);
@@ -246,31 +243,60 @@ export default function Productividad() {
     } finally { setRefreshing(false); }
   }
 
-  async function generateCoachAll() {
-    const from = coachRange?.from ? isoDay(coachRange.from) : isoDay(daysAgo(30));
-    const to = coachRange?.to ? isoDay(coachRange.to) : isoDay(new Date());
-    setCoachLoading(true);
-    try {
-      const body = selCoachComercial === "all"
-        ? { from, to, chain: true }
-        : { from, to, comercial_hs_id: selCoachComercial };
-      const { data, error } = await supabase.functions.invoke("generate_coach_report", { body });
-      if (error) throw error;
-      if (selCoachComercial === "all") {
-        toast.success(`Coach generado para ${data?.ok_count || 0} comerciales (${data?.remaining || 0} restantes)`);
-      } else {
-        const nombre = comercialNameById.get(selCoachComercial) || selCoachComercial.slice(0, 8);
-        toast.success(`Reporte generado para ${nombre} (${data?.report?.total_calls ?? 0} calls)`);
+  async function loadCoachFor(cid: string, windowKey: string, opts: { force?: boolean } = {}) {
+    if (!cid || cid === "all" || cid === "__none__") return;
+    const win = COACH_WINDOWS.find(w => w.key === windowKey);
+    if (!win) return;
+    const cacheKey = `${cid}_${windowKey}`;
+    const from = isoDay(daysAgo(win.days));
+    const to = isoDay(new Date());
+
+    if (!opts.force) {
+      // 1) Cache local en memoria
+      const mem = coachCache[cacheKey];
+      if (mem && Date.now() - new Date(mem.generated_at).getTime() < COACH_CACHE_TTL_MS) return;
+      // 2) Cache persistido en BBDD (<24h)
+      const { data: existing } = await supabase.from("coach_reports")
+        .select("*").eq("comercial_hs_id", cid).eq("week_start", from).maybeSingle();
+      if (existing && Date.now() - new Date(existing.generated_at).getTime() < COACH_CACHE_TTL_MS) {
+        setCoachCache(prev => ({ ...prev, [cacheKey]: existing as CoachReport }));
+        return;
       }
-      setTimeout(load, 1500);
+    }
+
+    setCoachLoadingKey(cacheKey);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate_coach_report", {
+        body: { from, to, comercial_hs_id: cid },
+      });
+      if (error) throw error;
+      // Releemos la fila persistida (el edge function la inserta tras generar)
+      const { data: fresh } = await supabase.from("coach_reports")
+        .select("*").eq("comercial_hs_id", cid).eq("week_start", from).maybeSingle();
+      if (fresh) {
+        setCoachCache(prev => ({ ...prev, [cacheKey]: fresh as CoachReport }));
+      } else if (data?.report) {
+        // fallback: usa la respuesta directa
+        setCoachCache(prev => ({ ...prev, [cacheKey]: { ...data.report, id: cacheKey, comercial_hs_id: cid, generated_at: new Date().toISOString() } as CoachReport }));
+      }
     } catch (e: any) {
-      toast.error(`Error: ${e.message || e}`);
-    } finally { setCoachLoading(false); }
+      toast.error(`Error generando coach: ${e.message || e}`);
+    } finally {
+      setCoachLoadingKey(null);
+    }
   }
 
-  function setQuickRange(days: number) {
-    setCoachRange({ from: daysAgo(days), to: new Date() });
-  }
+  // Auto-cargar Coach al cambiar comercial o ventana
+  useEffect(() => {
+    if (selOwner !== "all" && selOwner !== "__none__") {
+      loadCoachFor(selOwner, coachWindow);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selOwner, coachWindow]);
+
+  const currentCoachKey = selOwner !== "all" && selOwner !== "__none__" ? `${selOwner}_${coachWindow}` : null;
+  const currentCoachReport = currentCoachKey ? coachCache[currentCoachKey] : undefined;
+  const currentCoachLoading = currentCoachKey != null && coachLoadingKey === currentCoachKey;
 
   return (
     <div className="space-y-6 p-6">
