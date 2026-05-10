@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sparkles, Building2, Boxes, Users2, Briefcase, FileText, PhoneCall, MessageSquare,
-  StickyNote, CheckSquare, ChevronDown, ArrowRight, ArrowLeft,
+  StickyNote, CheckSquare, ChevronDown, ArrowRight, ArrowLeft, Network,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Crumbs } from "@/components/common/Crumbs";
@@ -21,6 +21,7 @@ import { AnalyzeNote } from "@/components/agents/AnalyzeNote";
 import { CatalogRoleButton } from "@/components/agents/CatalogRoleButton";
 import { RagSearch } from "@/components/agents/RagSearch";
 import { WhatsappComposer } from "@/components/comms/WhatsappComposer";
+import { RelationshipGraph } from "@/components/graph/RelationshipGraph";
 import { SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
 import { cn } from "@/lib/utils";
 
@@ -188,6 +189,7 @@ export default function OwnerDetail() {
             <TabsTrigger value="comms">Comunicaciones {comms.length || ""}</TabsTrigger>
             <TabsTrigger value="docs">Documentos {titulares.length || ""}</TabsTrigger>
             <TabsTrigger value="deals">Deals</TabsTrigger>
+            <TabsTrigger value="grafo"><Network className="mr-1 h-3 w-3" /> Grafo</TabsTrigger>
             <TabsTrigger value="ai"><Sparkles className="mr-1 h-3 w-3" /> IA</TabsTrigger>
           </TabsList>
         </div>
