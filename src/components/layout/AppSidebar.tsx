@@ -5,6 +5,8 @@ import {
   Settings as SettingsIcon, Search,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { prefetchRoute } from "@/lib/prefetch";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
@@ -39,10 +41,14 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
+  const queryClient = useQueryClient();
 
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
   };
+
+  // Hover/focus → precarga el chunk de la ruta y los datos de su primera página.
+  const handlePrefetch = (path: string) => prefetchRoute(path, queryClient);
 
   const operativa: Item[] = [
     { url: "/", label: t.nav.home, icon: LayoutDashboard },
@@ -90,7 +96,14 @@ export function AppSidebar() {
                     "data-[active=true]:before:absolute data-[active=true]:before:left-0 data-[active=true]:before:top-1.5 data-[active=true]:before:bottom-1.5 data-[active=true]:before:w-[2px] data-[active=true]:before:bg-primary data-[active=true]:before:rounded-r-sm"
                   }
                 >
-                  <NavLink to={item.url} end={item.url === "/"} onClick={handleNavClick}>
+                  <NavLink
+                    to={item.url}
+                    end={item.url === "/"}
+                    onClick={handleNavClick}
+                    onMouseEnter={() => handlePrefetch(item.url)}
+                    onFocus={() => handlePrefetch(item.url)}
+                    onTouchStart={() => handlePrefetch(item.url)}
+                  >
                     <item.icon className="h-6 w-6 shrink-0 opacity-80 md:h-4 md:w-4" />
                     {!collapsed && (
                       <span className="flex flex-1 items-center justify-between">
