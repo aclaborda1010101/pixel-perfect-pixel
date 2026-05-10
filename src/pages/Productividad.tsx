@@ -8,7 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/sonner";
 import { PageHeader } from "@/components/common/PageHeader";
-import { Loader2, RefreshCcw, Sparkles } from "lucide-react";
+import { Loader2, RefreshCcw, Sparkles, CalendarIcon } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
+import type { DateRange } from "react-day-picker";
 
 type Call = {
   id: string;
@@ -51,6 +56,12 @@ function fmtSec(n: number | null) {
   const m = Math.floor(n/60), s = Math.round(n%60);
   return `${m}:${String(s).padStart(2,"0")}`;
 }
+function isoDay(d: Date) { return d.toISOString().slice(0, 10); }
+function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d; }
+function daysSince(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  return Math.floor(ms / 86400000);
+}
 
 export default function Productividad() {
   const [loading, setLoading] = useState(true);
@@ -62,6 +73,7 @@ export default function Productividad() {
   const [selRange, setSelRange] = useState<string>("90d");
   const [analyzed, setAnalyzed] = useState(0);
   const [pending, setPending] = useState(0);
+  const [coachRange, setCoachRange] = useState<DateRange | undefined>({ from: daysAgo(30), to: new Date() });
 
   async function load() {
     setLoading(true);
@@ -122,8 +134,12 @@ export default function Productividad() {
     const atendidas = filtered.filter(c => c.outcome && c.outcome !== "no_contestado").length;
     const interesados = filtered.filter(c => c.outcome === "interesado").length;
     const noInt = filtered.filter(c => c.outcome === "no_interesado").length;
-    const dur = filtered.filter(c => c.duracion_seg).map(c => c.duracion_seg!);
-    const durMed = dur.length ? Math.round(dur.reduce((a,b)=>a+b,0)/dur.length) : 0;
+    // Duración media: solo conversaciones reales (excluye no_contestado y duracion 0/null)
+    const dur = filtered
+      .filter(c => c.outcome !== "no_contestado" && c.duracion_seg && c.duracion_seg > 0)
+      .map(c => c.duracion_seg!);
+    const durMed = dur.length >= 5 ? Math.round(dur.reduce((a,b)=>a+b,0)/dur.length) : 0;
+    const durN = dur.length;
     const pos = filtered.filter(c => c.sentiment === "positivo").length;
     const neg = filtered.filter(c => c.sentiment === "negativo").length;
     const neu = filtered.filter(c => c.sentiment === "neutro").length;
@@ -131,7 +147,7 @@ export default function Productividad() {
     const tecMed = tec.length ? tec.reduce((a,b)=>a+b,0)/tec.length : 0;
     const ratio = filtered.filter(c => c.ratio_comercial_cliente != null).map(c => c.ratio_comercial_cliente!);
     const ratioMed = ratio.length ? ratio.reduce((a,b)=>a+b,0)/ratio.length : 0;
-    return { total, atendidas, interesados, noInt, durMed, pos, neg, neu, tecMed, ratioMed,
+    return { total, atendidas, interesados, noInt, durMed, durN, pos, neg, neu, tecMed, ratioMed,
       pctAtendidas: total ? atendidas/total*100 : 0,
       pctInteresados: total ? interesados/total*100 : 0,
       pctPos: total ? pos/total*100 : 0,
@@ -195,21 +211,26 @@ export default function Productividad() {
     return Array.from(m.entries()).map(([cid, list]) => {
       const total = list.length;
       const inter = list.filter(c => c.outcome === "interesado").length;
-      const dur = list.filter(c => c.duracion_seg).map(c => c.duracion_seg!);
+      const durValid = list
+        .filter(c => c.outcome !== "no_contestado" && c.duracion_seg && c.duracion_seg > 0)
+        .map(c => c.duracion_seg!);
       const tec = list.filter(c => c.tecnica_score != null).map(c => c.tecnica_score!);
       const ratio = list.filter(c => c.ratio_comercial_cliente != null).map(c => c.ratio_comercial_cliente!);
       const pos = list.filter(c => c.sentiment === "positivo").length;
+      const ultimaFecha = list.reduce((max, c) => c.fecha > max ? c.fecha : max, list[0]?.fecha || "");
       return {
         owner_id: cid,
         nombre: cid === "__none__" ? "Sin asignar" : (comercialNameById.get(cid) || cid.slice(0,8)),
         calls: total,
-        durMed: dur.length ? Math.round(dur.reduce((a,b)=>a+b,0)/dur.length) : 0,
+        durMed: durValid.length >= 5 ? Math.round(durValid.reduce((a,b)=>a+b,0)/durValid.length) : 0,
+        durN: durValid.length,
         conversion: total ? inter/total*100 : 0,
         sentPos: total ? pos/total*100 : 0,
         ratio: ratio.length ? ratio.reduce((a,b)=>a+b,0)/ratio.length : 0,
         tec: tec.length ? tec.reduce((a,b)=>a+b,0)/tec.length : 0,
+        ultimaDias: ultimaFecha ? daysSince(ultimaFecha) : null,
       };
-    }).filter(r => r.calls >= 3).sort((a,b) => b.conversion - a.conversion).slice(0, 20);
+    }).filter(r => r.calls >= 10).sort((a,b) => b.conversion - a.conversion).slice(0, 20);
   }, [calls, comercialNameById]);
 
   async function recalcAnalyze() {
@@ -225,15 +246,21 @@ export default function Productividad() {
   }
 
   async function generateCoachAll() {
+    const from = coachRange?.from ? isoDay(coachRange.from) : isoDay(daysAgo(30));
+    const to = coachRange?.to ? isoDay(coachRange.to) : isoDay(new Date());
     setCoachLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("generate_coach_report", { body: { chain: true } });
+      const { data, error } = await supabase.functions.invoke("generate_coach_report", { body: { from, to, chain: true } });
       if (error) throw error;
       toast.success(`Coach generado para ${data?.ok_count || 0} comerciales (${data?.remaining || 0} restantes)`);
       setTimeout(load, 1500);
     } catch (e: any) {
       toast.error(`Error: ${e.message || e}`);
     } finally { setCoachLoading(false); }
+  }
+
+  function setQuickRange(days: number) {
+    setCoachRange({ from: daysAgo(days), to: new Date() });
   }
 
   return (
@@ -272,10 +299,6 @@ export default function Productividad() {
           {refreshing ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="mr-1 h-3.5 w-3.5" />}
           Reanalizar pendientes
         </Button>
-        <Button onClick={generateCoachAll} disabled={coachLoading} size="sm" variant="outline">
-          {coachLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
-          Generar Coach IA
-        </Button>
         <div className="ml-auto text-[11px] text-muted-foreground">
           {analyzed.toLocaleString()} analizadas · {pending.toLocaleString()} pendientes
         </div>
@@ -295,7 +318,7 @@ export default function Productividad() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <Kpi label="Total llamadas" value={kpis.total.toLocaleString()} />
             <Kpi label="Atendidas" value={fmtPct(kpis.pctAtendidas)} hint={`${kpis.atendidas} / ${kpis.total}`} />
-            <Kpi label="Duración media" value={fmtSec(kpis.durMed)} />
+            <Kpi label="Duración media" value={fmtSec(kpis.durMed)} hint={kpis.durN >= 5 ? `n=${kpis.durN} conversaciones` : `muestra <5 (n=${kpis.durN})`} />
             <Kpi label="Conversión interesado" value={fmtPct(kpis.pctInteresados)} hint={`${kpis.interesados} interesados`} />
             <Kpi label="Sentiment +" value={fmtPct(kpis.pctPos)} hint={`${kpis.neg} negativos`} />
             <Kpi label="Score técnica" value={kpis.tecMed ? kpis.tecMed.toFixed(0) : "—"} hint={`ratio ${(kpis.ratioMed*100).toFixed(0)}%`} />
@@ -337,33 +360,45 @@ export default function Productividad() {
         {/* COMPARATIVA */}
         <TabsContent value="comparativa">
           <Card>
-            <CardHeader><CardTitle className="text-sm">Comparativa entre comerciales (≥3 calls)</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-sm">Comparativa entre comerciales (≥10 calls)</CardTitle></CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Comercial</TableHead>
                     <TableHead className="text-right">Calls</TableHead>
-                    <TableHead className="text-right">Dur. media</TableHead>
+                    <TableHead className="text-right">Dur. media (n)</TableHead>
                     <TableHead className="text-right">Conversión</TableHead>
                     <TableHead className="text-right">Sentiment +</TableHead>
                     <TableHead className="text-right">Ratio com/cli</TableHead>
                     <TableHead className="text-right">Score téc.</TableHead>
+                    <TableHead className="text-right">Última</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {tablaComerciales.length === 0 && (
-                    <TableRow><TableCell colSpan={7} className="text-center text-xs text-muted-foreground">Sin datos suficientes</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center text-xs text-muted-foreground">Sin datos suficientes</TableCell></TableRow>
                   )}
                   {tablaComerciales.map(r => (
                     <TableRow key={r.owner_id}>
-                      <TableCell className="font-medium">{r.nombre}</TableCell>
+                      <TableCell className="font-medium">
+                        {r.nombre}
+                        {r.ultimaDias != null && r.ultimaDias > 14 && (
+                          <Badge variant="outline" className="ml-2 text-[9px]">inactivo</Badge>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{r.calls}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmtSec(r.durMed)}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {fmtSec(r.durMed)}
+                        <span className="ml-1 text-[10px] text-muted-foreground">({r.durN})</span>
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{r.conversion.toFixed(1)}%</TableCell>
                       <TableCell className="text-right tabular-nums">{r.sentPos.toFixed(1)}%</TableCell>
                       <TableCell className="text-right tabular-nums">{(r.ratio*100).toFixed(0)}%</TableCell>
                       <TableCell className="text-right tabular-nums">{r.tec ? r.tec.toFixed(0) : "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {r.ultimaDias != null ? `${r.ultimaDias}d` : "—"}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -404,6 +439,39 @@ export default function Productividad() {
 
         {/* COACH IA */}
         <TabsContent value="coach" className="space-y-3">
+          <Card>
+            <CardContent className="flex flex-wrap items-center gap-2 p-3">
+              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Periodo del análisis</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn("h-9 justify-start text-left font-normal", !coachRange && "text-muted-foreground")}>
+                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                    {coachRange?.from ? (
+                      coachRange.to ? (
+                        <>{format(coachRange.from, "dd MMM")} – {format(coachRange.to, "dd MMM yyyy")}</>
+                      ) : format(coachRange.from, "dd MMM yyyy")
+                    ) : <span>Selecciona rango</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="range"
+                    selected={coachRange}
+                    onSelect={setCoachRange}
+                    numberOfMonths={2}
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button size="sm" variant="ghost" onClick={() => setQuickRange(7)}>7d</Button>
+              <Button size="sm" variant="ghost" onClick={() => setQuickRange(30)}>30d</Button>
+              <Button size="sm" variant="ghost" onClick={() => setQuickRange(90)}>90d</Button>
+              <Button onClick={generateCoachAll} disabled={coachLoading} size="sm" className="ml-auto">
+                {coachLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
+                Generar Coach IA
+              </Button>
+            </CardContent>
+          </Card>
           {reports.length === 0 && (
             <Card><CardContent className="p-6 text-sm text-muted-foreground">
               Aún no hay reportes coach. Pulsa <strong>Generar Coach IA</strong> arriba.
