@@ -115,20 +115,34 @@ async function runBatch(
   const results: { id: string; ok: boolean; status?: string; error?: string }[] = [];
 
   async function processOne(id: string) {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze_nota_simple`, {
-        method: "POST",
-        headers: {
-          Authorization: auth,
-          apikey: ANON_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ nota_simple_id: id }),
-      });
-      const txt = await res.text();
-      if (!res.ok) {
-        results.push({ id, ok: false, error: `${res.status}: ${txt.slice(0, 200)}` });
-      } else {
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/analyze_nota_simple`, {
+          method: "POST",
+          headers: {
+            Authorization: auth,
+            apikey: ANON_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ nota_simple_id: id }),
+        });
+        const txt = await res.text();
+        // Retry on 429 / 503
+        if (res.status === 429 || res.status === 503) {
+          const retryAfter = Number(res.headers.get("retry-after")) || 0;
+          const wait = retryAfter > 0 ? retryAfter * 1000 : Math.min(30000, 2000 * attempt * attempt);
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, wait + Math.random() * 500));
+            continue;
+          }
+          results.push({ id, ok: false, error: `${res.status} after ${attempt} attempts` });
+          return;
+        }
+        if (!res.ok) {
+          results.push({ id, ok: false, error: `${res.status}: ${txt.slice(0, 200)}` });
+          return;
+        }
         try {
           const j = JSON.parse(txt);
           if (j?.ok === true) {
@@ -139,9 +153,19 @@ async function runBatch(
         } catch {
           results.push({ id, ok: false, error: `non-json: ${txt.slice(0, 200)}` });
         }
+        return;
+      } catch (e) {
+        const msg = String((e as Error).message ?? e);
+        const m = msg.match(/Retry after (\d+)ms/);
+        const isRate = /RateLimit|rate limit|429/i.test(msg);
+        if (isRate && attempt < maxAttempts) {
+          const wait = m ? Number(m[1]) : Math.min(30000, 2000 * attempt * attempt);
+          await new Promise((r) => setTimeout(r, wait + Math.random() * 500));
+          continue;
+        }
+        results.push({ id, ok: false, error: msg.slice(0, 200) });
+        return;
       }
-    } catch (e) {
-      results.push({ id, ok: false, error: String((e as Error).message ?? e).slice(0, 200) });
     }
   }
 
@@ -156,4 +180,42 @@ async function runBatch(
   const ok = results.filter((r) => r.ok).length;
   console.log(`[batch] hop processed=${ids.length} ok=${ok} fail=${ids.length - ok}`);
   return results;
+}
+
+async function rechainWithBackoff(
+  SUPABASE_URL: string,
+  ANON_KEY: string,
+  auth: string,
+  payload: Record<string, unknown>,
+) {
+  const maxAttempts = 6;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/batch_analyze_notas_pendientes`, {
+        method: "POST",
+        headers: {
+          Authorization: auth,
+          apikey: ANON_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.status === 429 || res.status === 503) {
+        const ra = Number(res.headers.get("retry-after")) || 0;
+        const wait = ra > 0 ? ra * 1000 : Math.min(60000, 5000 * attempt);
+        console.warn(`[batch] rechain got ${res.status}, sleeping ${wait}ms (attempt ${attempt})`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      console.log(`[batch] rechain attempt=${attempt} status=${res.status}`);
+      return;
+    } catch (e) {
+      const msg = String((e as Error).message ?? e);
+      const m = msg.match(/Retry after (\d+)ms/);
+      const wait = m ? Number(m[1]) + 500 : Math.min(60000, 5000 * attempt);
+      console.warn(`[batch] rechain error attempt=${attempt}: ${msg.slice(0,160)} sleeping ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  console.error(`[batch] rechain abandoned after ${maxAttempts} attempts; chain broken`);
 }
