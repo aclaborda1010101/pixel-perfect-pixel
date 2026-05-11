@@ -41,10 +41,10 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
   const body = await req.json().catch(() => ({}));
   const limit = Math.max(1, Math.min(500, Number(body?.limit) || 100));
-  const concurrency = Math.max(1, Math.min(10, Number(body?.concurrency) || 5));
+  const concurrency = Math.max(1, Math.min(10, Number(body?.concurrency) || 3));
   const chain = body?.chain === true;
   const hop = Math.max(0, Number(body?.hop) || 0);
-  const MAX_HOPS = 60; // 60 batches × 100 = 6000 notas máx por cadena
+  const MAX_HOPS = 120; // batches × limit; con backoff la cadena puede ser larga
 
   const { data: pendientes, error: selErr } = await supabase
     .from("notas_simples")
@@ -66,19 +66,9 @@ Deno.serve(async (req) => {
       await runBatch(ids, concurrency, supabase, auth, SUPABASE_URL, ANON_KEY);
       // Reencadenar si quedan más y no excedimos hops
       if (hop + 1 < MAX_HOPS) {
-        try {
-          await fetch(`${SUPABASE_URL}/functions/v1/batch_analyze_notas_pendientes`, {
-            method: "POST",
-            headers: {
-              Authorization: auth,
-              apikey: ANON_KEY,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ limit, concurrency, chain: true, hop: hop + 1 }),
-          });
-        } catch (e) {
-          console.error("[batch] rechain error", e);
-        }
+        await rechainWithBackoff(SUPABASE_URL, ANON_KEY, auth, {
+          limit, concurrency, chain: true, hop: hop + 1,
+        });
       } else {
         console.warn(`[batch] reached MAX_HOPS=${MAX_HOPS}, stopping chain`);
       }
