@@ -150,10 +150,12 @@ Deno.serve(async (req) => {
                 const ln = (props.lastname || '').trim();
                 const nombre = (`${fn} ${ln}`).trim() || (props.email || 'Sin nombre');
                 const tipo = (props.tipologia_de_propietario || '').toLowerCase();
-                const rol = tipo.includes('inversor') ? 'inversor'
-                  : tipo.includes('lead') ? 'lead'
-                  : tipo.includes('candidato') ? 'candidato'
-                  : (tipo.includes('propietario') || props.dni__nif__cif) ? 'propietario'
+                // Map a enum válido public.owner_role
+                const rol = tipo.includes('inversor') ? 'inversor_pasivo'
+                  : tipo.includes('operador') || tipo.includes('profesional') ? 'operador_profesional'
+                  : tipo.includes('institucional') ? 'institucional'
+                  : tipo.includes('heredero') ? 'heredero'
+                  : (tipo.includes('propietario') || props.dni__nif__cif) ? 'particular'
                   : 'desconocido';
                 const { data: ins, error: insErr } = await supabase
                   .from('owners').insert({
