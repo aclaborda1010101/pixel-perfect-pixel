@@ -15,6 +15,11 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
+  // Parse body once
+  let reqBody: any = {};
+  try { reqBody = await req.clone().json(); } catch { /* ignore */ }
+  const autoChain = !!reqBody?.chain;
+
   const { data: logRow } = await supabase
     .from('hubspot_sync_log')
     .insert({ entity: 'associations', status: 'running' })
@@ -37,11 +42,8 @@ Deno.serve(async (req) => {
   try {
     let reset = false;
     let onlyOrphans = false;
-    try {
-      const b = await req.json().catch(() => ({}));
-      reset = !!b?.reset;
-      onlyOrphans = !!b?.only_orphans;
-    } catch { /* ignore */ }
+    reset = !!reqBody?.reset;
+    onlyOrphans = !!reqBody?.only_orphans;
 
     const { data: state } = await supabase
       .from('hubspot_sync_state').select('cursor').eq('entity', 'associations').single();
@@ -150,10 +152,12 @@ Deno.serve(async (req) => {
                 const ln = (props.lastname || '').trim();
                 const nombre = (`${fn} ${ln}`).trim() || (props.email || 'Sin nombre');
                 const tipo = (props.tipologia_de_propietario || '').toLowerCase();
-                const rol = tipo.includes('inversor') ? 'inversor'
-                  : tipo.includes('lead') ? 'lead'
-                  : tipo.includes('candidato') ? 'candidato'
-                  : (tipo.includes('propietario') || props.dni__nif__cif) ? 'propietario'
+                // Map a enum válido public.owner_role
+                const rol = tipo.includes('inversor') ? 'inversor_pasivo'
+                  : tipo.includes('operador') || tipo.includes('profesional') ? 'operador_profesional'
+                  : tipo.includes('institucional') ? 'institucional'
+                  : tipo.includes('heredero') ? 'heredero'
+                  : (tipo.includes('propietario') || props.dni__nif__cif) ? 'particular'
                   : 'desconocido';
                 const { data: ins, error: insErr } = await supabase
                   .from('owners').insert({
@@ -263,6 +267,20 @@ Deno.serve(async (req) => {
       cursor: hasMore ? lastProviderId : null,
     }).eq('entity', 'associations');
 
+    // Auto-chain: re-invoke en background hasta drenar (sólo si chain=true)
+    if (autoChain && hasMore) {
+      const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/hubspot_sync_associations`;
+      const anon = Deno.env.get('SUPABASE_ANON_KEY')!;
+      // @ts-ignore EdgeRuntime is available in Deno deploy
+      (globalThis as any).EdgeRuntime?.waitUntil(
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${anon}` },
+          body: JSON.stringify({ chain: true }),
+        }).catch((e) => console.error('[assoc] chain fail:', e)),
+      );
+    }
+
     return new Response(JSON.stringify({
       ok: true,
       batches,
@@ -271,6 +289,7 @@ Deno.serve(async (req) => {
       owners_created: ownersCreated,
       failed,
       has_more: hasMore,
+      chained: autoChain && hasMore,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';

@@ -1814,6 +1814,21 @@ export type Database = {
       }
     }
     Views: {
+      v_building_conversations: {
+        Row: {
+          associated_contact_ids: string[] | null
+          associated_deal_ids: string[] | null
+          body: string | null
+          building_id: string | null
+          direction: string | null
+          duration_seg: number | null
+          hs_id: string | null
+          hs_owner_id: string | null
+          kind: string | null
+          ts: string | null
+        }
+        Relationships: []
+      }
       v_building_graph: {
         Row: {
           building_id: string | null

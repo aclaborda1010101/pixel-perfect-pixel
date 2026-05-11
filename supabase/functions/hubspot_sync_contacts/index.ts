@@ -25,10 +25,12 @@ function pickNombre(p: Record<string, string | null>): string {
 
 function mapRol(p: Record<string, string | null>): string {
   const t = (p.tipologia_de_propietario || '').toLowerCase();
-  if (t.includes('inversor')) return 'inversor';
-  if (t.includes('lead')) return 'lead';
-  if (t.includes('candidato')) return 'candidato';
-  if (t.includes('propietario') || p.dni__nif__cif) return 'propietario';
+  // Map a valores válidos del enum public.owner_role
+  if (t.includes('inversor')) return 'inversor_pasivo';
+  if (t.includes('operador') || t.includes('profesional')) return 'operador_profesional';
+  if (t.includes('institucional')) return 'institucional';
+  if (t.includes('heredero')) return 'heredero';
+  if (t.includes('propietario') || p.dni__nif__cif) return 'particular';
   return 'desconocido';
 }
 
