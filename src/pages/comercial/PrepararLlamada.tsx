@@ -9,7 +9,9 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Sparkles, Phone, CheckCircle2, Clock, XCircle, PhoneOff } from "lucide-react";
+import { Sparkles, Phone, CheckCircle2, Clock, XCircle, PhoneOff, Copy, AlertTriangle, Target, Users, Lightbulb, TrendingUp, Quote, MessageSquareWarning, ArrowRight, Clock4 } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Outcome = "interesado" | "no_interesa" | "volver" | "no_contesta";
 const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "success" | "outline" | "info" | "destructive" }> = [
@@ -69,6 +71,28 @@ export default function ComercialPrepararLlamada() {
   }
 
   useEffect(() => { setBrief(null); }, [ownerId]);
+
+  // Normaliza esquema viejo y nuevo a un mismo shape
+  const normalizedBrief = (() => {
+    if (!brief) return null;
+    const b = (brief as any).brief ?? brief;
+    if (b.openers || b.intencion_llamada) return b; // nuevo
+    return {
+      modo: "primer_contacto",
+      confianza: b.confianza ?? 0.5,
+      resumen: b.contexto ?? b.resumen ?? "",
+      estado_relacion: "—",
+      intencion_llamada: (b.objetivos?.[0]) ?? "",
+      mejor_momento: null,
+      openers: [],
+      preguntas_clave: b.preguntas_clave ?? [],
+      objeciones: [],
+      tips: (b.objetivos ?? []).map((t: string) => ({ tipo: "buena_practica", texto: t })),
+      riesgos: b.riesgos ?? [],
+      proxima_accion: b.proxima_accion_sugerida ?? b.proxima_accion ?? "",
+      contexto_peers: null,
+    };
+  })();
 
   async function submitResult() {
     if (!outcome || !ownerId) return;
@@ -176,35 +200,8 @@ export default function ComercialPrepararLlamada() {
       </div>
 
       {/* Briefing IA */}
-      {brief && (
-        <Card>
-          <CardHeader><Eyebrow><Sparkles className="mr-1 inline h-3 w-3" /> Briefing IA</Eyebrow><CardTitle>Pre-call brief</CardTitle></CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            {brief.resumen && (
-              <div><Eyebrow>Resumen</Eyebrow><p className="mt-1 text-foreground">{brief.resumen}</p></div>
-            )}
-            {Array.isArray(brief.puntos_clave) && brief.puntos_clave.length > 0 && (
-              <div>
-                <Eyebrow>Puntos clave</Eyebrow>
-                <ul className="mt-1 list-inside list-disc space-y-1">
-                  {brief.puntos_clave.map((p: string, i: number) => <li key={i}>{p}</li>)}
-                </ul>
-              </div>
-            )}
-            {Array.isArray(brief.approach) && brief.approach.length > 0 && (
-              <div>
-                <Eyebrow>Approach sugerido</Eyebrow>
-                <ul className="mt-1 list-inside list-disc space-y-1">
-                  {brief.approach.map((p: string, i: number) => <li key={i}>{p}</li>)}
-                </ul>
-              </div>
-            )}
-            {!brief.resumen && !brief.puntos_clave && (
-              <pre className="overflow-auto rounded bg-surface-1 p-3 font-mono text-xs">{JSON.stringify(brief, null, 2)}</pre>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {loadingBrief && !brief && <BriefSkeleton />}
+      {normalizedBrief && <BriefView brief={normalizedBrief} />}
 
       {/* Post-call */}
       <Card>
