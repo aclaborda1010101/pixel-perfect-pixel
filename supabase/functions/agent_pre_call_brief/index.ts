@@ -8,6 +8,14 @@ const corsHeaders = {
 
 const MODEL = "google/gemini-3-flash-preview";
 
+function bucketHour(h: number): string {
+  if (h < 10) return "mañana temprano (8-10h)";
+  if (h < 13) return "media mañana (10-13h)";
+  if (h < 16) return "mediodía (13-16h)";
+  if (h < 19) return "tarde (16-19h)";
+  return "tarde-noche (19-21h)";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -25,11 +33,12 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const [{ data: owner }, { data: notes }, { data: calls }, { data: assets }] = await Promise.all([
+    const [{ data: owner }, { data: calls }, { data: assets }, { data: nota }, { data: ownerBuildings }] = await Promise.all([
       supabase.from("owners").select("*").eq("id", owner_id).maybeSingle(),
-      supabase.from("notes").select("texto,created_at").eq("owner_id", owner_id).order("created_at", { ascending: false }).limit(10),
-      supabase.from("calls").select("resumen,fecha,direccion").eq("owner_id", owner_id).order("fecha", { ascending: false }).limit(10),
+      supabase.from("calls").select("resumen,fecha,direccion,outcome,notas_post_llamada").eq("owner_id", owner_id).order("fecha", { ascending: false }).limit(20),
       supabase.from("assets").select("tipo,ubicacion,ciudad,estado,valoracion_estimada").eq("owner_id", owner_id),
+      supabase.from("notas_simples").select("structured_json").eq("owner_id", owner_id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("building_owners").select("building_id,cuota,subrole").eq("owner_id", owner_id).limit(5),
     ]);
 
     if (!owner) {
@@ -38,37 +47,152 @@ Deno.serve(async (req) => {
       });
     }
 
-    const sys = locale === "en"
-      ? "You are a real-estate origination assistant. Produce a precise, actionable pre-call briefing in English. Be concise, no fluff."
-      : "Eres un asistente de originación inmobiliaria. Genera un briefing pre-llamada preciso y accionable en castellano. Sé conciso, sin paja.";
+    // Stats propias del owner
+    const intentos = (calls ?? []).length;
+    const conResumen = (calls ?? []).filter((c: any) => (c.resumen ?? "").trim().length > 30 && c.outcome !== "no_contesta").length;
+    const outcomes: Record<string, number> = {};
+    const franjas: Record<string, number> = {};
+    for (const c of calls ?? []) {
+      if (c.outcome) outcomes[c.outcome] = (outcomes[c.outcome] ?? 0) + 1;
+      if (c.fecha) {
+        const h = new Date(c.fecha).getHours();
+        const b = bucketHour(h);
+        franjas[b] = (franjas[b] ?? 0) + 1;
+      }
+    }
+    const ultimoIntento = calls?.[0]?.fecha ?? null;
+    const gapDias = ultimoIntento ? Math.floor((Date.now() - new Date(ultimoIntento).getTime()) / 86400000) : null;
+    const modo: "con_historico" | "primer_contacto" = conResumen > 0 ? "con_historico" : "primer_contacto";
 
-    const userPrompt = JSON.stringify({
+    // Contexto peers (mismo edificio) si tenemos building
+    let peers: any = null;
+    const buildingId = ownerBuildings?.[0]?.building_id ?? null;
+    if (buildingId) {
+      const { data: bowners } = await supabase
+        .from("building_owners")
+        .select("owner_id,cuota,subrole")
+        .eq("building_id", buildingId);
+      const peerIds = (bowners ?? []).map((b: any) => b.owner_id).filter((id: string) => id !== owner_id);
+      let contactados = 0;
+      let outcomesPeers: Record<string, number> = {};
+      if (peerIds.length > 0) {
+        const { data: peerCalls } = await supabase
+          .from("calls")
+          .select("owner_id,outcome,resumen")
+          .in("owner_id", peerIds);
+        const contactadosSet = new Set<string>();
+        for (const c of peerCalls ?? []) {
+          if ((c.resumen ?? "").trim().length > 30) contactadosSet.add(c.owner_id);
+          if (c.outcome) outcomesPeers[c.outcome] = (outcomesPeers[c.outcome] ?? 0) + 1;
+        }
+        contactados = contactadosSet.size;
+      }
+      peers = {
+        total_propietarios: (bowners ?? []).length,
+        peers_total: peerIds.length,
+        peers_contactados: contactados,
+        outcomes_peers: outcomesPeers,
+      };
+    }
+
+    const structured = (nota?.structured_json ?? {}) as any;
+    const cargas = structured.cargas ?? [];
+    const divisible = structured.divisible ?? null;
+
+    const sys = locale === "en"
+      ? "You are a real-estate origination coach. Produce a concise, actionable pre-call briefing in English. Avoid fluff. Use the data; if histórico is empty, fall back to first-contact playbook + peer context."
+      : `Eres un coach de originación inmobiliaria. Genera un briefing pre-llamada accionable en castellano, sin paja.
+Reglas:
+- Si modo="con_historico": basa tips en los patrones reales (franja, gap, outcomes, temas).
+- Si modo="primer_contacto": usa playbook de primer contacto + datos de peers del mismo edificio si existen.
+- Openers deben ser frases listas para leer en voz alta (≤25 palabras).
+- Objeciones: las 3 más probables según el contexto, con respuesta breve (1-2 frases).
+- Tips: marcar correctamente el tipo (historico / patron_peers / buena_practica).
+- proxima_accion: una sola frase concreta y medible.`;
+
+    const userPayload = {
+      modo,
       owner: {
         nombre: owner.nombre, rol: owner.rol, notas_breves: owner.notas_breves,
-        consentimiento: owner.consentimiento,
+        consentimiento: owner.consentimiento, telefono: !!owner.telefono,
       },
-      ultimas_notas: notes ?? [],
-      ultimas_llamadas: calls ?? [],
+      stats_owner: {
+        intentos_totales: intentos,
+        intentos_con_conversacion: conResumen,
+        outcomes,
+        franjas_horarias_usadas: franjas,
+        gap_dias_desde_ultimo_intento: gapDias,
+      },
+      ultimas_llamadas: (calls ?? []).slice(0, 8).map((c: any) => ({
+        fecha: c.fecha, outcome: c.outcome, resumen: (c.resumen ?? "").slice(0, 400),
+      })),
       activos: assets ?? [],
-    });
+      nota_simple: { cargas_count: cargas.length, cargas_tipos: cargas.map((c: any) => c.tipo).slice(0, 5), divisible },
+      peers,
+    };
 
     const apiKey = Deno.env.get("LOVABLE_API_KEY");
     const tools = [{
       type: "function",
       function: {
         name: "produce_brief",
-        description: "Produce structured pre-call briefing",
+        description: "Produce visual, actionable pre-call briefing",
         parameters: {
           type: "object",
           properties: {
-            contexto: { type: "string" },
-            objetivos: { type: "array", items: { type: "string" } },
-            preguntas_clave: { type: "array", items: { type: "string" } },
-            riesgos: { type: "array", items: { type: "string" } },
-            proxima_accion_sugerida: { type: "string" },
+            modo: { type: "string", enum: ["con_historico", "primer_contacto"] },
             confianza: { type: "number" },
+            resumen: { type: "string", description: "1-2 frases sintéticas sobre el propietario y momento" },
+            estado_relacion: { type: "string", description: "frío | tibio | caliente, con matiz breve" },
+            intencion_llamada: { type: "string", description: "Objetivo nº1 de esta llamada concreta" },
+            mejor_momento: {
+              type: ["object", "null"],
+              properties: {
+                franja: { type: "string" },
+                razon: { type: "string" },
+              },
+              required: ["franja", "razon"],
+              additionalProperties: false,
+            },
+            openers: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 3 },
+            preguntas_clave: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 5 },
+            objeciones: {
+              type: "array",
+              minItems: 2,
+              maxItems: 4,
+              items: {
+                type: "object",
+                properties: {
+                  objecion: { type: "string" },
+                  respuesta: { type: "string" },
+                },
+                required: ["objecion", "respuesta"],
+                additionalProperties: false,
+              },
+            },
+            tips: {
+              type: "array",
+              minItems: 2,
+              maxItems: 6,
+              items: {
+                type: "object",
+                properties: {
+                  tipo: { type: "string", enum: ["historico", "patron_peers", "buena_practica"] },
+                  texto: { type: "string" },
+                },
+                required: ["tipo", "texto"],
+                additionalProperties: false,
+              },
+            },
+            riesgos: { type: "array", items: { type: "string" } },
+            proxima_accion: { type: "string" },
+            contexto_peers: { type: ["string", "null"] },
           },
-          required: ["contexto", "objetivos", "preguntas_clave", "riesgos", "proxima_accion_sugerida", "confianza"],
+          required: [
+            "modo", "confianza", "resumen", "estado_relacion", "intencion_llamada",
+            "mejor_momento", "openers", "preguntas_clave", "objeciones", "tips",
+            "riesgos", "proxima_accion", "contexto_peers",
+          ],
           additionalProperties: false,
         },
       },
@@ -81,7 +205,7 @@ Deno.serve(async (req) => {
         model: MODEL,
         messages: [
           { role: "system", content: sys },
-          { role: "user", content: userPrompt },
+          { role: "user", content: JSON.stringify(userPayload) },
         ],
         tools,
         tool_choice: { type: "function", function: { name: "produce_brief" } },
@@ -109,7 +233,7 @@ Deno.serve(async (req) => {
       resultado: brief,
     });
 
-    return new Response(JSON.stringify({ brief }), {
+    return new Response(JSON.stringify({ brief, meta: { modo, intentos, conResumen, gapDias } }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
