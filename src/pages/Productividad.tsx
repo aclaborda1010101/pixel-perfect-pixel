@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/sonner";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Loader2, RefreshCcw, Sparkles } from "lucide-react";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { useAuth } from "@/hooks/useAuth";
 
 type Call = {
   id: string;
@@ -79,6 +81,8 @@ function daysSince(iso: string) {
 }
 
 export default function Productividad() {
+  const { user } = useAuth();
+  const { isComercial } = useCurrentRole();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [calls, setCalls] = useState<Call[]>([]);
@@ -95,20 +99,24 @@ export default function Productividad() {
     const since = new Date(Date.now() - RANGES[selRange]*86400000).toISOString();
     const cols = "id, owner_id, comercial_hs_id, comercial_email, comercial_nombre, fecha, duracion_seg, outcome, sentiment, objeciones, tecnica_score, ratio_comercial_cliente, pivot_moments, tacticas_usadas, analyzed_at";
     // 1) Total count del rango (sin traer filas)
-    const { count: rangeCount } = await supabase.from("calls").select("id", { count: "exact", head: true })
+    const baseCount = supabase.from("calls").select("id", { count: "exact", head: true })
       .gte("fecha", since).not("analyzed_at", "is", null);
+    if (isComercial && user?.email) baseCount.eq("comercial_email", user.email);
+    const { count: rangeCount } = await baseCount;
     // 2) Paginación por chunks de 1000 hasta cubrir todo el rango
     const PAGE = 1000;
     const total = rangeCount || 0;
     const all: Call[] = [];
     for (let from = 0; from < total; from += PAGE) {
       const to = Math.min(from + PAGE - 1, total - 1);
-      const { data, error } = await supabase.from("calls")
+      const q = supabase.from("calls")
         .select(cols)
         .gte("fecha", since)
         .not("analyzed_at", "is", null)
         .order("fecha", { ascending: false })
         .range(from, to);
+      if (isComercial && user?.email) q.eq("comercial_email", user.email);
+      const { data, error } = await q;
       if (error) { toast.error(`Error cargando llamadas: ${error.message}`); break; }
       if (data) all.push(...((data as unknown) as Call[]));
       if (!data || data.length < PAGE) break;
@@ -126,7 +134,7 @@ export default function Productividad() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [selRange]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [selRange, isComercial, user?.email]);
 
   // Mapa hs_owner_id -> nombre comercial (extraído de las propias calls)
   const comercialNameById = useMemo(() => {
@@ -356,18 +364,20 @@ export default function Productividad() {
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Comercial</span>
-          <Select value={selOwner} onValueChange={setSelOwner}>
-            <SelectTrigger className="h-9 w-[260px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {comercialesWithCalls.slice(0, 50).map(o => (
-                <SelectItem key={o.id} value={o.id}>{o.nombre} · {o.calls}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {!isComercial && (
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Comercial</span>
+            <Select value={selOwner} onValueChange={setSelOwner}>
+              <SelectTrigger className="h-9 w-[260px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {comercialesWithCalls.slice(0, 50).map(o => (
+                  <SelectItem key={o.id} value={o.id}>{o.nombre} · {o.calls}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Rango</span>
           <Select value={selRange} onValueChange={setSelRange}>

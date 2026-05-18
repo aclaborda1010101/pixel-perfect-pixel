@@ -55,22 +55,23 @@ export function AppSidebar() {
 
   const operativa: Item[] = isComercial ? [
     { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
-    { url: "/edificios", label: t.nav.buildings, icon: Building2 },
+    { url: "/comercial/edificios", label: t.nav.buildings, icon: Building2 },
   ] : [
     { url: "/", label: t.nav.home, icon: LayoutDashboard },
     { url: "/edificios", label: t.nav.buildings, icon: Building2 },
     { url: "/propietarios", label: t.nav.owners, icon: Users },
     { url: "/inversores", label: t.nav.investors, icon: TrendingUp },
   ];
-  const captacion: Item[] = isComercial ? [
-    { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
-  ] : [
+  const captacion: Item[] = isComercial ? [] : [
     { url: "/leads", label: t.nav.leads, icon: Inbox },
     { url: "/notas-simples", label: t.nav.notasSimples, icon: FileText },
     { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
   ];
-  const ia: Item[] = isComercial ? [
+  const miTrabajo: Item[] = isComercial ? [
+    { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
+  ] : [];
+  const ia: Item[] = isComercial ? [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
   ] : [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
@@ -175,10 +176,12 @@ export function AppSidebar() {
         )}
       </SidebarHeader>
       <SidebarContent className="bg-sidebar">
-        {renderGroup(t.nav.groupOperativa, operativa)}
-        {renderGroup(t.nav.groupCaptacion, captacion)}
-        {renderGroup(t.nav.groupIA, ia)}
-        {renderGroup(t.nav.groupCuenta, cuenta)}
+        {renderGroup(isComercial ? "Operativa" : t.nav.groupOperativa, operativa)}
+        {isComercial
+          ? renderGroup("Mi trabajo", miTrabajo)
+          : renderGroup(t.nav.groupCaptacion, captacion)}
+        {renderGroup(isComercial ? "Herramientas" : t.nav.groupIA, ia)}
+        {!isComercial && renderGroup(t.nav.groupCuenta, cuenta)}
       </SidebarContent>
     </Sidebar>
   );
