@@ -312,6 +312,130 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Heatmap llamadas */}
+      <Card>
+        <CardHeader>
+          <Eyebrow>Patrones · Mejor momento para llamar</Eyebrow>
+          <CardTitle>Heat map de llamadas (últimos 180 días)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <div className="min-w-[640px]">
+              <div className="grid grid-cols-[40px_repeat(24,minmax(0,1fr))] gap-[2px]">
+                <div />
+                {Array.from({ length: 24 }).map((_, h) => (
+                  <div key={h} className="text-center font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                    {h % 3 === 0 ? h : ""}
+                  </div>
+                ))}
+                {heatGrid.map((row, d) => (
+                  <>
+                    <div key={`l-${d}`} className="flex items-center font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                      {dayLabels[d]}
+                    </div>
+                    {row.map((v, h) => {
+                      const intensity = heatMax > 0 ? v / heatMax : 0;
+                      const isPeak = v === heatMax && v > 0;
+                      return (
+                        <div
+                          key={`c-${d}-${h}`}
+                          title={`${dayLabels[d]} ${h}:00 · ${v} llamadas`}
+                          className="aspect-square rounded-[2px] border border-border-faint"
+                          style={{
+                            backgroundColor: v === 0
+                              ? "hsl(var(--surface-1) / 0.4)"
+                              : `hsl(var(--gold) / ${0.12 + intensity * 0.78})`,
+                            boxShadow: isPeak ? "0 0 0 1px hsl(var(--gold))" : undefined,
+                          }}
+                        />
+                      );
+                    })}
+                  </>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center justify-between font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                <span><Clock className="mr-1 inline h-3 w-3" />Pico: {heatMax} llamadas / hora</span>
+                <span className="flex items-center gap-1">
+                  <span>menos</span>
+                  <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: "hsl(var(--gold) / 0.15)" }} />
+                  <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: "hsl(var(--gold) / 0.4)" }} />
+                  <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: "hsl(var(--gold) / 0.7)" }} />
+                  <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: "hsl(var(--gold) / 0.95)" }} />
+                  <span>más</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Edificios trabajados vs pendientes */}
+        <Card>
+          <CardHeader>
+            <Eyebrow>Cartera · Edificios</Eyebrow>
+            <CardTitle>Trabajados vs pendientes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <Eyebrow>Trabajados</Eyebrow>
+                <div className="mt-1"><MetricValue size="xl">{trabajados.toLocaleString()}</MetricValue></div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {wb.con_propietarios.toLocaleString()} con propietarios · {wb.con_nota_simple.toLocaleString()} con nota simple
+                </p>
+              </div>
+              <div className="text-right">
+                <Eyebrow>Pendientes</Eyebrow>
+                <div className="mt-1"><MetricValue size="xl" className="text-muted-foreground">{pendientes.toLocaleString()}</MetricValue></div>
+                <p className="mt-1 text-xs text-muted-foreground">de {wb.total.toLocaleString()} totales</p>
+              </div>
+            </div>
+            <div>
+              <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-1">
+                <div className="h-full bg-gold/80" style={{ width: `${ratioTrabajados}%` }} />
+              </div>
+              <div className="mt-2 flex justify-between font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                <span>{ratioTrabajados.toFixed(1)}% cubierto</span>
+                <span>{(100 - ratioTrabajados).toFixed(1)}% por abrir</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Ranking conversión por ciudad */}
+        <Card>
+          <CardHeader>
+            <Eyebrow>Ranking · Conversión por zona</Eyebrow>
+            <CardTitle>Top edificios por % trabajados</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {cityRanked.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin datos.</p>
+            ) : (
+              cityRanked.slice(0, 8).map((c) => (
+                <div key={c.ciudad} className="space-y-1.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2 truncate text-sm text-foreground">
+                      <Building2 className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="truncate">{c.ciudad ?? "—"}</span>
+                    </span>
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                      <span className="text-gold">{(c.ratio * 100).toFixed(1)}%</span>
+                      <span className="mx-1.5 opacity-40">·</span>
+                      <span>{c.trabajados}/{c.total}</span>
+                    </span>
+                  </div>
+                  <div className="h-1 overflow-hidden rounded-full bg-surface-1">
+                    <div className="h-full bg-gold/80" style={{ width: `${Math.min(100, c.ratio * 100)}%` }} />
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Últimas llamadas */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
