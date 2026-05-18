@@ -332,9 +332,20 @@ export default function ComercialDashboard() {
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-3">
-                          <span className="rounded-[3px] bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-gold">
-                            {Number(b.score).toFixed(0)}
-                          </span>
+                          {(() => {
+                            const s = Number(b.score);
+                            const t = scoreTier(s);
+                            return (
+                              <span className={cn(
+                                "rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold tabular-nums",
+                                t === "high" && "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
+                                t === "mid" && "border-amber-400/40 bg-amber-400/10 text-amber-400",
+                                t === "low" && "border-red-500/40 bg-red-500/10 text-red-400",
+                              )}>
+                                {s.toFixed(0)}
+                              </span>
+                            );
+                          })()}
                           <Button asChild size="sm" variant="ghost">
                             <Link to={`/comercial/edificios/${b.id}`}>Detalle <ArrowRight className="h-3 w-3" /></Link>
                           </Button>
