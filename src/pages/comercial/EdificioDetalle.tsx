@@ -1,38 +1,79 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Eyebrow } from "@/components/common/Eyebrow";
-import { MetricValue } from "@/components/common/MetricValue";
 import { supabase } from "@/integrations/supabase/client";
-import { useState } from "react";
-import { Phone, MapPin, ArrowUpDown } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  Phone,
+  MapPin,
+  ArrowUpDown,
+  Home,
+  Ruler,
+  Layers,
+  Users,
+  Calendar,
+  Check,
+  X,
+  ShieldAlert,
+} from "lucide-react";
+import {
+  ScoreGauge,
+  ScoreFactorBar,
+  ScorePill,
+  scoreTier,
+  tierBarClass,
+  tierTextClass,
+  buildingScoreFactors,
+} from "@/components/comercial/scoring";
+import { cn } from "@/lib/utils";
 
-type SortKey = "pct" | "last" | "estado";
+type SortKey = "score" | "pct" | "last" | "estado";
 
-function estadoBadge(o: any): { label: string; variant: "default" | "outline" | "destructive" | "info" | "gold" | "warning" | "success" } {
+function ownerEstado(o: any): {
+  label: string;
+  variant: "default" | "outline" | "destructive" | "info" | "gold" | "warning" | "success";
+} {
+  const interes = (o.metadatos?.interes ?? "").toString().toLowerCase();
   if ((o.contactos_previos ?? 0) === 0) return { label: "Sin contactar", variant: "destructive" };
-  if ((o.metadatos?.interes ?? "").toString().toLowerCase().includes("alto")) return { label: "Interesado", variant: "success" };
-  if ((o.metadatos?.interes ?? "").toString().toLowerCase().includes("no")) return { label: "No interesa", variant: "outline" };
+  if (interes.includes("alto") || interes.includes("interes")) return { label: "Interesado", variant: "success" };
+  if (interes.includes("dud")) return { label: "Dudoso", variant: "warning" };
+  if (interes.includes("no")) return { label: "No interesa", variant: "outline" };
   return { label: "Contactado", variant: "info" };
 }
 
 export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
-  const [sort, setSort] = useState<SortKey>("pct");
+  const { user } = useAuth();
+  const [sort, setSort] = useState<SortKey>("score");
 
   const { data } = useQuery({
-    queryKey: ["comercial:edificio", id],
+    queryKey: ["comercial:edificio", id, user?.id],
     enabled: !!id,
     queryFn: async () => {
-      const [{ data: b }, { data: score }, { data: owners }] = await Promise.all([
+      const [{ data: b }, { data: score }, { data: owners }, { data: assign }] = await Promise.all([
         supabase.from("buildings").select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_building_score" as any) as any).select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_owner_score" as any) as any).select("*").eq("building_id", id!),
+        user
+          ? (supabase.from("building_assignments" as any) as any)
+              .select("id")
+              .eq("user_id", user.id)
+              .eq("building_id", id!)
+              .eq("status", "active")
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
       ]);
-      return { b: b as any, score: (score as any), owners: (owners ?? []) as any[] };
+      return {
+        b: b as any,
+        score: score as any,
+        owners: (owners ?? []) as any[],
+        assigned: !!assign,
+      };
     },
   });
 
@@ -42,7 +83,20 @@ export default function ComercialEdificioDetalle() {
 
   const b = data.b;
   const s = data.score ?? {};
+  const assigned = data.assigned;
+  const score = Number(s.score ?? 0);
+  const factors = buildingScoreFactors(s);
+  const tier = scoreTier(score);
+  const ratio =
+    s?.m2_total && s?.num_viviendas ? Number(s.m2_total) / Number(s.num_viviendas) : null;
+  const anioConstr =
+    b?.metadatos?.anio_construccion ??
+    b?.metadatos?.year_built ??
+    b?.metadatos?.ano_construccion ??
+    null;
+
   const owners = [...(data.owners ?? [])].sort((a, b) => {
+    if (sort === "score") return Number(b.score ?? 0) - Number(a.score ?? 0);
     if (sort === "pct") return Number(b.pct_propiedad ?? 0) - Number(a.pct_propiedad ?? 0);
     if (sort === "last") {
       const la = a.last_call_at ? new Date(a.last_call_at).getTime() : 0;
@@ -53,78 +107,132 @@ export default function ComercialEdificioDetalle() {
   });
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
-  const scoreComponents = [
-    { label: "Nº viviendas", value: Number(s.s_viviendas ?? 0) * 100, weight: 30 },
-    { label: "m² totales", value: Number(s.s_m2 ?? 0) * 100, weight: 20 },
-    { label: "Ratio m²/viv", value: Number(s.s_ratio ?? 0) * 100, weight: 20 },
-    { label: "Nº propietarios", value: Number(s.s_owners ?? 0) * 100, weight: 20 },
-    { label: "No división horizontal", value: Number(s.s_no_dh ?? 0) * 100, weight: 10 },
-  ];
+
+  const CatastroItem = ({
+    icon: Icon,
+    label,
+    value,
+  }: {
+    icon: any;
+    label: string;
+    value: React.ReactNode;
+  }) => (
+    <div className="flex items-start gap-3 rounded-md border border-border-faint bg-surface-1/40 p-3">
+      <div className="rounded-md bg-surface-1 p-2 text-gold">
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+          {label}
+        </div>
+        <div className="font-mono text-base tabular-nums text-foreground">{value}</div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow={<><Link to="/comercial" className="hover:text-gold">Cartera</Link> · Edificio</>}
+        eyebrow={
+          <>
+            <Link to="/comercial/edificios" className="hover:text-gold">
+              Edificios
+            </Link>{" "}
+            · Detalle
+          </>
+        }
         title={b.direccion}
         subtitle={`${b.ciudad ?? ""} ${b.codigo_postal ?? ""}`}
         actions={
-          <Badge variant={b.division_horizontal ? "outline" : "gold"}>
-            {b.division_horizontal ? "División horizontal" : "Sin DH"}
-          </Badge>
+          <div className="flex gap-2">
+            {assigned ? (
+              <Badge variant="gold">Tu cartera</Badge>
+            ) : (
+              <Badge variant="outline">Solo consulta</Badge>
+            )}
+            <Badge variant={b.division_horizontal ? "outline" : "gold"}>
+              {b.division_horizontal ? "División horizontal" : "Sin DH"}
+            </Badge>
+          </div>
         }
       />
 
+      {/* Scoring banner */}
+      <Card>
+        <CardContent className="flex flex-col items-center gap-6 p-6 lg:flex-row lg:items-stretch">
+          <div className="flex flex-col items-center justify-center gap-2 lg:w-1/4">
+            <ScoreGauge score={score} size={160} thickness={12} label="Score total" />
+            <div className={cn("font-mono text-xs uppercase tracking-eyebrow", tierTextClass[tier])}>
+              Potencial {tier === "high" ? "alto" : tier === "mid" ? "medio" : "bajo"}
+            </div>
+          </div>
+          <div className="flex-1 space-y-3">
+            <div>
+              <Eyebrow>Desglose del scoring</Eyebrow>
+              <CardTitle className="mt-1 text-base">Factores que aportan al score</CardTitle>
+            </div>
+            <div className="space-y-3">
+              {factors.map((f) => (
+                <ScoreFactorBar
+                  key={f.label}
+                  label={f.label}
+                  value={f.raw}
+                  pct={f.pct}
+                  pts={f.pts}
+                  weight={f.weight}
+                />
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Catastro */}
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader>
             <Eyebrow>Datos catastrales</Eyebrow>
             <CardTitle>Información del inmueble</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4 text-sm">
-            <div><Eyebrow>m² totales</Eyebrow><div className="mt-1"><MetricValue size="md">{s.m2_total ? Number(s.m2_total).toLocaleString() : "—"}</MetricValue></div></div>
-            <div><Eyebrow>Viviendas</Eyebrow><div className="mt-1"><MetricValue size="md">{s.num_viviendas ?? "—"}</MetricValue></div></div>
-            <div><Eyebrow>Ratio m²/viv</Eyebrow><div className="mt-1"><MetricValue size="md">{s.m2_total && s.num_viviendas ? (Number(s.m2_total) / Number(s.num_viviendas)).toFixed(1) : "—"}</MetricValue></div></div>
-            <div><Eyebrow>Propietarios</Eyebrow><div className="mt-1"><MetricValue size="md">{s.owners_count ?? 0}</MetricValue></div></div>
-            <div className="col-span-2"><Eyebrow>Ref. catastral</Eyebrow><div className="font-mono text-xs text-foreground">{b.catastro_ref ?? "—"}</div></div>
-          </CardContent>
-        </Card>
-
-        {/* Scoring */}
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between">
-            <div>
-              <Eyebrow>Scoring</Eyebrow>
-              <CardTitle>Atractivo comercial</CardTitle>
-            </div>
-            <MetricValue size="xl" className="text-gold">{Number(s.score ?? 0).toFixed(0)}</MetricValue>
-          </CardHeader>
           <CardContent className="space-y-3">
-            {scoreComponents.map((c) => (
-              <div key={c.label} className="space-y-1">
-                <div className="flex items-baseline justify-between text-xs">
-                  <span className="text-foreground">{c.label}</span>
-                  <span className="font-mono tabular-nums text-muted-foreground">{c.value.toFixed(0)} · peso {c.weight}%</span>
-                </div>
-                <div className="h-1 overflow-hidden rounded-full bg-surface-1">
-                  <div className="h-full bg-gold/80" style={{ width: `${c.value}%` }} />
-                </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <CatastroItem icon={Ruler} label="m² totales" value={s.m2_total ? Number(s.m2_total).toLocaleString() : "—"} />
+              <CatastroItem icon={Home} label="Nº viviendas" value={s.num_viviendas ?? "—"} />
+              <CatastroItem icon={Layers} label="Ratio m²/vivienda" value={ratio != null ? `${ratio.toFixed(1)} m²` : "—"} />
+              <CatastroItem icon={Users} label="Nº propietarios" value={s.owners_count ?? 0} />
+              <CatastroItem
+                icon={b.division_horizontal ? X : Check}
+                label="División horizontal"
+                value={
+                  <span className={b.division_horizontal ? "text-red-400" : "text-emerald-400"}>
+                    {b.division_horizontal ? "Sí" : "No"}
+                  </span>
+                }
+              />
+              <CatastroItem icon={Calendar} label="Año construcción" value={anioConstr ?? "—"} />
+            </div>
+            {b.catastro_ref && (
+              <div className="rounded-md border border-border-faint p-3">
+                <Eyebrow>Ref. catastral</Eyebrow>
+                <div className="mt-1 font-mono text-xs text-foreground">{b.catastro_ref}</div>
               </div>
-            ))}
+            )}
           </CardContent>
         </Card>
 
         {/* Mapa */}
         <Card className="overflow-hidden">
           <CardHeader>
-            <Eyebrow><MapPin className="mr-1 inline h-3 w-3" /> Ubicación</Eyebrow>
+            <Eyebrow>
+              <MapPin className="mr-1 inline h-3 w-3" /> Ubicación
+            </Eyebrow>
             <CardTitle>{b.ciudad ?? "—"}</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <iframe
               title="Mapa edificio"
               src={`https://www.google.com/maps?q=${mapsQuery}&output=embed`}
-              className="h-[260px] w-full border-0"
+              className="h-[320px] w-full border-0"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
             />
@@ -134,16 +242,27 @@ export default function ComercialEdificioDetalle() {
 
       {/* Propietarios */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
           <div>
             <Eyebrow>Propietarios · {owners.length}</Eyebrow>
-            <CardTitle>Estado de contacto</CardTitle>
+            <CardTitle>Sub-scoring y estado de contacto</CardTitle>
           </div>
           <div className="flex flex-wrap gap-1">
-            {(["pct", "last", "estado"] as SortKey[]).map((k) => (
-              <Button key={k} size="sm" variant={sort === k ? "gold" : "outline"} onClick={() => setSort(k)}>
+            {(["score", "pct", "last", "estado"] as SortKey[]).map((k) => (
+              <Button
+                key={k}
+                size="sm"
+                variant={sort === k ? "gold" : "outline"}
+                onClick={() => setSort(k)}
+              >
                 <ArrowUpDown className="h-3 w-3" />
-                {k === "pct" ? "% propiedad" : k === "last" ? "Última interacción" : "Estado"}
+                {k === "score"
+                  ? "Sub-score"
+                  : k === "pct"
+                  ? "% propiedad"
+                  : k === "last"
+                  ? "Última int."
+                  : "Estado"}
               </Button>
             ))}
           </div>
@@ -151,27 +270,73 @@ export default function ComercialEdificioDetalle() {
         <CardContent className="p-0">
           <ul className="divide-y divide-border-faint">
             {owners.map((o) => {
-              const e = estadoBadge(o);
+              const e = ownerEstado(o);
               const sinContacto = (o.contactos_previos ?? 0) === 0;
+              const pct = Number(o.pct_propiedad ?? 0);
+              const sub = Number(o.score ?? 0);
+              const subTier = scoreTier(sub);
+              const cargas =
+                o.metadatos?.cargas === true ||
+                o.metadatos?.embargos === true ||
+                (Array.isArray(o.metadatos?.cargas) && o.metadatos.cargas.length > 0);
+              const edad = o.metadatos?.edad ?? o.metadatos?.edad_estimada ?? null;
+
               return (
-                <li key={o.owner_id} className={`px-5 py-3 ${sinContacto ? "bg-destructive/5" : ""}`}>
-                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">{o.nombre ?? "—"}</div>
+                <li key={o.owner_id} className={cn("px-5 py-4", sinContacto && "bg-destructive/5")}>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <ScorePill score={sub} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-foreground">
+                        {o.nombre ?? "—"}
+                      </div>
                       <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-                        {o.telefono ?? "sin teléfono"} · sub-score {Number(o.score ?? 0).toFixed(0)}
+                        {o.telefono ?? "sin teléfono"}
+                        {edad ? ` · ${edad} años` : ""}
+                      </div>
+                      <div className="mt-1.5 grid max-w-md grid-cols-[80px_1fr_auto] items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                          % propiedad
+                        </span>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-surface-1">
+                          <div
+                            className={cn("h-full", tierBarClass[scoreTier(Math.min(100, pct))])}
+                            style={{ width: `${Math.max(2, Math.min(100, pct))}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-xs tabular-nums text-gold">
+                          {pct.toFixed(1)}%
+                        </span>
                       </div>
                     </div>
-                    <span className="font-mono text-xs tabular-nums text-gold">{Number(o.pct_propiedad ?? 0).toFixed(1)}%</span>
-                    <span className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-                      {o.last_call_at ? new Date(o.last_call_at).toLocaleDateString() : "Nunca"}
-                    </span>
-                    <Badge variant={e.variant as any}>{e.label}</Badge>
-                    <Button asChild size="sm" variant="outline">
-                      <Link to={`/comercial/preparar/${o.owner_id}`}>
-                        <Phone className="h-3 w-3" /> Preparar
-                      </Link>
-                    </Button>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge variant={e.variant as any}>{e.label}</Badge>
+                      <div className="flex items-center gap-1.5">
+                        {cargas && (
+                          <Badge variant="destructive" className="h-4 px-1.5 text-[9px]">
+                            <ShieldAlert className="mr-0.5 h-2.5 w-2.5" /> Cargas
+                          </Badge>
+                        )}
+                        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                          {o.contactos_previos ?? 0} contactos
+                        </span>
+                      </div>
+                      <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                        {o.last_call_at
+                          ? `Últ. ${new Date(o.last_call_at).toLocaleDateString("es")}`
+                          : "Nunca contactado"}
+                      </span>
+                    </div>
+                    {assigned ? (
+                      <Button asChild size="sm" variant="outline">
+                        <Link to={`/comercial/preparar/${o.owner_id}`}>
+                          <Phone className="h-3 w-3" /> Preparar
+                        </Link>
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" disabled title="Edificio fuera de tu cartera">
+                        <Phone className="h-3 w-3" /> Solo consulta
+                      </Button>
+                    )}
                   </div>
                 </li>
               );
