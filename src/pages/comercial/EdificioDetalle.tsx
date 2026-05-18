@@ -20,6 +20,14 @@ import {
   Check,
   X,
   ShieldAlert,
+  Store,
+  Briefcase,
+  Package,
+  Car,
+  Building,
+  Hotel,
+  Factory,
+  Tag,
 } from "lucide-react";
 import {
   ScoreGauge,
