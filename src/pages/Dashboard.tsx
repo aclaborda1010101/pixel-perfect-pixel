@@ -83,9 +83,47 @@ export default function Dashboard() {
   const recent = data?.recent ?? [];
   const sync = data?.sync ?? { buildings: 0, owners: 0, companies: 0, calls: 0, callsAnalizables: 0, hsCalls: 0, hsNotes: 0, hsTasks: 0 };
 
-  const tiles = [
+  // Datos analíticos (vistas v_dashboard_*)
+  const { data: analytics } = useQuery({
+    queryKey: ["dashboard:analytics"],
+    queryFn: async () => {
+      const [heat, city, wb] = await Promise.all([
+        supabase.from("v_dashboard_call_heatmap" as any).select("dow,hr,calls"),
+        supabase.from("v_dashboard_city_conversion" as any).select("ciudad,total,trabajados").order("total", { ascending: false }).limit(10),
+        supabase.from("v_dashboard_buildings_worked" as any).select("total,con_propietarios,con_nota_simple").maybeSingle(),
+      ]);
+      return {
+        heatmap: ((heat as any).data ?? []) as Array<{ dow: number; hr: number; calls: number }>,
+        cities: ((city as any).data ?? []) as Array<{ ciudad: string; total: number; trabajados: number }>,
+        buildings: (((wb as any).data) ?? { total: 0, con_propietarios: 0, con_nota_simple: 0 }) as { total: number; con_propietarios: number; con_nota_simple: number },
+      };
+    },
+  });
 
-  // (placeholder to satisfy patch context — removed below)
+  // Heatmap (Lun..Dom × 0..23h)
+  const heatGrid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+  let heatMax = 0;
+  for (const row of analytics?.heatmap ?? []) {
+    const d = (row.dow + 6) % 7; // Pg DOW 0=Dom; queremos 0=Lun
+    if (d >= 0 && d < 7 && row.hr >= 0 && row.hr < 24) {
+      heatGrid[d][row.hr] = row.calls;
+      if (row.calls > heatMax) heatMax = row.calls;
+    }
+  }
+  const dayLabels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+  // Ranking ciudades por conversión
+  const cityRanked = [...(analytics?.cities ?? [])]
+    .map((c) => ({ ...c, ratio: c.total > 0 ? c.trabajados / c.total : 0 }))
+    .sort((a, b) => b.ratio - a.ratio);
+
+  // Edificios trabajados vs pendientes
+  const wb = analytics?.buildings ?? { total: 0, con_propietarios: 0, con_nota_simple: 0 };
+  const trabajados = Math.max(wb.con_propietarios, wb.con_nota_simple);
+  const pendientes = Math.max(0, wb.total - trabajados);
+  const ratioTrabajados = wb.total > 0 ? (trabajados / wb.total) * 100 : 0;
+
+  const tiles = [
     {
       label: t.home.kpiPendingAnalysis,
       value: k.pendingAnalysis,
