@@ -10,7 +10,11 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
-import { Building2, PhoneOutgoing, Users, Activity, ArrowRight, AlertCircle } from "lucide-react";
+import {
+  Building2, PhoneOutgoing, Users, Activity, ArrowRight, AlertCircle,
+  CheckSquare, Flame,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 function greet() {
   const h = new Date().getHours();
@@ -74,6 +78,14 @@ export default function ComercialDashboard() {
         .gte("fecha", weekAgo)
         .limit(1000);
 
+      // 7. Tareas pendientes del usuario
+      const { data: tasksData } = await (supabase.from("building_tasks" as any) as any)
+        .select("id,title,priority,task_type,building_id,status,created_at")
+        .eq("user_id", userId)
+        .in("status", ["pending", "in_progress"])
+        .order("created_at", { ascending: false });
+      const tasks = (tasksData ?? []) as any[];
+
       // Agregaciones por edificio
       const ownersByBuilding = new Map<string, any[]>();
       (owners ?? []).forEach((o: any) => {
@@ -122,6 +134,7 @@ export default function ComercialDashboard() {
         weekRate,
         buildings: buildingsRich,
         agenda,
+        tasks,
       };
     },
   });
@@ -130,15 +143,26 @@ export default function ComercialDashboard() {
     return <Navigate to="/" replace />;
   }
 
-  const k = data ?? { firstName: "", assigned: 0, pendingCalls: 0, noContact: 0, weekRate: 0, buildings: [], agenda: [] };
+  const k = data ?? {
+    firstName: "", assigned: 0, pendingCalls: 0, noContact: 0, weekRate: 0,
+    buildings: [], agenda: [], tasks: [] as any[],
+  };
   const buildings = k.buildings as any[];
   const agenda = k.agenda as any[];
+  const tasks = (k.tasks ?? []) as any[];
+  const tasksHigh = tasks.filter((t) => t.priority === "high").length;
+  const tasksMed = tasks.filter((t) => t.priority === "medium").length;
+  const tasksLow = tasks.filter((t) => t.priority === "low").length;
+  const prioOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  const topTasks = [...tasks].sort(
+    (a, b) => (prioOrder[a.priority] ?? 9) - (prioOrder[b.priority] ?? 9),
+  ).slice(0, 3);
 
   const tiles = [
+    { label: "Tareas pendientes", value: tasks.length, icon: CheckSquare, hint: `${tasksHigh} alta · ${tasksMed} media · ${tasksLow} baja` },
     { label: "Llamadas pendientes hoy", value: k.pendingCalls, icon: PhoneOutgoing, hint: "Vencen hoy o antes" },
     { label: "Edificios asignados", value: k.assigned, icon: Building2, hint: "Activos en tu cartera" },
     { label: "Propietarios sin contactar", value: k.noContact, icon: Users, hint: "0 llamadas registradas" },
-    { label: "Tasa contacto · 7d", value: `${k.weekRate.toFixed(1)}%`, icon: Activity, hint: "% propietarios contactados" },
   ];
 
   return (
@@ -168,6 +192,58 @@ export default function ComercialDashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+        {/* Tareas pendientes widget */}
+        <Card className="lg:col-span-5">
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <div>
+              <Eyebrow>Tareas pendientes · {tasks.length}</Eyebrow>
+              <CardTitle>Lo más urgente ahora</CardTitle>
+            </div>
+            <div className="flex items-center gap-2">
+              {tasksHigh > 0 && (
+                <Badge variant="destructive" className="text-[10px]">
+                  <Flame className="mr-0.5 h-2.5 w-2.5" /> {tasksHigh} alta
+                </Badge>
+              )}
+              <Button asChild size="sm" variant="outline">
+                <Link to="/comercial/tareas">Ver todas <ArrowRight className="h-3 w-3" /></Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {topTasks.length === 0 ? (
+              <div className="px-5 py-4 text-sm text-muted-foreground">
+                Sin tareas pendientes. Entra a un edificio y pulsa <em>Re-evaluar</em> para detectar nuevas.
+              </div>
+            ) : (
+              <ul className="divide-y divide-border-faint">
+                {topTasks.map((t) => (
+                  <li key={t.id} className="flex items-center gap-3 px-5 py-3">
+                    <Badge
+                      variant={
+                        t.priority === "high"
+                          ? "destructive"
+                          : t.priority === "medium"
+                          ? "warning"
+                          : "outline"
+                      }
+                      className="text-[9px]"
+                    >
+                      {t.priority === "high" ? "Alta" : t.priority === "medium" ? "Media" : "Baja"}
+                    </Badge>
+                    <span className="flex-1 truncate text-sm text-foreground">{t.title}</span>
+                    <Button asChild size="sm" variant="ghost">
+                      <Link to={`/comercial/edificios/${t.building_id}`}>
+                        Ir <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Agenda del día */}
         <Card className="lg:col-span-2">
           <CardHeader>
