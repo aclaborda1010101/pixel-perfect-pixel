@@ -15,6 +15,8 @@ import {
   CheckSquare, Flame,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { scoreTier } from "@/components/comercial/scoring";
+import { cn } from "@/lib/utils";
 
 function greet() {
   const h = new Date().getHours();
