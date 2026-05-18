@@ -166,6 +166,7 @@ export type Database = {
           building_id: string
           created_by: string | null
           id: string
+          status: Database["public"]["Enums"]["assignment_status"]
           user_id: string
         }
         Insert: {
@@ -173,6 +174,7 @@ export type Database = {
           building_id: string
           created_by?: string | null
           id?: string
+          status?: Database["public"]["Enums"]["assignment_status"]
           user_id: string
         }
         Update: {
@@ -180,6 +182,7 @@ export type Database = {
           building_id?: string
           created_by?: string | null
           id?: string
+          status?: Database["public"]["Enums"]["assignment_status"]
           user_id?: string
         }
         Relationships: []
@@ -2437,6 +2440,7 @@ export type Database = {
         | "oficina"
         | "industrial"
         | "otro"
+      assignment_status: "active" | "paused" | "discarded"
       building_company_role:
         | "titular"
         | "usufructuario"
@@ -2647,6 +2651,7 @@ export const Constants = {
         "industrial",
         "otro",
       ],
+      assignment_status: ["active", "paused", "discarded"],
       building_company_role: [
         "titular",
         "usufructuario",
