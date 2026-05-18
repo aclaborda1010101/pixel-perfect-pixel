@@ -11,7 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import {
-  Building2, PhoneOutgoing, Users, Activity, ArrowRight, AlertCircle,
+  Building2, PhoneOutgoing, Users, ArrowRight, AlertCircle,
   CheckSquare, Flame,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
