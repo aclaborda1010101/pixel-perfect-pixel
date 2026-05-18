@@ -1,132 +1,93 @@
+# Briefing IA accionable y visual para "Preparar llamada"
 
-# Sistema de roles + Dashboard Comercial
+## Problema
 
-Construcción por fases. Aprueba el plan y empezamos por la Fase 1 (roles + ruteo). Cada fase deja la app funcionando.
+En `/comercial/preparar/:ownerId` el botón "Briefing IA" muestra un volcado JSON en bruto. Pasa porque la edge function `agent_pre_call_brief` devuelve el esquema antiguo (`contexto`, `objetivos`, `preguntas_clave`, `riesgos`, `proxima_accion_sugerida`, `confianza`) y la UI espera `resumen` / `puntos_clave` / `approach`, así que cae al `<pre>JSON.stringify</pre>`. Además el brief no aprovecha históricos del propietario ni contexto comparativo cuando no hay datos.
 
-## Fase 1 · Roles y ruteo por rol
+## Objetivo
 
-**Backend**
-- Extender enum `app_role` con: `captacion`, `comercial_zona`, `prevalificacion` (ya existen `admin` y `viewer`).
-- Tabla nueva `building_assignments (building_id, user_id, role, assigned_at)` con RLS y policies (admin gestiona, comercial ve los suyos).
-- Función `current_user_role()` → devuelve el rol de mayor prioridad del usuario actual.
-- Mantener `has_role()` ya existente.
+Que Jesús abra el briefing y entienda en 5 segundos:
+1. Quién es y en qué punto estamos.
+2. Qué decir en los primeros 20 segundos.
+3. Qué objeciones esperar y cómo responder.
+4. Cuál es la próxima acción concreta.
 
-**Frontend**
-- Hook `useCurrentRole()` cacheado.
-- `AppLayout` y `AppSidebar` filtran items según rol:
-  - `comercial_zona`: Inicio (→ `/comercial`), Edificios, Llamadas, Productividad, Asistente. Oculta Inversores, Settings avanzado, sync HubSpot, Investors, Coach.
-  - `admin`: todo (estado actual).
-  - `captacion`, `prevalificacion`: placeholder mismo menú que comercial por ahora.
-- Redirección post-login: admin → `/`, comercial_zona → `/comercial`.
+Con dos modos automáticos:
+- **Con histórico** → tips basados en sus llamadas (mejor franja, último outcome, patrones de no-respuesta, temas tratados).
+- **Sin histórico** → playbook de primer contacto + contexto agregado de propietarios comparables (mismo edificio / misma zona / mismo perfil).
 
-**Settings → "Roles de usuario"** (solo admin)
-- Tabla con todos los users (`profiles`), select del rol, botón guardar. Usa `user_roles`.
+## Cambios
 
-## Fase 2 · Dashboard Comercial (`/comercial`)
+### 1. `supabase/functions/agent_pre_call_brief/index.ts`
 
-Página nueva `src/pages/comercial/Dashboard.tsx`, mismo design system.
+Reescribir el agente para que:
 
-**Bloques**
-1. Saludo: "Buenos días, {first_name}" + fecha + clima de cartera (1 frase con cifra clave).
-2. KPIs (4 tarjetas):
-   - Llamadas pendientes hoy (next_actions tipo llamada, vencimiento ≤ hoy, owner asignado a mí).
-   - Edificios asignados activos (count `building_assignments` user=yo).
-   - Propietarios sin contactar (building_owners de mis edificios donde owner.last_contact IS NULL).
-   - Tasa contacto semanal (% propietarios contactados / total mis edificios, últimos 7 días).
-3. **Mi agenda del día**: lista priorizada de llamadas pendientes ordenadas por `building_score` desc (ver Fase 5). Cada fila: hora sugerida, propietario, edificio, score, botones "Preparar" / "Marcar resultado".
-4. **Edificios con propietarios pendientes**: cards con dirección, score, "X de Y contactados", barra % propiedad acumulada contactada, botón "Ver detalle" → `/comercial/edificios/:id`.
+- Cargue además:
+  - `building_owners` del edificio del owner + sus `calls` (peers) → agregados: nº propietarios, % contactados, mejor franja horaria de contacto efectivo, outcomes más frecuentes.
+  - `notas_simples.structured_json` más reciente del owner → cargas/embargos, % propiedad, divisibilidad.
+  - Stats propias del owner: nº intentos, último outcome, franjas horarias usadas, gap desde último intento.
+- Detecte modo `con_historico` vs `primer_contacto` en base a si hay llamadas con `resumen` real (no solo intentos sin respuesta).
+- Devuelva esquema nuevo vía tool calling estructurado:
 
-## Fase 3 · Vista Edificio Comercial (`/comercial/edificios/:id`)
-
-- Header: dirección + ciudad + score grande + badge división horizontal.
-- **Datos catastrales**: m², viviendas, ratio m²/viv, div. horizontal, año, ref. catastral (de `buildings.metadatos`).
-- **Scoring · desglose visual**: barras por componente (viviendas, m², ratio, nº propietarios, div. horizontal) con peso y aportación.
-- **Google Maps embed** (iframe sin API key con `q=` dirección).
-- **Tabla de propietarios** (todos los `building_owners`):
-  - Columnas: nombre, % propiedad, estado (badge color), teléfonos, última interacción, sub-score.
-  - Filas sin contacto resaltadas en rojo suave.
-  - Sort por % propiedad / estado / última interacción.
-  - Click fila → drawer detalle propietario + botón "Preparar llamada".
-
-## Fase 4 · Asistencia IA pre/post llamada
-
-**Pre-llamada** (`/comercial/preparar/:owner_id?building=...`)
-- Reusa edge function existente `agent_pre_call_brief` (ya implementada).
-- UI muestra: resumen edificio + oportunidad, historial interacciones (hubspot_calls + hubspot_notes + whatsapp), datos propietario (% prop., cargas/embargos de nota simple), 3 sugerencias de approach, 5 puntos clave.
-
-**Post-llamada** (drawer rápido al cerrar la llamada)
-- Form: outcome (interesado/no interesa/volver/no contesta), notas, duración.
-- Al enviar: insert en `calls` + `next_actions` (auto-seguimiento según outcome) + invoca edge `analyze_call` (ya existe) para Quality Score, oportunidades perdidas y sugerencia próximos pasos.
-
-## Fase 5 · Scoring (vistas SQL)
-
-Crear vistas materializables (vista normal por simplicidad):
-
-- `v_building_score`:
-  ```
-  weight(viviendas)*norm(num_viviendas)
-  + weight(m2_total)*norm(m2_total)
-  + weight(ratio)*norm_invert(m2/viv)  -- menor = mejor
-  + weight(nprops)*norm(num_propietarios)
-  + bonus si NOT division_horizontal
-  ```
-  Datos: `buildings` + agregados `building_owners`. Pesos fijos (configurables luego en `org_settings`).
-
-- `v_owner_score`:
-  ```
-  weight(pct)*pct_propiedad
-  + weight(edad)*norm(edad)
-  + weight(cargas)*(1 - cargas_normalizadas)
-  + weight(contactos_prev)*norm(num_contactos)
-  + weight(interes)*encoded_interes
-  ```
-
-Default coverage tolerante a NULLs.
-
-## Fase 6 · Productividad personal (`/comercial/productividad`)
-
-Reusa `Productividad` actual pero filtrado por `owner_id = me` y añade:
-- Cards: llamadas día/semana/mes, tasa contacto efectivo.
-- Heat map horarios óptimos (reusa `v_dashboard_call_heatmap` filtrado).
-- Edificios trabajados vs pendientes (subset de mis asignados).
-- Ranking conversión por tipo edificio (agrupar por bucket de viviendas: pequeño <10, mediano 10-30, grande >30).
-- Gráfico evolución temporal (Recharts línea, últimos 90 días).
-
-## Detalles técnicos
-
-```text
-src/
-  pages/
-    comercial/
-      Dashboard.tsx
-      EdificioDetalle.tsx
-      Productividad.tsx
-      PrepararLlamada.tsx
-    settings/
-      RolesPanel.tsx   (sección dentro de Settings.tsx)
-  hooks/
-    useCurrentRole.ts
-    useBuildingScore.ts
-  components/comercial/
-    KpiTile.tsx
-    AgendaList.tsx
-    EdificioCard.tsx
-    OwnerRow.tsx
-    PostCallDrawer.tsx
-supabase/migrations/
-  - extend app_role enum
-  - building_assignments + RLS
-  - v_building_score, v_owner_score
-  - current_user_role() function
+```ts
+{
+  modo: "con_historico" | "primer_contacto",
+  confianza: number,                    // 0..1
+  resumen: string,                      // 1-2 frases
+  estado_relacion: string,              // "frío", "tibio (1 conversación)", etc.
+  intencion_llamada: string,            // objetivo nº1 de ESTA llamada
+  mejor_momento: { franja: string, razon: string } | null,
+  openers: string[],                    // 2-3 frases de apertura listas para leer
+  preguntas_clave: string[],            // 3-5
+  objeciones: Array<{ objecion: string, respuesta: string }>, // 3
+  tips: Array<{ tipo: "historico" | "patron_peers" | "buena_practica", texto: string }>,
+  riesgos: string[],
+  proxima_accion: string,
+  contexto_peers: string | null         // sólo si modo=primer_contacto
+}
 ```
 
-Edge functions: ninguna nueva (reusa `agent_pre_call_brief`, `analyze_call`, `compute_matches`).
+- System prompt en castellano, conciso, orientado a originación inmobiliaria, distinguiendo los dos modos.
+- Mantener el insert en `agent_runs` igual.
 
-## Preguntas para arrancar
+### 2. `src/pages/comercial/PrepararLlamada.tsx`
 
-1. **Asignación de edificios a comerciales**: ¿la haces manual desde Settings (admin asigna), o autoasignación por distrito/ciudad? (asumo manual por defecto).
-2. **"Propietario contactado"**: ¿lo defino como "tiene al menos 1 `hubspot_calls` o `calls`" o necesitas un flag explícito `last_contact_at` en `owners`? (asumo lo primero, sin nueva columna).
-3. **Pesos de scoring**: ¿fijos en código por ahora (p.ej. viviendas 30%, m² 20%, ratio 20%, n_prop 20%, no-DH 10%) o editables en Settings desde el principio? (asumo fijos en código).
-4. **Jesús ya tiene cuenta**: ¿le asigno el rol `comercial_zona` automáticamente al aprobar la migración o lo haces tú desde Settings? (asumo manual desde Settings tras Fase 1).
+Sustituir el bloque `{brief && (<Card>…)}` por una sección visual nueva (sin tocar las otras tarjetas ni el post-llamada):
 
-Confirma estas 4 y arranco por Fase 1 (roles + ruteo + Settings). El resto cae detrás en orden.
+```text
+┌─ Briefing IA ────────────────────────────────────────────┐
+│ Modo: [Primer contacto | Con histórico]  Confianza ▮▮▮▯ │
+├──────────────────────────────────────────────────────────┤
+│  ▸ Resumen (1-2 líneas grandes)                          │
+│  ▸ Intención de la llamada (chip dorado)                 │
+│  ▸ Estado relación · Mejor momento                       │
+├─── 2 columnas ───────────────────────────────────────────┤
+│ Openers (cards con botón copiar) │ Preguntas clave (lista)│
+│                                  │ Objeciones (acordeón) │
+├──────────────────────────────────────────────────────────┤
+│ Tips (badges por tipo: histórico / peers / buena práctica)│
+│ Riesgos (lista con icono alerta)                          │
+│ Contexto peers (sólo si primer contacto)                  │
+│ Próxima acción (CTA destacada)                            │
+└──────────────────────────────────────────────────────────┘
+```
+
+Detalles:
+
+- Cabecera con `Badge` para `modo`, barra de confianza (4 dots) y botón "Regenerar".
+- `Openers` como tarjetas pequeñas con botón `Copiar` (clipboard) e icono `Quote`.
+- `Objeciones` en `Accordion` (objeción ↑ / respuesta ↓), tono rojo suave.
+- `Tips` con icono distinto por tipo: 📈 histórico (gold), 👥 peers (info), 💡 buena práctica (muted).
+- Si el agente devuelve el esquema viejo (fallback), mapear `contexto→resumen`, `proxima_accion_sugerida→proxima_accion`, etc., antes de pintar, para no volver a romper.
+- Loading skeleton mientras `loadingBrief`.
+- Todo con tokens del design system oscuro (`gold`, `border-faint`, `surface-1`, `gold-soft`). Sin colores literales.
+
+### 3. Sin cambios de DB ni de RLS
+
+No se tocan tablas ni vistas. Sólo edge function + UI.
+
+## Validación
+
+- Abrir `/comercial/preparar/<owner sin llamadas>` → modo `primer_contacto`, ver openers + contexto peers.
+- Abrir `/comercial/preparar/<owner con 7 intentos>` (caso actual) → modo `con_historico`, tip sobre cambiar franja horaria, riesgo de saturación, próxima acción concreta.
+- Confirmar que ya no aparece el bloque `<pre>JSON</pre>`.
