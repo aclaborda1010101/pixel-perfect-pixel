@@ -9,7 +9,9 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Sparkles, Phone, CheckCircle2, Clock, XCircle, PhoneOff } from "lucide-react";
+import { Sparkles, Phone, CheckCircle2, Clock, XCircle, PhoneOff, Copy, AlertTriangle, Target, Users, Lightbulb, TrendingUp, Quote, MessageSquareWarning, ArrowRight, Clock4 } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Outcome = "interesado" | "no_interesa" | "volver" | "no_contesta";
 const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "success" | "outline" | "info" | "destructive" }> = [
@@ -69,6 +71,28 @@ export default function ComercialPrepararLlamada() {
   }
 
   useEffect(() => { setBrief(null); }, [ownerId]);
+
+  // Normaliza esquema viejo y nuevo a un mismo shape
+  const normalizedBrief = (() => {
+    if (!brief) return null;
+    const b = (brief as any).brief ?? brief;
+    if (b.openers || b.intencion_llamada) return b; // nuevo
+    return {
+      modo: "primer_contacto",
+      confianza: b.confianza ?? 0.5,
+      resumen: b.contexto ?? b.resumen ?? "",
+      estado_relacion: "—",
+      intencion_llamada: (b.objetivos?.[0]) ?? "",
+      mejor_momento: null,
+      openers: [],
+      preguntas_clave: b.preguntas_clave ?? [],
+      objeciones: [],
+      tips: (b.objetivos ?? []).map((t: string) => ({ tipo: "buena_practica", texto: t })),
+      riesgos: b.riesgos ?? [],
+      proxima_accion: b.proxima_accion_sugerida ?? b.proxima_accion ?? "",
+      contexto_peers: null,
+    };
+  })();
 
   async function submitResult() {
     if (!outcome || !ownerId) return;
@@ -176,35 +200,8 @@ export default function ComercialPrepararLlamada() {
       </div>
 
       {/* Briefing IA */}
-      {brief && (
-        <Card>
-          <CardHeader><Eyebrow><Sparkles className="mr-1 inline h-3 w-3" /> Briefing IA</Eyebrow><CardTitle>Pre-call brief</CardTitle></CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            {brief.resumen && (
-              <div><Eyebrow>Resumen</Eyebrow><p className="mt-1 text-foreground">{brief.resumen}</p></div>
-            )}
-            {Array.isArray(brief.puntos_clave) && brief.puntos_clave.length > 0 && (
-              <div>
-                <Eyebrow>Puntos clave</Eyebrow>
-                <ul className="mt-1 list-inside list-disc space-y-1">
-                  {brief.puntos_clave.map((p: string, i: number) => <li key={i}>{p}</li>)}
-                </ul>
-              </div>
-            )}
-            {Array.isArray(brief.approach) && brief.approach.length > 0 && (
-              <div>
-                <Eyebrow>Approach sugerido</Eyebrow>
-                <ul className="mt-1 list-inside list-disc space-y-1">
-                  {brief.approach.map((p: string, i: number) => <li key={i}>{p}</li>)}
-                </ul>
-              </div>
-            )}
-            {!brief.resumen && !brief.puntos_clave && (
-              <pre className="overflow-auto rounded bg-surface-1 p-3 font-mono text-xs">{JSON.stringify(brief, null, 2)}</pre>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {loadingBrief && !brief && <BriefSkeleton />}
+      {normalizedBrief && <BriefView brief={normalizedBrief} />}
 
       {/* Post-call */}
       <Card>
@@ -231,5 +228,222 @@ export default function ComercialPrepararLlamada() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+type Brief = {
+  modo: "con_historico" | "primer_contacto";
+  confianza: number;
+  resumen: string;
+  estado_relacion: string;
+  intencion_llamada: string;
+  mejor_momento: { franja: string; razon: string } | null;
+  openers: string[];
+  preguntas_clave: string[];
+  objeciones: { objecion: string; respuesta: string }[];
+  tips: { tipo: "historico" | "patron_peers" | "buena_practica"; texto: string }[];
+  riesgos: string[];
+  proxima_accion: string;
+  contexto_peers: string | null;
+};
+
+function BriefSkeleton() {
+  return (
+    <Card>
+      <CardHeader>
+        <Eyebrow><Sparkles className="mr-1 inline h-3 w-3" /> Briefing IA</Eyebrow>
+        <CardTitle>Generando playbook…</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Skeleton className="h-6 w-2/3" />
+        <Skeleton className="h-20 w-full" />
+        <div className="grid grid-cols-2 gap-3">
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ConfidenceDots({ value }: { value: number }) {
+  const filled = Math.round(Math.max(0, Math.min(1, value)) * 4);
+  return (
+    <div className="flex items-center gap-1" title={`Confianza ${(value * 100).toFixed(0)}%`}>
+      {[0, 1, 2, 3].map((i) => (
+        <span
+          key={i}
+          className={`h-1.5 w-4 rounded-sm ${i < filled ? "bg-gold" : "bg-border-faint"}`}
+        />
+      ))}
+      <span className="ml-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+        {(value * 100).toFixed(0)}%
+      </span>
+    </div>
+  );
+}
+
+function TipIcon({ tipo }: { tipo: Brief["tips"][number]["tipo"] }) {
+  if (tipo === "historico") return <TrendingUp className="h-3.5 w-3.5 text-gold" />;
+  if (tipo === "patron_peers") return <Users className="h-3.5 w-3.5 text-info" />;
+  return <Lightbulb className="h-3.5 w-3.5 text-muted-foreground" />;
+}
+
+function tipLabel(tipo: Brief["tips"][number]["tipo"]) {
+  return tipo === "historico" ? "Histórico" : tipo === "patron_peers" ? "Peers del edificio" : "Buena práctica";
+}
+
+function BriefView({ brief }: { brief: Brief }) {
+  const copy = (txt: string) => {
+    navigator.clipboard.writeText(txt).then(
+      () => toast.success("Copiado"),
+      () => toast.error("No se pudo copiar"),
+    );
+  };
+  return (
+    <Card className="border-gold/30">
+      <CardHeader className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <Eyebrow><Sparkles className="mr-1 inline h-3 w-3 text-gold" /> Briefing IA</Eyebrow>
+          <div className="flex items-center gap-3">
+            <Badge variant={brief.modo === "con_historico" ? "gold" : "info"}>
+              {brief.modo === "con_historico" ? "Con histórico" : "Primer contacto"}
+            </Badge>
+            <ConfidenceDots value={brief.confianza ?? 0} />
+          </div>
+        </div>
+        <CardTitle className="text-lg font-editorial leading-snug">{brief.resumen}</CardTitle>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {brief.intencion_llamada && (
+            <span className="inline-flex items-center gap-1.5 rounded-[4px] border border-gold/40 bg-gold-soft/40 px-2 py-1 font-mono uppercase tracking-eyebrow text-gold">
+              <Target className="h-3 w-3" /> {brief.intencion_llamada}
+            </span>
+          )}
+          {brief.estado_relacion && brief.estado_relacion !== "—" && (
+            <span className="rounded-[4px] border border-border-faint bg-surface-1/40 px-2 py-1 font-mono uppercase tracking-eyebrow text-muted-foreground">
+              Relación: {brief.estado_relacion}
+            </span>
+          )}
+          {brief.mejor_momento && (
+            <span className="inline-flex items-center gap-1.5 rounded-[4px] border border-border-faint bg-surface-1/40 px-2 py-1 font-mono uppercase tracking-eyebrow text-foreground">
+              <Clock4 className="h-3 w-3" /> {brief.mejor_momento.franja}
+              <span className="normal-case tracking-normal text-muted-foreground">· {brief.mejor_momento.razon}</span>
+            </span>
+          )}
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-6">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          {/* Openers */}
+          {brief.openers.length > 0 && (
+            <section>
+              <Eyebrow className="mb-2">Aperturas sugeridas</Eyebrow>
+              <ul className="space-y-2">
+                {brief.openers.map((o, i) => (
+                  <li key={i} className="group relative rounded-[6px] border border-gold/20 bg-gold-soft/20 p-3 text-sm leading-relaxed text-foreground">
+                    <Quote className="absolute right-2 top-2 h-3 w-3 text-gold/50" />
+                    <p className="pr-6">{o}</p>
+                    <button
+                      onClick={() => copy(o)}
+                      className="mt-2 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground hover:text-gold"
+                    >
+                      <Copy className="h-3 w-3" /> Copiar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Preguntas clave */}
+          {brief.preguntas_clave.length > 0 && (
+            <section>
+              <Eyebrow className="mb-2">Preguntas clave</Eyebrow>
+              <ol className="space-y-1.5 text-sm">
+                {brief.preguntas_clave.map((q, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="font-mono text-[11px] text-gold">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="text-foreground">{q}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+        </div>
+
+        {/* Objeciones */}
+        {brief.objeciones.length > 0 && (
+          <section>
+            <Eyebrow className="mb-2"><MessageSquareWarning className="mr-1 inline h-3 w-3" /> Objeciones probables</Eyebrow>
+            <Accordion type="single" collapsible className="rounded-[6px] border border-border-faint">
+              {brief.objeciones.map((o, i) => (
+                <AccordionItem value={`obj-${i}`} key={i} className="border-b border-border-faint last:border-0">
+                  <AccordionTrigger className="px-3 py-2 text-left text-sm">
+                    <span className="text-foreground">«{o.objecion}»</span>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-3 pb-3 text-sm text-muted-foreground">
+                    <span className="font-mono text-[10px] uppercase tracking-eyebrow text-gold">Cómo responder · </span>
+                    {o.respuesta}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </section>
+        )}
+
+        {/* Tips */}
+        {brief.tips.length > 0 && (
+          <section>
+            <Eyebrow className="mb-2">Tips para esta llamada</Eyebrow>
+            <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {brief.tips.map((t, i) => (
+                <li key={i} className="flex gap-2 rounded-[6px] border border-border-faint bg-surface-1/30 p-3 text-sm">
+                  <span className="mt-0.5"><TipIcon tipo={t.tipo} /></span>
+                  <div className="flex-1">
+                    <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{tipLabel(t.tipo)}</div>
+                    <div className="text-foreground">{t.texto}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Riesgos */}
+        {brief.riesgos.length > 0 && (
+          <section>
+            <Eyebrow className="mb-2"><AlertTriangle className="mr-1 inline h-3 w-3 text-destructive" /> Riesgos</Eyebrow>
+            <ul className="space-y-1.5 text-sm">
+              {brief.riesgos.map((r, i) => (
+                <li key={i} className="flex gap-2 rounded-[4px] border border-destructive/20 bg-destructive/5 px-3 py-2 text-foreground">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                  <span>{r}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Contexto peers */}
+        {brief.contexto_peers && (
+          <section className="rounded-[6px] border border-info/30 bg-info/5 p-3 text-sm">
+            <Eyebrow className="mb-1"><Users className="mr-1 inline h-3 w-3" /> Contexto del edificio</Eyebrow>
+            <p className="text-foreground">{brief.contexto_peers}</p>
+          </section>
+        )}
+
+        {/* Próxima acción */}
+        {brief.proxima_accion && (
+          <div className="flex items-center gap-3 rounded-[6px] border border-gold/40 bg-gold-soft/40 p-3">
+            <ArrowRight className="h-4 w-4 text-gold" />
+            <div className="flex-1">
+              <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Próxima acción</div>
+              <div className="text-sm text-foreground">{brief.proxima_accion}</div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
