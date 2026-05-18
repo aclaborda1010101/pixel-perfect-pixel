@@ -363,3 +363,65 @@ export default function ComercialEdificioDetalle() {
     </div>
   );
 }
+
+function DistribucionInmueble({ s }: { s: any }) {
+  const items: { key: string; icon: any; label: string; units: number | null; m2: number | null }[] = [
+    { key: "viviendas", icon: Home, label: "Viviendas", units: s?.num_viviendas ?? null, m2: s?.m2_viviendas ?? null },
+    { key: "comercio", icon: Store, label: "Comercio", units: s?.comercio_unidades ?? null, m2: s?.m2_comercio ?? null },
+    { key: "oficina", icon: Briefcase, label: "Oficina", units: s?.oficina_unidades ?? null, m2: s?.m2_oficina ?? null },
+    { key: "almacen", icon: Package, label: "Almacén", units: s?.almacen_unidades ?? null, m2: s?.m2_almacen ?? null },
+    { key: "aparcamiento", icon: Car, label: "Aparcamiento", units: s?.aparcamiento_unidades ?? null, m2: null },
+    { key: "elementos_comunes", icon: Building, label: "Elementos comunes", units: s?.elementos_comunes_unidades ?? null, m2: s?.m2_elementos_comunes ?? null },
+    { key: "ocio_hostel", icon: Hotel, label: "Ocio / Hostel", units: s?.ocio_hostel_unidades ?? null, m2: s?.m2_ocio_hostel ?? null },
+    { key: "industrial", icon: Factory, label: "Industrial", units: s?.industrial_unidades ?? null, m2: s?.m2_industrial ?? null },
+  ];
+  const visible = items.filter((i) => (i.units ?? 0) > 0 || (i.m2 ?? 0) > 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <Eyebrow>Distribución del inmueble</Eyebrow>
+        <CardTitle>Usos por categoría</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {visible.length === 0 ? (
+          <div className="text-sm text-muted-foreground">
+            No hay datos de distribución sincronizados desde HubSpot para este edificio.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {visible.map(({ key, icon: Icon, label, units, m2 }) => (
+              <div
+                key={key}
+                className="rounded-md border border-border-faint bg-surface-1/40 p-3"
+              >
+                <div className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-foreground">{label}</span>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <div>
+                    <div className="font-mono text-lg tabular-nums text-foreground">
+                      {units ?? "—"}
+                    </div>
+                    <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                      unidades
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-sm tabular-nums text-foreground">
+                      {m2 != null ? Number(m2).toLocaleString() : "—"}
+                    </div>
+                    <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                      m²
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
