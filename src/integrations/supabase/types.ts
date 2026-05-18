@@ -1913,6 +1913,30 @@ export type Database = {
         }
         Relationships: []
       }
+      v_dashboard_buildings_worked: {
+        Row: {
+          con_nota_simple: number | null
+          con_propietarios: number | null
+          total: number | null
+        }
+        Relationships: []
+      }
+      v_dashboard_call_heatmap: {
+        Row: {
+          calls: number | null
+          dow: number | null
+          hr: number | null
+        }
+        Relationships: []
+      }
+      v_dashboard_city_conversion: {
+        Row: {
+          ciudad: string | null
+          total: number | null
+          trabajados: number | null
+        }
+        Relationships: []
+      }
       v_owner_graph: {
         Row: {
           buildings_count: number | null

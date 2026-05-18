@@ -11,7 +11,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import {
   PhoneOutgoing, FileAudio, ArrowRight, PhoneCall, ListChecks, UserSearch,
-  TrendingUp, TrendingDown, Smile, Meh, Frown,
+  TrendingUp, TrendingDown, Smile, Meh, Frown, Clock, Building2,
 } from "lucide-react";
 
 function formatDuration(s: number | null | undefined) {
@@ -82,6 +82,46 @@ export default function Dashboard() {
   const k = data?.k ?? { pendingAnalysis: 0, pendingActions: 0, uncataloged: 0, hygieneIssues: 0 };
   const recent = data?.recent ?? [];
   const sync = data?.sync ?? { buildings: 0, owners: 0, companies: 0, calls: 0, callsAnalizables: 0, hsCalls: 0, hsNotes: 0, hsTasks: 0 };
+
+  // Datos analíticos (vistas v_dashboard_*)
+  const { data: analytics } = useQuery({
+    queryKey: ["dashboard:analytics"],
+    queryFn: async () => {
+      const [heat, city, wb] = await Promise.all([
+        supabase.from("v_dashboard_call_heatmap" as any).select("dow,hr,calls"),
+        supabase.from("v_dashboard_city_conversion" as any).select("ciudad,total,trabajados").order("total", { ascending: false }).limit(10),
+        supabase.from("v_dashboard_buildings_worked" as any).select("total,con_propietarios,con_nota_simple").maybeSingle(),
+      ]);
+      return {
+        heatmap: ((heat as any).data ?? []) as Array<{ dow: number; hr: number; calls: number }>,
+        cities: ((city as any).data ?? []) as Array<{ ciudad: string; total: number; trabajados: number }>,
+        buildings: (((wb as any).data) ?? { total: 0, con_propietarios: 0, con_nota_simple: 0 }) as { total: number; con_propietarios: number; con_nota_simple: number },
+      };
+    },
+  });
+
+  // Heatmap (Lun..Dom × 0..23h)
+  const heatGrid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+  let heatMax = 0;
+  for (const row of analytics?.heatmap ?? []) {
+    const d = (row.dow + 6) % 7; // Pg DOW 0=Dom; queremos 0=Lun
+    if (d >= 0 && d < 7 && row.hr >= 0 && row.hr < 24) {
+      heatGrid[d][row.hr] = row.calls;
+      if (row.calls > heatMax) heatMax = row.calls;
+    }
+  }
+  const dayLabels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+  // Ranking ciudades por conversión
+  const cityRanked = [...(analytics?.cities ?? [])]
+    .map((c) => ({ ...c, ratio: c.total > 0 ? c.trabajados / c.total : 0 }))
+    .sort((a, b) => b.ratio - a.ratio);
+
+  // Edificios trabajados vs pendientes
+  const wb = analytics?.buildings ?? { total: 0, con_propietarios: 0, con_nota_simple: 0 };
+  const trabajados = Math.max(wb.con_propietarios, wb.con_nota_simple);
+  const pendientes = Math.max(0, wb.total - trabajados);
+  const ratioTrabajados = wb.total > 0 ? (trabajados / wb.total) * 100 : 0;
 
   const tiles = [
     {
@@ -268,6 +308,130 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Heatmap llamadas */}
+      <Card>
+        <CardHeader>
+          <Eyebrow>Patrones · Mejor momento para llamar</Eyebrow>
+          <CardTitle>Heat map de llamadas (últimos 180 días)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <div className="min-w-[640px]">
+              <div className="grid grid-cols-[40px_repeat(24,minmax(0,1fr))] gap-[2px]">
+                <div />
+                {Array.from({ length: 24 }).map((_, h) => (
+                  <div key={h} className="text-center font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                    {h % 3 === 0 ? h : ""}
+                  </div>
+                ))}
+                {heatGrid.map((row, d) => (
+                  <div key={`row-${d}`} className="contents">
+                    <div className="flex items-center font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                      {dayLabels[d]}
+                    </div>
+                    {row.map((v, h) => {
+                      const intensity = heatMax > 0 ? v / heatMax : 0;
+                      const isPeak = v === heatMax && v > 0;
+                      return (
+                        <div
+                          key={`c-${d}-${h}`}
+                          title={`${dayLabels[d]} ${h}:00 · ${v} llamadas`}
+                          className="aspect-square rounded-[2px] border border-border-faint"
+                          style={{
+                            backgroundColor: v === 0
+                              ? "hsl(var(--surface-1) / 0.4)"
+                              : `hsl(var(--gold) / ${0.12 + intensity * 0.78})`,
+                            boxShadow: isPeak ? "0 0 0 1px hsl(var(--gold))" : undefined,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center justify-between font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                <span><Clock className="mr-1 inline h-3 w-3" />Pico: {heatMax} llamadas / hora</span>
+                <span className="flex items-center gap-1">
+                  <span>menos</span>
+                  <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: "hsl(var(--gold) / 0.15)" }} />
+                  <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: "hsl(var(--gold) / 0.4)" }} />
+                  <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: "hsl(var(--gold) / 0.7)" }} />
+                  <span className="inline-block h-2 w-3 rounded-[1px]" style={{ background: "hsl(var(--gold) / 0.95)" }} />
+                  <span>más</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Edificios trabajados vs pendientes */}
+        <Card>
+          <CardHeader>
+            <Eyebrow>Cartera · Edificios</Eyebrow>
+            <CardTitle>Trabajados vs pendientes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <Eyebrow>Trabajados</Eyebrow>
+                <div className="mt-1"><MetricValue size="xl">{trabajados.toLocaleString()}</MetricValue></div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {wb.con_propietarios.toLocaleString()} con propietarios · {wb.con_nota_simple.toLocaleString()} con nota simple
+                </p>
+              </div>
+              <div className="text-right">
+                <Eyebrow>Pendientes</Eyebrow>
+                <div className="mt-1"><MetricValue size="xl" className="text-muted-foreground">{pendientes.toLocaleString()}</MetricValue></div>
+                <p className="mt-1 text-xs text-muted-foreground">de {wb.total.toLocaleString()} totales</p>
+              </div>
+            </div>
+            <div>
+              <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-1">
+                <div className="h-full bg-gold/80" style={{ width: `${ratioTrabajados}%` }} />
+              </div>
+              <div className="mt-2 flex justify-between font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                <span>{ratioTrabajados.toFixed(1)}% cubierto</span>
+                <span>{(100 - ratioTrabajados).toFixed(1)}% por abrir</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Ranking conversión por ciudad */}
+        <Card>
+          <CardHeader>
+            <Eyebrow>Ranking · Conversión por zona</Eyebrow>
+            <CardTitle>Top edificios por % trabajados</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {cityRanked.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin datos.</p>
+            ) : (
+              cityRanked.slice(0, 8).map((c) => (
+                <div key={c.ciudad} className="space-y-1.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2 truncate text-sm text-foreground">
+                      <Building2 className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="truncate">{c.ciudad ?? "—"}</span>
+                    </span>
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                      <span className="text-gold">{(c.ratio * 100).toFixed(1)}%</span>
+                      <span className="mx-1.5 opacity-40">·</span>
+                      <span>{c.trabajados}/{c.total}</span>
+                    </span>
+                  </div>
+                  <div className="h-1 overflow-hidden rounded-full bg-surface-1">
+                    <div className="h-full bg-gold/80" style={{ width: `${Math.min(100, c.ratio * 100)}%` }} />
+                  </div>
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
