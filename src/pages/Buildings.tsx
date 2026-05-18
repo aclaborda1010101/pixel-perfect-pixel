@@ -66,7 +66,8 @@ export default function Buildings() {
     (async () => {
       const { data } = await (supabase.from("building_assignments" as any) as any)
         .select("building_id")
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .eq("status", "active");
       setAssignedIds((data ?? []).map((r: any) => r.building_id as string));
     })();
   }, [isComercial, roleLoading, user?.id]);
