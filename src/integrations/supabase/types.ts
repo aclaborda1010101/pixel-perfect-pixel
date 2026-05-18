@@ -124,6 +124,13 @@ export type Database = {
             referencedColumns: ["building_id"]
           },
           {
+            foreignKeyName: "assets_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "assets_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -137,7 +144,45 @@ export type Database = {
             referencedRelation: "v_owner_graph"
             referencedColumns: ["owner_id"]
           },
+          {
+            foreignKeyName: "assets_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "assets_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
         ]
+      }
+      building_assignments: {
+        Row: {
+          assigned_at: string
+          building_id: string
+          created_by: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          building_id: string
+          created_by?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          assigned_at?: string
+          building_id?: string
+          created_by?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       building_companies: {
         Row: {
@@ -193,6 +238,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_companies_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "building_companies_company_id_fkey"
@@ -263,6 +315,13 @@ export type Database = {
             referencedColumns: ["building_id"]
           },
           {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "building_owners_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -274,6 +333,20 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
             referencedColumns: ["owner_id"]
           },
         ]
@@ -367,6 +440,20 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "cadence_steps_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "cadence_steps_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
             referencedColumns: ["owner_id"]
           },
         ]
@@ -478,6 +565,20 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "calls_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "calls_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
             referencedColumns: ["owner_id"]
           },
         ]
@@ -1354,6 +1455,20 @@ export type Database = {
             referencedRelation: "v_owner_graph"
             referencedColumns: ["owner_id"]
           },
+          {
+            foreignKeyName: "next_actions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "next_actions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
         ]
       }
       nota_simple_titulares: {
@@ -1432,6 +1547,20 @@ export type Database = {
             referencedRelation: "v_owner_graph"
             referencedColumns: ["owner_id"]
           },
+          {
+            foreignKeyName: "nota_simple_titulares_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "nota_simple_titulares_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
         ]
       }
       notas_simples: {
@@ -1490,6 +1619,13 @@ export type Database = {
             referencedColumns: ["building_id"]
           },
           {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "notas_simples_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -1501,6 +1637,20 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "notas_simples_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "notas_simples_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
             referencedColumns: ["owner_id"]
           },
         ]
@@ -1550,6 +1700,20 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "notes_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "notes_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
             referencedColumns: ["owner_id"]
           },
         ]
@@ -1638,6 +1802,20 @@ export type Database = {
             referencedRelation: "v_owner_graph"
             referencedColumns: ["owner_id"]
           },
+          {
+            foreignKeyName: "owner_companies_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_companies_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
         ]
       }
       owner_relations: {
@@ -1693,6 +1871,20 @@ export type Database = {
             referencedColumns: ["owner_id"]
           },
           {
+            foreignKeyName: "owner_relations_owner_a_id_fkey"
+            columns: ["owner_a_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_relations_owner_a_id_fkey"
+            columns: ["owner_a_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+          {
             foreignKeyName: "owner_relations_owner_b_id_fkey"
             columns: ["owner_b_id"]
             isOneToOne: false
@@ -1704,6 +1896,20 @@ export type Database = {
             columns: ["owner_b_id"]
             isOneToOne: false
             referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_relations_owner_b_id_fkey"
+            columns: ["owner_b_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_relations_owner_b_id_fkey"
+            columns: ["owner_b_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
             referencedColumns: ["owner_id"]
           },
         ]
@@ -1868,6 +2074,20 @@ export type Database = {
             referencedRelation: "v_owner_graph"
             referencedColumns: ["owner_id"]
           },
+          {
+            foreignKeyName: "whatsapp_messages_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
         ]
       }
     }
@@ -1898,6 +2118,24 @@ export type Database = {
           notas_count: number | null
           numero_propietarios: number | null
           owners_count: number | null
+        }
+        Relationships: []
+      }
+      v_building_score: {
+        Row: {
+          ciudad: string | null
+          direccion: string | null
+          division_horizontal: boolean | null
+          id: string | null
+          m2_total: number | null
+          num_viviendas: number | null
+          owners_count: number | null
+          s_m2: number | null
+          s_no_dh: number | null
+          s_owners: number | null
+          s_ratio: number | null
+          s_viviendas: number | null
+          score: number | null
         }
         Relationships: []
       }
@@ -1953,6 +2191,61 @@ export type Database = {
         }
         Relationships: []
       }
+      v_owner_last_contact: {
+        Row: {
+          calls_count: number | null
+          last_call_at: string | null
+          owner_id: string | null
+        }
+        Insert: {
+          calls_count?: never
+          last_call_at?: never
+          owner_id?: string | null
+        }
+        Update: {
+          calls_count?: never
+          last_call_at?: never
+          owner_id?: string | null
+        }
+        Relationships: []
+      }
+      v_owner_score: {
+        Row: {
+          building_id: string | null
+          contactos_previos: number | null
+          email: string | null
+          last_call_at: string | null
+          nombre: string | null
+          owner_id: string | null
+          pct_propiedad: number | null
+          rol: Database["public"]["Enums"]["owner_role"] | null
+          score: number | null
+          telefono: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_propietarios: {
         Row: {
           buyer_persona: string | null
@@ -1977,6 +2270,10 @@ export type Database = {
           sin_transcripcion: number
           total: number
         }[]
+      }
+      current_user_role: {
+        Args: never
+        Returns: Database["public"]["Enums"]["app_role"]
       }
       has_role: {
         Args: {
