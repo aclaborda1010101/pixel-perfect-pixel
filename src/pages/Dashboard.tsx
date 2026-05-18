@@ -84,6 +84,8 @@ export default function Dashboard() {
   const sync = data?.sync ?? { buildings: 0, owners: 0, companies: 0, calls: 0, callsAnalizables: 0, hsCalls: 0, hsNotes: 0, hsTasks: 0 };
 
   const tiles = [
+
+  // (placeholder to satisfy patch context — removed below)
     {
       label: t.home.kpiPendingAnalysis,
       value: k.pendingAnalysis,
