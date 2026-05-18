@@ -39,6 +39,7 @@ const ComercialDashboard = lazy(() => import("./pages/comercial/Dashboard"));
 const ComercialEdificios = lazy(() => import("./pages/comercial/Edificios"));
 const ComercialEdificio = lazy(() => import("./pages/comercial/EdificioDetalle"));
 const ComercialPreparar = lazy(() => import("./pages/comercial/PrepararLlamada"));
+const ComercialTareas = lazy(() => import("./pages/comercial/Tareas"));
 
 // React Query: cachea datos entre navegaciones. Volver a una vista ya cargada es instantáneo.
 const queryClient = new QueryClient({
@@ -102,6 +103,7 @@ const App = () => (
                 <Route path="/comercial" element={<ComercialDashboard />} />
                 <Route path="/comercial/edificios" element={<ComercialEdificios />} />
                 <Route path="/comercial/edificios/:id" element={<ComercialEdificio />} />
+                <Route path="/comercial/tareas" element={<ComercialTareas />} />
                 <Route path="/comercial/preparar/:ownerId" element={<ComercialPreparar />} />
               </Route>
               <Route path="*" element={<NotFound />} />

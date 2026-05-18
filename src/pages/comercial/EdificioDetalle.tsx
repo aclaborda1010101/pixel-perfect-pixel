@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,8 @@ import {
   buildingScoreFactors,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
+import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
+import { syncBuildingTasks } from "@/lib/buildingTasks";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -58,6 +60,12 @@ export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [sort, setSort] = useState<SortKey>("score");
+
+  useEffect(() => {
+    if (id && user?.id) {
+      syncBuildingTasks(id, user.id).catch(() => {});
+    }
+  }, [id, user?.id]);
 
   const { data } = useQuery({
     queryKey: ["comercial:edificio", id, user?.id],
@@ -274,6 +282,9 @@ export default function ComercialEdificioDetalle() {
 
       {/* Distribución del inmueble */}
       <DistribucionInmueble s={s} />
+
+      {/* Tareas del edificio */}
+      {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
 
       {/* Propietarios */}
       <Card>

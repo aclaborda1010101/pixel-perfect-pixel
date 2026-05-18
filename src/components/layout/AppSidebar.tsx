@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Building2, Users, TrendingUp,
   Inbox, FileText, PhoneCall,
   MessageSquare, Megaphone, ListChecks, BarChart3,
-  Settings as SettingsIcon, Search,
+  Settings as SettingsIcon, Search, CheckSquare,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -56,6 +56,7 @@ export function AppSidebar() {
   const operativa: Item[] = isComercial ? [
     { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
     { url: "/comercial/edificios", label: t.nav.buildings, icon: Building2 },
+    { url: "/comercial/tareas", label: "Tareas", icon: CheckSquare },
   ] : [
     { url: "/", label: t.nav.home, icon: LayoutDashboard },
     { url: "/edificios", label: t.nav.buildings, icon: Building2 },
