@@ -60,6 +60,23 @@ export const DEAL_PROPERTIES = [
   'valoracion_locales',
   'precio_del_vendedor__exacto___clonada_',
   'precio_del_vendedor__rango___clonada_',
+  // distribución de usos (HubSpot custom)
+  'metros_cuadrados__rango_',
+  'viviendas__unidades_',
+  'metros_cuadrados_viviendas',
+  'comercio__unidades_',
+  'metros_cuadrados_comercio',
+  'oficina__unidades_',
+  'metros_cuadrado_oficina',
+  'almacen__unidades_',
+  'metros_cuadrados_almacen',
+  'aparcamiento__unidades_',
+  'elementos_comunes__unidades_',
+  'metros_cuadrados_elementos_comunes',
+  'ocio_hostel__unidades_',
+  'metros_cuadrados_ocio_hostel',
+  'industrial__unidades_',
+  'metros_cuadrados_industrial',
 ];
 
 // Properties para Contacts (propietarios + leads + inversores)
