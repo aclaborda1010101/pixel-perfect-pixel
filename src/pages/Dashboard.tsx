@@ -11,7 +11,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import {
   PhoneOutgoing, FileAudio, ArrowRight, PhoneCall, ListChecks, UserSearch,
-  TrendingUp, TrendingDown, Smile, Meh, Frown,
+  TrendingUp, TrendingDown, Smile, Meh, Frown, Clock, Building2,
 } from "lucide-react";
 
 function formatDuration(s: number | null | undefined) {
