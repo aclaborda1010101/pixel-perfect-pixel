@@ -2126,14 +2126,30 @@ export type Database = {
       }
       v_building_score: {
         Row: {
+          almacen_unidades: number | null
+          aparcamiento_unidades: number | null
           barrio: string | null
           ciudad: string | null
+          comercio_unidades: number | null
           direccion: string | null
           distrito: string | null
+          dividido_texto: string | null
           division_horizontal: boolean | null
+          elementos_comunes_unidades: number | null
           id: string | null
+          industrial_unidades: number | null
+          m2_almacen: number | null
+          m2_comercio: number | null
+          m2_elementos_comunes: number | null
+          m2_industrial: number | null
+          m2_ocio_hostel: number | null
+          m2_oficina: number | null
+          m2_rango: string | null
           m2_total: number | null
+          m2_viviendas: number | null
           num_viviendas: number | null
+          ocio_hostel_unidades: number | null
+          oficina_unidades: number | null
           owners_count: number | null
           s_m2: number | null
           s_no_dh: number | null
@@ -2141,6 +2157,10 @@ export type Database = {
           s_ratio: number | null
           s_viviendas: number | null
           score: number | null
+          tipo_activo: string | null
+          tipo_oportunidad: string | null
+          valoracion_locales: number | null
+          valoracion_viviendas: number | null
         }
         Relationships: []
       }
