@@ -36,6 +36,7 @@ const Login = lazy(() => import("./pages/auth/Login"));
 const RecoverPassword = lazy(() => import("./pages/auth/RecoverPassword"));
 const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
 const ComercialDashboard = lazy(() => import("./pages/comercial/Dashboard"));
+const ComercialEdificios = lazy(() => import("./pages/comercial/Edificios"));
 const ComercialEdificio = lazy(() => import("./pages/comercial/EdificioDetalle"));
 const ComercialPreparar = lazy(() => import("./pages/comercial/PrepararLlamada"));
 
@@ -99,6 +100,7 @@ const App = () => (
                 <Route path="/asistente-ia" element={<Assistant />} />
                 <Route path="/ajustes" element={<Settings />} />
                 <Route path="/comercial" element={<ComercialDashboard />} />
+                <Route path="/comercial/edificios" element={<ComercialEdificios />} />
                 <Route path="/comercial/edificios/:id" element={<ComercialEdificio />} />
                 <Route path="/comercial/preparar/:ownerId" element={<ComercialPreparar />} />
               </Route>
