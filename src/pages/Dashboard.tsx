@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -36,6 +37,10 @@ const sentimentMeta = {
 
 export default function Dashboard() {
   const { t } = useI18n();
+  const { role, loading: roleLoading } = useCurrentRole();
+  if (!roleLoading && role === "comercial_zona") {
+    return <Navigate to="/comercial" replace />;
+  }
 
   // Una sola tanda paralela de TODAS las queries del dashboard, cacheada vía react-query.
   // staleTime hereda del QueryClient global (1 min) → volver al dashboard es instantáneo.
