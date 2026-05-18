@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Building2, Users, TrendingUp,
   Inbox, FileText, PhoneCall,
   MessageSquare, Megaphone, ListChecks, BarChart3,
-  Settings as SettingsIcon, Search, CheckSquare,
+  Settings as SettingsIcon, Search, CheckSquare, UserCircle,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -80,7 +80,9 @@ export function AppSidebar() {
     { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
   ];
-  const cuenta: Item[] = isComercial ? [] : [
+  const cuenta: Item[] = isComercial ? [
+    { url: "/comercial/cuenta", label: "Mi cuenta", icon: UserCircle },
+  ] : [
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
   ];
 
@@ -182,7 +184,7 @@ export function AppSidebar() {
           ? renderGroup("Mi trabajo", miTrabajo)
           : renderGroup(t.nav.groupCaptacion, captacion)}
         {renderGroup(isComercial ? "Herramientas" : t.nav.groupIA, ia)}
-        {!isComercial && renderGroup(t.nav.groupCuenta, cuenta)}
+        {renderGroup(isComercial ? "Cuenta" : t.nav.groupCuenta, cuenta)}
       </SidebarContent>
     </Sidebar>
   );
