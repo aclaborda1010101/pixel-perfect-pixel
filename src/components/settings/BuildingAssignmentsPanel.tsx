@@ -7,11 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
-import { MapPinned, Search, Save, Loader2 } from "lucide-react";
+import { MapPinned, Search, Save, Loader2, Play, Pause, X } from "lucide-react";
 import { toast } from "sonner";
 
 type Profile = { id: string; email: string | null; full_name: string | null };
 type Building = { id: string; direccion: string; ciudad: string | null };
+type AssignStatus = "active" | "paused" | "discarded";
 
 export function BuildingAssignmentsPanel() {
   const qc = useQueryClient();
@@ -20,6 +21,8 @@ export function BuildingAssignmentsPanel() {
   const [onlyAssigned, setOnlyAssigned] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [initial, setInitial] = useState<Set<string>>(new Set());
+  const [statusMap, setStatusMap] = useState<Map<string, AssignStatus>>(new Map());
+  const [initialStatus, setInitialStatus] = useState<Map<string, AssignStatus>>(new Map());
   const [saving, setSaving] = useState(false);
 
   // Comerciales (users con rol comercial_zona) + cualquier user
@@ -56,18 +59,22 @@ export function BuildingAssignmentsPanel() {
     enabled: !!userId,
     queryFn: async () => {
       const { data } = await (supabase.from("building_assignments" as any) as any)
-        .select("building_id")
+        .select("building_id,status")
         .eq("user_id", userId);
-      return (data ?? []).map((r: any) => r.building_id as string);
+      return (data ?? []) as { building_id: string; status: AssignStatus }[];
     },
   });
 
   // sync seleccionados al cambiar de user
   useEffect(() => {
     if (!userId) return;
-    const set = new Set<string>(assignments ?? []);
+    const ids = (assignments ?? []).map((a) => a.building_id);
+    const set = new Set<string>(ids);
+    const sm = new Map<string, AssignStatus>((assignments ?? []).map((a) => [a.building_id, a.status ?? "active"]));
     setSelected(new Set(set));
     setInitial(new Set(set));
+    setStatusMap(new Map(sm));
+    setInitialStatus(new Map(sm));
   }, [userId, assignments]);
 
   const filtered = useMemo(() => {
@@ -87,15 +94,25 @@ export function BuildingAssignmentsPanel() {
   const dirty = useMemo(() => {
     if (selected.size !== initial.size) return true;
     for (const id of selected) if (!initial.has(id)) return true;
+    for (const [id, st] of statusMap) if (selected.has(id) && initialStatus.get(id) !== st) return true;
     return false;
-  }, [selected, initial]);
+  }, [selected, initial, statusMap, initialStatus]);
 
   function toggle(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else {
+        next.add(id);
+        setStatusMap((sm) => { const n = new Map(sm); if (!n.has(id)) n.set(id, "active"); return n; });
+      }
       return next;
     });
+  }
+
+  function setStatus(id: string, st: AssignStatus) {
+    setStatusMap((sm) => { const n = new Map(sm); n.set(id, st); return n; });
+    setSelected((prev) => { if (prev.has(id)) return prev; const n = new Set(prev); n.add(id); return n; });
   }
 
   async function save() {
@@ -113,14 +130,25 @@ export function BuildingAssignmentsPanel() {
         if (error) throw error;
       }
       if (toAdd.length) {
-        const rows = toAdd.map((building_id) => ({ user_id: userId, building_id }));
+        const rows = toAdd.map((building_id) => ({ user_id: userId, building_id, status: statusMap.get(building_id) ?? "active" }));
         const { error } = await (supabase.from("building_assignments" as any) as any).insert(rows);
+        if (error) throw error;
+      }
+      // status updates for existing assignments
+      const toUpdate = [...selected].filter((id) => initial.has(id) && initialStatus.get(id) !== statusMap.get(id));
+      for (const id of toUpdate) {
+        const { error } = await (supabase.from("building_assignments" as any) as any)
+          .update({ status: statusMap.get(id) ?? "active" })
+          .eq("user_id", userId)
+          .eq("building_id", id);
         if (error) throw error;
       }
       toast.success(`Asignaciones guardadas: +${toAdd.length} / -${toRemove.length}`);
       setInitial(new Set(selected));
+      setInitialStatus(new Map(statusMap));
       await qc.invalidateQueries({ queryKey: ["settings:assignments:byUser", userId] });
       await qc.invalidateQueries({ queryKey: ["comercial:dashboard"] });
+      await qc.invalidateQueries({ queryKey: ["comercial:edificios"] });
     } catch (e: any) {
       toast.error(e?.message ?? "No se pudieron guardar las asignaciones");
     } finally {
@@ -201,19 +229,32 @@ export function BuildingAssignmentsPanel() {
             <ul className="max-h-[480px] divide-y divide-border-faint overflow-y-auto rounded-md border border-border-faint">
               {filtered.map((b) => {
                 const checked = selected.has(b.id);
+                const st = statusMap.get(b.id) ?? "active";
                 return (
                   <li
                     key={b.id}
-                    className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-surface-1"
-                    onClick={() => toggle(b.id)}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-surface-1"
                   >
                     <Checkbox checked={checked} onCheckedChange={() => toggle(b.id)} />
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => toggle(b.id)}>
                       <div className="truncate text-sm text-foreground">{b.direccion}</div>
                       <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
                         {b.ciudad ?? "—"}
                       </div>
                     </div>
+                    {checked && (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button size="sm" variant={st === "active" ? "gold" : "outline"} className="h-7 px-2" onClick={() => setStatus(b.id, "active")} title="Activa">
+                          <Play className="h-3 w-3" />
+                        </Button>
+                        <Button size="sm" variant={st === "paused" ? "gold" : "outline"} className="h-7 px-2" onClick={() => setStatus(b.id, "paused")} title="Pausada">
+                          <Pause className="h-3 w-3" />
+                        </Button>
+                        <Button size="sm" variant={st === "discarded" ? "destructive" : "outline"} className="h-7 px-2" onClick={() => setStatus(b.id, "discarded")} title="Descartada">
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 );
               })}
