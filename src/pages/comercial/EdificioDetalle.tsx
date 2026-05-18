@@ -205,9 +205,11 @@ export default function ComercialEdificioDetalle() {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <CatastroItem icon={Ruler} label="m² totales" value={s.m2_total ? Number(s.m2_total).toLocaleString() : "—"} />
+              <CatastroItem icon={Ruler} label="m² (rango)" value={s.m2_rango ?? "—"} />
               <CatastroItem icon={Home} label="Nº viviendas" value={s.num_viviendas ?? "—"} />
               <CatastroItem icon={Layers} label="Ratio m²/vivienda" value={ratio != null ? `${ratio.toFixed(1)} m²` : "—"} />
               <CatastroItem icon={Users} label="Nº propietarios" value={s.owners_count ?? 0} />
+              <CatastroItem icon={Tag} label="Tipo oportunidad" value={s.tipo_oportunidad ?? "—"} />
               <CatastroItem
                 icon={b.division_horizontal ? X : Check}
                 label="División horizontal"
@@ -247,6 +249,9 @@ export default function ComercialEdificioDetalle() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Distribución del inmueble */}
+      <DistribucionInmueble s={s} />
 
       {/* Propietarios */}
       <Card>
