@@ -56,7 +56,6 @@ export function AppSidebar() {
   const operativa: Item[] = isComercial ? [
     { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
     { url: "/edificios", label: t.nav.buildings, icon: Building2 },
-    { url: "/propietarios", label: t.nav.owners, icon: Users },
   ] : [
     { url: "/", label: t.nav.home, icon: LayoutDashboard },
     { url: "/edificios", label: t.nav.buildings, icon: Building2 },
@@ -71,9 +70,8 @@ export function AppSidebar() {
     { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
   ];
   const ia: Item[] = isComercial ? [
-    { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
-    { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
+    { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
   ] : [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
     { url: "/mensajes", label: t.nav.mensajes, icon: Megaphone },
