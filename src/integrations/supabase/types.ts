@@ -2126,8 +2126,10 @@ export type Database = {
       }
       v_building_score: {
         Row: {
+          barrio: string | null
           ciudad: string | null
           direccion: string | null
+          distrito: string | null
           division_horizontal: boolean | null
           id: string | null
           m2_total: number | null
