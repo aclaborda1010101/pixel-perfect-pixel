@@ -32,7 +32,8 @@ export default function ComercialDashboard() {
       // 1. Edificios asignados al usuario
       const { data: assignments } = await (supabase.from("building_assignments" as any) as any)
         .select("building_id")
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .eq("status", "active");
       const buildingIds: string[] = (assignments ?? []).map((a: any) => a.building_id);
 
       // 2. Profile (nombre)
