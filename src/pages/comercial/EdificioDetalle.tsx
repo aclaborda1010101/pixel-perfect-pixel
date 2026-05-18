@@ -239,13 +239,35 @@ export default function ComercialEdificioDetalle() {
             <CardTitle>{b.ciudad ?? "—"}</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <iframe
-              title="Mapa edificio"
-              src={`https://www.google.com/maps?q=${mapsQuery}&output=embed`}
-              className="h-[320px] w-full border-0"
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
+            <div className="relative h-[320px] w-full overflow-hidden">
+              <iframe
+                title="Mapa edificio"
+                src={`https://www.google.com/maps?q=${mapsQuery}&output=embed`}
+                className="h-full w-full border-0"
+                style={{
+                  filter:
+                    "invert(0.92) hue-rotate(180deg) saturate(0.55) brightness(0.95) contrast(0.95)",
+                }}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+              <div
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  background:
+                    "radial-gradient(circle at 50% 50%, transparent 55%, hsl(var(--background) / 0.55) 100%)",
+                  mixBlendMode: "multiply",
+                }}
+              />
+              <a
+                href={`https://www.google.com/maps?q=${mapsQuery}`}
+                target="_blank"
+                rel="noreferrer"
+                className="absolute right-3 top-3 rounded-md border border-border-faint bg-surface-1/80 px-2 py-1 font-mono text-[10px] uppercase tracking-eyebrow text-gold backdrop-blur hover:bg-surface-1"
+              >
+                Abrir en Maps ↗
+              </a>
+            </div>
           </CardContent>
         </Card>
       </div>
