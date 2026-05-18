@@ -1,50 +1,132 @@
-## Problema
 
-El backfill de Deepgram avanza a tirones (~9 calls/hora). La función procesa 50 calls **en serie** dentro de un mismo invoke; el HTTP request timeout corta la ejecución antes de terminar el batch, la chain se rompe y hay que esperar a que el cron diario lo dispare otra vez. Con 1,848 pendientes a este ritmo serían ~8 días.
+# Sistema de roles + Dashboard Comercial
 
-## Causa raíz
+Construcción por fases. Aprueba el plan y empezamos por la Fase 1 (roles + ruteo). Cada fase deja la app funcionando.
 
-En `transcribe_call/index.ts` el bucle `for (const row of rows)` espera cada `transcribeOne` (descarga HubSpot + Deepgram + update DB) secuencialmente. Una call de 5min puede tardar 30-60s. 50 calls × media de ~10s = ~8min de wall time → timeout del edge gateway.
+## Fase 1 · Roles y ruteo por rol
 
-## Solución: procesamiento paralelo + respuesta inmediata
+**Backend**
+- Extender enum `app_role` con: `captacion`, `comercial_zona`, `prevalificacion` (ya existen `admin` y `viewer`).
+- Tabla nueva `building_assignments (building_id, user_id, role, assigned_at)` con RLS y policies (admin gestiona, comercial ve los suyos).
+- Función `current_user_role()` → devuelve el rol de mayor prioridad del usuario actual.
+- Mantener `has_role()` ya existente.
 
-### Cambios en `supabase/functions/transcribe_call/index.ts`
+**Frontend**
+- Hook `useCurrentRole()` cacheado.
+- `AppLayout` y `AppSidebar` filtran items según rol:
+  - `comercial_zona`: Inicio (→ `/comercial`), Edificios, Llamadas, Productividad, Asistente. Oculta Inversores, Settings avanzado, sync HubSpot, Investors, Coach.
+  - `admin`: todo (estado actual).
+  - `captacion`, `prevalificacion`: placeholder mismo menú que comercial por ahora.
+- Redirección post-login: admin → `/`, comercial_zona → `/comercial`.
 
-1. **Concurrencia controlada (pool de 15 workers paralelos)**
-   - Reemplazar el `for` serial por un pool: 15 calls procesándose en paralelo a la vez.
-   - Deepgram soporta ~100 concurrentes y HubSpot gateway aguanta de sobra; 15 es conservador.
-   - Tiempo de batch: pasa de ~8min a ~30-60s.
+**Settings → "Roles de usuario"** (solo admin)
+- Tabla con todos los users (`profiles`), select del rol, botón guardar. Usa `user_roles`.
 
-2. **Reducir `MAX_PER_RUN` de 50 → 30**
-   - Batch más pequeño + paralelo = termina en <60s con margen, la chain HTTP se cierra limpiamente.
+## Fase 2 · Dashboard Comercial (`/comercial`)
 
-3. **Respuesta temprana con `EdgeRuntime.waitUntil`** (modo batch)
-   - Devolver `202 accepted` inmediatamente y procesar en background.
-   - Así el timeout HTTP del invocador (cron / curl) ya no puede cortar el procesamiento.
-   - El re-chain también se dispara en background.
+Página nueva `src/pages/comercial/Dashboard.tsx`, mismo design system.
 
-4. **Quitar el `SLEEP_BETWEEN_MS`** (era para Groq RPM, ya no aplica con Deepgram + paralelismo).
+**Bloques**
+1. Saludo: "Buenos días, {first_name}" + fecha + clima de cartera (1 frase con cifra clave).
+2. KPIs (4 tarjetas):
+   - Llamadas pendientes hoy (next_actions tipo llamada, vencimiento ≤ hoy, owner asignado a mí).
+   - Edificios asignados activos (count `building_assignments` user=yo).
+   - Propietarios sin contactar (building_owners de mis edificios donde owner.last_contact IS NULL).
+   - Tasa contacto semanal (% propietarios contactados / total mis edificios, últimos 7 días).
+3. **Mi agenda del día**: lista priorizada de llamadas pendientes ordenadas por `building_score` desc (ver Fase 5). Cada fila: hora sugerida, propietario, edificio, score, botones "Preparar" / "Marcar resultado".
+4. **Edificios con propietarios pendientes**: cards con dirección, score, "X de Y contactados", barra % propiedad acumulada contactada, botón "Ver detalle" → `/comercial/edificios/:id`.
 
-5. **Logging por batch** (`console.log` con processed/ok/fail/elapsed) para tener visibilidad sin depender de HTTP response.
+## Fase 3 · Vista Edificio Comercial (`/comercial/edificios/:id`)
 
-### Lo que **no cambia**
+- Header: dirección + ciudad + score grande + badge división horizontal.
+- **Datos catastrales**: m², viviendas, ratio m²/viv, div. horizontal, año, ref. catastral (de `buildings.metadatos`).
+- **Scoring · desglose visual**: barras por componente (viviendas, m², ratio, nº propietarios, div. horizontal) con peso y aportación.
+- **Google Maps embed** (iframe sin API key con `q=` dirección).
+- **Tabla de propietarios** (todos los `building_owners`):
+  - Columnas: nombre, % propiedad, estado (badge color), teléfonos, última interacción, sub-score.
+  - Filas sin contacto resaltadas en rojo suave.
+  - Sort por % propiedad / estado / última interacción.
+  - Click fila → drawer detalle propietario + botón "Preparar llamada".
 
-- Lógica de transcripción, diarización Comercial/Cliente, speaker_stats, refresh URL HubSpot.
-- Schema de DB, agent_runs, hubspot_sync_state.
-- Cron `transcribe-daily` (sigue disparando una vez al día como red de seguridad).
-- Modo single (`{call_id}`) sigue síncrono.
+## Fase 4 · Asistencia IA pre/post llamada
 
-### ETA esperado tras el cambio
+**Pre-llamada** (`/comercial/preparar/:owner_id?building=...`)
+- Reusa edge function existente `agent_pre_call_brief` (ya implementada).
+- UI muestra: resumen edificio + oportunidad, historial interacciones (hubspot_calls + hubspot_notes + whatsapp), datos propietario (% prop., cargas/embargos de nota simple), 3 sugerencias de approach, 5 puntos clave.
 
-- 1,848 pendientes ÷ 15 paralelo × ~8s media = **~17 minutos** total.
-- Para ser realistas con varianza y re-chains: **~30-45 minutos**.
+**Post-llamada** (drawer rápido al cerrar la llamada)
+- Form: outcome (interesado/no interesa/volver/no contesta), notas, duración.
+- Al enviar: insert en `calls` + `next_actions` (auto-seguimiento según outcome) + invoca edge `analyze_call` (ya existe) para Quality Score, oportunidades perdidas y sugerencia próximos pasos.
 
-### Disparo
+## Fase 5 · Scoring (vistas SQL)
 
-Tras desplegar, hago un POST a `/transcribe_call` con `{chain:true}` para arrancar la cadena.
+Crear vistas materializables (vista normal por simplicidad):
 
-### Riesgos / mitigación
+- `v_building_score`:
+  ```
+  weight(viviendas)*norm(num_viviendas)
+  + weight(m2_total)*norm(m2_total)
+  + weight(ratio)*norm_invert(m2/viv)  -- menor = mejor
+  + weight(nprops)*norm(num_propietarios)
+  + bonus si NOT division_horizontal
+  ```
+  Datos: `buildings` + agregados `building_owners`. Pesos fijos (configurables luego en `org_settings`).
 
-- **Rate limit Deepgram**: el reintento con backoff exponencial ya está; con 15 paralelos estamos muy por debajo del límite.
-- **Memoria edge function**: cada call carga el MP3 en RAM. 15 × ~5MB = 75MB, dentro del límite (256MB).
-- **Updates DB concurrentes**: cada call hace UPDATE sobre su propio `id`, sin contención.
+- `v_owner_score`:
+  ```
+  weight(pct)*pct_propiedad
+  + weight(edad)*norm(edad)
+  + weight(cargas)*(1 - cargas_normalizadas)
+  + weight(contactos_prev)*norm(num_contactos)
+  + weight(interes)*encoded_interes
+  ```
+
+Default coverage tolerante a NULLs.
+
+## Fase 6 · Productividad personal (`/comercial/productividad`)
+
+Reusa `Productividad` actual pero filtrado por `owner_id = me` y añade:
+- Cards: llamadas día/semana/mes, tasa contacto efectivo.
+- Heat map horarios óptimos (reusa `v_dashboard_call_heatmap` filtrado).
+- Edificios trabajados vs pendientes (subset de mis asignados).
+- Ranking conversión por tipo edificio (agrupar por bucket de viviendas: pequeño <10, mediano 10-30, grande >30).
+- Gráfico evolución temporal (Recharts línea, últimos 90 días).
+
+## Detalles técnicos
+
+```text
+src/
+  pages/
+    comercial/
+      Dashboard.tsx
+      EdificioDetalle.tsx
+      Productividad.tsx
+      PrepararLlamada.tsx
+    settings/
+      RolesPanel.tsx   (sección dentro de Settings.tsx)
+  hooks/
+    useCurrentRole.ts
+    useBuildingScore.ts
+  components/comercial/
+    KpiTile.tsx
+    AgendaList.tsx
+    EdificioCard.tsx
+    OwnerRow.tsx
+    PostCallDrawer.tsx
+supabase/migrations/
+  - extend app_role enum
+  - building_assignments + RLS
+  - v_building_score, v_owner_score
+  - current_user_role() function
+```
+
+Edge functions: ninguna nueva (reusa `agent_pre_call_brief`, `analyze_call`, `compute_matches`).
+
+## Preguntas para arrancar
+
+1. **Asignación de edificios a comerciales**: ¿la haces manual desde Settings (admin asigna), o autoasignación por distrito/ciudad? (asumo manual por defecto).
+2. **"Propietario contactado"**: ¿lo defino como "tiene al menos 1 `hubspot_calls` o `calls`" o necesitas un flag explícito `last_contact_at` en `owners`? (asumo lo primero, sin nueva columna).
+3. **Pesos de scoring**: ¿fijos en código por ahora (p.ej. viviendas 30%, m² 20%, ratio 20%, n_prop 20%, no-DH 10%) o editables en Settings desde el principio? (asumo fijos en código).
+4. **Jesús ya tiene cuenta**: ¿le asigno el rol `comercial_zona` automáticamente al aprobar la migración o lo haces tú desde Settings? (asumo manual desde Settings tras Fase 1).
+
+Confirma estas 4 y arranco por Fase 1 (roles + ruteo + Settings). El resto cae detrás en orden.

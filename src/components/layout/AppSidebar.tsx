@@ -12,6 +12,7 @@ import {
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar";
 import { useI18n } from "@/i18n/I18nProvider";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 
 type Item = { url: string; label: string; icon: any; beta?: boolean };
 
@@ -42,6 +43,8 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const queryClient = useQueryClient();
+  const { role } = useCurrentRole();
+  const isComercial = role === "comercial_zona";
 
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
@@ -50,24 +53,34 @@ export function AppSidebar() {
   // Hover/focus → precarga el chunk de la ruta y los datos de su primera página.
   const handlePrefetch = (path: string) => prefetchRoute(path, queryClient);
 
-  const operativa: Item[] = [
+  const operativa: Item[] = isComercial ? [
+    { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
+    { url: "/edificios", label: t.nav.buildings, icon: Building2 },
+    { url: "/propietarios", label: t.nav.owners, icon: Users },
+  ] : [
     { url: "/", label: t.nav.home, icon: LayoutDashboard },
     { url: "/edificios", label: t.nav.buildings, icon: Building2 },
     { url: "/propietarios", label: t.nav.owners, icon: Users },
     { url: "/inversores", label: t.nav.investors, icon: TrendingUp },
   ];
-  const captacion: Item[] = [
+  const captacion: Item[] = isComercial ? [
+    { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
+  ] : [
     { url: "/leads", label: t.nav.leads, icon: Inbox },
     { url: "/notas-simples", label: t.nav.notasSimples, icon: FileText },
     { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
   ];
-  const ia: Item[] = [
+  const ia: Item[] = isComercial ? [
+    { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
+    { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
+    { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
+  ] : [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
     { url: "/mensajes", label: t.nav.mensajes, icon: Megaphone },
     { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
   ];
-  const cuenta: Item[] = [
+  const cuenta: Item[] = isComercial ? [] : [
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
   ];
 

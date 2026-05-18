@@ -7,10 +7,13 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { Languages, Palette, User, Users } from "lucide-react";
 import { HubspotPanel } from "@/components/settings/HubspotPanel";
+import { RolesPanel } from "@/components/settings/RolesPanel";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 
 export default function Settings() {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
+  const { isAdmin } = useCurrentRole();
   return (
     <div className="space-y-6">
       <PageHeader
@@ -20,6 +23,7 @@ export default function Settings() {
       />
       <div className="grid gap-4 md:grid-cols-2">
         <HubspotPanel />
+        {isAdmin && <RolesPanel />}
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>
