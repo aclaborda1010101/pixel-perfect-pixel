@@ -27,7 +27,8 @@ export default function ComercialEdificios() {
     queryFn: async () => {
       const { data: assignments } = await (supabase.from("building_assignments" as any) as any)
         .select("building_id")
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .eq("status", "active");
       const ids: string[] = (assignments ?? []).map((a: any) => a.building_id);
       if (ids.length === 0) return { rows: [] as any[] };
 
