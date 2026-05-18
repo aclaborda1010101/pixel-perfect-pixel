@@ -329,8 +329,8 @@ export default function Dashboard() {
                   </div>
                 ))}
                 {heatGrid.map((row, d) => (
-                  <>
-                    <div key={`l-${d}`} className="flex items-center font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  <div key={`row-${d}`} className="contents">
+                    <div className="flex items-center font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                       {dayLabels[d]}
                     </div>
                     {row.map((v, h) => {
@@ -350,7 +350,7 @@ export default function Dashboard() {
                         />
                       );
                     })}
-                  </>
+                  </div>
                 ))}
               </div>
               <div className="mt-3 flex items-center justify-between font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
