@@ -20,6 +20,8 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
 import { Building2, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { NewBuildingDialog } from "@/components/forms/NewEntityDialogs";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { useAuth } from "@/hooks/useAuth";
 
 const PAGE_SIZE = 50;
 const ESTADOS = ["identificado", "contactado", "en_estudio", "descartado"];
@@ -30,6 +32,10 @@ function applyNonDemoFilter<T extends { or: (filters: string) => T }>(query: T) 
 
 export default function Buildings() {
   const { t } = useI18n();
+  const { user } = useAuth();
+  const { role, loading: roleLoading } = useCurrentRole();
+  const isComercial = role === "comercial_zona";
+  const [assignedIds, setAssignedIds] = useState<string[] | null>(null);
   const [rows, setRows] = useState<any[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [q, setQ] = useState("");
@@ -52,8 +58,32 @@ export default function Buildings() {
   // reset página al cambiar filtros/busqueda
   useEffect(() => { setPage(0); }, [debouncedQ, filter, ciudad, showDemos]);
 
+  // Carga edificios asignados al comercial
+  useEffect(() => {
+    if (roleLoading) return;
+    if (!isComercial) { setAssignedIds(null); return; }
+    if (!user?.id) return;
+    (async () => {
+      const { data } = await (supabase.from("building_assignments" as any) as any)
+        .select("building_id")
+        .eq("user_id", user.id);
+      setAssignedIds((data ?? []).map((r: any) => r.building_id as string));
+    })();
+  }, [isComercial, roleLoading, user?.id]);
+
   // métricas globales (independientes de paginación)
   const loadMetrics = async () => {
+    if (isComercial) {
+      const ids = assignedIds ?? [];
+      if (ids.length === 0) { setMetrics({ total: 0, dh: 0, propietarios: 0 }); return; }
+      const [tot, dh, props] = await Promise.all([
+        supabase.from("buildings").select("id", { count: "exact", head: true }).in("id", ids),
+        supabase.from("buildings").select("id", { count: "exact", head: true }).in("id", ids).eq("division_horizontal", true),
+        supabase.from("building_owners").select("building_id", { count: "exact", head: true }).in("building_id", ids),
+      ]);
+      setMetrics({ total: tot.count ?? 0, dh: dh.count ?? 0, propietarios: props.count ?? 0 });
+      return;
+    }
     const totQ = supabase.from("buildings").select("id", { count: "exact", head: true });
     const dhQ = supabase.from("buildings").select("id", { count: "exact", head: true }).eq("division_horizontal", true);
     if (!showDemos) {
@@ -87,6 +117,13 @@ export default function Buildings() {
 
   const load = async () => {
     setLoading(true);
+    if (isComercial) {
+      const ids = assignedIds ?? [];
+      if (ids.length === 0) {
+        setRows([]); setTotal(0); setCounts({}); setLoading(false);
+        return;
+      }
+    }
     let query = supabase
       .from("buildings")
       .select("*", { count: "exact" })
@@ -100,7 +137,11 @@ export default function Buildings() {
     }
     if (filter !== "all") query = query.eq("estado", filter as any);
     if (ciudad !== "all") query = query.eq("ciudad", ciudad);
-    if (!showDemos) query = applyNonDemoFilter(query);
+    if (isComercial) {
+      query = query.in("id", assignedIds ?? []);
+    } else if (!showDemos) {
+      query = applyNonDemoFilter(query);
+    }
 
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -123,8 +164,8 @@ export default function Buildings() {
     setLoading(false);
   };
 
-  useEffect(() => { loadMetrics(); /* eslint-disable-next-line */ }, [showDemos]);
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, filter, ciudad, showDemos, page]);
+  useEffect(() => { loadMetrics(); /* eslint-disable-next-line */ }, [showDemos, isComercial, assignedIds]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, filter, ciudad, showDemos, page, isComercial, assignedIds]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const showingFrom = total === 0 ? 0 : page * PAGE_SIZE + 1;
@@ -146,7 +187,13 @@ export default function Buildings() {
       </div>
 
       {metrics.total === 0 ? (
-        <EmptyState icon={Building2} title="Aún no hay edificios" description="Crea un edificio para asociarle propietarios (con su sub-rol y cuota) y luego activos." />
+        <EmptyState
+          icon={Building2}
+          title={isComercial ? "No tienes edificios asignados" : "Aún no hay edificios"}
+          description={isComercial
+            ? "Contacta con tu administrador para que te asigne edificios de tu zona."
+            : "Crea un edificio para asociarle propietarios (con su sub-rol y cuota) y luego activos."}
+        />
       ) : (
         <Card className="overflow-hidden">
           <div className="flex flex-wrap items-center gap-3 border-b border-border-faint px-4 py-3">

@@ -8,12 +8,14 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { toast } from "sonner";
 
 type Mode = "signin" | "signup";
 
 export default function Login() {
   const { session } = useAuth();
+  const { role, loading: roleLoading } = useCurrentRole();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from || "/";
@@ -28,8 +30,12 @@ export default function Login() {
   const [usePassword, setUsePassword] = useState(false);
 
   useEffect(() => {
-    if (session) navigate(from, { replace: true });
-  }, [session, from, navigate]);
+    if (!session) return;
+    // Espera a resolver el rol antes de redirigir (evita parpadeo al dashboard admin)
+    if (roleLoading) return;
+    const target = role === "comercial_zona" ? "/comercial" : from;
+    navigate(target, { replace: true });
+  }, [session, role, roleLoading, from, navigate]);
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
