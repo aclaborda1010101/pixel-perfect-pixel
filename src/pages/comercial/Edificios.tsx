@@ -184,16 +184,30 @@ export default function ComercialEdificios() {
     queryKey: ["comercial:edificios:all", userId],
     enabled: !!userId,
     queryFn: async () => {
-      const [{ data: assignments }, { data: scores }] = await Promise.all([
+      // Fetch all scored buildings paginated (Supabase caps each request at 1000 rows).
+      const PAGE = 1000;
+      const fetchPage = (from: number) =>
+        (supabase.from("v_building_score" as any) as any)
+          .select("*")
+          .order("score", { ascending: false })
+          .range(from, from + PAGE - 1);
+      const [{ data: assignments }, firstPage] = await Promise.all([
         (supabase.from("building_assignments" as any) as any)
           .select("building_id")
           .eq("user_id", userId)
           .eq("status", "active"),
-        (supabase.from("v_building_score" as any) as any)
-          .select("*")
-          .order("score", { ascending: false })
-          .limit(2000),
+        fetchPage(0),
       ]);
+      let scores: any[] = firstPage.data ?? [];
+      let from = PAGE;
+      while (scores.length === from) {
+        const next = await fetchPage(from);
+        const chunk = next.data ?? [];
+        if (!chunk.length) break;
+        scores = scores.concat(chunk);
+        if (chunk.length < PAGE) break;
+        from += PAGE;
+      }
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
       const rows: Row[] = (scores ?? []).map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
