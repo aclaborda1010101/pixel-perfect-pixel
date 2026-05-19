@@ -65,6 +65,7 @@ export const DEAL_PROPERTIES = [
   'viviendas__unidades_',
   'viviendas__unidades___clonada_',
   'metros_cuadrados_viviendas',
+  'metros_cuadrados_viviendas___clonada_',
   'comercio__unidades_',
   'metros_cuadrados_comercio',
   'oficina__unidades_',
