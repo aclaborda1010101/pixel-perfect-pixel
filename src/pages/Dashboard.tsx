@@ -38,10 +38,6 @@ const sentimentMeta = {
 export default function Dashboard() {
   const { t } = useI18n();
   const { role, loading: roleLoading } = useCurrentRole();
-  if (!roleLoading && role === "comercial_zona") {
-    return <Navigate to="/comercial" replace />;
-  }
-
   // Una sola tanda paralela de TODAS las queries del dashboard, cacheada vía react-query.
   // staleTime hereda del QueryClient global (1 min) → volver al dashboard es instantáneo.
   const { data } = useQuery({
@@ -175,6 +171,10 @@ export default function Dashboard() {
     { stage: "Oferta",        count: 4,  prob: 75 },
     { stage: "Cierre",        count: 2,  prob: 90 },
   ];
+
+  if (!roleLoading && role === "comercial_zona") {
+    return <Navigate to="/comercial" replace />;
+  }
 
   return (
     <div className="space-y-8">
