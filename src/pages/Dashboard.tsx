@@ -172,6 +172,10 @@ export default function Dashboard() {
     { stage: "Cierre",        count: 2,  prob: 90 },
   ];
 
+  if (!roleLoading && role === "comercial_zona") {
+    return <Navigate to="/comercial" replace />;
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
