@@ -63,6 +63,7 @@ export const DEAL_PROPERTIES = [
   // distribución de usos (HubSpot custom)
   'metros_cuadrados__rango_',
   'viviendas__unidades_',
+  'viviendas__unidades___clonada_',
   'metros_cuadrados_viviendas',
   'comercio__unidades_',
   'metros_cuadrados_comercio',
