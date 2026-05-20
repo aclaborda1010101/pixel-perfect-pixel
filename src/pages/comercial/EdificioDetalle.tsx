@@ -213,6 +213,7 @@ export default function ComercialEdificioDetalle() {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <CatastroItem icon={Ruler} label="m² totales" value={s.m2_total ? Number(s.m2_total).toLocaleString() : "—"} />
+              <CatastroItem icon={Ruler} label="m² viviendas" value={s.m2_viviendas != null ? Number(s.m2_viviendas).toLocaleString() : "—"} />
               <CatastroItem icon={Ruler} label="m² (rango)" value={s.m2_rango ?? "—"} />
               <CatastroItem icon={Home} label="Nº viviendas" value={s.num_viviendas ?? "—"} />
               <CatastroItem icon={Layers} label="Ratio m²/vivienda" value={ratio != null ? `${ratio.toFixed(1)} m²` : "—"} />
