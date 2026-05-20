@@ -58,6 +58,8 @@ export const DEAL_PROPERTIES = [
   'tipo_de_oportunidad__clonada_',
   'valoracion_viviendas',
   'valoracion_locales',
+  'valoracion_viviendas___clonada_',
+  'metros_cuadrados__exactos____clonada_',
   'precio_del_vendedor__exacto___clonada_',
   'precio_del_vendedor__rango___clonada_',
   // distribución de usos (HubSpot custom)
@@ -70,6 +72,7 @@ export const DEAL_PROPERTIES = [
   'metros_cuadrados_comercio',
   'oficina__unidades_',
   'metros_cuadrado_oficina',
+  'metros_cuadrados_oficina',
   'almacen__unidades_',
   'metros_cuadrados_almacen',
   'aparcamiento__unidades_',

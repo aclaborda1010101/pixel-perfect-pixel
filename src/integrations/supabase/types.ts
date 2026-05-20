@@ -2216,6 +2216,7 @@ export type Database = {
           m2_oficina: number | null
           m2_rango: string | null
           m2_total: number | null
+          m2_totales_exactos: number | null
           m2_viviendas: number | null
           num_viviendas: number | null
           ocio_hostel_unidades: number | null
