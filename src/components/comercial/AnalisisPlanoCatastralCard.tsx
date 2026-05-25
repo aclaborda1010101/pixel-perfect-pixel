@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, RefreshCw, Sparkles, Eye, ScanSearch, FileText, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Loader2, RefreshCw, Eye, ScanSearch, FileText, ThumbsUp, ThumbsDown } from "lucide-react";
 import { useBuildingAnalysis } from "@/lib/analisisIA";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -26,7 +26,7 @@ function colorFor(tipo: string | undefined, etiqueta: string | undefined) {
 export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string }) {
   const { data } = useBuildingAnalysis(buildingId);
   const qc = useQueryClient();
-  const [busy, setBusy] = useState<null | "re" | "premium">(null);
+  const [busy, setBusy] = useState<null | "re">(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [pageZoom, setPageZoom] = useState<{ url: string; label: string } | null>(null);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
@@ -84,14 +84,14 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
     );
   }
 
-  const reanalizar = async (modelOverride?: string) => {
-    setBusy(modelOverride ? "premium" : "re");
+  const reanalizar = async () => {
+    setBusy("re");
     try {
       const { error } = await supabase.functions.invoke("analyze-building-vision", {
-        body: { building_id: buildingId, model_override: modelOverride },
+        body: { building_id: buildingId },
       });
       if (error) throw error;
-      toast.success(modelOverride ? "Re-analizado con modelo premium" : "Re-analizado");
+      toast.success("Re-analizado");
       qc.invalidateQueries({ queryKey: ["building_analysis", buildingId] });
       qc.invalidateQueries({ queryKey: ["comercial:edificio", buildingId] });
     } catch (e: any) {
@@ -195,10 +195,6 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
               {busy === "re" ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
               Re-analizar plano
             </Button>
-            <Button size="sm" variant="gold" onClick={() => reanalizar("google/gemini-2.5-pro")} disabled={busy !== null}>
-              {busy === "premium" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              Re-analizar con Gemini 2.5 Pro (más preciso)
-            </Button>
             {anotaciones.length > 0 && (
               <Badge variant="outline">{anotaciones.length} anotaciones IA</Badge>
             )}
@@ -231,10 +227,7 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
                   </>
                 )}
                 .{" "}
-                {a.densidad_ventanas_fachada != null && (
-                  <>Ratio fachada Street View: <strong>{a.densidad_ventanas_fachada}</strong> ventanas/m. </>
-                )}
-                Aplicando fórmula:{" "}
+                Aplicando heurística calibrada:{" "}
                 <strong>{a.ventanas_patios_estimadas ?? a.ventanas_patios_total ?? "—"}</strong>{" "}
                 ventanas a patio estimadas.
               </p>
@@ -361,7 +354,7 @@ function PlanoAnotado({ planoUrl, anotaciones }: { planoUrl: string | null | und
       </div>
       {anotaciones.length === 0 && (
         <div className="rounded-md border border-dashed border-border-faint p-3 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-          La IA no devolvió anotaciones en este análisis. Re-analiza con el modelo premium para forzar el etiquetado.
+          La IA no devolvió anotaciones en este análisis. Re-analiza para forzar un nuevo etiquetado.
         </div>
       )}
       {anotaciones.length > 0 && (

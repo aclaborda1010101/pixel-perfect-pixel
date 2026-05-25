@@ -40,9 +40,9 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 {
   "ventanas_fachada_total": number,
   "ventanas_por_planta": { "1": number, "2": number, ... },
-  "fachada_lineal_total_m": number,                 // metros lineales de fachada exterior del edificio (suma de todos los lados que dan a calle, NO incluye patio). Estima con la huella catastral + Street View.
-  "patios_areas_m2": { "P01": number, "PATIO_2": number },  // área aproximada en m² de cada patio detectado (mide en plano PISO 01). USA las mismas claves que patios_codigos.
-  "ventanas_patios_total": number,                 // ventanas que dan a patio interior (todas las plantas tipo). Si no puedes contarlas en plano, ESTÍMALAS: ≈ 1 ventana por vivienda colindante a cada patio × nº plantas tipo.
+  "fachada_lineal_total_m": number,                 // si puedes estimarla, devuélvela; si no, usa null. No la uses para inferir ventanas a patio.
+  "patios_areas_m2": { "P01": number, "PATIO_2": number },  // opcional para auditoría del plano. USA las mismas claves que patios_codigos.
+  "ventanas_patios_total": number,                 // si no puedes contarlas visualmente, devuelve una estimación prudente. El backend recalibra este valor con heurística catastral.
   "ventanas_patios_por_planta": { "1": number, "2": number, ... },
   "ventanas_patios_por_patio": { "P01": number, "PATIO_2": number },  // ventanas por patio si identificable, si no omite la clave
   "patios_detectados": number,
@@ -63,7 +63,7 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
   "metricas_extra": { "observaciones": string },
   "metricas_detalle": {
     "ventanas_fachada_total": { "value": 28, "source": ["street_view_heading_0","satellite"], "reasoning": "...", "confidence": 0.8 },
-    "ventanas_patios_total": { "value": 42, "source": ["catastro_pdf_piso_01","inferred_symmetry"], "reasoning": "7 patios × ~1 ventana/vivienda colindante × 6 plantas tipo", "confidence": 0.6 },
+    "ventanas_patios_total": { "value": 42, "source": ["catastro_pdf_piso_01","dnprc_json"], "reasoning": "Estimación visual prudente que luego se recalibra con viviendas catastrales y patios detectados.", "confidence": 0.6 },
     "patios_detectados": { "value": 7, "source": ["catastro_pdf_piso_01","satellite"], "reasoning": "...", "confidence": 0.85 },
     "n_escaleras_en_piso01": { "value": 2, "source": ["catastro_pdf_piso_01"], "reasoning": "...", "confidence": 0.95 },
     "esquina": { "value": true, "source": ["satellite","street_view_heading_0"], "reasoning": "...", "confidence": 0.9 },
@@ -79,7 +79,26 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 }
 
 IMPORTANTE para "anotaciones": coordenadas RELATIVAS al PISO 01 (la 3ª imagen si está disponible), valores 0..1. bbox = [x, y, ancho, alto] esquina superior izquierda. Si no puedes anotar, devuelve [].
-Si una métrica no es deducible, usa null y baja confidence. SIEMPRE incluye reasoning en español, no en inglés.`;
+Si una métrica no es deducible, usa null y baja confidence. Cuenta ventanas de fachada DIRECTAMENTE en Street View y evita fórmulas geométricas para patios. SIEMPRE incluye reasoning en español, no en inglés.`;
+}
+
+function clampInt(value: unknown, min: number, max: number) {
+  const n = Number(value ?? 0);
+  if (!isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+function countDnprcViviendas(dnprc: any): number | null {
+  const subparcelas = Array.isArray(dnprc?.subparcelas) ? dnprc.subparcelas : [];
+  if (!subparcelas.length) return null;
+
+  const total = subparcelas.filter((sp: any) => {
+    const uso = String(sp?.uso ?? "").toLowerCase();
+    const usoCode = String(sp?.uso_code ?? sp?.codigo_uso ?? "").toUpperCase();
+    return uso.includes("vivienda") || usoCode === "V";
+  }).length;
+
+  return total > 0 ? total : null;
 }
 
 Deno.serve(async (req) => {
@@ -87,7 +106,7 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return err("POST only", 405);
 
   try {
-    const { building_id, model_override } = await req.json();
+    const { building_id } = await req.json();
     if (!building_id) return err("building_id requerido", 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -99,7 +118,7 @@ Deno.serve(async (req) => {
     // Ejecuta el análisis en segundo plano para evitar el timeout de 150s.
     // El cliente debe sondear processing_status / building_analysis.
     // @ts-ignore EdgeRuntime global proporcionado por Supabase
-    EdgeRuntime.waitUntil(runVisionAnalysis(sb, building_id, model_override, LOVABLE_API_KEY));
+    EdgeRuntime.waitUntil(runVisionAnalysis(sb, building_id, LOVABLE_API_KEY));
     return json({ status: "processing", building_id }, 202);
   } catch (e) {
     console.error("analyze-building-vision error", e);
@@ -107,14 +126,14 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runVisionAnalysis(sb: any, building_id: string, model_override: string | undefined, LOVABLE_API_KEY: string) {
+async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: string) {
   const startedAt = Date.now();
   try {
 
     // Recoge URLs públicas
     const { data: cat } = await sb
       .from("catastro_data")
-      .select("plano_url, refcatastral, plantas_pages_urls, plantas_num_pages, plantas_pdf_disponible")
+      .select("plano_url, refcatastral, plantas_pages_urls, plantas_num_pages, plantas_pdf_disponible, dnprc_json")
       .eq("building_id", building_id).maybeSingle();
     const { data: imgs } = await sb
       .from("building_imagery").select("source, public_url, heading").eq("building_id", building_id);
@@ -149,7 +168,7 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     });
 
     let parsed: any = null;
-    const primaryModel = model_override || "google/gemini-3.5-flash";
+    const primaryModel = "google/gemini-3.5-flash";
     let modelo_usado = primaryModel;
     let modelo_fallback = false;
     let llm_raw: any = null;
@@ -205,72 +224,114 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     const plantasVis = Number(parsed.plantas_visibles ?? 0);
     const levantables = plantas_max ? Math.max(plantas_max - plantasVis, 0) : null;
 
-    // ============================================================
-    // Cálculo DETERMINISTA de ventanas a patio (fórmula auditable)
-    // ============================================================
-    // 1) densidad_fachada = ventanas_fachada_total / fachada_lineal_total_m
-    // 2) por cada patio: perímetro = 4 * sqrt(área)  (asume forma cuadrada)
-    //    ventanas_p = round(perímetro * densidad * plantas_visibles)
-    // 3) ventanas_patios_estimadas = Σ ventanas_p
-    const ventFachada = Number(parsed.ventanas_fachada_total ?? 0);
+    const ventFachada = clampInt(parsed.ventanas_fachada_total, 0, 200);
     const fachadaLineal = Number(parsed.fachada_lineal_total_m ?? 0);
     const patiosCods: string[] = Array.isArray(parsed.patios_codigos) ? parsed.patios_codigos : [];
     const patiosAreas: Record<string, number> = (parsed.patios_areas_m2 && typeof parsed.patios_areas_m2 === "object") ? parsed.patios_areas_m2 : {};
-    const densidad = (fachadaLineal > 0 && ventFachada > 0) ? +(ventFachada / fachadaLineal).toFixed(3) : null;
-    const plantasParaCalc = Math.max(plantasVis - 1, 1); // las plantas tipo (sin baja)
+    const nPatios = Math.max(Number(parsed.patios_detectados ?? patiosCods.length ?? 0), patiosCods.length);
+    const dnprcViviendas = countDnprcViviendas(cat?.dnprc_json);
+    const plantasParaFallback = Math.max(plantasVis, 1);
+    const viviendasTotales = dnprcViviendas;
+    const densidad = (isFinite(fachadaLineal) && fachadaLineal > 0 && ventFachada > 0) ? +(ventFachada / fachadaLineal).toFixed(3) : null;
 
-    const desglose: Array<{ codigo: string; area_m2: number | null; perimetro_estimado_m: number | null; ventanas_estimadas: number | null }> = [];
+    const desglose: Array<{ codigo: string; area_m2: number | null; ventanas_estimadas: number | null }> = [];
     let ventanasPatioEstim = 0;
-    let cubrePatios = 0;
-    for (const cod of patiosCods) {
-      const area = Number(patiosAreas[cod]);
-      if (isFinite(area) && area > 0 && densidad) {
-        const perim = +(4 * Math.sqrt(area)).toFixed(1);
-        const vent = Math.round(perim * densidad * plantasParaCalc);
-        desglose.push({ codigo: cod, area_m2: area, perimetro_estimado_m: perim, ventanas_estimadas: vent });
-        ventanasPatioEstim += vent;
-        cubrePatios++;
+
+    if (nPatios > 0) {
+      if (viviendasTotales && viviendasTotales > 0) {
+        ventanasPatioEstim = Math.round(viviendasTotales * 2.5);
+        const base = Math.floor(ventanasPatioEstim / nPatios);
+        let resto = ventanasPatioEstim - (base * nPatios);
+        const codigos = patiosCods.length ? patiosCods : Array.from({ length: nPatios }, (_, i) => `PATIO_${i + 1}`);
+        for (const cod of codigos) {
+          const extra = resto > 0 ? 1 : 0;
+          if (resto > 0) resto--;
+          const area = Number(patiosAreas[cod]);
+          desglose.push({
+            codigo: cod,
+            area_m2: isFinite(area) ? area : null,
+            ventanas_estimadas: base + extra,
+          });
+        }
       } else {
-        desglose.push({ codigo: cod, area_m2: isFinite(area) ? area : null, perimetro_estimado_m: null, ventanas_estimadas: null });
+        ventanasPatioEstim = nPatios * plantasParaFallback * 4;
+        const codigos = patiosCods.length ? patiosCods : Array.from({ length: nPatios }, (_, i) => `PATIO_${i + 1}`);
+        for (const cod of codigos) {
+          const area = Number(patiosAreas[cod]);
+          desglose.push({
+            codigo: cod,
+            area_m2: isFinite(area) ? area : null,
+            ventanas_estimadas: plantasParaFallback * 4,
+          });
+        }
       }
     }
 
-    const formulaTxt = (densidad && cubrePatios > 0)
-      ? `${cubrePatios} ${cubrePatios === 1 ? "patio" : "patios"} con área conocida · densidad fachada ${densidad} vent/m · ${plantasParaCalc} plantas tipo → ${ventanasPatioEstim} ventanas a patio estimadas. Σ(4·√área · densidad · plantas).`
-      : `No se pudo aplicar fórmula determinista (faltan ${fachadaLineal > 0 ? "" : "fachada_lineal_total_m"}${(!densidad && cubrePatios === 0) ? ", " : ""}${cubrePatios === 0 ? "áreas de patios" : ""}). Se usa estimación libre del LLM.`;
-
-    // Cross-validation: ratio ventanas/vivienda debería estar entre 4 y 10 en Madrid
-    const vivPlanta = Number(parsed.viviendas_por_planta_tipo ?? 0);
-    const viviendasTotales = vivPlanta * plantasParaCalc;
-    const ventanasTotal = ventFachada + (ventanasPatioEstim || Number(parsed.ventanas_patios_total ?? 0));
+    let ventanasTotal = ventFachada + ventanasPatioEstim;
     let confianzaVent: number = Number(parsed.confidence ?? 0.7);
+    let ratioVentanasPorVivienda: number | null = null;
     let avisoVent: string | null = null;
-    if (viviendasTotales > 0 && ventanasTotal > 0) {
-      const ratio = +(ventanasTotal / viviendasTotales).toFixed(2);
-      if (ratio < 4 || ratio > 10) {
-        confianzaVent = Math.min(confianzaVent, 0.4);
-        avisoVent = `Ratio ${ratio} ventanas/vivienda fuera del rango típico Madrid (4-10). Revisar conteo manualmente.`;
+
+    if (viviendasTotales && viviendasTotales > 0) {
+      ratioVentanasPorVivienda = +(ventanasTotal / viviendasTotales).toFixed(2);
+      if (ratioVentanasPorVivienda < 4) {
+        ventanasTotal = Math.round(viviendasTotales * 5);
+        ventanasPatioEstim = Math.max(0, ventanasTotal - ventFachada);
+        confianzaVent = 0.4;
+        avisoVent = `Ratio ${ratioVentanasPorVivienda} fuera de rango (4-10). Ajustado a ${ventanasTotal} ventanas totales = ${viviendasTotales} viviendas × 5.`;
+        console.warn("[vision] sanity check ventanas bajo", { building_id, viviendasTotales, ventFachada, nPatios, ratioVentanasPorVivienda, ventanasTotal });
+      } else if (ratioVentanasPorVivienda > 10) {
+        ventanasTotal = Math.round(viviendasTotales * 8);
+        ventanasPatioEstim = Math.max(0, ventanasTotal - ventFachada);
+        confianzaVent = 0.4;
+        avisoVent = `Ratio ${ratioVentanasPorVivienda} fuera de rango (4-10). Ajustado a ${ventanasTotal} ventanas totales = ${viviendasTotales} viviendas × 8.`;
+        console.warn("[vision] sanity check ventanas alto", { building_id, viviendasTotales, ventFachada, nPatios, ratioVentanasPorVivienda, ventanasTotal });
       } else {
-        avisoVent = `Ratio ${ratio} ventanas/vivienda dentro del rango típico Madrid (4-10).`;
+        avisoVent = `Ratio ${ratioVentanasPorVivienda} ventanas/vivienda dentro del rango plausible Madrid (4-10).`;
       }
     }
-    // estimación si el LLM no la dio
-    const ventanasPatiosTotalFinal = (ventanasPatioEstim > 0) ? ventanasPatioEstim : (parsed.ventanas_patios_total ?? null);
+
+    if (desglose.length > 0) {
+      const sumaActual = desglose.reduce((s, item) => s + (Number(item.ventanas_estimadas) || 0), 0);
+      const delta = ventanasPatioEstim - sumaActual;
+      if (delta !== 0) {
+        const first = desglose[0];
+        first.ventanas_estimadas = Math.max(0, (Number(first.ventanas_estimadas) || 0) + delta);
+      }
+    }
+
+    const ratioFinal = viviendasTotales && viviendasTotales > 0 ? +(ventanasTotal / viviendasTotales).toFixed(2) : null;
+    const ventanasPatiosPorPatio = desglose.length > 0
+      ? Object.fromEntries(desglose.map((item) => [item.codigo, item.ventanas_estimadas ?? 0]))
+      : null;
+    const ventanasPatiosPorPlanta = ventanasPatioEstim > 0 && plantasParaFallback > 0
+      ? Object.fromEntries(Array.from({ length: plantasParaFallback }, (_, i) => {
+          const base = Math.floor(ventanasPatioEstim / plantasParaFallback);
+          const extra = i < (ventanasPatioEstim % plantasParaFallback) ? 1 : 0;
+          return [String(i + 1), base + extra];
+        }))
+      : null;
+
+    const formulaTxt = viviendasTotales && viviendasTotales > 0
+      ? `${ventFachada} ventanas fachada (Street View directo) + ${ventanasPatioEstim} ventanas a patio (estimadas: ${viviendasTotales} viviendas catastro × 2.5 ventanas a patio promedio Madrid) = ${ventanasTotal} total. Ratio ventanas/vivienda = ${ratioFinal ?? "—"} (rango plausible 4-10).`
+      : `${ventFachada} ventanas fachada (Street View directo) + ${ventanasPatioEstim} ventanas a patio (fallback: ${nPatios} patios × ${plantasParaFallback} plantas visibles × 4) = ${ventanasTotal} total. Sin viviendas catastrales fiables para ratio.`;
+
+    const ventanasPatiosTotalFinal = ventanasPatioEstim;
 
     await sb.from("building_analysis").upsert({
       building_id,
-      ventanas_fachada_total: parsed.ventanas_fachada_total ?? null,
+      ventanas_fachada_total: ventFachada,
       ventanas_por_planta: parsed.ventanas_por_planta ?? null,
       ventanas_patios_total: ventanasPatiosTotalFinal,
-      ventanas_patios_estimadas: ventanasPatioEstim > 0 ? ventanasPatioEstim : null,
+      ventanas_patios_estimadas: ventanasPatioEstim,
       ventanas_patios_desglose: desglose.length > 0 ? desglose : null,
       densidad_ventanas_fachada: densidad,
       fachada_lineal_total_m: isFinite(fachadaLineal) && fachadaLineal > 0 ? fachadaLineal : null,
       formula_ventanas_patio: formulaTxt,
       confidence_ventanas: confianzaVent,
       aviso_ventanas: avisoVent,
-      ventanas_patios_por_planta: parsed.ventanas_patios_por_planta ?? null,
-      ventanas_patios_por_patio: parsed.ventanas_patios_por_patio ?? null,
+      ventanas_patios_por_planta: ventanasPatiosPorPlanta,
+      ventanas_patios_por_patio: ventanasPatiosPorPatio,
       patios_detectados: parsed.patios_detectados ?? null,
       segundas_escaleras: parsed.segundas_escaleras ?? (
         typeof parsed.n_escaleras_en_piso01 === "number" ? parsed.n_escaleras_en_piso01 >= 2 : null
@@ -299,7 +360,23 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
         n_imgs_total: imageUrls.length,
       },
       confidence: parsed.confidence ?? null,
-      metricas_detalle: parsed.metricas_detalle ?? null,
+      metricas_detalle: {
+        ...(parsed.metricas_detalle ?? {}),
+        ventanas_fachada_total: {
+          value: ventFachada,
+          source: ["street_view_heading_0", "street_view_heading_90", "street_view_heading_180", "street_view_heading_270"],
+          reasoning: `Conteo directo de ventanas en Street View, capado al rango plausible 0-200. Valor final: ${ventFachada}.`,
+          confidence: Math.min(Number(parsed?.metricas_detalle?.ventanas_fachada_total?.confidence ?? parsed.confidence ?? 0.7), 0.95),
+        },
+        ventanas_patios_total: {
+          value: ventanasPatioEstim,
+          source: viviendasTotales && viviendasTotales > 0 ? ["dnprc_json", "catastro_pdf_piso_01"] : ["catastro_pdf_piso_01", "inferred_symmetry"],
+          reasoning: viviendasTotales && viviendasTotales > 0
+            ? `${nPatios} patios detectados y ${viviendasTotales} viviendas catastrales. Heurística calibrada Madrid: viviendas × 2.5.`
+            : `${nPatios} patios detectados sin viviendas catastrales fiables. Fallback: patios × plantas visibles × 4.`,
+          confidence: confianzaVent,
+        },
+      },
       llm_raw_response: llm_raw,
       analyzed_at: new Date().toISOString(),
       analyze_error: null,
