@@ -1,11 +1,18 @@
 // Edge function: fetch-fxcc-pdf
-// Descarga el PDF FXCC (Ficha de Distribución por Plantas) del Catastro
-// usando sesión cookies + descubrimiento de enlaces. Si lo obtiene, lo
-// almacena en storage `catastro` como `<refcat>_plantas.pdf` y rasteriza
-// las páginas a PNG (`<refcat>_plantas_p{n}.png`).
 //
-// Si no consigue el FXCC real, marca plantas_pdf_disponible=false pero NO
-// borra los datos existentes (el usuario puede subirlo manualmente).
+// El "FXCC" del Catastro es un visor 3D (Three.js) — NO existe endpoint
+// público de descarga del PDF de plantas. Lo único descargable es el PDF
+// genérico "Croquis y Datos" (SECImprimirCroquisYDatos.aspx) que SÍ incluye
+// las plantas cuando el edificio tiene división horizontal con múltiples
+// inmuebles (la PDF suele tener 5-15 páginas en ese caso).
+//
+// Esta función:
+//   1. Resuelve el refcatastral COMPLETO (20 chars: rc14 + 0001XX) si solo
+//      tenemos el de 14, usando OVCListaBienes.aspx.
+//   2. Extrae del/mun (provincia/municipio) del HTML.
+//   3. Descarga el PDF SECImprimirCroquisYDatos con sesión cookies.
+//   4. Lo acepta solo si tiene >=4 páginas (heurística "tiene plantas").
+//   5. Rasteriza a PNG y guarda en storage.
 
 import { corsHeaders, err, getServiceClient, json, sleep } from "../_shared/scoring_v2_common.ts";
 
@@ -20,21 +27,7 @@ async function getMupdf() {
 const SEDE = "https://www1.sedecatastro.gob.es";
 const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
 
-// Endpoints candidatos para el FXCC (Ficha plantas) — se prueban en orden con
-// la sesión activa. Catastro cambia los nombres con el tiempo así que probamos
-// varios. El primero que devuelva un PDF >40KB con magic %PDF se acepta.
-const FXCC_CANDIDATES = (refcat: string) => [
-  `${SEDE}/Cartografia/GeneradorPlanos.aspx?refcat=${refcat}&tipoPlano=plantas`,
-  `${SEDE}/Cartografia/GeneradorPlantasInmueble.aspx?refcat=${refcat}`,
-  `${SEDE}/Cartografia/PlanoEdificio.aspx?refcat=${refcat}`,
-  `${SEDE}/CYCBienInmueble/OVCFXCC.aspx?RefC=${refcat}`,
-  `${SEDE}/CYCBienInmueble/SECImprimirDistribucionPlantas.aspx?refcat=${refcat}`,
-  `${SEDE}/CYCBienInmueble/OVCDescargaFXCC.aspx?RefC=${refcat}`,
-  `${SEDE}/Cartografia/BuscarParcelaInternet.aspx?refcat=${refcat}&tipo=FXCC`,
-];
-
-// Cookies simples (sin parser completo): guardamos las cookies emitidas y las
-// adjuntamos en peticiones siguientes.
+// Cookies simples
 class CookieJar {
   jar = new Map<string, string>();
   addFromResponse(res: Response) {
@@ -54,80 +47,60 @@ function isPdf(buf: Uint8Array): boolean {
   return buf.length > 1000 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46;
 }
 
-// Heurística: el PDF "genérico" (SECImprimirCroquisYDatos) suele pesar 100-200KB
-// y tener 2-3 páginas. El FXCC real con plantas tiene 4+ páginas y >300KB.
-// Confiamos en el contenido cuando viene de un endpoint *específicamente* de plantas.
-function looksLikePlantasPdf(buf: Uint8Array, urlHint: string): boolean {
-  if (!isPdf(buf)) return false;
-  if (/plantas|FXCC|distribuc|PlanoEdif|PlantasInmueble/i.test(urlHint)) return true;
-  // Si es un endpoint genérico, exigimos >300KB
-  return buf.length > 300_000;
-}
-
-async function fetchWithSession(url: string, jar: CookieJar, accept = "application/pdf,text/html,*/*"): Promise<Response> {
+async function fetchWithSession(url: string, jar: CookieJar, accept = "application/pdf,text/html,*/*", referer?: string): Promise<Response> {
   return await fetch(url, {
     headers: {
       "User-Agent": UA,
       "Accept": accept,
       "Accept-Language": "es-ES,es;q=0.9",
       "Cookie": jar.header(),
-      "Referer": `${SEDE}/CYCBienInmueble/OVCConCiud.aspx`,
+      "Referer": referer ?? `${SEDE}/CYCBienInmueble/OVCListaBienes.aspx`,
     },
     redirect: "follow",
   });
 }
 
-async function tryFetchFxccPdf(refcat: string): Promise<{ buf: Uint8Array; url: string } | null> {
-  const jar = new CookieJar();
-
-  // 1. Establecer sesión visitando la página de consulta (genera ASP.NET_SessionId)
+// Resuelve refcatastral 20-char + del/mun + lista de cargos visitando OVCListaBienes
+async function resolveFullRefcat(rc14: string, jar: CookieJar): Promise<{
+  full_rc: string | null;
+  del: string | null;
+  mun: string | null;
+  all_cargos: string[];
+} | null> {
+  if (!/^[A-Z0-9]{14}$/i.test(rc14)) return null;
+  const rc1 = rc14.slice(0, 7);
+  const rc2 = rc14.slice(7);
   try {
-    const init = await fetch(`${SEDE}/CYCBienInmueble/OVCConCiud.aspx?UrbRus=U&RefC=${refcat}`, {
-      headers: { "User-Agent": UA, "Accept": "text/html" },
-    });
-    jar.addFromResponse(init);
-    await init.body?.cancel();
+    const url = `${SEDE}/CYCBienInmueble/OVCListaBienes.aspx?rc1=${rc1}&rc2=${rc2}`;
+    const r = await fetch(url, { headers: { "User-Agent": UA, "Accept": "text/html" } });
+    jar.addFromResponse(r);
+    const html = await r.text();
+    if (!html || html.length < 5000) return { full_rc: null, del: null, mun: null, all_cargos: [] };
+    // refs completas en hrefs
+    const refMatches = [...html.matchAll(/del=(\d+)&mun=(\d+)&refcat=([A-Z0-9]{20})/gi)];
+    const all = Array.from(new Set(refMatches.map((m) => m[3])));
+    const first = refMatches[0];
+    return {
+      full_rc: first?.[3] ?? null,
+      del: first?.[1] ?? null,
+      mun: first?.[2] ?? null,
+      all_cargos: all,
+    };
   } catch (e) {
-    console.warn("[fxcc] no se pudo establecer sesión", e);
+    console.warn("[fxcc] resolveFullRefcat fail", e);
+    return null;
   }
+}
 
-  // 2. Probar endpoints directos
-  for (const url of FXCC_CANDIDATES(refcat)) {
-    try {
-      const r = await fetchWithSession(url, jar);
-      jar.addFromResponse(r);
-      const ct = r.headers.get("content-type") ?? "";
-      if (!r.ok) { await r.body?.cancel(); continue; }
-      if (ct.toLowerCase().includes("pdf") || ct.includes("octet-stream")) {
-        const buf = new Uint8Array(await r.arrayBuffer());
-        if (looksLikePlantasPdf(buf, url)) {
-          console.log("[fxcc] PDF obtenido de", url, "size=", buf.length);
-          return { buf, url };
-        }
-      } else {
-        // Es HTML — buscar enlace al PDF FXCC
-        const html = await r.text();
-        const hrefMatches = [...html.matchAll(/href=["']([^"']+\.pdf[^"']*)["']/gi)].map((m) => m[1]);
-        for (const h of hrefMatches) {
-          const absUrl = h.startsWith("http") ? h : `${SEDE}${h.startsWith("/") ? h : "/" + h}`;
-          if (!/plantas|FXCC|distribuc|PlanoEdif/i.test(absUrl)) continue;
-          try {
-            const r2 = await fetchWithSession(absUrl, jar, "application/pdf");
-            if (!r2.ok) { await r2.body?.cancel(); continue; }
-            const buf = new Uint8Array(await r2.arrayBuffer());
-            if (looksLikePlantasPdf(buf, absUrl)) {
-              console.log("[fxcc] PDF obtenido tras descubrir enlace", absUrl, "size=", buf.length);
-              return { buf, url: absUrl };
-            }
-          } catch (_e) { /* ignore */ }
-        }
-      }
-      await sleep(150);
-    } catch (e) {
-      console.warn("[fxcc] error en candidato", url, e);
-    }
-  }
-  return null;
+async function downloadPdfWithSession(url: string, jar: CookieJar): Promise<Uint8Array | null> {
+  try {
+    const r = await fetchWithSession(url, jar, "application/pdf,*/*");
+    jar.addFromResponse(r);
+    if (!r.ok) { await r.body?.cancel(); return null; }
+    const buf = new Uint8Array(await r.arrayBuffer());
+    if (!isPdf(buf)) return null;
+    return buf;
+  } catch (_e) { return null; }
 }
 
 async function rasterizePdf(buf: Uint8Array, maxPages = 12, scale = 2): Promise<Uint8Array[]> {
@@ -164,22 +137,62 @@ Deno.serve(async (req) => {
     }
     if (!refcat) return json({ status: "no_refcatastral" }, 200);
 
-    // Si ya hay PDF disponible y no forzamos, salimos
+    const jar = new CookieJar();
+    const rc14 = refcat.slice(0, 14);
+
+    // 1. Resolver refcatastral COMPLETO (20 chars) + del/mun
+    const resolved = await resolveFullRefcat(rc14, jar);
+    if (!resolved || !resolved.full_rc) {
+      return json({ status: "not_found_in_catastro", rc14 });
+    }
+    const fullRc = resolved.full_rc;
+    const del = resolved.del!;
+    const mun = resolved.mun!;
+    console.log("[fxcc]", rc14, "→ full=", fullRc, "del=", del, "mun=", mun, "cargos=", resolved.all_cargos.length);
+
+    // Si el ref guardado en buildings es de 14 chars, actualizar al full
+    if (building_id) {
+      const { data: b0 } = await sb.from("buildings").select("refcatastral").eq("id", building_id).maybeSingle();
+      if ((b0 as any)?.refcatastral && (b0 as any).refcatastral.length < 20) {
+        await sb.from("buildings").update({ refcatastral: fullRc }).eq("id", building_id);
+      }
+      // Asegurar fila en catastro_data
+      await sb.from("catastro_data").upsert({
+        refcatastral: fullRc,
+        building_id,
+        fetched_at: new Date().toISOString(),
+      }, { onConflict: "refcatastral" });
+    }
+
+    // 2. Si ya hay PDF y no forzamos, salimos
     if (!force) {
-      const { data: cd } = await sb.from("catastro_data").select("plantas_pdf_disponible, plantas_num_pages").eq("refcatastral", refcat).maybeSingle();
-      if (cd && (cd as any).plantas_pdf_disponible && ((cd as any).plantas_num_pages ?? 0) > 0) {
-        return json({ status: "already_available", refcat, num_pages: (cd as any).plantas_num_pages });
+      const { data: cd } = await sb.from("catastro_data").select("plantas_pdf_disponible, plantas_num_pages").eq("refcatastral", fullRc).maybeSingle();
+      if (cd && (cd as any).plantas_pdf_disponible && ((cd as any).plantas_num_pages ?? 0) >= 4) {
+        return json({ status: "already_available", refcat: fullRc, num_pages: (cd as any).plantas_num_pages });
       }
     }
 
-    const found = await tryFetchFxccPdf(refcat);
-    if (!found) {
-      console.log("[fxcc] no se encontró PDF FXCC para", refcat);
-      return json({ status: "not_found", refcat });
+    // 3. Descargar SECImprimirCroquisYDatos con sesión (único PDF público con plantas)
+    const pdfUrl = `${SEDE}/CYCBienInmueble/SECImprimirCroquisYDatos.aspx?del=${del}&mun=${mun}&refcat=${fullRc}`;
+    const pdfBuf = await downloadPdfWithSession(pdfUrl, jar);
+    if (!pdfBuf) {
+      return json({ status: "pdf_fetch_failed", refcat: fullRc });
     }
 
+    // 4. Validar páginas — solo aceptamos si tiene >=4 (indica plantas reales)
+    const mupdf = await getMupdf();
+    const doc = mupdf.Document.openDocument(pdfBuf, "application/pdf");
+    const totalPages = doc.countPages();
+    doc.destroy();
+    console.log("[fxcc] PDF", fullRc, "páginas=", totalPages, "size=", pdfBuf.length);
+    if (totalPages < 4) {
+      // PDF "ligero" (parcela única, sin plantas detalladas). No lo tratamos como FXCC.
+      return json({ status: "pdf_too_short", refcat: fullRc, num_pages: totalPages });
+    }
+    const found = { buf: pdfBuf, url: pdfUrl };
+
     // Upload PDF + páginas
-    const pdfPath = `${refcat}_plantas.pdf`;
+    const pdfPath = `${fullRc}_plantas.pdf`;
     await sb.storage.from("catastro").upload(pdfPath, found.buf, { contentType: "application/pdf", upsert: true });
     const plantas_pdf_url = sb.storage.from("catastro").getPublicUrl(pdfPath).data.publicUrl;
 
@@ -189,7 +202,7 @@ Deno.serve(async (req) => {
       const pages = await rasterizePdf(found.buf, 12, 2);
       plantas_num_pages = pages.length;
       for (let i = 0; i < pages.length; i++) {
-        const pPath = `${refcat}_plantas_p${i + 1}.png`;
+        const pPath = `${fullRc}_plantas_p${i + 1}.png`;
         await sb.storage.from("catastro").upload(pPath, pages[i], { contentType: "image/png", upsert: true });
         plantas_pages_urls.push(sb.storage.from("catastro").getPublicUrl(pPath).data.publicUrl);
       }
@@ -204,11 +217,11 @@ Deno.serve(async (req) => {
       plantas_pdf_disponible: true,
       fetch_quality: "high",
       fetched_at: new Date().toISOString(),
-    }).eq("refcatastral", refcat);
+    }).eq("refcatastral", fullRc);
 
     return json({
       status: "ok",
-      refcat,
+      refcat: fullRc,
       source_url: found.url,
       num_pages: plantas_num_pages,
       pdf_url: plantas_pdf_url,
