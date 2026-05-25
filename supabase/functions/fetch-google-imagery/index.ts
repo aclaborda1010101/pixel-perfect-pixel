@@ -5,7 +5,14 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return err("POST only", 405);
 
   try {
-    const { building_id } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    if (body?.ping) {
+      const API_KEY = Deno.env.get("GOOGLE_MAPS_API_KEY");
+      if (!API_KEY) return json({ ok: false, reason: "no_key" });
+      const r = await fetch(`https://maps.googleapis.com/maps/api/staticmap?center=Madrid&zoom=14&size=64x64&key=${API_KEY}`);
+      return json({ ok: r.ok, status: r.status });
+    }
+    const { building_id } = body;
     if (!building_id) return err("building_id requerido", 400);
 
     const API_KEY = Deno.env.get("GOOGLE_MAPS_API_KEY");
