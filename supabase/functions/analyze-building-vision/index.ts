@@ -232,6 +232,7 @@ Deno.serve(async (req) => {
         n_imgs_total: imageUrls.length,
       },
       confidence: parsed.confidence ?? null,
+      metricas_detalle: parsed.metricas_detalle ?? null,
       llm_raw_response: llm_raw,
       analyzed_at: new Date().toISOString(),
       analyze_error: null,
@@ -245,7 +246,19 @@ Deno.serve(async (req) => {
         .eq("refcatastral", cat.refcatastral);
     }
 
-    // Score se recalcula automáticamente vía trigger
+    // Score se recalcula automáticamente vía trigger; lanzamos enhance-building-score (avisos con reasoning + summary)
+    try {
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/enhance-building-score`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ building_id }),
+      });
+    } catch (e) {
+      console.warn("enhance-building-score failed (non-fatal)", e);
+    }
     const { data: built } = await sb.from("buildings")
       .select("score").eq("id", building_id).maybeSingle();
 
