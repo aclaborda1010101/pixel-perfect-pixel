@@ -146,6 +146,12 @@ async function processCartera(jobId: string) {
     if (it.status === "error") continue;
     try {
       const { data: scoreVal } = await sb.rpc("compute_score", { p_building_id: it.building_id });
+      // Enhance: avisos con reasoning + summary narrativo
+      try {
+        await callFn("enhance-building-score", { building_id: it.building_id });
+      } catch (e) {
+        console.warn("enhance failed", e);
+      }
       it.status = "ok";
       it.score = scoreVal as any;
       scoreOk++;

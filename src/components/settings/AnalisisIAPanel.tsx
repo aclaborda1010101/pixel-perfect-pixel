@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Brain, Loader2, Play, Upload, KeyRound, Rocket } from "lucide-react";
+import { Brain, Loader2, Play, Upload, KeyRound, Rocket, Database, CheckCircle2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 export function AnalisisIAPanel() {
   const qc = useQueryClient();
@@ -16,7 +17,27 @@ export function AnalisisIAPanel() {
   const [validating, setValidating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [launchingMass, setLaunchingMass] = useState(false);
+  const [demoValidated, setDemoValidated] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Carga el flag de validación desde app_settings
+  useEffect(() => {
+    (async () => {
+      const { data } = await (supabase.from("app_settings" as any) as any)
+        .select("value").eq("key", "cartera_demo_validated").maybeSingle();
+      setDemoValidated(!!(data?.value?.validated));
+    })();
+  }, []);
+
+  const toggleValidated = async (v: boolean) => {
+    setDemoValidated(v);
+    await (supabase.from("app_settings" as any) as any).upsert({
+      key: "cartera_demo_validated",
+      value: { validated: v, validated_at: new Date().toISOString() },
+    });
+    toast.success(v ? "Cartera Demo marcada como validada" : "Validación retirada");
+  };
 
   const { data: jobs } = useQuery({
     queryKey: ["scoring_v2_jobs_recent"],
@@ -140,6 +161,26 @@ export function AnalisisIAPanel() {
     }
   };
 
+  const launchMassive = async () => {
+    setLaunchingMass(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("auto-process-pending-buildings", {
+        body: { limit: 200 },
+      });
+      if (error) throw error;
+      const jobId = (data as any)?.job_id;
+      if (!jobId) throw new Error("Sin job_id");
+      toast.success("Procesamiento masivo iniciado");
+      navigate(`/admin/jobs/${jobId}`);
+    } catch (e: any) {
+      toast.error("Lanzamiento masivo falló: " + (e?.message ?? String(e)));
+    } finally {
+      setLaunchingMass(false);
+    }
+  };
+
+  const pendingMass = Math.max(0, (stats?.total ?? 0) - (stats?.withAnalysis ?? 0) - 79);
+
   return (
     <Card className="md:col-span-2">
       <CardHeader>
@@ -171,6 +212,38 @@ export function AnalisisIAPanel() {
           </div>
           <Badge variant="gold" className="shrink-0">1 click</Badge>
         </button>
+
+        {/* Toggle validación + botón masivo secundario */}
+        <div className="flex flex-col gap-2 rounded-md border border-border-faint bg-surface-1/40 p-3">
+          <label className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className={`h-4 w-4 ${demoValidated ? "text-emerald-400" : "text-muted-foreground"}`} />
+              <span className="text-xs font-medium">Marcar Cartera Demo como validada</span>
+            </div>
+            <Switch checked={demoValidated} onCheckedChange={toggleValidated} />
+          </label>
+          <button
+            type="button"
+            disabled={!demoValidated || launchingMass}
+            onClick={launchMassive}
+            title={demoValidated ? "Procesar los pendientes del resto del CRM" : "Disponible tras validar los 79 de la Cartera Demo"}
+            className="group flex w-full items-center justify-between gap-3 rounded-md border border-border-faint bg-surface-1/60 px-3 py-2 text-left transition hover:border-blue-500/60 hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <div className="flex items-center gap-2">
+              {launchingMass ? (
+                <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+              ) : (
+                <Database className="h-4 w-4 text-blue-400" />
+              )}
+              <span className="text-xs font-medium text-foreground">
+                📊 Procesar resto de edificios ({pendingMass.toLocaleString("es")} pendientes)
+              </span>
+            </div>
+            <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+              {demoValidated ? "Listo" : "Bloqueado"}
+            </span>
+          </button>
+        </div>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Kpi label="Con Catastro" value={stats?.withCatastro ?? 0} />

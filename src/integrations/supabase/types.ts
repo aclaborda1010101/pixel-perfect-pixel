@@ -191,6 +191,7 @@ export type Database = {
           esquina: boolean | null
           id: string
           llm_raw_response: Json | null
+          metricas_detalle: Json | null
           metricas_extra: Json | null
           modelo_fallback: boolean | null
           modelo_usado: string | null
@@ -226,6 +227,7 @@ export type Database = {
           esquina?: boolean | null
           id?: string
           llm_raw_response?: Json | null
+          metricas_detalle?: Json | null
           metricas_extra?: Json | null
           modelo_fallback?: boolean | null
           modelo_usado?: string | null
@@ -261,6 +263,7 @@ export type Database = {
           esquina?: boolean | null
           id?: string
           llm_raw_response?: Json | null
+          metricas_detalle?: Json | null
           metricas_extra?: Json | null
           modelo_fallback?: boolean | null
           modelo_usado?: string | null
@@ -689,6 +692,7 @@ export type Database = {
           catastro_ref: string | null
           ciudad: string
           codigo_postal: string | null
+          confianza_media: number | null
           created_at: string
           direccion: string
           division_horizontal: boolean
@@ -701,6 +705,7 @@ export type Database = {
           refcatastral: string | null
           score: number | null
           score_breakdown: Json | null
+          score_summary: string | null
           score_updated_at: string | null
           updated_at: string
         }
@@ -710,6 +715,7 @@ export type Database = {
           catastro_ref?: string | null
           ciudad: string
           codigo_postal?: string | null
+          confianza_media?: number | null
           created_at?: string
           direccion: string
           division_horizontal?: boolean
@@ -722,6 +728,7 @@ export type Database = {
           refcatastral?: string | null
           score?: number | null
           score_breakdown?: Json | null
+          score_summary?: string | null
           score_updated_at?: string | null
           updated_at?: string
         }
@@ -731,6 +738,7 @@ export type Database = {
           catastro_ref?: string | null
           ciudad?: string
           codigo_postal?: string | null
+          confianza_media?: number | null
           created_at?: string
           direccion?: string
           division_horizontal?: boolean
@@ -743,6 +751,7 @@ export type Database = {
           refcatastral?: string | null
           score?: number | null
           score_breakdown?: Json | null
+          score_summary?: string | null
           score_updated_at?: string | null
           updated_at?: string
         }

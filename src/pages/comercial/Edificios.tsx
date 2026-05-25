@@ -45,6 +45,8 @@ import {
   buildingScoreFactors,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
+import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Row = {
   id: string;
@@ -61,6 +63,10 @@ type Row = {
   raw: any;
   assigned: boolean;
   cartera_demo: boolean;
+  avisos: Aviso[] | null;
+  score_summary: string | null;
+  confianza_media: number | null;
+  has_analysis: boolean;
 };
 
 type SortKey =
@@ -101,14 +107,29 @@ function BuildingCard({ r }: { r: Row }) {
                 <Badge
                   className="h-4 border-0 bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 text-[9px] text-white"
                 >
-                  DEMO 25/05
+                  Marcado manual
                 </Badge>
               )}
             </div>
             <h3 className="mt-1 truncate text-base font-medium text-foreground">{r.direccion}</h3>
           </div>
-          <ScorePill score={r.score} />
+          {r.score_summary ? (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help"><ScorePill score={r.score} /></div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <p className="text-xs leading-relaxed">{r.score_summary.split(".").slice(0, 2).join(".") + "."}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <ScorePill score={r.score} />
+          )}
         </div>
+
+        <BuildingChips avisos={r.avisos} hasAnalysis={r.has_analysis} max={4} />
 
         <div className="grid grid-cols-3 gap-2 rounded-md border border-border-faint bg-surface-1/40 p-2 text-center">
           <div>
@@ -207,8 +228,7 @@ export default function ComercialEdificios() {
           .eq("user_id", userId)
           .eq("status", "active"),
         (supabase.from("buildings" as any) as any)
-          .select("id")
-          .eq("cartera_demo_seed", true),
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed"),
         fetchPage(0),
       ]);
       let scores: any[] = firstPage.data ?? [];
@@ -222,10 +242,17 @@ export default function ComercialEdificios() {
         from += PAGE;
       }
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
-      const demoIds = new Set<string>((demoBldgs ?? []).map((b: any) => b.id));
+      const bldgsById = new Map<string, any>();
+      const demoIds = new Set<string>();
+      for (const b of demoBldgs ?? []) {
+        bldgsById.set(b.id, b);
+        if (b.cartera_demo_seed) demoIds.add(b.id);
+      }
       const rows: Row[] = (scores ?? []).map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
+        const extra = bldgsById.get(b.id) ?? {};
+        const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
         return {
           id: b.id,
           direccion: b.direccion,
@@ -241,6 +268,10 @@ export default function ComercialEdificios() {
           raw: b,
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
+          avisos,
+          score_summary: extra.score_summary ?? null,
+          confianza_media: extra.confianza_media ?? null,
+          has_analysis: !!b.has_ai_analysis,
         };
       });
       return { rows };
