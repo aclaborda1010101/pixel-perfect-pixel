@@ -1,28 +1,57 @@
 import { corsHeaders, err, getServiceClient, json, setProcessingStatus, sleep } from "../_shared/scoring_v2_common.ts";
 
-const PROMPT = `Eres un experto en análisis arquitectónico inmobiliario en Madrid.
-Recibes: (1) plano catastral del edificio (vista de planta), (2) foto satélite cenital, (3) foto satélite oblicua, (4) varias fotos de Street View de la fachada.
+function buildPrompt(numPlantasPages: number) {
+  return `Eres un experto en análisis arquitectónico inmobiliario en Madrid.
 
-Analiza y devuelve un OBJETO JSON con esta estructura EXACTA (sin texto fuera del JSON):
+Te paso las imágenes en este ORDEN (importante):
+- Página 1: vista general de la parcela (planta cenital con altura -I+V indicada y mini-foto de fachada).
+- Página 2: planta BAJA (accesos comunes, locales, portal).
+- Página 3: PISO 01 — primera planta real. AQUÍ se cuentan las cajas de escalera (códigos ESC) y los patios.
+- Páginas 4-${Math.max(4, numPlantasPages - 2)}: pisos tipo (PISO 02, 03, 04…).
+- Última página de plantas: SÓTANO (si existe; mira código AAL, garajes).
+- Después: 4 fotos de Street View de la fachada.
+- Después: foto satélite cenital y satélite oblicua.
+
+CONVENCIONES de etiquetas en el plano catastral (CLAVE):
+- ESC = caja de escaleras. En PISO 01 cuenta cuántas ESC distintas hay; si son 2 no comunicadas espacialmente → 2 escaleras (apto cambio uso hotelero según normativa Madrid). En planta baja la escalera suele comunicar accesos comunes y NO es indicador fiable.
+- VA, VB, VC, VD, ... = viviendas individuales por planta. El máximo de VX en un piso tipo × nº plantas tipo aproxima el total real de viviendas.
+- P01, P02, P03, P04 = patios interiores (presentes en todas las plantas).
+- TZ, TZAA, TZAB, TZ01, TZ02, TZ03 = terrazas / azoteas transitables (planta superior).
+- ACCES01, ACCES02 = accesos comunes (planta baja).
+- CCE = local comercial; GC = garaje (planta baja → terciario).
+- AAL = almacén / trastero (sótano).
+
+Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 {
   "ventanas_fachada_total": number,
   "ventanas_por_planta": { "1": number, "2": number, ... },
   "patios_detectados": number,
-  "segundas_escaleras": boolean,
+  "patios_codigos": ["P01","P02"],
+  "accesos_codigos": ["ACCES01"],
+  "n_escaleras_en_piso01": number,
+  "n_escaleras_en_planta_baja": number,
+  "segundas_escaleras": boolean,                  // true si n_escaleras_en_piso01 >= 2
+  "viviendas_por_planta_tipo": number,             // max(VA..VZ) en piso tipo
+  "n_locales_planta_baja": number,                 // CCE + GC en BAJA
+  "n_almacenes_sotano": number,                    // AAL en SÓTANO
+  "tiene_sotano": boolean,
+  "tiene_azotea_transitable": boolean,
   "esquina": boolean,
   "protegido_historicamente": boolean,
   "plantas_visibles": number,
   "ancho_calle_estimado_m": number,
   "metricas_extra": { "observaciones": string },
   "anotaciones": [
-    { "etiqueta": "patio_1", "tipo": "patio", "bbox": [x, y, w, h], "descripcion": "patio interior central" },
-    { "etiqueta": "escalera_1", "tipo": "escalera", "bbox": [x, y, w, h], "descripcion": "caja de escaleras norte" },
-    { "etiqueta": "fachada_principal", "tipo": "fachada", "bbox": [x, y, w, h], "descripcion": "fachada calle X, ~15 m" }
+    { "etiqueta": "ESC_1", "tipo": "escalera", "bbox": [x,y,w,h], "descripcion": "caja escaleras central en PISO 01" },
+    { "etiqueta": "P01", "tipo": "patio", "bbox": [x,y,w,h], "descripcion": "patio interior" },
+    { "etiqueta": "fachada_principal", "tipo": "fachada", "bbox": [x,y,w,h] }
   ],
   "confidence": number  // 0..1
 }
-IMPORTANTE para "anotaciones": coordenadas RELATIVAS al PLANO CATASTRAL (la PRIMERA imagen), valores 0..1. bbox = [x, y, ancho, alto] donde (x,y) es esquina superior izquierda. Marca cada patio, caja de escaleras y fachada visible. Si no puedes anotar, devuelve [].
-Si una métrica no es deducible, usa null en su campo y baja confidence.`;
+
+IMPORTANTE para "anotaciones": coordenadas RELATIVAS al PISO 01 (la 3ª imagen si está disponible), valores 0..1. bbox = [x, y, ancho, alto] esquina superior izquierda. Si no puedes anotar, devuelve [].
+Si una métrica no es deducible, usa null y baja confidence.`;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -41,19 +70,27 @@ Deno.serve(async (req) => {
 
     // Recoge URLs públicas
     const { data: cat } = await sb
-      .from("catastro_data").select("plano_url, refcatastral")
+      .from("catastro_data")
+      .select("plano_url, refcatastral, plantas_pages_urls, plantas_num_pages, plantas_pdf_disponible")
       .eq("building_id", building_id).maybeSingle();
     const { data: imgs } = await sb
       .from("building_imagery").select("source, public_url, heading").eq("building_id", building_id);
 
     const imageUrls: string[] = [];
-    if (cat?.plano_url) imageUrls.push(cat.plano_url); // SVG; el gateway/modelo puede no leerlo
+    // 1) Páginas del PDF de distribución por plantas (PISO 01 = página 3 idealmente)
+    const plantasPages: string[] = Array.isArray(cat?.plantas_pages_urls) ? cat!.plantas_pages_urls : [];
+    plantasPages.forEach((u) => imageUrls.push(u));
+    // 2) Fallback: si no hay PNGs de plantas, el croquis SVG
+    if (plantasPages.length === 0 && cat?.plano_url) imageUrls.push(cat.plano_url);
+    // 3) Street View + satélite
     (imgs ?? []).forEach((i: any) => imageUrls.push(i.public_url));
 
     if (imageUrls.length === 0) {
       await setProcessingStatus(building_id, "vision", "error", "sin imágenes para analizar");
       return err("No hay imágenes ni plano para analizar", 400);
     }
+
+    const PROMPT = buildPrompt(plantasPages.length || 1);
 
     // Construye payload OpenAI-compatible para Lovable AI Gateway
     const buildPayload = (model: string) => ({
@@ -152,7 +189,9 @@ Deno.serve(async (req) => {
       ventanas_fachada_total: parsed.ventanas_fachada_total ?? null,
       ventanas_por_planta: parsed.ventanas_por_planta ?? null,
       patios_detectados: parsed.patios_detectados ?? null,
-      segundas_escaleras: parsed.segundas_escaleras ?? null,
+      segundas_escaleras: parsed.segundas_escaleras ?? (
+        typeof parsed.n_escaleras_en_piso01 === "number" ? parsed.n_escaleras_en_piso01 >= 2 : null
+      ),
       esquina: parsed.esquina ?? null,
       protegido_historicamente: parsed.protegido_historicamente ?? null,
       plantas_visibles: plantasVis,
@@ -160,9 +199,22 @@ Deno.serve(async (req) => {
       plantas_levantables: levantables,
       metricas_extra: parsed.metricas_extra ?? null,
       anotaciones_plano: Array.isArray(parsed.anotaciones) ? parsed.anotaciones : null,
+      n_escaleras_en_piso01: parsed.n_escaleras_en_piso01 ?? null,
+      n_escaleras_en_planta_baja: parsed.n_escaleras_en_planta_baja ?? null,
+      viviendas_por_planta_tipo: parsed.viviendas_por_planta_tipo ?? null,
+      n_locales_planta_baja: parsed.n_locales_planta_baja ?? null,
+      n_almacenes_sotano: parsed.n_almacenes_sotano ?? null,
+      tiene_sotano: parsed.tiene_sotano ?? null,
+      tiene_azotea_transitable: parsed.tiene_azotea_transitable ?? null,
+      patios_codigos: Array.isArray(parsed.patios_codigos) ? parsed.patios_codigos : null,
+      accesos_codigos: Array.isArray(parsed.accesos_codigos) ? parsed.accesos_codigos : null,
       modelo_usado,
       modelo_fallback,
-      sources_used: { plano: !!cat?.plano_url, n_imgs: imageUrls.length },
+      sources_used: {
+        plano_svg: !!cat?.plano_url,
+        plantas_pdf_pages: plantasPages.length,
+        n_imgs_total: imageUrls.length,
+      },
       confidence: parsed.confidence ?? null,
       llm_raw_response: llm_raw,
       analyzed_at: new Date().toISOString(),
