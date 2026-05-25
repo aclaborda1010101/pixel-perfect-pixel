@@ -459,7 +459,27 @@ export default function ComercialEdificios() {
         eyebrow="Edificios"
         title="Cartera y catálogo"
         subtitle={`${mias.length} en tu cartera · ${rows.length} edificios totales`}
-      />
+      >
+        <div className="flex gap-2">
+          <Button
+            onClick={() => launchBatch(true)}
+            disabled={batchBusy || !userId}
+            variant="gold"
+            size="sm"
+          >
+            {batchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            Procesar pendientes ({mias.filter(m => !m.has_analysis).length})
+          </Button>
+          <Button
+            onClick={() => launchBatch(false)}
+            disabled={batchBusy || !userId}
+            variant="outline"
+            size="sm"
+          >
+            Reprocesar todos los {mias.length}
+          </Button>
+        </div>
+      </PageHeader>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
