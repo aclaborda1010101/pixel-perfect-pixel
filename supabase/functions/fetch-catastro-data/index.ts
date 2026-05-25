@@ -243,6 +243,7 @@ Deno.serve(async (req) => {
       fetch_quality: plantas_pdf_disponible ? 'high' : 'low',
       fetched_at: new Date().toISOString(),
       fetch_error: null,
+      metadatos: { plantas_pdf_source_url: pdfSourceUrl },
     }).eq("refcatastral", refcat);
 
     await setProcessingStatus(building_id, "catastro", "ok");
