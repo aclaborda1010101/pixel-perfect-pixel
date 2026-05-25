@@ -193,7 +193,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (pdfBuf) {
+    const isKnownGenericCatastroPdf = !!pdfSourceUrl && /SECImprimirCroquisYDatos|SECImprimirDatos/i.test(pdfSourceUrl);
+
+    if (pdfBuf && !isKnownGenericCatastroPdf) {
       try {
         const pdfPath = `${refcat}_plantas.pdf`;
         await sb.storage.from("catastro").upload(pdfPath, pdfBuf, {
@@ -223,6 +225,8 @@ Deno.serve(async (req) => {
       } catch (uErr) {
         console.warn("upload plantas PDF fail", uErr);
       }
+    } else if (isKnownGenericCatastroPdf) {
+      console.warn("se descarta PDF genérico de consulta descriptiva; no es distribución por plantas", { refcat, pdfSourceUrl });
     } else {
       console.warn("plantas PDF no disponible, usando solo SVG croquis");
     }
