@@ -185,10 +185,15 @@ export type Database = {
           analyze_error: string | null
           analyzed_at: string | null
           anotaciones_plano: Json | null
+          aviso_ventanas: string | null
           building_id: string
           confidence: number | null
+          confidence_ventanas: number | null
           created_at: string
+          densidad_ventanas_fachada: number | null
           esquina: boolean | null
+          fachada_lineal_total_m: number | null
+          formula_ventanas_patio: string | null
           id: string
           llm_raw_response: Json | null
           metricas_detalle: Json | null
@@ -212,6 +217,8 @@ export type Database = {
           tiene_sotano: boolean | null
           updated_at: string
           ventanas_fachada_total: number | null
+          ventanas_patios_desglose: Json | null
+          ventanas_patios_estimadas: number | null
           ventanas_patios_por_patio: Json | null
           ventanas_patios_por_planta: Json | null
           ventanas_patios_total: number | null
@@ -224,10 +231,15 @@ export type Database = {
           analyze_error?: string | null
           analyzed_at?: string | null
           anotaciones_plano?: Json | null
+          aviso_ventanas?: string | null
           building_id: string
           confidence?: number | null
+          confidence_ventanas?: number | null
           created_at?: string
+          densidad_ventanas_fachada?: number | null
           esquina?: boolean | null
+          fachada_lineal_total_m?: number | null
+          formula_ventanas_patio?: string | null
           id?: string
           llm_raw_response?: Json | null
           metricas_detalle?: Json | null
@@ -251,6 +263,8 @@ export type Database = {
           tiene_sotano?: boolean | null
           updated_at?: string
           ventanas_fachada_total?: number | null
+          ventanas_patios_desglose?: Json | null
+          ventanas_patios_estimadas?: number | null
           ventanas_patios_por_patio?: Json | null
           ventanas_patios_por_planta?: Json | null
           ventanas_patios_total?: number | null
@@ -263,10 +277,15 @@ export type Database = {
           analyze_error?: string | null
           analyzed_at?: string | null
           anotaciones_plano?: Json | null
+          aviso_ventanas?: string | null
           building_id?: string
           confidence?: number | null
+          confidence_ventanas?: number | null
           created_at?: string
+          densidad_ventanas_fachada?: number | null
           esquina?: boolean | null
+          fachada_lineal_total_m?: number | null
+          formula_ventanas_patio?: string | null
           id?: string
           llm_raw_response?: Json | null
           metricas_detalle?: Json | null
@@ -290,6 +309,8 @@ export type Database = {
           tiene_sotano?: boolean | null
           updated_at?: string
           ventanas_fachada_total?: number | null
+          ventanas_patios_desglose?: Json | null
+          ventanas_patios_estimadas?: number | null
           ventanas_patios_por_patio?: Json | null
           ventanas_patios_por_planta?: Json | null
           ventanas_patios_total?: number | null
@@ -2445,28 +2466,43 @@ export type Database = {
         Row: {
           aviso_key: string
           building_id: string
+          comentario: string | null
           created_at: string
           id: string
           notes: string | null
+          payload: Json
+          tipo: string | null
           user_email: string | null
+          user_id: string | null
+          valor: string | null
           vote: number
         }
         Insert: {
           aviso_key: string
           building_id: string
+          comentario?: string | null
           created_at?: string
           id?: string
           notes?: string | null
+          payload?: Json
+          tipo?: string | null
           user_email?: string | null
+          user_id?: string | null
+          valor?: string | null
           vote: number
         }
         Update: {
           aviso_key?: string
           building_id?: string
+          comentario?: string | null
           created_at?: string
           id?: string
           notes?: string | null
+          payload?: Json
+          tipo?: string | null
           user_email?: string | null
+          user_id?: string | null
+          valor?: string | null
           vote?: number
         }
         Relationships: [
