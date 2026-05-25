@@ -42,7 +42,18 @@ Deno.serve(async (req) => {
       // continúa al análisis aunque falle imagery — el plano puede ser suficiente
     }
 
-    // 3. Vision
+    // 3. FXCC (plantas) — best effort, no bloquea
+    try {
+      const r = await fetch(`${base}/fetch-fxcc-pdf`, {
+        method: "POST", headers: auth, body: JSON.stringify({ building_id, force }),
+      });
+      const j = await r.json();
+      steps.push({ name: "fxcc", res: j });
+    } catch (e) {
+      steps.push({ name: "fxcc", error: String((e as Error).message ?? e) });
+    }
+
+    // 4. Vision
     try {
       const r = await fetch(`${base}/analyze-building-vision`, {
         method: "POST", headers: auth, body: JSON.stringify({ building_id }),

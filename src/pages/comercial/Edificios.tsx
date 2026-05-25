@@ -26,6 +26,7 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { EmptyState } from "@/components/common/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 import {
   Building2,
   ArrowRight,
@@ -36,6 +37,9 @@ import {
   SlidersHorizontal,
   MapPin,
   X,
+  AppWindow,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import {
   ScorePill,
@@ -67,6 +71,7 @@ type Row = {
   score_summary: string | null;
   confianza_media: number | null;
   has_analysis: boolean;
+  ventanas_fachada_total?: number | null;
 };
 
 type SortKey =
@@ -131,7 +136,7 @@ function BuildingCard({ r }: { r: Row }) {
 
         <BuildingChips avisos={r.avisos} hasAnalysis={r.has_analysis} max={4} />
 
-        <div className="grid grid-cols-3 gap-2 rounded-md border border-border-faint bg-surface-1/40 p-2 text-center">
+        <div className="grid grid-cols-4 gap-2 rounded-md border border-border-faint bg-surface-1/40 p-2 text-center">
           <div>
             <Home className="mx-auto mb-0.5 h-3 w-3 text-muted-foreground" />
             <div className="font-mono text-sm tabular-nums text-foreground">
@@ -157,6 +162,18 @@ function BuildingCard({ r }: { r: Row }) {
             </div>
             <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
               m²/viv
+            </div>
+          </div>
+          <div>
+            <AppWindow className="mx-auto mb-0.5 h-3 w-3 text-muted-foreground" />
+            <div className={cn(
+              "font-mono text-sm tabular-nums",
+              r.ventanas_fachada_total ? "text-gold" : "text-muted-foreground"
+            )}>
+              {r.ventanas_fachada_total ?? "—"}
+            </div>
+            <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+              ventanas
             </div>
           </div>
         </div>
@@ -263,6 +280,24 @@ export default function ComercialEdificios() {
         bldgsById.set(b.id, b);
         if (b.cartera_demo_seed) demoIds.add(b.id);
       }
+
+      // Análisis IA: ventanas por edificio
+      const analysisMap = new Map<string, number>();
+      let aFrom = 0;
+      while (true) {
+        const { data: aPage } = await (supabase.from("building_analysis" as any) as any)
+          .select("building_id, ventanas_fachada_total")
+          .range(aFrom, aFrom + PAGE - 1);
+        const chunk = aPage ?? [];
+        for (const row of chunk) {
+          if (row.ventanas_fachada_total != null) {
+            analysisMap.set(row.building_id, row.ventanas_fachada_total);
+          }
+        }
+        if (chunk.length < PAGE) break;
+        aFrom += PAGE;
+      }
+
       const rows: Row[] = (scores ?? []).map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
@@ -287,6 +322,7 @@ export default function ComercialEdificios() {
           score_summary: extra.score_summary ?? null,
           confianza_media: extra.confianza_media ?? null,
           has_analysis: !!b.has_ai_analysis,
+          ventanas_fachada_total: analysisMap.get(b.id) ?? null,
         };
       });
       return { rows };
@@ -294,6 +330,29 @@ export default function ComercialEdificios() {
   });
 
   const rows = data?.rows ?? [];
+  const [batchBusy, setBatchBusy] = useState(false);
+
+  const launchBatch = async (onlyMissing: boolean) => {
+    if (!userId) return;
+    setBatchBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("batch-process-cartera", {
+        body: { user_id: userId, only_missing: onlyMissing, force: !onlyMissing },
+      });
+      if (error) throw error;
+      const d = data as any;
+      if (d?.status === "nothing_to_do") {
+        toast.info("Todos los edificios ya tienen análisis. Usa 'Reprocesar todos' para forzar.");
+      } else {
+        toast.success(`Procesando ${d?.total ?? "?"} edificios en segundo plano. Refresca en unos minutos.`);
+      }
+    } catch (e: any) {
+      toast.error("Error al lanzar batch: " + (e?.message ?? String(e)));
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
   // "Mi cartera" = asignados al user actual OR cartera_demo_seed=true
   const mias = useMemo(
     () => rows.filter((r) => r.assigned || r.cartera_demo),
@@ -400,6 +459,27 @@ export default function ComercialEdificios() {
         eyebrow="Edificios"
         title="Cartera y catálogo"
         subtitle={`${mias.length} en tu cartera · ${rows.length} edificios totales`}
+        actions={
+          <div className="flex gap-2">
+          <Button
+            onClick={() => launchBatch(true)}
+            disabled={batchBusy || !userId}
+            variant="gold"
+            size="sm"
+          >
+            {batchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            Procesar pendientes ({mias.filter(m => !m.has_analysis).length})
+          </Button>
+          <Button
+            onClick={() => launchBatch(false)}
+            disabled={batchBusy || !userId}
+            variant="outline"
+            size="sm"
+          >
+            Reprocesar todos los {mias.length}
+          </Button>
+          </div>
+        }
       />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="space-y-4">
