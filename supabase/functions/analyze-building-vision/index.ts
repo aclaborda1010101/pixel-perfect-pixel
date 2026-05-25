@@ -40,9 +40,9 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 {
   "ventanas_fachada_total": number,
   "ventanas_por_planta": { "1": number, "2": number, ... },
-  "fachada_lineal_total_m": number,                 // metros lineales de fachada exterior del edificio (suma de todos los lados que dan a calle, NO incluye patio). Estima con la huella catastral + Street View.
-  "patios_areas_m2": { "P01": number, "PATIO_2": number },  // área aproximada en m² de cada patio detectado (mide en plano PISO 01). USA las mismas claves que patios_codigos.
-  "ventanas_patios_total": number,                 // ventanas que dan a patio interior (todas las plantas tipo). Si no puedes contarlas en plano, ESTÍMALAS: ≈ 1 ventana por vivienda colindante a cada patio × nº plantas tipo.
+  "fachada_lineal_total_m": number,                 // si puedes estimarla, devuélvela; si no, usa null. No la uses para inferir ventanas a patio.
+  "patios_areas_m2": { "P01": number, "PATIO_2": number },  // opcional para auditoría del plano. USA las mismas claves que patios_codigos.
+  "ventanas_patios_total": number,                 // si no puedes contarlas visualmente, devuelve una estimación prudente. El backend recalibra este valor con heurística catastral.
   "ventanas_patios_por_planta": { "1": number, "2": number, ... },
   "ventanas_patios_por_patio": { "P01": number, "PATIO_2": number },  // ventanas por patio si identificable, si no omite la clave
   "patios_detectados": number,
@@ -63,7 +63,7 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
   "metricas_extra": { "observaciones": string },
   "metricas_detalle": {
     "ventanas_fachada_total": { "value": 28, "source": ["street_view_heading_0","satellite"], "reasoning": "...", "confidence": 0.8 },
-    "ventanas_patios_total": { "value": 42, "source": ["catastro_pdf_piso_01","inferred_symmetry"], "reasoning": "7 patios × ~1 ventana/vivienda colindante × 6 plantas tipo", "confidence": 0.6 },
+    "ventanas_patios_total": { "value": 42, "source": ["catastro_pdf_piso_01","dnprc_json"], "reasoning": "Estimación visual prudente que luego se recalibra con viviendas catastrales y patios detectados.", "confidence": 0.6 },
     "patios_detectados": { "value": 7, "source": ["catastro_pdf_piso_01","satellite"], "reasoning": "...", "confidence": 0.85 },
     "n_escaleras_en_piso01": { "value": 2, "source": ["catastro_pdf_piso_01"], "reasoning": "...", "confidence": 0.95 },
     "esquina": { "value": true, "source": ["satellite","street_view_heading_0"], "reasoning": "...", "confidence": 0.9 },
@@ -79,7 +79,26 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 }
 
 IMPORTANTE para "anotaciones": coordenadas RELATIVAS al PISO 01 (la 3ª imagen si está disponible), valores 0..1. bbox = [x, y, ancho, alto] esquina superior izquierda. Si no puedes anotar, devuelve [].
-Si una métrica no es deducible, usa null y baja confidence. SIEMPRE incluye reasoning en español, no en inglés.`;
+Si una métrica no es deducible, usa null y baja confidence. Cuenta ventanas de fachada DIRECTAMENTE en Street View y evita fórmulas geométricas para patios. SIEMPRE incluye reasoning en español, no en inglés.`;
+}
+
+function clampInt(value: unknown, min: number, max: number) {
+  const n = Number(value ?? 0);
+  if (!isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+function countDnprcViviendas(dnprc: any): number | null {
+  const subparcelas = Array.isArray(dnprc?.subparcelas) ? dnprc.subparcelas : [];
+  if (!subparcelas.length) return null;
+
+  const total = subparcelas.filter((sp: any) => {
+    const uso = String(sp?.uso ?? "").toLowerCase();
+    const usoCode = String(sp?.uso_code ?? sp?.codigo_uso ?? "").toUpperCase();
+    return uso.includes("vivienda") || usoCode === "V";
+  }).length;
+
+  return total > 0 ? total : null;
 }
 
 Deno.serve(async (req) => {
