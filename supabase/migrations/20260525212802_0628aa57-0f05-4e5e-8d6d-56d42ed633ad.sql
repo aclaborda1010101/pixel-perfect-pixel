@@ -1,0 +1,2 @@
+UPDATE public.buildings SET refcatastral = '9839518VK3793H' WHERE id = '0485d8cf-c1a2-4412-b38f-e37fb18961a2';
+DELETE FROM public.catastro_data WHERE building_id = '0485d8cf-c1a2-4412-b38f-e37fb18961a2';
