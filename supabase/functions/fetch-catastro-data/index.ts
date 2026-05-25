@@ -233,6 +233,7 @@ Deno.serve(async (req) => {
       plantas_pages_urls,
       plantas_num_pages: plantas_num_pages || null,
       plantas_pdf_disponible,
+      fetch_quality: plantas_pdf_disponible ? 'high' : 'low',
       fetched_at: new Date().toISOString(),
       fetch_error: null,
     }).eq("refcatastral", refcat);

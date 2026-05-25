@@ -1,74 +1,106 @@
+## Orquestación end-to-end Cartera Demo (79 edificios)
 
-# Refactor: un único Score unificado (sin v1/v2)
+Pipeline completo para que el cliente solo suba el CSV y pulse un botón. Todo el procesamiento Catastro PDF + Google Imagery + Gemini Vision + Score corre en edge functions, con dashboard de progreso en tiempo real.
 
-## 1. Base de datos (1 migración)
+### 1. Migración DB
 
-### 1.1 Reescribir vista `v_building_score`
-Mantiene todas las columnas existentes (la usa `/comercial/edificios` y la ficha). Añade:
-- `has_ai_analysis boolean` — true si existe fila en `building_analysis`
-- `score_base numeric` — los 5 componentes actuales (s_viviendas, s_m2, s_ratio, s_owners, s_no_dh) *100 (igual que ahora)
-- `score_ai numeric` — suma de bonificaciones IA (0 si no hay análisis)
-- `score numeric` — `LEAST(100, score_base + score_ai)` (reemplaza el cálculo actual)
-- `score_breakdown jsonb` — array unificado con TODOS los componentes que aplican (los 5 base siempre, los IA si hay análisis), cada uno con `{key, label, valor_raw, peso, contribucion}`
+```sql
+ALTER TABLE buildings ADD COLUMN cartera_demo_seed boolean NOT NULL DEFAULT false;
+CREATE INDEX idx_buildings_cartera_demo ON buildings(cartera_demo_seed) WHERE cartera_demo_seed = true;
 
-Componentes IA (aplicados cuando `building_analysis` existe; suman al base, cap a 100):
-- `ventanas_total * 1.5` (cap 30)
-- esquina: `+25`
-- segundas_escaleras: `+30`
-- `plantas_levantables * 15` (cap 45)
-- protegido_historicamente: `+15`
-- terciario_pct > 66%: `+25` (calculado desde metadatos m² comercio/oficina/industrial vs total)
-- intencion_venta (campo `building_analysis.metricas_extra->>intencion_venta` si existe): `+35`
-- m2_total < 300: `-25`
+ALTER TABLE catastro_data ADD COLUMN fetch_quality text DEFAULT 'high'; -- 'high' | 'low'
 
-### 1.2 Sustituir `compute_score_v2(building_id)` por `compute_score(building_id)`
-- Lee la nueva `v_building_score` para ese id y escribe `buildings.score`, `buildings.score_breakdown`, `buildings.avisos_inteligentes`, `buildings.score_updated_at`.
-- Drop `compute_score_v2` y `trg_recompute_score_v2`; crear `trg_recompute_score` sobre `building_analysis` (insert/update) que llama a `compute_score`.
+-- jobs ya existe (scoring_v2_jobs), añadimos phase tracking detallado si falta
+ALTER TABLE scoring_v2_jobs 
+  ADD COLUMN IF NOT EXISTS phase text,
+  ADD COLUMN IF NOT EXISTS phase_progress jsonb DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS total_items integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS processed_items integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS failed_items integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS items_status jsonb DEFAULT '[]'::jsonb;
+```
 
-### 1.3 Columnas en `buildings`
-- `ALTER COLUMN score_v2 RENAME TO score`
-- `ALTER COLUMN score_v2_breakdown RENAME TO score_breakdown`
-- `ALTER COLUMN score_v2_updated_at RENAME TO score_updated_at`
-- Mantiene `avisos_inteligentes` con el mismo nombre.
+### 2. Edge function `import-seed-79-edificios`
 
-### 1.4 Limpieza
-- `DELETE FROM app_settings WHERE key = 'scoring_v2_enabled'`.
+- Lee `scoring_v2_seed` rows (subidas por el CSV uploader existente)
+- Match por `metadatos->>'hs_object_id' = deal_id` o fuzzy address con `similarity()` ≥ 0.55 + ciudad
+- Marca `buildings.cartera_demo_seed = true` en los matched
+- Persiste `matched_building_id` en seed row; deja NULL los no matcheados
+- Devuelve `{ matched: N, unmatched: M, unmatched_list: [...] }`
 
-## 2. Frontend
+### 3. Cambios "Mi cartera" en `/comercial/edificios`
 
-### 2.1 `/ajustes` — `ScoringV2Panel` → `AnalisisIAPanel`
-- Renombrar archivo a `src/components/settings/AnalisisIAPanel.tsx`.
-- Quitar toggle `scoring_v2_enabled` y todo su estado.
-- Cabecera: "Análisis IA · Catastro · Google · Gemini".
-- Resto igual: validar GOOGLE_MAPS_API_KEY, subir CSV seed, grid 2×2 batches (Catastro/Imagery/Vision/Recompute), KPIs (con catastro / con imagery / con análisis IA / con score), tabla últimos jobs.
-- `Settings.tsx`: importar y renderizar siempre `<AnalisisIAPanel />`.
+- Query OR: `building_assignments.user_id = current_user OR cartera_demo_seed = true`
+- Badge dorado `DEMO 25/05` en cards con `cartera_demo_seed`
 
-### 2.2 `/comercial/edificios/:id`
-- `ScoringV2Section` → `AnalisisIASection` (archivo movido a `src/components/comercial/AnalisisIASection.tsx`).
-- Visible SIEMPRE (sin `useScoringV2Flag`). Si no hay análisis: stepper "pendiente" + CTA "Descargar Catastro + Imágenes + IA"; si lo hay: muestra ventanas, esquina, escaleras, plantas levantables, imágenes, modelo.
-- En la card "Factores que aportan al score" leer **el nuevo `score_breakdown` unificado** (en lugar de derivar solo de las 5 columnas `s_*`). Fallback al cálculo actual si el breakdown viene vacío.
-- Badge dorado "Análisis IA pendiente — pulsa Descargar Catastro" cuando `has_ai_analysis === false`.
+### 4. Edge function `auto-process-cartera-demo` (orquestador)
 
-### 2.3 `/comercial/edificios` listado
-- Sin cambios en la columna `Score` (ya lee `v_building_score.score`); el score ahora es el unificado automáticamente.
+- Selecciona todos los buildings con `cartera_demo_seed=true`
+- Crea job en `scoring_v2_jobs` (kind=`cartera_demo`, total_items=N)
+- Loop secuencial concurrencia 2, sleep 2s entre items, retry 3× backoff exponencial:
+  - **Fase A**: `fetch-catastro-data` (PDF distribución plantas, fallback SVG con `fetch_quality='low'`)
+  - **Fase B**: `fetch-google-imagery` (satélite + 4 streetview + oblicua)
+  - **Fase C**: `analyze-building-vision` con Gemini 2.5 Flash + PDF nativo + 6 imágenes
+  - **Fase D**: `compute_score(building_id)` SQL
+- Update `scoring_v2_jobs` por cada item (phase, processed, failed, items_status[])
+- Si una fase falla >50% → marca job `aborted`
+- Devuelve `{ job_id }` inmediatamente, procesa en background con `EdgeRuntime.waitUntil`
 
-### 2.4 `src/lib/scoringV2.ts`
-- Eliminar `useScoringV2Flag`. Renombrar `useBuildingAnalysis` y `useBuildingProcessing` y moverlas a `src/lib/analisisIA.ts`.
+### 5. Prompt Gemini Vision (actualización)
 
-## 3. Edge functions
-- `analyze-building-vision` y `process-building-full`: cambiar `rpc("compute_score_v2", ...)` por `rpc("compute_score", ...)`.
+Instrucción específica:
+- **ESC en PISO 01** → contar escaleras (no en planta baja)
+- **VA/VB/VC** → viviendas por planta tipo
+- **P01–P04** → patios
+- **CCE/GC** → locales comerciales planta baja
+- **TZ** → azotea piso superior
 
-## 4. Componentes/archivos a borrar
-- `src/lib/scoringV2.ts` (sustituido por `src/lib/analisisIA.ts`)
-- `src/components/comercial/scoring-v2/ScoringV2Section.tsx` (sustituido)
-- `src/components/settings/ScoringV2Panel.tsx` (sustituido)
+### 6. UI Activador en `/ajustes`
 
-## Validación tras aplicar
-1. La vista `v_building_score` devuelve score coherente para edificios con y sin análisis.
-2. `/comercial/edificios` muestra scores ordenados.
-3. Edificio sin análisis: badge "pendiente"; edificio con análisis: bonus visible en el desglose.
-4. `/ajustes` sin toggle, panel renombrado, CSV/validate/batches operativos.
+Botón grande naranja en `AnalisisIAPanel`:
+> 🚀 Lanzar procesamiento Cartera Demo Mayo (79 edificios)
 
-## Riesgos
-- La vista `v_building_score` ya está usada en otros sitios; conservo todas sus columnas y solo añado tres (`has_ai_analysis`, `score_base`, `score_ai`, `score_breakdown`) y redefino `score`.
-- Renombrar columnas requiere actualizar `types.ts` (auto-generado) — el frontend cambia a usar `score`/`score_breakdown` directamente.
+Al pulsar:
+1. Invoca `auto-process-cartera-demo`
+2. Navega a `/admin/jobs/:jobId`
+
+### 7. Página `/admin/jobs/:jobId`
+
+- Polling cada 2s a `scoring_v2_jobs`
+- KPI cards: `X/79 procesados`, `Y con score`, `Z con avisos`
+- Progress bar por fase
+- Tabla edificios con estado verde/amarillo/rojo
+- Cuando `status=done` o `aborted`: toast + redirect a `/comercial/edificios?filter=cartera_demo` ordenado por score desc
+
+### 8. Filtro URL en listado
+
+`?filter=cartera_demo` aplica chip "Cartera Demo Mayo" + sort score desc.
+
+### Archivos a crear/modificar
+
+**Migración**: 1 archivo SQL.
+
+**Edge functions nuevas**:
+- `supabase/functions/import-seed-79-edificios/index.ts`
+- `supabase/functions/auto-process-cartera-demo/index.ts`
+
+**Edge functions a editar**:
+- `analyze-building-vision`: actualizar prompt con códigos específicos
+- `fetch-catastro-data`: setear `fetch_quality='low'` cuando cae a SVG fallback
+
+**Frontend**:
+- `src/components/settings/AnalisisIAPanel.tsx`: botón grande lanzador + handler import seed
+- `src/pages/admin/JobProgressPage.tsx` (nuevo): dashboard polling
+- `src/App.tsx`: ruta `/admin/jobs/:jobId`
+- `src/pages/comercial/EdificiosList.tsx` (o el actual de listado): query OR cartera_demo, badge DEMO, filtro URL
+
+### Notas técnicas
+
+- Concurrencia 2 con `Promise.allSettled` por chunks de 2
+- Retry helper inline con backoff `2000 * 2^attempt`
+- `EdgeRuntime.waitUntil(processCartera(jobId))` para no bloquear la respuesta HTTP
+- Realtime suscripción a `scoring_v2_jobs` en `JobProgressPage` (alternativa al polling)
+
+### Confirmación final
+
+Cuando todo deplegado: subir CSV → pulsar 1 botón → ver dashboard → toast al final → ranking en `/comercial/edificios`.

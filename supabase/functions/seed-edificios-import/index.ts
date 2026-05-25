@@ -57,8 +57,16 @@ Deno.serve(async (req) => {
         matched_building_id,
         matched_at: matched_building_id ? new Date().toISOString() : null,
       });
-      if (matched_building_id) matched++;
-      else unmatched.push(edificio);
+      if (matched_building_id) {
+        // Marca el edificio como parte de la cartera demo de mayo
+        await sb
+          .from("buildings")
+          .update({ cartera_demo_seed: true })
+          .eq("id", matched_building_id);
+        matched++;
+      } else {
+        unmatched.push(edificio);
+      }
     }
 
     return json({ total: rows.length, matched, unmatched });

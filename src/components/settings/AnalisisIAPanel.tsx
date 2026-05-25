@@ -1,18 +1,21 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Brain, Loader2, Play, Upload, KeyRound } from "lucide-react";
+import { Brain, Loader2, Play, Upload, KeyRound, Rocket } from "lucide-react";
 
 export function AnalisisIAPanel() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [running, setRunning] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: jobs } = useQuery({
@@ -105,6 +108,38 @@ export function AnalisisIAPanel() {
     }
   };
 
+  const launchCarteraDemo = async () => {
+    setLaunching(true);
+    try {
+      const { count } = await (supabase.from("buildings" as any) as any)
+        .select("id", { count: "exact", head: true })
+        .eq("cartera_demo_seed", true);
+      if (!count || count === 0) {
+        toast.error("No hay edificios con cartera_demo_seed=true. Sube primero el CSV seed.");
+        return;
+      }
+      const ok = window.confirm(
+        `Vas a lanzar el procesamiento end-to-end de ${count} edificios:\n\n` +
+        `Fase A: Catastro (PDF distribución plantas)\n` +
+        `Fase B: Google Maps imagery (satélite + Street View)\n` +
+        `Fase C: Análisis IA con Gemini Vision\n` +
+        `Fase D: Score unificado\n\n` +
+        `Concurrencia 2, retry 3×. Tardará varios minutos. ¿Continuar?`,
+      );
+      if (!ok) return;
+      const { data, error } = await supabase.functions.invoke("auto-process-cartera-demo", { body: {} });
+      if (error) throw error;
+      const jobId = (data as any)?.job_id;
+      if (!jobId) throw new Error("Sin job_id");
+      toast.success("Procesamiento iniciado");
+      navigate(`/admin/jobs/${jobId}`);
+    } catch (e: any) {
+      toast.error("Lanzamiento falló: " + (e?.message ?? String(e)));
+    } finally {
+      setLaunching(false);
+    }
+  };
+
   return (
     <Card className="md:col-span-2">
       <CardHeader>
@@ -112,6 +147,31 @@ export function AnalisisIAPanel() {
         <CardTitle>Análisis IA · Catastro · Google · Gemini</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Botón estrella: orquestación end-to-end Cartera Demo Mayo */}
+        <button
+          type="button"
+          disabled={launching}
+          onClick={launchCarteraDemo}
+          className="group flex w-full items-center justify-between gap-3 rounded-md border-2 border-orange-500/60 bg-gradient-to-r from-orange-500/20 via-red-500/15 to-orange-500/20 px-4 py-3 text-left transition hover:border-orange-500 hover:from-orange-500/30 hover:to-orange-500/30 disabled:opacity-60"
+        >
+          <div className="flex items-center gap-3">
+            {launching ? (
+              <Loader2 className="h-5 w-5 animate-spin text-orange-400" />
+            ) : (
+              <Rocket className="h-5 w-5 text-orange-400 transition group-hover:scale-110" />
+            )}
+            <div>
+              <div className="text-sm font-semibold text-foreground">
+                🚀 Lanzar procesamiento Cartera Demo Mayo (79 edificios)
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                End-to-end: Catastro PDF + Google imagery + Gemini Vision + Score unificado · concurrencia 2 · retry 3×
+              </div>
+            </div>
+          </div>
+          <Badge variant="gold" className="shrink-0">1 click</Badge>
+        </button>
+
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Kpi label="Con Catastro" value={stats?.withCatastro ?? 0} />
           <Kpi label="Con imagery" value={stats?.withImagery ?? 0} />

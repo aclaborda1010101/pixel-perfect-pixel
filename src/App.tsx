@@ -32,6 +32,7 @@ const NotaSimpleDetail = lazy(() => import("./pages/NotaSimpleDetail"));
 const Mensajes = lazy(() => import("./pages/Mensajes"));
 const NextActions = lazy(() => import("./pages/NextActions"));
 const Productividad = lazy(() => import("./pages/Productividad"));
+const JobProgressPage = lazy(() => import("./pages/admin/JobProgressPage"));
 const Login = lazy(() => import("./pages/auth/Login"));
 const RecoverPassword = lazy(() => import("./pages/auth/RecoverPassword"));
 const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
@@ -98,6 +99,7 @@ const App = () => (
                 <Route path="/next-actions" element={<NextActions />} />
                 <Route path="/productividad" element={<Productividad />} />
                 <Route path="/admin/productividad" element={<Productividad />} />
+                <Route path="/admin/jobs/:jobId" element={<JobProgressPage />} />
                 <Route path="/asistente" element={<Assistant />} />
                 <Route path="/asistente-ia" element={<Assistant />} />
                 <Route path="/ajustes" element={<Settings />} />
