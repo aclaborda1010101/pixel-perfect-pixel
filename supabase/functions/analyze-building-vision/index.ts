@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return err("POST only", 405);
 
   try {
-    const { building_id, model_override } = await req.json();
+    const { building_id } = await req.json();
     if (!building_id) return err("building_id requerido", 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
     // Ejecuta el análisis en segundo plano para evitar el timeout de 150s.
     // El cliente debe sondear processing_status / building_analysis.
     // @ts-ignore EdgeRuntime global proporcionado por Supabase
-    EdgeRuntime.waitUntil(runVisionAnalysis(sb, building_id, model_override, LOVABLE_API_KEY));
+    EdgeRuntime.waitUntil(runVisionAnalysis(sb, building_id, LOVABLE_API_KEY));
     return json({ status: "processing", building_id }, 202);
   } catch (e) {
     console.error("analyze-building-vision error", e);
@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
   }
 });
 
-async function runVisionAnalysis(sb: any, building_id: string, model_override: string | undefined, LOVABLE_API_KEY: string) {
+async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: string) {
   const startedAt = Date.now();
   try {
 
