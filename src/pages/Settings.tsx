@@ -9,6 +9,7 @@ import { Languages, Palette, User, Users } from "lucide-react";
 import { HubspotPanel } from "@/components/settings/HubspotPanel";
 import { RolesPanel } from "@/components/settings/RolesPanel";
 import { BuildingAssignmentsPanel } from "@/components/settings/BuildingAssignmentsPanel";
+import { ScoringV2Panel } from "@/components/settings/ScoringV2Panel";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 
 export default function Settings() {
@@ -26,6 +27,7 @@ export default function Settings() {
         <HubspotPanel />
         {isAdmin && <RolesPanel />}
         {isAdmin && <BuildingAssignmentsPanel />}
+        {isAdmin && <ScoringV2Panel />}
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>
