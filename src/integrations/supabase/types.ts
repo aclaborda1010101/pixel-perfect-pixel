@@ -685,6 +685,7 @@ export type Database = {
       buildings: {
         Row: {
           avisos_inteligentes: Json | null
+          cartera_demo_seed: boolean
           catastro_ref: string | null
           ciudad: string
           codigo_postal: string | null
@@ -705,6 +706,7 @@ export type Database = {
         }
         Insert: {
           avisos_inteligentes?: Json | null
+          cartera_demo_seed?: boolean
           catastro_ref?: string | null
           ciudad: string
           codigo_postal?: string | null
@@ -725,6 +727,7 @@ export type Database = {
         }
         Update: {
           avisos_inteligentes?: Json | null
+          cartera_demo_seed?: boolean
           catastro_ref?: string | null
           ciudad?: string
           codigo_postal?: string | null
@@ -936,6 +939,7 @@ export type Database = {
           created_at: string
           dnprc_json: Json | null
           fetch_error: string | null
+          fetch_quality: string | null
           fetched_at: string | null
           lat: number | null
           lon: number | null
@@ -953,6 +957,7 @@ export type Database = {
           created_at?: string
           dnprc_json?: Json | null
           fetch_error?: string | null
+          fetch_quality?: string | null
           fetched_at?: string | null
           lat?: number | null
           lon?: number | null
@@ -970,6 +975,7 @@ export type Database = {
           created_at?: string
           dnprc_json?: Json | null
           fetch_error?: string | null
+          fetch_quality?: string | null
           fetched_at?: string | null
           lat?: number | null
           lon?: number | null
@@ -2471,36 +2477,51 @@ export type Database = {
       }
       scoring_v2_jobs: {
         Row: {
+          current_phase: string | null
           cursor: string | null
+          error: string | null
           failed: number | null
           finished_at: string | null
           id: string
+          items_status: Json
+          kind: string | null
           log: Json | null
-          phase: string
+          phase: string | null
+          phase_progress: Json
           processed: number | null
           started_at: string | null
           status: string
           total: number | null
         }
         Insert: {
+          current_phase?: string | null
           cursor?: string | null
+          error?: string | null
           failed?: number | null
           finished_at?: string | null
           id?: string
+          items_status?: Json
+          kind?: string | null
           log?: Json | null
-          phase: string
+          phase?: string | null
+          phase_progress?: Json
           processed?: number | null
           started_at?: string | null
           status?: string
           total?: number | null
         }
         Update: {
+          current_phase?: string | null
           cursor?: string | null
+          error?: string | null
           failed?: number | null
           finished_at?: string | null
           id?: string
+          items_status?: Json
+          kind?: string | null
           log?: Json | null
-          phase?: string
+          phase?: string | null
+          phase_progress?: Json
           processed?: number | null
           started_at?: string | null
           status?: string
