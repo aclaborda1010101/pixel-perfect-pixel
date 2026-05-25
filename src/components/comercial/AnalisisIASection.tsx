@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { useBuildingProcessing, useBuildingAnalysis } from "@/lib/analisisIA";
 import { supabase } from "@/integrations/supabase/client";
@@ -86,7 +87,7 @@ export function AnalisisIASection({ buildingId }: { buildingId: string }) {
           <>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat label="Ventanas fachada" value={a?.ventanas_fachada_total ?? "—"} />
-              <Stat label="Ventanas patios" value={a?.ventanas_patios_total ?? "—"} />
+              <VentanasPatiosStat a={a} />
               <Stat label="Patios" value={a?.patios_detectados ?? "—"} />
               <Stat label="Esquina" value={a?.esquina ? "Sí" : "No"} />
               <Stat label="2ª escalera" value={a?.segundas_escaleras ? "Sí" : "No"} />
@@ -139,5 +140,38 @@ function Stat({ label, value, accent }: { label: string; value: any; accent?: bo
       <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">{label}</div>
       <div className={`mt-1 font-mono text-lg tabular-nums ${accent ? "text-gold" : "text-foreground"}`}>{String(value)}</div>
     </div>
+  );
+}
+
+function VentanasPatiosStat({ a }: { a: any }) {
+  const value = a?.ventanas_patios_total ?? a?.ventanas_patios_estimadas ?? "—";
+  const formula: string | null = a?.formula_ventanas_patio ?? null;
+  const aviso: string | null = a?.aviso_ventanas ?? null;
+  const conf = a?.confidence_ventanas != null ? `${Math.round(Number(a.confidence_ventanas) * 100)}%` : "—";
+  const densidad = a?.densidad_ventanas_fachada;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded-md border border-border-faint bg-surface-1/40 p-3 text-left transition hover:border-gold">
+          <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">Ventanas patios</div>
+          <div className="mt-1 font-mono text-lg tabular-nums text-foreground">{String(value)}</div>
+          <div className="mt-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground/70">
+            {densidad != null ? `densidad ${densidad} v/m` : "ver fórmula ↗"}
+          </div>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 text-xs">
+        <div className="space-y-2">
+          <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Estimación auditable</div>
+          <p className="leading-relaxed text-foreground">{formula ?? "Sin fórmula disponible — el modelo no devolvió áreas de patios o fachada lineal."}</p>
+          {aviso && (
+            <p className="rounded-sm border border-border-faint bg-surface-1/50 p-2 text-[11px] text-muted-foreground">{aviso}</p>
+          )}
+          <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+            confianza estimación: {conf} · método determinista (plano catastral + ratio fachada Street View)
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
