@@ -228,8 +228,7 @@ export default function ComercialEdificios() {
           .eq("user_id", userId)
           .eq("status", "active"),
         (supabase.from("buildings" as any) as any)
-          .select("id")
-          .eq("cartera_demo_seed", true),
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed"),
         fetchPage(0),
       ]);
       let scores: any[] = firstPage.data ?? [];
@@ -243,10 +242,17 @@ export default function ComercialEdificios() {
         from += PAGE;
       }
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
-      const demoIds = new Set<string>((demoBldgs ?? []).map((b: any) => b.id));
+      const bldgsById = new Map<string, any>();
+      const demoIds = new Set<string>();
+      for (const b of demoBldgs ?? []) {
+        bldgsById.set(b.id, b);
+        if (b.cartera_demo_seed) demoIds.add(b.id);
+      }
       const rows: Row[] = (scores ?? []).map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
+        const extra = bldgsById.get(b.id) ?? {};
+        const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
         return {
           id: b.id,
           direccion: b.direccion,
@@ -262,6 +268,10 @@ export default function ComercialEdificios() {
           raw: b,
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
+          avisos,
+          score_summary: extra.score_summary ?? null,
+          confianza_media: extra.confianza_media ?? null,
+          has_analysis: !!b.has_ai_analysis,
         };
       });
       return { rows };
