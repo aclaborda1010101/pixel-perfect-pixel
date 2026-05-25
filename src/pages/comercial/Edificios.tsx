@@ -45,6 +45,8 @@ import {
   buildingScoreFactors,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
+import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Row = {
   id: string;
@@ -61,6 +63,10 @@ type Row = {
   raw: any;
   assigned: boolean;
   cartera_demo: boolean;
+  avisos: Aviso[] | null;
+  score_summary: string | null;
+  confianza_media: number | null;
+  has_analysis: boolean;
 };
 
 type SortKey =
@@ -101,14 +107,29 @@ function BuildingCard({ r }: { r: Row }) {
                 <Badge
                   className="h-4 border-0 bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 text-[9px] text-white"
                 >
-                  DEMO 25/05
+                  Marcado manual
                 </Badge>
               )}
             </div>
             <h3 className="mt-1 truncate text-base font-medium text-foreground">{r.direccion}</h3>
           </div>
-          <ScorePill score={r.score} />
+          {r.score_summary ? (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help"><ScorePill score={r.score} /></div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <p className="text-xs leading-relaxed">{r.score_summary.split(".").slice(0, 2).join(".") + "."}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <ScorePill score={r.score} />
+          )}
         </div>
+
+        <BuildingChips avisos={r.avisos} hasAnalysis={r.has_analysis} max={4} />
 
         <div className="grid grid-cols-3 gap-2 rounded-md border border-border-faint bg-surface-1/40 p-2 text-center">
           <div>
