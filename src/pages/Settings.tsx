@@ -27,7 +27,7 @@ export default function Settings() {
         <HubspotPanel />
         {isAdmin && <RolesPanel />}
         {isAdmin && <BuildingAssignmentsPanel />}
-        {isAdmin && <ScoringV2Panel />}
+        <ScoringV2Panel />
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>
