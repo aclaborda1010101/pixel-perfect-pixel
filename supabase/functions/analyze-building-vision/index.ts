@@ -168,7 +168,7 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     });
 
     let parsed: any = null;
-    const primaryModel = model_override || "google/gemini-3.5-flash";
+    const primaryModel = "google/gemini-3.5-flash";
     let modelo_usado = primaryModel;
     let modelo_fallback = false;
     let llm_raw: any = null;
@@ -303,6 +303,17 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     }
 
     const ratioFinal = viviendasTotales && viviendasTotales > 0 ? +(ventanasTotal / viviendasTotales).toFixed(2) : null;
+    const ventanasPatiosPorPatio = desglose.length > 0
+      ? Object.fromEntries(desglose.map((item) => [item.codigo, item.ventanas_estimadas ?? 0]))
+      : null;
+    const ventanasPatiosPorPlanta = ventanasPatioEstim > 0 && plantasParaFallback > 0
+      ? Object.fromEntries(Array.from({ length: plantasParaFallback }, (_, i) => {
+          const base = Math.floor(ventanasPatioEstim / plantasParaFallback);
+          const extra = i < (ventanasPatioEstim % plantasParaFallback) ? 1 : 0;
+          return [String(i + 1), base + extra];
+        }))
+      : null;
+
     const formulaTxt = viviendasTotales && viviendasTotales > 0
       ? `${ventFachada} ventanas fachada (Street View directo) + ${ventanasPatioEstim} ventanas a patio (estimadas: ${viviendasTotales} viviendas catastro × 2.5 ventanas a patio promedio Madrid) = ${ventanasTotal} total. Ratio ventanas/vivienda = ${ratioFinal ?? "—"} (rango plausible 4-10).`
       : `${ventFachada} ventanas fachada (Street View directo) + ${ventanasPatioEstim} ventanas a patio (fallback: ${nPatios} patios × ${plantasParaFallback} plantas visibles × 4) = ${ventanasTotal} total. Sin viviendas catastrales fiables para ratio.`;
@@ -321,8 +332,8 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
       formula_ventanas_patio: formulaTxt,
       confidence_ventanas: confianzaVent,
       aviso_ventanas: avisoVent,
-      ventanas_patios_por_planta: parsed.ventanas_patios_por_planta ?? null,
-      ventanas_patios_por_patio: parsed.ventanas_patios_por_patio ?? null,
+      ventanas_patios_por_planta: ventanasPatiosPorPlanta,
+      ventanas_patios_por_patio: ventanasPatiosPorPatio,
       patios_detectados: parsed.patios_detectados ?? null,
       segundas_escaleras: parsed.segundas_escaleras ?? (
         typeof parsed.n_escaleras_en_piso01 === "number" ? parsed.n_escaleras_en_piso01 >= 2 : null
@@ -351,7 +362,23 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
         n_imgs_total: imageUrls.length,
       },
       confidence: parsed.confidence ?? null,
-      metricas_detalle: parsed.metricas_detalle ?? null,
+      metricas_detalle: {
+        ...(parsed.metricas_detalle ?? {}),
+        ventanas_fachada_total: {
+          value: ventFachada,
+          source: ["street_view_heading_0", "street_view_heading_90", "street_view_heading_180", "street_view_heading_270"],
+          reasoning: `Conteo directo de ventanas en Street View, capado al rango plausible 0-200. Valor final: ${ventFachada}.`,
+          confidence: Math.min(Number(parsed?.metricas_detalle?.ventanas_fachada_total?.confidence ?? parsed.confidence ?? 0.7), 0.95),
+        },
+        ventanas_patios_total: {
+          value: ventanasPatioEstim,
+          source: viviendasTotales && viviendasTotales > 0 ? ["dnprc_json", "catastro_pdf_piso_01"] : ["catastro_pdf_piso_01", "inferred_symmetry"],
+          reasoning: viviendasTotales && viviendasTotales > 0
+            ? `${nPatios} patios detectados y ${viviendasTotales} viviendas catastrales. Heurística calibrada Madrid: viviendas × 2.5.`
+            : `${nPatios} patios detectados sin viviendas catastrales fiables. Fallback: patios × plantas visibles × 4.`,
+          confidence: confianzaVent,
+        },
+      },
       llm_raw_response: llm_raw,
       analyzed_at: new Date().toISOString(),
       analyze_error: null,
