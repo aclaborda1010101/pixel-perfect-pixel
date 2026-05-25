@@ -148,7 +148,6 @@ function VentanasPatiosStat({ a }: { a: any }) {
   const formula: string | null = a?.formula_ventanas_patio ?? null;
   const aviso: string | null = a?.aviso_ventanas ?? null;
   const conf = a?.confidence_ventanas != null ? `${Math.round(Number(a.confidence_ventanas) * 100)}%` : "—";
-  const densidad = a?.densidad_ventanas_fachada;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -156,7 +155,7 @@ function VentanasPatiosStat({ a }: { a: any }) {
           <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">Ventanas patios</div>
           <div className="mt-1 font-mono text-lg tabular-nums text-foreground">{String(value)}</div>
           <div className="mt-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground/70">
-            {densidad != null ? `densidad ${densidad} v/m` : "ver fórmula ↗"}
+            heurística Madrid ↗
           </div>
         </button>
       </PopoverTrigger>
@@ -168,7 +167,7 @@ function VentanasPatiosStat({ a }: { a: any }) {
             <p className="rounded-sm border border-border-faint bg-surface-1/50 p-2 text-[11px] text-muted-foreground">{aviso}</p>
           )}
           <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-            confianza estimación: {conf} · método determinista (plano catastral + ratio fachada Street View)
+            confianza estimación: {conf} · método calibrado (Street View + viviendas catastrales)
           </div>
         </div>
       </PopoverContent>
