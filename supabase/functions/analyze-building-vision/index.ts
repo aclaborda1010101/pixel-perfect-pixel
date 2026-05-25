@@ -153,7 +153,7 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     let llm_raw: any = null;
     let lastErr: string | null = null;
 
-    // Intenta primario hasta 3 veces
+    // Intenta hasta 3 veces con el modelo primario (Gemini 3.5 Flash por defecto). Sin fallback a otros modelos.
     for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
       try {
         const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -176,28 +176,6 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
       } catch (e) {
         lastErr = String((e as Error).message ?? e);
         await sleep(2000 * (attempt + 1));
-      }
-    }
-
-    // Fallback si parsed null o confidence baja (no aplicar si ya se forzó modelo premium)
-    if (!model_override && (!parsed || (typeof parsed?.confidence === "number" && parsed.confidence < 0.6))) {
-      modelo_fallback = true;
-      modelo_usado = "google/gemini-3.5-flash";
-      try {
-        const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(buildPayload("google/gemini-3.5-flash")),
-        });
-        const j = await r.json();
-        llm_raw = j;
-        const txt = j?.choices?.[0]?.message?.content ?? "";
-        parsed = JSON.parse(txt);
-      } catch (e) {
-        lastErr = `fallback fail: ${String((e as Error).message ?? e)}`;
       }
     }
 
