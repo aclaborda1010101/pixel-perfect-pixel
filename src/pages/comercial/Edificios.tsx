@@ -222,13 +222,28 @@ export default function ComercialEdificios() {
           .select("*")
           .order("score", { ascending: false })
           .range(from, from + PAGE - 1);
+      const fetchBldgsPage = (from: number) =>
+        (supabase.from("buildings" as any) as any)
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed")
+          .range(from, from + PAGE - 1);
       const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
         (supabase.from("building_assignments" as any) as any)
           .select("building_id")
           .eq("user_id", userId)
           .eq("status", "active"),
-        (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed"),
+        (async () => {
+          let rows: any[] = [];
+          let from = 0;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const { data } = await fetchBldgsPage(from);
+            const chunk = data ?? [];
+            rows = rows.concat(chunk);
+            if (chunk.length < PAGE) break;
+            from += PAGE;
+          }
+          return { data: rows };
+        })(),
         fetchPage(0),
       ]);
       let scores: any[] = firstPage.data ?? [];
