@@ -84,11 +84,11 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
     );
   }
 
-  const reanalizar = async (modelOverride?: string) => {
+  const reanalizar = async () => {
     setBusy("re");
     try {
       const { error } = await supabase.functions.invoke("analyze-building-vision", {
-        body: { building_id: buildingId, model_override: modelOverride },
+        body: { building_id: buildingId },
       });
       if (error) throw error;
       toast.success("Re-analizado");
