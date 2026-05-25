@@ -130,20 +130,26 @@ Deno.serve(async (req) => {
         console.warn("RCCOOR fail", e);
       }
 
-      await sb.from("catastro_data").upsert({
-        refcatastral: refcat ?? `unknown-${building_id}`,
-        building_id,
-        lat, lon,
-        fetched_at: new Date().toISOString(),
-      }, { onConflict: "refcatastral" });
-
       if (refcat) {
+        await sb.from("catastro_data").upsert({
+          refcatastral: refcat,
+          building_id,
+          lat, lon,
+          fetched_at: new Date().toISOString(),
+        }, { onConflict: "refcatastral" });
         await sb.from("buildings").update({ refcatastral: refcat }).eq("id", building_id);
       } else {
         await setProcessingStatus(building_id, "catastro", "error", "no se obtuvo refcatastral");
         return json({ status: "no_refcatastral", lat, lon });
       }
     }
+
+    // Garantizar que existe la fila en catastro_data antes del UPDATE final
+    // (caso: edificio ya tenía refcatastral en buildings pero nunca pasó por la rama de arriba)
+    await sb.from("catastro_data").upsert({
+      refcatastral: refcat,
+      building_id,
+    }, { onConflict: "refcatastral" });
 
     // 2a. Descargar SVG croquis (fallback / referencia rápida)
     const svgPath = `${refcat}.svg`;
@@ -233,7 +239,7 @@ Deno.serve(async (req) => {
       console.warn("DNPRC fail", e);
     }
 
-    await sb.from("catastro_data").update({
+    const { error: updErr } = await sb.from("catastro_data").update({
       plano_url,
       dnprc_json,
       plantas_pdf_url,
@@ -244,6 +250,7 @@ Deno.serve(async (req) => {
       fetched_at: new Date().toISOString(),
       fetch_error: null,
     }).eq("refcatastral", refcat);
+    if (updErr) console.warn("update catastro_data fail", updErr);
 
     await setProcessingStatus(building_id, "catastro", "ok");
     return json({
