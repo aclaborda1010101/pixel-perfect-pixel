@@ -207,6 +207,9 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
       building_id,
       ventanas_fachada_total: parsed.ventanas_fachada_total ?? null,
       ventanas_por_planta: parsed.ventanas_por_planta ?? null,
+      ventanas_patios_total: parsed.ventanas_patios_total ?? null,
+      ventanas_patios_por_planta: parsed.ventanas_patios_por_planta ?? null,
+      ventanas_patios_por_patio: parsed.ventanas_patios_por_patio ?? null,
       patios_detectados: parsed.patios_detectados ?? null,
       segundas_escaleras: parsed.segundas_escaleras ?? (
         typeof parsed.n_escaleras_en_piso01 === "number" ? parsed.n_escaleras_en_piso01 >= 2 : null
