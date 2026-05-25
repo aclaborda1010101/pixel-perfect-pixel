@@ -345,7 +345,7 @@ export default function ComercialEdificios() {
     (dh !== "all" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0);
 
-  const filteredMias = apply(mias);
+  const filteredMias = apply(visibleMias);
   const filteredTodos = apply(rows);
 
   return (
