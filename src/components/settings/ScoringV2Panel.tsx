@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,11 +7,14 @@ import { Switch } from "@/components/ui/switch";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Brain, Loader2, Play } from "lucide-react";
+import { Brain, Loader2, Play, Upload, KeyRound } from "lucide-react";
 
 export function ScoringV2Panel() {
   const qc = useQueryClient();
   const [running, setRunning] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: settings } = useQuery({
     queryKey: ["app_settings_all"],
@@ -84,12 +87,46 @@ export function ScoringV2Panel() {
     }
   };
 
+  const validateGoogleKey = async () => {
+    setValidating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("fetch-google-imagery", { body: { ping: true } });
+      if (error) throw error;
+      if ((data as any)?.ok) toast.success("GOOGLE_MAPS_API_KEY válida");
+      else toast.error("Clave inválida o no configurada");
+    } catch (e: any) {
+      toast.error("Validación falló: " + (e?.message ?? String(e)));
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const uploadCsv = async (file: File) => {
+    setUploading(true);
+    try {
+      const text = await file.text();
+      const { data, error } = await supabase.functions.invoke("seed-edificios-import", {
+        body: text,
+        headers: { "content-type": "text/csv" },
+      });
+      if (error) throw error;
+      const d = data as any;
+      toast.success(`Seed cargado: ${d?.matched ?? 0} matched / ${d?.unmatched?.length ?? 0} sin match`);
+      qc.invalidateQueries({ queryKey: ["scoring_v2_stats"] });
+    } catch (e: any) {
+      toast.error("Upload falló: " + (e?.message ?? String(e)));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   return (
     <Card className="md:col-span-2">
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
           <Eyebrow><Brain className="mr-1 inline h-3 w-3" /> Scoring v2</Eyebrow>
-          <CardTitle>Catastro · Google · Gemini Vision</CardTitle>
+          <CardTitle>Scoring v2 — Configuración</CardTitle>
         </div>
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Activado</span>
@@ -104,10 +141,40 @@ export function ScoringV2Panel() {
           <Kpi label="Con score v2" value={stats?.withScore ?? 0} accent />
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border-faint bg-surface-1/40 p-3">
+          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">GOOGLE_MAPS_API_KEY</span>
+          <Button size="sm" variant="outline" disabled={validating} onClick={validateGoogleKey}>
+            {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            Validar
+          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadCsv(f);
+              }}
+            />
+            <Button size="sm" variant="outline" disabled={uploading} onClick={() => fileRef.current?.click()}>
+              {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+              Subir CSV seed
+            </Button>
+          </div>
+        </div>
+
         {enabled ? (
           <>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              {(["catastro", "google", "vision", "full"] as const).map((p) => (
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["catastro", "Batch Catastro"],
+                ["google", "Batch Imagery"],
+                ["vision", "Batch Vision"],
+                ["full", "Recompute full"],
+              ] as const).map(([p, label]) => (
                 <Button
                   key={p}
                   variant="outline"
@@ -116,7 +183,7 @@ export function ScoringV2Panel() {
                   onClick={() => runBatch(p)}
                 >
                   {running === p ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                  Batch {p}
+                  {label}
                 </Button>
               ))}
             </div>
