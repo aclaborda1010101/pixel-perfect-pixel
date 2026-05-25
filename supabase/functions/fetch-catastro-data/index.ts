@@ -174,13 +174,17 @@ Deno.serve(async (req) => {
     let plantas_pdf_disponible = false;
 
     let pdfBuf: Uint8Array | null = null;
+    let pdfSourceUrl: string | null = null;
     for (const candidate of PLANTAS_PDF_CANDIDATES(refcat)) {
       pdfBuf = await tryFetchPdf(candidate);
-      if (pdfBuf) break;
+      if (pdfBuf) { pdfSourceUrl = candidate; break; }
     }
     if (!pdfBuf) {
       const discovered = await discoverPlantasPdfUrl(refcat);
-      if (discovered) pdfBuf = await tryFetchPdf(discovered);
+      if (discovered) {
+        pdfBuf = await tryFetchPdf(discovered);
+        if (pdfBuf) pdfSourceUrl = discovered;
+      }
     }
 
     if (pdfBuf) {
