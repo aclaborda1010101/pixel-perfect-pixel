@@ -14,8 +14,14 @@ Analiza y devuelve un OBJETO JSON con esta estructura EXACTA (sin texto fuera de
   "plantas_visibles": number,
   "ancho_calle_estimado_m": number,
   "metricas_extra": { "observaciones": string },
+  "anotaciones": [
+    { "etiqueta": "patio_1", "tipo": "patio", "bbox": [x, y, w, h], "descripcion": "patio interior central" },
+    { "etiqueta": "escalera_1", "tipo": "escalera", "bbox": [x, y, w, h], "descripcion": "caja de escaleras norte" },
+    { "etiqueta": "fachada_principal", "tipo": "fachada", "bbox": [x, y, w, h], "descripcion": "fachada calle X, ~15 m" }
+  ],
   "confidence": number  // 0..1
 }
+IMPORTANTE para "anotaciones": coordenadas RELATIVAS al PLANO CATASTRAL (la PRIMERA imagen), valores 0..1. bbox = [x, y, ancho, alto] donde (x,y) es esquina superior izquierda. Marca cada patio, caja de escaleras y fachada visible. Si no puedes anotar, devuelve [].
 Si una métrica no es deducible, usa null en su campo y baja confidence.`;
 
 Deno.serve(async (req) => {
@@ -23,8 +29,9 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return err("POST only", 405);
 
   try {
-    const { building_id } = await req.json();
+    const { building_id, model_override } = await req.json();
     if (!building_id) return err("building_id requerido", 400);
+    const startedAt = Date.now();
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return err("LOVABLE_API_KEY no disponible", 500);
@@ -62,7 +69,8 @@ Deno.serve(async (req) => {
     });
 
     let parsed: any = null;
-    let modelo_usado = "google/gemini-2.5-flash";
+    const primaryModel = model_override || "google/gemini-2.5-flash";
+    let modelo_usado = primaryModel;
     let modelo_fallback = false;
     let llm_raw: any = null;
     let lastErr: string | null = null;
@@ -76,7 +84,7 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${LOVABLE_API_KEY}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(buildPayload("google/gemini-2.5-flash")),
+          body: JSON.stringify(buildPayload(primaryModel)),
         });
         if (r.status === 429 || r.status === 402) {
           lastErr = `gateway ${r.status}`;
@@ -93,8 +101,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fallback si parsed null o confidence baja
-    if (!parsed || (typeof parsed?.confidence === "number" && parsed.confidence < 0.6)) {
+    // Fallback si parsed null o confidence baja (no aplicar si ya se forzó modelo premium)
+    if (!model_override && (!parsed || (typeof parsed?.confidence === "number" && parsed.confidence < 0.6))) {
       modelo_fallback = true;
       modelo_usado = "google/gemini-3.5-flash";
       try {
@@ -123,6 +131,7 @@ Deno.serve(async (req) => {
         llm_raw_response: llm_raw,
         analyze_error: lastErr ?? "sin resultado",
         analyzed_at: new Date().toISOString(),
+        analysis_duration_ms: Date.now() - startedAt,
       }, { onConflict: "building_id" });
       await setProcessingStatus(building_id, "vision", "error", lastErr ?? "sin resultado");
       return err(lastErr ?? "Vision sin resultado", 502);
@@ -150,6 +159,7 @@ Deno.serve(async (req) => {
       plantas_max_normativa: plantas_max,
       plantas_levantables: levantables,
       metricas_extra: parsed.metricas_extra ?? null,
+      anotaciones_plano: Array.isArray(parsed.anotaciones) ? parsed.anotaciones : null,
       modelo_usado,
       modelo_fallback,
       sources_used: { plano: !!cat?.plano_url, n_imgs: imageUrls.length },
@@ -157,6 +167,7 @@ Deno.serve(async (req) => {
       llm_raw_response: llm_raw,
       analyzed_at: new Date().toISOString(),
       analyze_error: null,
+      analysis_duration_ms: Date.now() - startedAt,
     }, { onConflict: "building_id" });
 
     // Guarda ancho_calle en catastro_data si lo estimó la IA

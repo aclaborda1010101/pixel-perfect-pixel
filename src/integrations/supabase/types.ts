@@ -180,8 +180,10 @@ export type Database = {
       }
       building_analysis: {
         Row: {
+          analysis_duration_ms: number | null
           analyze_error: string | null
           analyzed_at: string | null
+          anotaciones_plano: Json | null
           building_id: string
           confidence: number | null
           created_at: string
@@ -192,6 +194,7 @@ export type Database = {
           modelo_fallback: boolean | null
           modelo_usado: string | null
           patios_detectados: number | null
+          plano_render_url: string | null
           plantas_levantables: number | null
           plantas_max_normativa: number | null
           plantas_visibles: number | null
@@ -203,8 +206,10 @@ export type Database = {
           ventanas_por_planta: Json | null
         }
         Insert: {
+          analysis_duration_ms?: number | null
           analyze_error?: string | null
           analyzed_at?: string | null
+          anotaciones_plano?: Json | null
           building_id: string
           confidence?: number | null
           created_at?: string
@@ -215,6 +220,7 @@ export type Database = {
           modelo_fallback?: boolean | null
           modelo_usado?: string | null
           patios_detectados?: number | null
+          plano_render_url?: string | null
           plantas_levantables?: number | null
           plantas_max_normativa?: number | null
           plantas_visibles?: number | null
@@ -226,8 +232,10 @@ export type Database = {
           ventanas_por_planta?: Json | null
         }
         Update: {
+          analysis_duration_ms?: number | null
           analyze_error?: string | null
           analyzed_at?: string | null
+          anotaciones_plano?: Json | null
           building_id?: string
           confidence?: number | null
           created_at?: string
@@ -238,6 +246,7 @@ export type Database = {
           modelo_fallback?: boolean | null
           modelo_usado?: string | null
           patios_detectados?: number | null
+          plano_render_url?: string | null
           plantas_levantables?: number | null
           plantas_max_normativa?: number | null
           plantas_visibles?: number | null
