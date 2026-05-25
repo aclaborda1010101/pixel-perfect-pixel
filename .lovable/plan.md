@@ -1,159 +1,119 @@
-## Findings
+# Scoring v2 Inmobiliario — Catastro + Google Maps + Gemini Vision
 
-### (a) Dónde se construye la lista de properties del sync
-- **Ruta exacta:** `supabase/functions/_shared/hubspot.ts`
-- **Línea exacta del array:** `38`
-- **Uso en el sync:** `supabase/functions/hubspot_sync_deals/index.ts:77-80`
-  - `DEAL_PROPERTIES.forEach((p) => params.append('properties', p));`
-  - `const data = await hubspotFetch(`/crm/v3/objects/deals?${params.toString()}`);`
-- **Conclusión:** el sync de deals actual usa **GET `/crm/v3/objects/deals`**, no `POST /crm/v3/objects/deals/search`.
+Capa nueva detrás del flag `scoring_v2_enabled`. NO toca el scoring v1 actual.
 
-### (b) Array literal de propiedades que se está pidiendo ahora mismo
-```ts
-[
-  'dealname', 'dealstage', 'pipeline', 'amount', 'address',
-  'createdate', 'hs_lastmodifieddate', 'closedate', 'hubspot_owner_id',
-  'num_associated_contacts', 'hs_deal_stage_probability',
-  'hs_is_closed', 'hs_is_closed_won', 'hs_is_closed_lost', 'hs_closed_won_count',
-  'hs_days_to_close_raw', 'hs_v2_time_in_current_stage', 'hs_forecast_amount',
-  'hs_v2_date_entered_current_stage',
-  'referencia_catastral',
-  'metros_cuadrados__exactos_',
-  'dividido',
-  'verificado',
-  'tenemos_la_nota_simple_',
-  'prioridad_del_activo',
-  'distrito_zona__clonada_',
-  'barrios_completos__clonada_',
-  'tipo_de_activo___inmueble__clonada_',
-  'tipo_de_oportunidad__clonada_',
-  'valoracion_viviendas',
-  'valoracion_locales',
-  'precio_del_vendedor__exacto___clonada_',
-  'precio_del_vendedor__rango___clonada_',
-  'metros_cuadrados__rango_',
-  'viviendas__unidades_',
-  'metros_cuadrados_viviendas',
-  'comercio__unidades_',
-  'metros_cuadrados_comercio',
-  'oficina__unidades_',
-  'metros_cuadrado_oficina',
-  'almacen__unidades_',
-  'metros_cuadrados_almacen',
-  'aparcamiento__unidades_',
-  'elementos_comunes__unidades_',
-  'metros_cuadrados_elementos_comunes',
-  'ocio_hostel__unidades_',
-  'metros_cuadrados_ocio_hostel',
-  'industrial__unidades_',
-  'metros_cuadrados_industrial',
-]
-```
-- **Sí está** `viviendas__unidades_`
-- **No está** `viviendas__unidades___clonada_`
+**Stack IA confirmado (ambos Google, ambos vía Lovable AI Gateway → 0 secrets nuevos de IA)**:
+- **Primario**: `google/gemini-2.5-flash` (barato, rápido, multimodal).
+- **Fallback**: `google/gemini-3.5-flash` si `confidence<0.6` o JSON inválido tras 3 reintentos.
+- Endpoint único: `https://ai.gateway.lovable.dev/v1/chat/completions` con `LOVABLE_API_KEY` (ya existe).
+- **NO se usa Claude ni GEMINI_API_KEY directa** → simplifica enormemente.
+- SVG→PNG con `npm:@resvg/resvg-js` antes de mandar a la IA (las imágenes van como `image_url` data URI en formato OpenAI-compatible que acepta el gateway).
+- Matching seed: `buildings.metadatos->>'hs_object_id'` + fuzzy `pg_trgm`.
+- Concurrencia: batches de 50, `has_more=true`, UI hace polling.
 
-### (c) Log real del último run del sync de deals
-He leído el log persistido en `hubspot_sync_log` / `hubspot_sync_state`.
+---
 
-- **Último run:** `e7aaec8e-6f01-4723-99e5-8992d1d3b97e`
-- **Started:** `2026-05-18 06:28:41.55833+00`
-- **Finished:** `2026-05-18 06:28:42.046+00`
-- **Status interno del sync:** `error`
-- **Pages fetched:** `0`
+## 1. Migración SQL (única)
 
-**Cuerpo literal guardado en `error_message` / `last_error`:**
-```text
-HubSpot /crm/v3/objects/deals?limit=100&archived=false&properties=dealname&properties=dealstage&properties=pipeline&properties=amount&properties=address&properties=createdate&properties=hs_lastmodifieddate&properties=closedate&properties=hubspot_owner_id&properties=num_associated_contacts&properties=hs_deal_stage_probability&properties=hs_is_closed&properties=hs_is_closed_won&properties=hs_is_closed_lost&properties=hs_closed_won_count&properties=hs_days_to_close_raw&properties=hs_v2_time_in_current_stage&properties=hs_forecast_amount&properties=hs_v2_date_entered_current_stage&properties=referencia_catastral&properties=metros_cuadrados__exactos_&properties=dividido&properties=verificado&properties=tenemos_la_nota_simple_&properties=prioridad_del_activo&properties=distrito_zona__clonada_&properties=barrios_completos__clonada_&properties=tipo_de_activo___inmueble__clonada_&properties=tipo_de_oportunidad__clonada_&properties=valoracion_viviendas&properties=valoracion_locales&properties=precio_del_vendedor__exacto___clonada_&properties=precio_del_vendedor__rango___clonada_&properties=metros_cuadrados__rango_&properties=viviendas__unidades_&properties=metros_cuadrados_viviendas&properties=comercio__unidades_&properties=metros_cuadrados_comercio&properties=oficina__unidades_&properties=metros_cuadrado_oficina&properties=almacen__unidades_&properties=metros_cuadrados_almacen&properties=aparcamiento__unidades_&properties=elementos_comunes__unidades_&properties=metros_cuadrados_elementos_comunes&properties=ocio_hostel__unidades_&properties=metros_cuadrados_ocio_hostel&properties=industrial__unidades_&properties=metros_cuadrados_industrial&after=34511676549 403: {"status":"error","message":"This app hasn't been granted all required scopes to make this call. Read more about required scopes here: https://developers.hubspot.com/scopes.","correlationId":"019e39c5-bd48-79a3-b9c7-ad7a7f49585b","errors":[{"message":"One or more of the following scopes are required.","context":{"requiredGranularScopes":["crm.schemas.deals.read","crm.objects.deals.read","crm.objects.deals.highly_sensitive.read.v2","crm.objects.deals.sensitive.read.v2"]}}],"links":{"scopes":"https://developers.hubspot.com/scopes"},"category":"MISSING_SCOPES"}
-```
+### Tablas nuevas (RLS: `authenticated SELECT`, `service_role` ALL)
+- `catastro_data` (PK `refcatastral`, FK `building_id`, `lat/lon`, `plano_url`, `dnprc_json`, `ancho_calle_m`, `fetched_at`, `fetch_error`)
+- `building_imagery` (PK uuid, FK `building_id`, `source CHECK IN ('satellite','streetview','oblique')`, `heading/pitch/zoom`, `file_path`, `public_url`, `fetched_at`)
+- `building_analysis` (PK uuid, `building_id UNIQUE`, métricas + `modelo_usado text`, `modelo_fallback boolean`, `sources_used jsonb`, `confidence numeric`, `llm_raw_response jsonb`, `analyzed_at`, `analyze_error`)
+- `app_settings` (PK `key`, `value jsonb`) — seed: `scoring_v2_enabled=false`, `google_maps_api_key_configured=false`
+- `scoring_v2_seed` (PK `edificio` + cols CSV + `matched_building_id`, `matched_at`)
+- `scoring_v2_jobs` (PK uuid, `phase`, `status`, `total/processed/failed`, `log jsonb`, `started_at/finished_at`)
+- `scoring_v2_feedback` (PK uuid, FK `building_id`, `aviso_key`, `vote int`, `user_email`, `notes`, `created_at`)
+- `building_processing_status` (PK `building_id`, `current_phase`, `status`, `started_at/finished_at`, `error`)
 
-**Importante:**
-- Esto **no es una inferencia** mía; ese string está guardado literalmente en base de datos por `hubspotFetch()` al lanzar el error en `supabase/functions/_shared/hubspot.ts:31-33`.
-- **No he podido sacar edge logs enriquecidos** con más detalle: `supabase.edge_function_logs('hubspot_sync_deals')` no devolvió entradas y `analytics_query` tampoco devolvió filas para esa función. La evidencia real disponible está en la tabla de logs propia del proyecto.
+### Columnas nuevas en `buildings`
+`refcatastral text UNIQUE`, `score_v2 numeric`, `score_v2_breakdown jsonb`, `score_v2_updated_at timestamptz`, `avisos_inteligentes jsonb`.
 
-### (d) Revisión de propiedades con patrón `_clonada_`
-En `DEAL_PROPERTIES` hay **6** campos ya migrados a `_clonada_`:
-1. `distrito_zona__clonada_`
-2. `barrios_completos__clonada_`
-3. `tipo_de_activo___inmueble__clonada_`
-4. `tipo_de_oportunidad__clonada_`
-5. `precio_del_vendedor__exacto___clonada_`
-6. `precio_del_vendedor__rango___clonada_`
+### Buckets Storage
+`catastro` y `building_imagery` (públicos) + policies de lectura pública y escritura solo `service_role`.
 
-El bloque de “distribución de usos” sigue entero en nombres **no clonados**:
-- `viviendas__unidades_`
-- `metros_cuadrados_viviendas`
-- `comercio__unidades_`
-- `metros_cuadrados_comercio`
-- `oficina__unidades_`
-- `metros_cuadrado_oficina`
-- `almacen__unidades_`
-- `metros_cuadrados_almacen`
-- `aparcamiento__unidades_`
-- `elementos_comunes__unidades_`
-- `metros_cuadrados_elementos_comunes`
-- `ocio_hostel__unidades_`
-- `metros_cuadrados_ocio_hostel`
-- `industrial__unidades_`
-- `metros_cuadrados_industrial`
+### Funciones PL/pgSQL
+- `compute_score_v2(p_building_id uuid) RETURNS numeric` — escribe `score_v2`, `score_v2_breakdown`, `avisos_inteligentes`, `score_v2_updated_at`.
+- `madrid_plantas_max(ancho_m numeric)` — `>20→7`, `12-20→6`, `8-12→5`, `<8→4`.
+- `recompute_all_scores_v2() RETURNS int`.
 
-Además, hay **consumidores aguas abajo** que hoy leen esos nombres antiguos en la vista `v_building_score`:
-- `supabase/migrations/20260519040845_51b56d86-2319-4fdb-a6b7-17a91ba53c41.sql:11,61-74`
-- `supabase/migrations/20260518041536_9219f5bf-573e-48ab-83a5-82cd8fe9ccb6.sql:11-14,46-59`
+---
 
-## Plan de fix propuesto
+## 2. Secrets
 
-### Opción A — Sustituir el nombre antiguo por `_clonada_`
-**Qué tocaría**
-- `supabase/functions/_shared/hubspot.ts`
-  - cambiar `viviendas__unidades_` por `viviendas__unidades___clonada_`
-  - y, si confirmas los demás en HubSpot UI, repetir para el resto del bloque de usos
-- `supabase/migrations/...v_building_score...sql`
-  - actualizar la vista para leer `metadatos->>'viviendas__unidades___clonada_'`
-  - idealmente revisar los demás campos de usos si también tienen versión `_clonada_`
+**Sólo 1 secret nuevo a pedir desde `/admin`** (no usa `add_secret`, lo guarda en `app_settings`): `GOOGLE_MAPS_API_KEY`.
 
-**Pros**
-- Lista de properties más limpia
-- Menos payload por petición a HubSpot
-- Fuente única y explícita
+`LOVABLE_API_KEY` ya existe → cubre Gemini 2.5 Flash + Gemini 3.5 Flash. **Cero secrets de IA pendientes.**
 
-**Contras**
-- Más frágil si en HubSpot conviven ambas o vuelven a renombrarlas
-- Requiere conocer con certeza cada nombre interno `_clonada_`
-- Si algún deal histórico solo conserva el nombre viejo, lo perderías en el mapping
+---
 
-### Opción B — Pedir ambas y hacer coalesce en el mapping
-**Qué tocaría**
-- `supabase/functions/_shared/hubspot.ts`
-  - añadir `viviendas__unidades___clonada_` sin quitar `viviendas__unidades_`
-  - mismo patrón para el resto del bloque si existen clones
-- `supabase/migrations/...v_building_score...sql`
-  - cambiar a algo como coalesce entre `_clonada_` y el antiguo
-  - por ejemplo para viviendas: primero `_clonada_`, luego la antigua, luego `num_viviendas`
-- Si hay UI o queries directas contra `buildings.metadatos`, revisar también esos accesos
+## 3. Edge functions (6 nuevas)
 
-**Pros**
-- Más robusta ante convivencia de nombres viejos/nuevos
-- Menor riesgo de perder datos históricos
-- Permite migración progresiva
+| Nombre | Input | Output |
+|---|---|---|
+| `seed-edificios-import` | multipart CSV | `{matched, unmatched:[], total}` |
+| `fetch-catastro-data` | `{building_id}` | `{refcatastral, lat, lon, plano_url, status}` |
+| `fetch-google-imagery` | `{building_id}` | `{imagenes:[…], skipped:[…]}` |
+| `analyze-building-vision` | `{building_id}` | `{analysis_id, score_v2, modelo_usado, modelo_fallback}` |
+| `batch-pipeline-scoring-v2` | `{phase, cursor?, job_id?}` | `{job_id, processed, failed, has_more, next_cursor}` |
+| `process-building-full` | `{building_id, force?}` | `{status, refcatastral, score_v2}` (orquesta los 3 pasos) |
 
-**Contras**
-- Más complejidad en mapping y vista
-- Payload algo mayor
-- Mantiene deuda técnica hasta consolidar nombres definitivos
+### Detalles clave
+- **Nominatim**: `User-Agent: AffluxProperty/1.0 (acifuentes@abius.es)`, sleep 1.1s.
+- **Catastro**: `Consulta_RCCOOR` + `Consulta_DNPRC` JSON; `GeneraGraficoParcela.aspx` → regex `<svg…</svg>` → bucket `catastro/{refcat}.svg`. Idempotente.
+- **Google Static**: 1 satélite z=20, 1 oblicua hybrid z=19, 4 Street View (h=0/90/180/270, fov=80, pitch=10). Skip si `<5KB`.
+- **Vision (Lovable AI Gateway, OpenAI-compatible)**:
+  ```
+  POST https://ai.gateway.lovable.dev/v1/chat/completions
+  { "model": "google/gemini-2.5-flash",
+    "messages": [{"role":"user","content":[
+       {"type":"text","text": prompt},
+       {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}
+    ]}],
+    "response_format": {"type":"json_object"} }
+  ```
+  Si parse falla 3× con backoff 2/4/8s **o** `confidence<0.6` → mismo payload con `model: "google/gemini-3.5-flash"`. Persiste `modelo_usado` y `modelo_fallback=true`.
+  Manejo explícito de **429** y **402** del gateway → guarda en `analyze_error` y devuelve mensaje claro.
+- Validación input con **Zod** en cada handler. CORS estándar.
 
-## Recomendación
-- **Recomiendo la Opción B** como fix inicial.
-- Motivo: tú ya has validado que `viviendas__unidades___clonada_` es la propiedad buena en UI, pero el log real sigue mostrando un 403 global del endpoint; como coexistieron nombres viejos y nuevos, el enfoque con coalesce minimiza riesgo y no obliga a apostar todo a un único rename en la primera pasada.
+---
 
-## Detalles técnicos
-- El 403 actual ocurre en la llamada global a `/crm/v3/objects/deals` antes de procesar ningún deal, así que hay **dos problemas potencialmente independientes**:
-  1. la app/token/gateway devuelve `MISSING_SCOPES` en ese endpoint concreto;
-  2. aunque el endpoint volviera a responder, `viviendas__unidades_` seguiría apuntando al campo equivocado para Ferraz 36.
-- O sea: **corregir a `_clonada_` arregla el mapping**, pero **no demuestra por sí solo** que el 403 desaparezca.
-- También hay un posible typo a revisar después: `metros_cuadrado_oficina` (sin `s` en `cuadrado`).
+## 4. UI
 
-## Implementación propuesta cuando salgas de plan mode
-1. Añadir los nombres `_clonada_` del bloque de usos en `DEAL_PROPERTIES`.
-2. Actualizar `v_building_score` para hacer coalesce `_clonada_` → antiguo.
-3. Revisar si hay consultas directas a `metadatos` fuera de la vista.
-4. Solo después, ejecutar un sync controlado y validar Ferraz 36 y cobertura global.
+### `src/pages/comercial/EdificioDetalle.tsx`
+- Header: botón gradient "📥 Descargar Catastro + Planos + Análisis IA" / "🔄 Re-procesar" (sólo si flag).
+- Stepper inline 3 pasos (Catastro 📍 → Google 📷 → IA 🧠) con polling 2s a `building_processing_status` vía `useQuery({refetchInterval})`.
+- Tab nuevo "Análisis IA" (grid 12 col): izda visor SVG + thumbnails con lightbox; dcha score grande, desglose tabla, avisos con feedback thumbs, métricas, panel **POTENCIAL DE ELEVACIÓN** naranja con visualización vertical y modal normativa Madrid.
+
+### `src/pages/comercial/Edificios.tsx`
+- Columna ordenable "Score v2" (default desc cuando flag activo).
+- Filtros: multi-select avisos (7 opciones) + estado análisis (Sin Catastro / Sin Imagery / Sin Vision / Completo).
+
+### Admin (en `src/pages/Settings.tsx` como nuevo `<ScoringV2Panel />`)
+- Toggle `scoring_v2_enabled`.
+- Input + "Validar y guardar" `GOOGLE_MAPS_API_KEY` (probe Static Maps API).
+- **No pide GEMINI_API_KEY** (usa LOVABLE_API_KEY).
+- Upload CSV seed → `seed-edificios-import`.
+- Grid 2×2 de batches con progress bar (polling `scoring_v2_jobs` 2s).
+- KPIs + histograma `score_v2` (0-25/26-50/51-75/76-100/100+).
+- Tabla últimos 10 jobs.
+
+### Helpers
+- `src/lib/scoringV2.ts`: `useScoringV2Flag()`, `useBuildingProcessing(buildingId)`.
+- `src/components/comercial/scoring-v2/`: `StepperProcessing.tsx`, `ImageLightbox.tsx`, `ElevationVisual.tsx`, `AvisosChips.tsx`, `DesgloseTable.tsx`, `ScoringV2Tab.tsx`, `ProcessFullButton.tsx`.
+- `src/components/settings/ScoringV2Panel.tsx`.
+
+---
+
+## 5. Orden de build
+
+1. Migración SQL (espera aprobación).
+2. 6 edge functions en paralelo.
+3. UI (helpers + componentes + edits en `EdificioDetalle.tsx`, `Edificios.tsx`, `Settings.tsx`).
+4. Smoke test: `fetch-catastro-data` sobre 1 building → reporte.
+5. Reporte final con pasos pendientes para ti en `/admin` (sólo 2: toggle flag + pegar `GOOGLE_MAPS_API_KEY`).
+
+## 6. Out of scope
+- No lanzo los batches (los lanzas tú desde `/admin`).
+- No valido los 3 seed hasta tener tu primer run.
+
+¿Apruebas para pasar a build?

@@ -59,6 +59,24 @@ export type Database = {
         }
         Relationships: []
       }
+      app_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       assets: {
         Row: {
           building_id: string | null
@@ -157,6 +175,100 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_owner_score"
             referencedColumns: ["owner_id"]
+          },
+        ]
+      }
+      building_analysis: {
+        Row: {
+          analyze_error: string | null
+          analyzed_at: string | null
+          building_id: string
+          confidence: number | null
+          created_at: string
+          esquina: boolean | null
+          id: string
+          llm_raw_response: Json | null
+          metricas_extra: Json | null
+          modelo_fallback: boolean | null
+          modelo_usado: string | null
+          patios_detectados: number | null
+          plantas_levantables: number | null
+          plantas_max_normativa: number | null
+          plantas_visibles: number | null
+          protegido_historicamente: boolean | null
+          segundas_escaleras: boolean | null
+          sources_used: Json | null
+          updated_at: string
+          ventanas_fachada_total: number | null
+          ventanas_por_planta: Json | null
+        }
+        Insert: {
+          analyze_error?: string | null
+          analyzed_at?: string | null
+          building_id: string
+          confidence?: number | null
+          created_at?: string
+          esquina?: boolean | null
+          id?: string
+          llm_raw_response?: Json | null
+          metricas_extra?: Json | null
+          modelo_fallback?: boolean | null
+          modelo_usado?: string | null
+          patios_detectados?: number | null
+          plantas_levantables?: number | null
+          plantas_max_normativa?: number | null
+          plantas_visibles?: number | null
+          protegido_historicamente?: boolean | null
+          segundas_escaleras?: boolean | null
+          sources_used?: Json | null
+          updated_at?: string
+          ventanas_fachada_total?: number | null
+          ventanas_por_planta?: Json | null
+        }
+        Update: {
+          analyze_error?: string | null
+          analyzed_at?: string | null
+          building_id?: string
+          confidence?: number | null
+          created_at?: string
+          esquina?: boolean | null
+          id?: string
+          llm_raw_response?: Json | null
+          metricas_extra?: Json | null
+          modelo_fallback?: boolean | null
+          modelo_usado?: string | null
+          patios_detectados?: number | null
+          plantas_levantables?: number | null
+          plantas_max_normativa?: number | null
+          plantas_visibles?: number | null
+          protegido_historicamente?: boolean | null
+          segundas_escaleras?: boolean | null
+          sources_used?: Json | null
+          updated_at?: string
+          ventanas_fachada_total?: number | null
+          ventanas_por_planta?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_analysis_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_analysis_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_analysis_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -265,6 +377,64 @@ export type Database = {
           },
         ]
       }
+      building_imagery: {
+        Row: {
+          building_id: string
+          fetched_at: string
+          file_path: string
+          heading: number | null
+          id: string
+          pitch: number | null
+          public_url: string
+          source: string
+          zoom: number | null
+        }
+        Insert: {
+          building_id: string
+          fetched_at?: string
+          file_path: string
+          heading?: number | null
+          id?: string
+          pitch?: number | null
+          public_url: string
+          source: string
+          zoom?: number | null
+        }
+        Update: {
+          building_id?: string
+          fetched_at?: string
+          file_path?: string
+          heading?: number | null
+          id?: string
+          pitch?: number | null
+          public_url?: string
+          source?: string
+          zoom?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_imagery_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_imagery_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_imagery_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       building_owners: {
         Row: {
           building_id: string
@@ -354,6 +524,58 @@ export type Database = {
           },
         ]
       }
+      building_processing_status: {
+        Row: {
+          building_id: string
+          current_phase: string | null
+          error: string | null
+          finished_at: string | null
+          started_at: string | null
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          building_id: string
+          current_phase?: string | null
+          error?: string | null
+          finished_at?: string | null
+          started_at?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          building_id?: string
+          current_phase?: string | null
+          error?: string | null
+          finished_at?: string | null
+          started_at?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       building_tasks: {
         Row: {
           building_id: string
@@ -426,6 +648,7 @@ export type Database = {
       }
       buildings: {
         Row: {
+          avisos_inteligentes: Json | null
           catastro_ref: string | null
           ciudad: string
           codigo_postal: string | null
@@ -438,9 +661,14 @@ export type Database = {
           metadatos: Json
           notas: string | null
           numero_propietarios: number | null
+          refcatastral: string | null
+          score_v2: number | null
+          score_v2_breakdown: Json | null
+          score_v2_updated_at: string | null
           updated_at: string
         }
         Insert: {
+          avisos_inteligentes?: Json | null
           catastro_ref?: string | null
           ciudad: string
           codigo_postal?: string | null
@@ -453,9 +681,14 @@ export type Database = {
           metadatos?: Json
           notas?: string | null
           numero_propietarios?: number | null
+          refcatastral?: string | null
+          score_v2?: number | null
+          score_v2_breakdown?: Json | null
+          score_v2_updated_at?: string | null
           updated_at?: string
         }
         Update: {
+          avisos_inteligentes?: Json | null
           catastro_ref?: string | null
           ciudad?: string
           codigo_postal?: string | null
@@ -468,6 +701,10 @@ export type Database = {
           metadatos?: Json
           notas?: string | null
           numero_propietarios?: number | null
+          refcatastral?: string | null
+          score_v2?: number | null
+          score_v2_breakdown?: Json | null
+          score_v2_updated_at?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -653,6 +890,70 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_owner_score"
             referencedColumns: ["owner_id"]
+          },
+        ]
+      }
+      catastro_data: {
+        Row: {
+          ancho_calle_m: number | null
+          building_id: string | null
+          created_at: string
+          dnprc_json: Json | null
+          fetch_error: string | null
+          fetched_at: string | null
+          lat: number | null
+          lon: number | null
+          plano_url: string | null
+          refcatastral: string
+          updated_at: string
+        }
+        Insert: {
+          ancho_calle_m?: number | null
+          building_id?: string | null
+          created_at?: string
+          dnprc_json?: Json | null
+          fetch_error?: string | null
+          fetched_at?: string | null
+          lat?: number | null
+          lon?: number | null
+          plano_url?: string | null
+          refcatastral: string
+          updated_at?: string
+        }
+        Update: {
+          ancho_calle_m?: number | null
+          building_id?: string | null
+          created_at?: string
+          dnprc_json?: Json | null
+          fetch_error?: string | null
+          fetched_at?: string | null
+          lat?: number | null
+          lon?: number | null
+          plano_url?: string | null
+          refcatastral?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catastro_data_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catastro_data_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_data_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -2068,6 +2369,149 @@ export type Database = {
         }
         Relationships: []
       }
+      scoring_v2_feedback: {
+        Row: {
+          aviso_key: string
+          building_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          user_email: string | null
+          vote: number
+        }
+        Insert: {
+          aviso_key: string
+          building_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          user_email?: string | null
+          vote: number
+        }
+        Update: {
+          aviso_key?: string
+          building_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          user_email?: string | null
+          vote?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scoring_v2_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scoring_v2_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "scoring_v2_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scoring_v2_jobs: {
+        Row: {
+          cursor: string | null
+          failed: number | null
+          finished_at: string | null
+          id: string
+          log: Json | null
+          phase: string
+          processed: number | null
+          started_at: string | null
+          status: string
+          total: number | null
+        }
+        Insert: {
+          cursor?: string | null
+          failed?: number | null
+          finished_at?: string | null
+          id?: string
+          log?: Json | null
+          phase: string
+          processed?: number | null
+          started_at?: string | null
+          status?: string
+          total?: number | null
+        }
+        Update: {
+          cursor?: string | null
+          failed?: number | null
+          finished_at?: string | null
+          id?: string
+          log?: Json | null
+          phase?: string
+          processed?: number | null
+          started_at?: string | null
+          status?: string
+          total?: number | null
+        }
+        Relationships: []
+      }
+      scoring_v2_seed: {
+        Row: {
+          created_at: string
+          direccion: string | null
+          edificio: string
+          hubspot_deal_id: string | null
+          matched_at: string | null
+          matched_building_id: string | null
+          raw: Json | null
+        }
+        Insert: {
+          created_at?: string
+          direccion?: string | null
+          edificio: string
+          hubspot_deal_id?: string | null
+          matched_at?: string | null
+          matched_building_id?: string | null
+          raw?: Json | null
+        }
+        Update: {
+          created_at?: string
+          direccion?: string | null
+          edificio?: string
+          hubspot_deal_id?: string | null
+          matched_at?: string | null
+          matched_building_id?: string | null
+          raw?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scoring_v2_seed_matched_building_id_fkey"
+            columns: ["matched_building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scoring_v2_seed_matched_building_id_fkey"
+            columns: ["matched_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "scoring_v2_seed_matched_building_id_fkey"
+            columns: ["matched_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -2367,6 +2811,7 @@ export type Database = {
           total: number
         }[]
       }
+      compute_score_v2: { Args: { p_building_id: string }; Returns: number }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
@@ -2378,6 +2823,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
       match_building_fuzzy: {
         Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
         Returns: string
