@@ -10,13 +10,16 @@ async function getMupdf() {
 
 const NOMINATIM_UA = "AffluxProperty/1.0 (acifuentes@abius.es)";
 const SEDE = "https://www1.sedecatastro.gob.es";
+// Endpoint REAL del PDF "Consulta Descriptiva y Gráfica" (incluye croquis + datos +
+// distribución por plantas). No requiere captcha y acepta sólo refcat (20 chars).
+// Validado contra 0382201VK4708C0001IZ → 861KB, 7 páginas.
 const PLANTAS_PDF_CANDIDATES = (refcat: string) => [
-  `${SEDE}/Cartografia/GeneraDocPlantas.aspx?refcat=${refcat}&del=&mun=`,
-  `${SEDE}/Cartografia/GeneraGraficoPlantas.aspx?refcat=${refcat}&del=&mun=`,
-  `${SEDE}/Cartografia/GeneraDocPlantasParcela.aspx?refcat=${refcat}`,
+  `${SEDE}/CYCBienInmueble/SECImprimirCroquisYDatos.aspx?refcat=${refcat}`,
+  // Fallback (mismo PDF servido vía Cartografia con del/mun resueltos)
+  `${SEDE}/CYCBienInmueble/SECImprimirDatos.aspx?RefC=${refcat}`,
 ];
 const PLANTAS_HTML_PAGE = (refcat: string) =>
-  `${SEDE}/Cartografia/mapa.aspx?refcat=${refcat}&del=&mun=&final=`;
+  `${SEDE}/CYCBienInmueble/OVCConCiud.aspx?UrbRus=U&RefC=${refcat}`;
 const UA = "Mozilla/5.0 (AffluxProperty/1.0; +mailto:acifuentes@abius.es)";
 
 async function tryFetchPdf(url: string): Promise<Uint8Array | null> {
