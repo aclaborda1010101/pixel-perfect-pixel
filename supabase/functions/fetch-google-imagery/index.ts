@@ -41,6 +41,10 @@ Deno.serve(async (req) => {
     const shots = [
       { source: "satellite", url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=20&size=640x640&maptype=satellite&key=${API_KEY}`, name: "satellite.png", heading: null, pitch: null, zoom: 20 },
       { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique.png",   heading: null, pitch: null, zoom: 19 },
+      // Vistas oblicuas adicionales (rumbos 45º y 225º) — permiten que Gemini vea los patios interiores
+      // desde dos ángulos distintos y estime las ventanas exteriores a patio.
+      { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_45.png",  heading: 45,  pitch: null, zoom: 19 },
+      { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_225.png", heading: 225, pitch: null, zoom: 19 },
       ...[0, 90, 180, 270].map((h) => ({
         source: "streetview",
         url: `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${center}&fov=80&heading=${h}&pitch=10&key=${API_KEY}`,
