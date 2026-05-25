@@ -41,6 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { syncBuildingTasks } from "@/lib/buildingTasks";
+import { ScoringV2Section } from "@/components/comercial/scoring-v2/ScoringV2Section";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -283,6 +284,9 @@ export default function ComercialEdificioDetalle() {
 
       {/* Distribución del inmueble */}
       <DistribucionInmueble s={s} />
+
+      {/* Scoring v2 IA (feature flag) */}
+      {id && <ScoringV2Section buildingId={id} />}
 
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
