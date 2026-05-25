@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,7 @@ type Row = {
   ratio: number | null;
   raw: any;
   assigned: boolean;
+  cartera_demo: boolean;
 };
 
 type SortKey =
@@ -94,6 +95,13 @@ function BuildingCard({ r }: { r: Row }) {
               {r.assigned && (
                 <Badge variant="gold" className="h-4 px-1.5 text-[9px]">
                   Tu cartera
+                </Badge>
+              )}
+              {r.cartera_demo && (
+                <Badge
+                  className="h-4 border-0 bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 text-[9px] text-white"
+                >
+                  DEMO 25/05
                 </Badge>
               )}
             </div>
@@ -170,6 +178,8 @@ function BuildingCard({ r }: { r: Row }) {
 export default function ComercialEdificios() {
   const { user } = useAuth();
   const userId = user?.id;
+  const [searchParams] = useSearchParams();
+  const urlFilter = searchParams.get("filter");
   const [tab, setTab] = useState<"mia" | "todos">("mia");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("score_desc");
@@ -191,11 +201,14 @@ export default function ComercialEdificios() {
           .select("*")
           .order("score", { ascending: false })
           .range(from, from + PAGE - 1);
-      const [{ data: assignments }, firstPage] = await Promise.all([
+      const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
         (supabase.from("building_assignments" as any) as any)
           .select("building_id")
           .eq("user_id", userId)
           .eq("status", "active"),
+        (supabase.from("buildings" as any) as any)
+          .select("id")
+          .eq("cartera_demo_seed", true),
         fetchPage(0),
       ]);
       let scores: any[] = firstPage.data ?? [];
@@ -209,6 +222,7 @@ export default function ComercialEdificios() {
         from += PAGE;
       }
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
+      const demoIds = new Set<string>((demoBldgs ?? []).map((b: any) => b.id));
       const rows: Row[] = (scores ?? []).map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
@@ -226,6 +240,7 @@ export default function ComercialEdificios() {
           ratio: m2 && viv ? m2 / viv : null,
           raw: b,
           assigned: assignedIds.has(b.id),
+          cartera_demo: demoIds.has(b.id),
         };
       });
       return { rows };
@@ -233,7 +248,13 @@ export default function ComercialEdificios() {
   });
 
   const rows = data?.rows ?? [];
-  const mias = useMemo(() => rows.filter((r) => r.assigned), [rows]);
+  // "Mi cartera" = asignados al user actual OR cartera_demo_seed=true
+  const mias = useMemo(
+    () => rows.filter((r) => r.assigned || r.cartera_demo),
+    [rows],
+  );
+  // Si la URL trae ?filter=cartera_demo aplicamos solo demo y forzamos sort score desc
+  const carteraDemoOnly = urlFilter === "cartera_demo";
 
   const allBarrios = useMemo(() => {
     const set = new Set<string>();
