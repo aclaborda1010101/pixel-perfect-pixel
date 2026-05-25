@@ -212,6 +212,9 @@ export type Database = {
           tiene_sotano: boolean | null
           updated_at: string
           ventanas_fachada_total: number | null
+          ventanas_patios_por_patio: Json | null
+          ventanas_patios_por_planta: Json | null
+          ventanas_patios_total: number | null
           ventanas_por_planta: Json | null
           viviendas_por_planta_tipo: number | null
         }
@@ -248,6 +251,9 @@ export type Database = {
           tiene_sotano?: boolean | null
           updated_at?: string
           ventanas_fachada_total?: number | null
+          ventanas_patios_por_patio?: Json | null
+          ventanas_patios_por_planta?: Json | null
+          ventanas_patios_total?: number | null
           ventanas_por_planta?: Json | null
           viviendas_por_planta_tipo?: number | null
         }
@@ -284,6 +290,9 @@ export type Database = {
           tiene_sotano?: boolean | null
           updated_at?: string
           ventanas_fachada_total?: number | null
+          ventanas_patios_por_patio?: Json | null
+          ventanas_patios_por_planta?: Json | null
+          ventanas_patios_total?: number | null
           ventanas_por_planta?: Json | null
           viviendas_por_planta_tipo?: number | null
         }

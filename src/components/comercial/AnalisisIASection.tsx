@@ -83,16 +83,27 @@ export function AnalisisIASection({ buildingId }: { buildingId: string }) {
         </div>
 
         {hasData ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="Ventanas fachada" value={a?.ventanas_fachada_total ?? "—"} />
-            <Stat label="Patios" value={a?.patios_detectados ?? "—"} />
-            <Stat label="Esquina" value={a?.esquina ? "Sí" : "No"} />
-            <Stat label="2ª escalera" value={a?.segundas_escaleras ? "Sí" : "No"} />
-            <Stat label="Plantas visibles" value={a?.plantas_visibles ?? "—"} />
-            <Stat label="Plantas máx norm." value={a?.plantas_max_normativa ?? "—"} />
-            <Stat label="Levantables" value={a?.plantas_levantables ?? "—"} accent={a?.plantas_levantables > 0} />
-            <Stat label="Protegido" value={a?.protegido_historicamente ? "Sí" : "No"} />
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat label="Ventanas fachada" value={a?.ventanas_fachada_total ?? "—"} />
+              <Stat label="Ventanas patios" value={a?.ventanas_patios_total ?? "—"} />
+              <Stat label="Patios" value={a?.patios_detectados ?? "—"} />
+              <Stat label="Esquina" value={a?.esquina ? "Sí" : "No"} />
+              <Stat label="2ª escalera" value={a?.segundas_escaleras ? "Sí" : "No"} />
+              <Stat label="Plantas visibles" value={a?.plantas_visibles ?? "—"} />
+              <Stat label="Plantas máx norm." value={a?.plantas_max_normativa ?? "—"} />
+              <Stat label="Levantables" value={a?.plantas_levantables ?? "—"} accent={a?.plantas_levantables > 0} />
+              <Stat label="Protegido" value={a?.protegido_historicamente ? "Sí" : "No"} />
+            </div>
+            {Array.isArray(a?.patios_codigos) && a!.patios_codigos.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1 text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground">
+                <span>Patios:</span>
+                {a!.patios_codigos.map((c: string, i: number) => (
+                  <span key={i} className="rounded border border-border-faint px-1.5 py-0.5">{c}</span>
+                ))}
+              </div>
+            )}
+          </>
         ) : (
           <div className="text-sm text-muted-foreground">
             Sin análisis IA todavía. Pulsa el botón para procesar Catastro + planos + análisis.

@@ -15,7 +15,13 @@ Te paso las imágenes en este ORDEN (importante):
 CONVENCIONES de etiquetas en el plano catastral (CLAVE):
 - ESC = caja de escaleras. En PISO 01 cuenta cuántas ESC distintas hay; si son 2 no comunicadas espacialmente → 2 escaleras (apto cambio uso hotelero según normativa Madrid). En planta baja la escalera suele comunicar accesos comunes y NO es indicador fiable.
 - VA, VB, VC, VD, ... = viviendas individuales por planta. El máximo de VX en un piso tipo × nº plantas tipo aproxima el total real de viviendas.
-- P01, P02, P03, P04 = patios interiores (presentes en todas las plantas).
+- PATIOS: cualquier recinto INTERIOR cerrado SIN TECHO rodeado total o parcialmente por viviendas/muros del propio edificio. Variantes de etiqueta posibles: P01, P02..., P, PI, PT, PTO, PTO1, PTO2, PAT, P-1, "PATIO". OJO: hay patios SIN etiqueta visible — detéctalos también por la forma: hueco interior dentro de la huella del edificio que se repite en todas las plantas tipo. NO confundir con balcones/terrazas exteriores (esos dan a calle).
+  REGLA DE CONTEO de patios:
+    1) Trabaja sobre el PISO 01 (planta tipo) — los patios son verticales y se repiten.
+    2) Cuenta TODOS los huecos interiores cerrados, etiquetados o no.
+    3) Cruza con la vista cenital de página 1 y con la foto satélite cenital: los patios aparecen como zonas oscuras/sombras dentro de la huella del edificio.
+    4) Devuelve patios_codigos con UNA entrada por patio detectado (si no tiene código, usa "PATIO_1", "PATIO_2"...). patios_detectados DEBE ser igual a la longitud de patios_codigos.
+    5) Si hay discrepancia entre PDF y satélite, baja confidence pero usa el valor más alto verosímil.
 - TZ, TZAA, TZAB, TZ01, TZ02, TZ03 = terrazas / azoteas transitables (planta superior).
 - ACCES01, ACCES02 = accesos comunes (planta baja).
 - CCE = local comercial; GC = garaje (planta baja → terciario).
@@ -34,8 +40,11 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 {
   "ventanas_fachada_total": number,
   "ventanas_por_planta": { "1": number, "2": number, ... },
+  "ventanas_patios_total": number,                 // ventanas que dan a patio interior (todas las plantas tipo). Si no puedes contarlas en plano, ESTÍMALAS: ≈ 1 ventana por vivienda colindante a cada patio × nº plantas tipo.
+  "ventanas_patios_por_planta": { "1": number, "2": number, ... },
+  "ventanas_patios_por_patio": { "P01": number, "PATIO_2": number },  // ventanas por patio si identificable, si no omite la clave
   "patios_detectados": number,
-  "patios_codigos": ["P01","P02"],
+  "patios_codigos": ["P01","P02","PATIO_3"],         // UNA entrada por patio (rellena con PATIO_N si no tiene etiqueta). length == patios_detectados.
   "accesos_codigos": ["ACCES01"],
   "n_escaleras_en_piso01": number,
   "n_escaleras_en_planta_baja": number,
@@ -52,6 +61,8 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
   "metricas_extra": { "observaciones": string },
   "metricas_detalle": {
     "ventanas_fachada_total": { "value": 28, "source": ["street_view_heading_0","satellite"], "reasoning": "...", "confidence": 0.8 },
+    "ventanas_patios_total": { "value": 42, "source": ["catastro_pdf_piso_01","inferred_symmetry"], "reasoning": "7 patios × ~1 ventana/vivienda colindante × 6 plantas tipo", "confidence": 0.6 },
+    "patios_detectados": { "value": 7, "source": ["catastro_pdf_piso_01","satellite"], "reasoning": "...", "confidence": 0.85 },
     "n_escaleras_en_piso01": { "value": 2, "source": ["catastro_pdf_piso_01"], "reasoning": "...", "confidence": 0.95 },
     "esquina": { "value": true, "source": ["satellite","street_view_heading_0"], "reasoning": "...", "confidence": 0.9 },
     "protegido_historicamente": { "value": true, "source": ["street_view_heading_0"], "reasoning": "...", "confidence": 0.7 }
@@ -142,7 +153,7 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     let llm_raw: any = null;
     let lastErr: string | null = null;
 
-    // Intenta primario hasta 3 veces
+    // Intenta hasta 3 veces con el modelo primario (Gemini 3.5 Flash por defecto). Sin fallback a otros modelos.
     for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
       try {
         const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -165,28 +176,6 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
       } catch (e) {
         lastErr = String((e as Error).message ?? e);
         await sleep(2000 * (attempt + 1));
-      }
-    }
-
-    // Fallback si parsed null o confidence baja (no aplicar si ya se forzó modelo premium)
-    if (!model_override && (!parsed || (typeof parsed?.confidence === "number" && parsed.confidence < 0.6))) {
-      modelo_fallback = true;
-      modelo_usado = "google/gemini-3.5-flash";
-      try {
-        const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(buildPayload("google/gemini-3.5-flash")),
-        });
-        const j = await r.json();
-        llm_raw = j;
-        const txt = j?.choices?.[0]?.message?.content ?? "";
-        parsed = JSON.parse(txt);
-      } catch (e) {
-        lastErr = `fallback fail: ${String((e as Error).message ?? e)}`;
       }
     }
 
@@ -218,6 +207,9 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
       building_id,
       ventanas_fachada_total: parsed.ventanas_fachada_total ?? null,
       ventanas_por_planta: parsed.ventanas_por_planta ?? null,
+      ventanas_patios_total: parsed.ventanas_patios_total ?? null,
+      ventanas_patios_por_planta: parsed.ventanas_patios_por_planta ?? null,
+      ventanas_patios_por_patio: parsed.ventanas_patios_por_patio ?? null,
       patios_detectados: parsed.patios_detectados ?? null,
       segundas_escaleras: parsed.segundas_escaleras ?? (
         typeof parsed.n_escaleras_en_piso01 === "number" ? parsed.n_escaleras_en_piso01 >= 2 : null
