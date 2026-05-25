@@ -234,39 +234,39 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     const viviendasTotales = dnprcViviendas;
     const densidad = (isFinite(fachadaLineal) && fachadaLineal > 0 && ventFachada > 0) ? +(ventFachada / fachadaLineal).toFixed(3) : null;
 
-    const desglose: Array<{ codigo: string; area_m2: number | null; ventanas_estimadas: number | null }> = [];
-    let ventanasPatioEstim = 0;
+    // ============================================================
+    // FÓRMULA REFLEJO: ventanas a patio = ventanas_fachada × Σ factor_reflejo_patio_i
+    // Edificios madrileños pasantes: viviendas tienen ventanas a ambos lados.
+    // Factor por patio según superficie: <15→0.3, 15-30→0.5, 30-50→0.7, ≥50→0.9
+    // ============================================================
+    const factorReflejo = (area: number | null): number => {
+      if (area == null || !isFinite(area)) return 0.5; // default patio medio
+      if (area >= 50) return 0.9;
+      if (area >= 30) return 0.7;
+      if (area >= 15) return 0.5;
+      return 0.3;
+    };
+
+    const desglose: Array<{ codigo: string; area_m2: number | null; factor: number; ventanas_estimadas: number }> = [];
+    let sumaFactores = 0;
 
     if (nPatios > 0) {
-      if (viviendasTotales && viviendasTotales > 0) {
-        ventanasPatioEstim = Math.round(viviendasTotales * 2.5);
-        const base = Math.floor(ventanasPatioEstim / nPatios);
-        let resto = ventanasPatioEstim - (base * nPatios);
-        const codigos = patiosCods.length ? patiosCods : Array.from({ length: nPatios }, (_, i) => `PATIO_${i + 1}`);
-        for (const cod of codigos) {
-          const extra = resto > 0 ? 1 : 0;
-          if (resto > 0) resto--;
-          const area = Number(patiosAreas[cod]);
-          desglose.push({
-            codigo: cod,
-            area_m2: isFinite(area) ? area : null,
-            ventanas_estimadas: base + extra,
-          });
-        }
-      } else {
-        ventanasPatioEstim = nPatios * plantasParaFallback * 4;
-        const codigos = patiosCods.length ? patiosCods : Array.from({ length: nPatios }, (_, i) => `PATIO_${i + 1}`);
-        for (const cod of codigos) {
-          const area = Number(patiosAreas[cod]);
-          desglose.push({
-            codigo: cod,
-            area_m2: isFinite(area) ? area : null,
-            ventanas_estimadas: plantasParaFallback * 4,
-          });
-        }
+      const codigos = patiosCods.length ? patiosCods : Array.from({ length: nPatios }, (_, i) => `PATIO_${i + 1}`);
+      for (const cod of codigos) {
+        const areaRaw = Number(patiosAreas[cod]);
+        const area = isFinite(areaRaw) && areaRaw > 0 ? areaRaw : null;
+        const f = factorReflejo(area);
+        sumaFactores += f;
+        desglose.push({
+          codigo: cod,
+          area_m2: area,
+          factor: f,
+          ventanas_estimadas: Math.round(ventFachada * f),
+        });
       }
     }
 
+    let ventanasPatioEstim = Math.round(ventFachada * sumaFactores);
     let ventanasTotal = ventFachada + ventanasPatioEstim;
     let confianzaVent: number = Number(parsed.confidence ?? 0.7);
     let ratioVentanasPorVivienda: number | null = null;
@@ -274,33 +274,28 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
 
     if (viviendasTotales && viviendasTotales > 0) {
       ratioVentanasPorVivienda = +(ventanasTotal / viviendasTotales).toFixed(2);
-      if (ratioVentanasPorVivienda < 4) {
-        ventanasTotal = Math.round(viviendasTotales * 5);
-        ventanasPatioEstim = Math.max(0, ventanasTotal - ventFachada);
+      if (ratioVentanasPorVivienda > 10) {
+        // Cap: forzamos ratio = 8
+        const objetivo = viviendasTotales * 8;
+        ventanasPatioEstim = Math.max(0, Math.round(objetivo - ventFachada));
+        ventanasTotal = ventFachada + ventanasPatioEstim;
+        confianzaVent = 0.5;
+        avisoVent = `Ratio ${ratioVentanasPorVivienda} > 10 fuera de rango. Capeado a ${ventanasTotal} (${viviendasTotales} viv × 8).`;
+        // re-escalar desglose proporcionalmente
+        if (desglose.length > 0 && sumaFactores > 0) {
+          const escala = ventanasPatioEstim / (ventFachada * sumaFactores);
+          for (const d of desglose) d.ventanas_estimadas = Math.round(ventFachada * d.factor * escala);
+        }
+      } else if (ratioVentanasPorVivienda < 4) {
         confianzaVent = 0.4;
-        avisoVent = `Ratio ${ratioVentanasPorVivienda} fuera de rango (4-10). Ajustado a ${ventanasTotal} ventanas totales = ${viviendasTotales} viviendas × 5.`;
-        console.warn("[vision] sanity check ventanas bajo", { building_id, viviendasTotales, ventFachada, nPatios, ratioVentanasPorVivienda, ventanasTotal });
-      } else if (ratioVentanasPorVivienda > 10) {
-        ventanasTotal = Math.round(viviendasTotales * 8);
-        ventanasPatioEstim = Math.max(0, ventanasTotal - ventFachada);
-        confianzaVent = 0.4;
-        avisoVent = `Ratio ${ratioVentanasPorVivienda} fuera de rango (4-10). Ajustado a ${ventanasTotal} ventanas totales = ${viviendasTotales} viviendas × 8.`;
-        console.warn("[vision] sanity check ventanas alto", { building_id, viviendasTotales, ventFachada, nPatios, ratioVentanasPorVivienda, ventanasTotal });
+        avisoVent = `Ratio ${ratioVentanasPorVivienda} < 4. Probablemente Street View no detectó todas las ventanas de fachada. No se ajusta automáticamente.`;
       } else {
         avisoVent = `Ratio ${ratioVentanasPorVivienda} ventanas/vivienda dentro del rango plausible Madrid (4-10).`;
       }
     }
 
-    if (desglose.length > 0) {
-      const sumaActual = desglose.reduce((s, item) => s + (Number(item.ventanas_estimadas) || 0), 0);
-      const delta = ventanasPatioEstim - sumaActual;
-      if (delta !== 0) {
-        const first = desglose[0];
-        first.ventanas_estimadas = Math.max(0, (Number(first.ventanas_estimadas) || 0) + delta);
-      }
-    }
-
     const ratioFinal = viviendasTotales && viviendasTotales > 0 ? +(ventanasTotal / viviendasTotales).toFixed(2) : null;
+    const factorMedio = nPatios > 0 ? +(sumaFactores / nPatios).toFixed(2) : 0;
     const ventanasPatiosPorPatio = desglose.length > 0
       ? Object.fromEntries(desglose.map((item) => [item.codigo, item.ventanas_estimadas ?? 0]))
       : null;
@@ -312,9 +307,8 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
         }))
       : null;
 
-    const formulaTxt = viviendasTotales && viviendasTotales > 0
-      ? `${ventFachada} ventanas fachada (Street View directo) + ${ventanasPatioEstim} ventanas a patio (estimadas: ${viviendasTotales} viviendas catastro × 2.5 ventanas a patio promedio Madrid) = ${ventanasTotal} total. Ratio ventanas/vivienda = ${ratioFinal ?? "—"} (rango plausible 4-10).`
-      : `${ventFachada} ventanas fachada (Street View directo) + ${ventanasPatioEstim} ventanas a patio (fallback: ${nPatios} patios × ${plantasParaFallback} plantas visibles × 4) = ${ventanasTotal} total. Sin viviendas catastrales fiables para ratio.`;
+    const areasResumen = desglose.map(d => `${d.codigo}${d.area_m2 != null ? `=${Math.round(d.area_m2)}m²` : ""}(×${d.factor})`).join(", ");
+    const formulaTxt = `${ventFachada} ventanas fachada × Σ factor reflejo ${sumaFactores.toFixed(2)} (media ${factorMedio} de ${nPatios} patios: ${areasResumen || "—"}) = ${ventanasPatioEstim} ventanas a patio. Total = ${ventanasTotal}. Ratio ventanas/vivienda = ${ratioFinal ?? "—"} (rango plausible 4-10). Lógica: edificios madrileños pasantes — viviendas tienen ventanas a ambos lados con coeficiente según tamaño del patio (<15m²→0.3, 15-30→0.5, 30-50→0.7, ≥50→0.9).`;
 
     const ventanasPatiosTotalFinal = ventanasPatioEstim;
 
