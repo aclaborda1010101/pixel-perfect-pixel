@@ -136,7 +136,7 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     });
 
     let parsed: any = null;
-    const primaryModel = model_override || "google/gemini-2.5-flash";
+    const primaryModel = model_override || "google/gemini-3.5-flash";
     let modelo_usado = primaryModel;
     let modelo_fallback = false;
     let llm_raw: any = null;
