@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, RefreshCw, Sparkles, Eye, ScanSearch, FileText } from "lucide-react";
+import { Loader2, RefreshCw, Sparkles, Eye, ScanSearch, FileText, ThumbsUp, ThumbsDown } from "lucide-react";
 import { useBuildingAnalysis } from "@/lib/analisisIA";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -29,6 +29,37 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
   const [busy, setBusy] = useState<null | "re" | "premium">(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [pageZoom, setPageZoom] = useState<{ url: string; label: string } | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState<null | "ok" | "ajuste">(null);
+
+  const enviarFeedback = async (valor: "ok" | "ajuste") => {
+    setFeedbackBusy(true);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const { error } = await supabase.from("scoring_v2_feedback").insert({
+        building_id: buildingId,
+        user_id: u?.user?.id ?? null,
+        tipo: "ventanas_patio",
+        valor,
+        aviso_key: "ventanas_patio",
+        vote: valor === "ok" ? 1 : -1,
+        user_email: u?.user?.email ?? null,
+        payload: {
+          patios_detectados: a?.patios_detectados,
+          ventanas_patios_estimadas: a?.ventanas_patios_estimadas,
+          formula: a?.formula_ventanas_patio,
+          densidad_ventanas_fachada: a?.densidad_ventanas_fachada,
+        },
+      });
+      if (error) throw error;
+      setFeedbackSent(valor);
+      toast.success(valor === "ok" ? "Gracias, marcado como correcto" : "Gracias, marcado para ajuste manual");
+    } catch (e: any) {
+      toast.error("Error: " + (e?.message ?? String(e)));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
 
   const a = data?.analysis;
   const cat = data?.catastro;
