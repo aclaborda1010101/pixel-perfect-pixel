@@ -40,6 +40,8 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 {
   "ventanas_fachada_total": number,
   "ventanas_por_planta": { "1": number, "2": number, ... },
+  "fachada_lineal_total_m": number,                 // metros lineales de fachada exterior del edificio (suma de todos los lados que dan a calle, NO incluye patio). Estima con la huella catastral + Street View.
+  "patios_areas_m2": { "P01": number, "PATIO_2": number },  // área aproximada en m² de cada patio detectado (mide en plano PISO 01). USA las mismas claves que patios_codigos.
   "ventanas_patios_total": number,                 // ventanas que dan a patio interior (todas las plantas tipo). Si no puedes contarlas en plano, ESTÍMALAS: ≈ 1 ventana por vivienda colindante a cada patio × nº plantas tipo.
   "ventanas_patios_por_planta": { "1": number, "2": number, ... },
   "ventanas_patios_por_patio": { "P01": number, "PATIO_2": number },  // ventanas por patio si identificable, si no omite la clave
@@ -203,11 +205,70 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     const plantasVis = Number(parsed.plantas_visibles ?? 0);
     const levantables = plantas_max ? Math.max(plantas_max - plantasVis, 0) : null;
 
+    // ============================================================
+    // Cálculo DETERMINISTA de ventanas a patio (fórmula auditable)
+    // ============================================================
+    // 1) densidad_fachada = ventanas_fachada_total / fachada_lineal_total_m
+    // 2) por cada patio: perímetro = 4 * sqrt(área)  (asume forma cuadrada)
+    //    ventanas_p = round(perímetro * densidad * plantas_visibles)
+    // 3) ventanas_patios_estimadas = Σ ventanas_p
+    const ventFachada = Number(parsed.ventanas_fachada_total ?? 0);
+    const fachadaLineal = Number(parsed.fachada_lineal_total_m ?? 0);
+    const patiosCods: string[] = Array.isArray(parsed.patios_codigos) ? parsed.patios_codigos : [];
+    const patiosAreas: Record<string, number> = (parsed.patios_areas_m2 && typeof parsed.patios_areas_m2 === "object") ? parsed.patios_areas_m2 : {};
+    const densidad = (fachadaLineal > 0 && ventFachada > 0) ? +(ventFachada / fachadaLineal).toFixed(3) : null;
+    const plantasParaCalc = Math.max(plantasVis - 1, 1); // las plantas tipo (sin baja)
+
+    const desglose: Array<{ codigo: string; area_m2: number | null; perimetro_estimado_m: number | null; ventanas_estimadas: number | null }> = [];
+    let ventanasPatioEstim = 0;
+    let cubrePatios = 0;
+    for (const cod of patiosCods) {
+      const area = Number(patiosAreas[cod]);
+      if (isFinite(area) && area > 0 && densidad) {
+        const perim = +(4 * Math.sqrt(area)).toFixed(1);
+        const vent = Math.round(perim * densidad * plantasParaCalc);
+        desglose.push({ codigo: cod, area_m2: area, perimetro_estimado_m: perim, ventanas_estimadas: vent });
+        ventanasPatioEstim += vent;
+        cubrePatios++;
+      } else {
+        desglose.push({ codigo: cod, area_m2: isFinite(area) ? area : null, perimetro_estimado_m: null, ventanas_estimadas: null });
+      }
+    }
+
+    const formulaTxt = (densidad && cubrePatios > 0)
+      ? `${cubrePatios} ${cubrePatios === 1 ? "patio" : "patios"} con área conocida · densidad fachada ${densidad} vent/m · ${plantasParaCalc} plantas tipo → ${ventanasPatioEstim} ventanas a patio estimadas. Σ(4·√área · densidad · plantas).`
+      : `No se pudo aplicar fórmula determinista (faltan ${fachadaLineal > 0 ? "" : "fachada_lineal_total_m"}${(!densidad && cubrePatios === 0) ? ", " : ""}${cubrePatios === 0 ? "áreas de patios" : ""}). Se usa estimación libre del LLM.`;
+
+    // Cross-validation: ratio ventanas/vivienda debería estar entre 4 y 10 en Madrid
+    const vivPlanta = Number(parsed.viviendas_por_planta_tipo ?? 0);
+    const viviendasTotales = vivPlanta * plantasParaCalc;
+    const ventanasTotal = ventFachada + (ventanasPatioEstim || Number(parsed.ventanas_patios_total ?? 0));
+    let confianzaVent: number = Number(parsed.confidence ?? 0.7);
+    let avisoVent: string | null = null;
+    if (viviendasTotales > 0 && ventanasTotal > 0) {
+      const ratio = +(ventanasTotal / viviendasTotales).toFixed(2);
+      if (ratio < 4 || ratio > 10) {
+        confianzaVent = Math.min(confianzaVent, 0.4);
+        avisoVent = `Ratio ${ratio} ventanas/vivienda fuera del rango típico Madrid (4-10). Revisar conteo manualmente.`;
+      } else {
+        avisoVent = `Ratio ${ratio} ventanas/vivienda dentro del rango típico Madrid (4-10).`;
+      }
+    }
+    // estimación si el LLM no la dio
+    const ventanasPatiosTotalFinal = (ventanasPatioEstim > 0) ? ventanasPatioEstim : (parsed.ventanas_patios_total ?? null);
+
     await sb.from("building_analysis").upsert({
       building_id,
       ventanas_fachada_total: parsed.ventanas_fachada_total ?? null,
       ventanas_por_planta: parsed.ventanas_por_planta ?? null,
-      ventanas_patios_total: parsed.ventanas_patios_total ?? null,
+      ventanas_patios_total: ventanasPatiosTotalFinal,
+      ventanas_patios_estimadas: ventanasPatioEstim > 0 ? ventanasPatioEstim : null,
+      ventanas_patios_desglose: desglose.length > 0 ? desglose : null,
+      densidad_ventanas_fachada: densidad,
+      fachada_lineal_total_m: isFinite(fachadaLineal) && fachadaLineal > 0 ? fachadaLineal : null,
+      formula_ventanas_patio: formulaTxt,
+      confidence_ventanas: confianzaVent,
+      aviso_ventanas: avisoVent,
       ventanas_patios_por_planta: parsed.ventanas_patios_por_planta ?? null,
       ventanas_patios_por_patio: parsed.ventanas_patios_por_patio ?? null,
       patios_detectados: parsed.patios_detectados ?? null,
