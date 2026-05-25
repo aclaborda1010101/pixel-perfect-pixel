@@ -42,6 +42,8 @@ import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { syncBuildingTasks } from "@/lib/buildingTasks";
 import { AnalisisIASection } from "@/components/comercial/AnalisisIASection";
+import { CatastroDetalladoCard } from "@/components/comercial/CatastroDetalladoCard";
+import { AnalisisPlanoCatastralCard } from "@/components/comercial/AnalisisPlanoCatastralCard";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -208,8 +210,8 @@ export default function ComercialEdificioDetalle() {
         {/* Catastro */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <Eyebrow>Datos catastrales</Eyebrow>
-            <CardTitle>Información del inmueble</CardTitle>
+            <Eyebrow>Resumen scoring</Eyebrow>
+            <CardTitle>Métricas que alimentan el score</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -281,6 +283,12 @@ export default function ComercialEdificioDetalle() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Datos catastrales completos (OVC Consulta_DNPRC) */}
+      {id && <CatastroDetalladoCard buildingId={id} refCatastral={b.refcatastral ?? b.catastro_ref} />}
+
+      {/* Análisis del plano catastral (anotaciones IA) */}
+      {id && <AnalisisPlanoCatastralCard buildingId={id} />}
 
       {/* Distribución del inmueble */}
       <DistribucionInmueble s={s} />
