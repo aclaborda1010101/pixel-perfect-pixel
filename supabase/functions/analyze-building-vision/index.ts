@@ -168,11 +168,11 @@ Deno.serve(async (req) => {
 
     // Score se recalcula automáticamente vía trigger
     const { data: built } = await sb.from("buildings")
-      .select("score_v2").eq("id", building_id).maybeSingle();
+      .select("score").eq("id", building_id).maybeSingle();
 
     await setProcessingStatus(building_id, "vision", "ok");
     return json({
-      score_v2: built?.score_v2 ?? null,
+      score: built?.score ?? null,
       modelo_usado, modelo_fallback,
       confidence: parsed.confidence ?? null,
     });
