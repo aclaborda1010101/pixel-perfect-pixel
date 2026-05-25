@@ -57,6 +57,19 @@ export default function JobProgressPage() {
   const okCount = items.filter((i) => i.status === "ok").length;
   const errCount = items.filter((i) => i.status === "error").length;
   const withScore = items.filter((i) => i.score != null).length;
+  // Confianza media: pedimos a buildings.confianza_media de los items procesados
+  const { data: confianzaData } = useQuery({
+    queryKey: ["job_confianza", jobId, okCount],
+    enabled: items.length > 0,
+    queryFn: async () => {
+      const ids = items.map((i) => i.building_id);
+      const { data } = await (supabase.from("buildings" as any) as any)
+        .select("confianza_media").in("id", ids);
+      const vals = (data ?? []).map((r: any) => r.confianza_media).filter((v: any) => typeof v === "number");
+      if (!vals.length) return null;
+      return vals.reduce((a: number, b: number) => a + b, 0) / vals.length;
+    },
+  });
 
   useEffect(() => {
     if (!job || notifiedRef.current) return;
@@ -101,7 +114,12 @@ export default function JobProgressPage() {
         } accent={isDone} danger={isAborted} />
         <Kpi label="Procesados" value={`${okCount} / ${total}`} accent={isDone} />
         <Kpi label="Errores" value={errCount} danger={errCount > 0} />
-        <Kpi label="Con score" value={withScore} accent={withScore > 0} />
+        <Kpi
+          label="Confianza media"
+          value={confianzaData != null ? `${Math.round(confianzaData * 100)}%` : "—"}
+          accent={confianzaData != null && confianzaData >= 0.7}
+          danger={confianzaData != null && confianzaData < 0.5}
+        />
       </div>
 
       <Card>
