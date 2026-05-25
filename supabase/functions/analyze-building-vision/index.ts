@@ -21,6 +21,15 @@ CONVENCIONES de etiquetas en el plano catastral (CLAVE):
 - CCE = local comercial; GC = garaje (planta baja → terciario).
 - AAL = almacén / trastero (sótano).
 
+IMPORTANTE — AUDITABILIDAD: para cada métrica que devuelvas, también incluye un bloque metricas_detalle.<nombre_metrica> con:
+  value: el valor (number/boolean/array)
+  source: array con códigos de fuentes utilizadas. Valores permitidos:
+    "catastro_pdf_general", "catastro_pdf_pb", "catastro_pdf_piso_01", "catastro_pdf_piso_02", "catastro_pdf_sotano",
+    "street_view_heading_0", "street_view_heading_90", "street_view_heading_180", "street_view_heading_270",
+    "satellite", "oblique", "dnprc_json", "calculated_from_ancho_calle", "inferred_symmetry"
+  reasoning: explicación corta en español (1-3 frases) de cómo llegaste a ese valor a partir de las fuentes.
+  confidence: 0..1
+
 Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 {
   "ventanas_fachada_total": number,
@@ -41,6 +50,13 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
   "plantas_visibles": number,
   "ancho_calle_estimado_m": number,
   "metricas_extra": { "observaciones": string },
+  "metricas_detalle": {
+    "ventanas_fachada_total": { "value": 28, "source": ["street_view_heading_0","satellite"], "reasoning": "...", "confidence": 0.8 },
+    "n_escaleras_en_piso01": { "value": 2, "source": ["catastro_pdf_piso_01"], "reasoning": "...", "confidence": 0.95 },
+    "esquina": { "value": true, "source": ["satellite","street_view_heading_0"], "reasoning": "...", "confidence": 0.9 },
+    "protegido_historicamente": { "value": true, "source": ["street_view_heading_0"], "reasoning": "...", "confidence": 0.7 }
+    // ...incluye una entrada por CADA métrica que devuelvas arriba
+  },
   "anotaciones": [
     { "etiqueta": "ESC_1", "tipo": "escalera", "bbox": [x,y,w,h], "descripcion": "caja escaleras central en PISO 01" },
     { "etiqueta": "P01", "tipo": "patio", "bbox": [x,y,w,h], "descripcion": "patio interior" },
@@ -50,7 +66,7 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 }
 
 IMPORTANTE para "anotaciones": coordenadas RELATIVAS al PISO 01 (la 3ª imagen si está disponible), valores 0..1. bbox = [x, y, ancho, alto] esquina superior izquierda. Si no puedes anotar, devuelve [].
-Si una métrica no es deducible, usa null y baja confidence.`;
+Si una métrica no es deducible, usa null y baja confidence. SIEMPRE incluye reasoning en español, no en inglés.`;
 }
 
 Deno.serve(async (req) => {
