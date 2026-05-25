@@ -76,13 +76,27 @@ Deno.serve(async (req) => {
   try {
     const { building_id, model_override } = await req.json();
     if (!building_id) return err("building_id requerido", 400);
-    const startedAt = Date.now();
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return err("LOVABLE_API_KEY no disponible", 500);
 
     const sb = getServiceClient();
     await setProcessingStatus(building_id, "vision", "running");
+
+    // Ejecuta el análisis en segundo plano para evitar el timeout de 150s.
+    // El cliente debe sondear processing_status / building_analysis.
+    // @ts-ignore EdgeRuntime global proporcionado por Supabase
+    EdgeRuntime.waitUntil(runVisionAnalysis(sb, building_id, model_override, LOVABLE_API_KEY));
+    return json({ status: "processing", building_id }, 202);
+  } catch (e) {
+    console.error("analyze-building-vision error", e);
+    return err(String((e as Error).message ?? e));
+  }
+});
+
+async function runVisionAnalysis(sb: any, building_id: string, model_override: string | undefined, LOVABLE_API_KEY: string) {
+  const startedAt = Date.now();
+  try {
 
     // Recoge URLs públicas
     const { data: cat } = await sb
@@ -103,7 +117,7 @@ Deno.serve(async (req) => {
 
     if (imageUrls.length === 0) {
       await setProcessingStatus(building_id, "vision", "error", "sin imágenes para analizar");
-      return err("No hay imágenes ni plano para analizar", 400);
+      return;
     }
 
     const PROMPT = buildPrompt(plantasPages.length || 1);
@@ -187,7 +201,7 @@ Deno.serve(async (req) => {
         analysis_duration_ms: Date.now() - startedAt,
       }, { onConflict: "building_id" });
       await setProcessingStatus(building_id, "vision", "error", lastErr ?? "sin resultado");
-      return err(lastErr ?? "Vision sin resultado", 502);
+      return;
     }
 
     // Calcula plantas_levantables
@@ -263,13 +277,8 @@ Deno.serve(async (req) => {
       .select("score").eq("id", building_id).maybeSingle();
 
     await setProcessingStatus(building_id, "vision", "ok");
-    return json({
-      score: built?.score ?? null,
-      modelo_usado, modelo_fallback,
-      confidence: parsed.confidence ?? null,
-    });
   } catch (e) {
-    console.error("analyze-building-vision error", e);
-    return err(String((e as Error).message ?? e));
+    console.error("analyze-building-vision background error", e);
+    try { await setProcessingStatus(building_id, "vision", "error", String((e as Error).message ?? e)); } catch {}
   }
-});
+}
