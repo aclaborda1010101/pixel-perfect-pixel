@@ -130,42 +130,42 @@ export function ScorePill({ score }: { score: number }) {
   );
 }
 
-/** Compute factor breakdown rows from a v_building_score row */
+/** Compute factor breakdown rows from a v_building_score row.
+ * Prefiere `score_breakdown` unificado (base + IA cuando hay análisis).
+ * Fallback a las columnas `s_*` si por alguna razón el breakdown viene vacío. */
 export function buildingScoreFactors(s: any) {
+  const bd: any[] = Array.isArray(s?.score_breakdown) ? s.score_breakdown : [];
+  if (bd.length > 0) {
+    return bd.map((c: any) => {
+      const weight = Number(c.peso ?? 0);
+      const pts = Number(c.contribucion ?? 0);
+      const pctRaw = weight !== 0 ? (pts / Math.abs(weight)) * 100 : 0;
+      const pct = Math.max(0, Math.min(100, pctRaw));
+      let raw: string;
+      const v = c.valor_raw;
+      if (v === null || v === undefined) raw = "—";
+      else if (typeof v === "boolean") raw = v ? "Sí" : "No";
+      else if (typeof v === "number") raw = Number.isFinite(v) ? v.toLocaleString() : "—";
+      else raw = String(v);
+      return {
+        label: String(c.label ?? c.key ?? ""),
+        raw,
+        pct,
+        weight,
+        pts,
+      };
+    });
+  }
+  // Fallback (legacy)
   const ratio =
     s?.m2_total && s?.num_viviendas
       ? Number(s.m2_total) / Number(s.num_viviendas)
       : null;
   return [
-    {
-      label: "Nº viviendas",
-      raw: s?.num_viviendas != null ? String(s.num_viviendas) : "—",
-      pct: Number(s?.s_viviendas ?? 0) * 100,
-      weight: 30,
-    },
-    {
-      label: "m² totales",
-      raw: s?.m2_total ? `${Number(s.m2_total).toLocaleString()} m²` : "—",
-      pct: Number(s?.s_m2 ?? 0) * 100,
-      weight: 20,
-    },
-    {
-      label: "Ratio m²/vivienda",
-      raw: ratio != null ? `${ratio.toFixed(1)} m²` : "—",
-      pct: Number(s?.s_ratio ?? 0) * 100,
-      weight: 20,
-    },
-    {
-      label: "Nº propietarios",
-      raw: s?.owners_count != null ? String(s.owners_count) : "—",
-      pct: Number(s?.s_owners ?? 0) * 100,
-      weight: 20,
-    },
-    {
-      label: "Sin división horizontal",
-      raw: s?.division_horizontal ? "No (con DH)" : "Sí",
-      pct: Number(s?.s_no_dh ?? 0) * 100,
-      weight: 10,
-    },
+    { label: "Nº viviendas", raw: s?.num_viviendas != null ? String(s.num_viviendas) : "—", pct: Number(s?.s_viviendas ?? 0) * 100, weight: 30 },
+    { label: "m² totales", raw: s?.m2_total ? `${Number(s.m2_total).toLocaleString()} m²` : "—", pct: Number(s?.s_m2 ?? 0) * 100, weight: 20 },
+    { label: "Ratio m²/vivienda", raw: ratio != null ? `${ratio.toFixed(1)} m²` : "—", pct: Number(s?.s_ratio ?? 0) * 100, weight: 20 },
+    { label: "Nº propietarios", raw: s?.owners_count != null ? String(s.owners_count) : "—", pct: Number(s?.s_owners ?? 0) * 100, weight: 20 },
+    { label: "Sin división horizontal", raw: s?.division_horizontal ? "No (con DH)" : "Sí", pct: Number(s?.s_no_dh ?? 0) * 100, weight: 10 },
   ].map((f) => ({ ...f, pts: (f.pct / 100) * f.weight }));
 }

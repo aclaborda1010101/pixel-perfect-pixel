@@ -4,19 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
-import { useScoringV2Flag, useBuildingProcessing, useBuildingAnalysis } from "@/lib/scoringV2";
+import { useBuildingProcessing, useBuildingAnalysis } from "@/lib/analisisIA";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Brain, Camera, MapPin, Loader2, RefreshCw, Download } from "lucide-react";
 
-export function ScoringV2Section({ buildingId }: { buildingId: string }) {
-  const { data: enabled } = useScoringV2Flag();
+export function AnalisisIASection({ buildingId }: { buildingId: string }) {
   const { data: status } = useBuildingProcessing(buildingId);
   const { data: analysis } = useBuildingAnalysis(buildingId);
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
-
-  if (!enabled) return null;
 
   const hasData = !!analysis?.analysis;
   const running = status?.status === "running";
@@ -28,7 +25,7 @@ export function ScoringV2Section({ buildingId }: { buildingId: string }) {
         body: { building_id: buildingId, force },
       });
       if (error) throw error;
-      toast.success(`Procesado: ${data?.status ?? "ok"}`);
+      toast.success(`Procesado: ${(data as any)?.status ?? "ok"}`);
       qc.invalidateQueries({ queryKey: ["building_analysis", buildingId] });
       qc.invalidateQueries({ queryKey: ["building_processing_status", buildingId] });
       qc.invalidateQueries({ queryKey: ["comercial:edificio", buildingId] });
@@ -51,8 +48,13 @@ export function ScoringV2Section({ buildingId }: { buildingId: string }) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
-          <Eyebrow><Brain className="mr-1 inline h-3 w-3" /> Scoring v2 · IA</Eyebrow>
-          <CardTitle>Análisis multi-fuente (Catastro + Google + Gemini)</CardTitle>
+          <Eyebrow><Brain className="mr-1 inline h-3 w-3" /> Análisis IA · Catastro · Google · Gemini</Eyebrow>
+          <CardTitle>Enriquecimiento del edificio</CardTitle>
+          {!hasData && (
+            <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-gold/40 bg-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-eyebrow text-gold">
+              Análisis IA pendiente — pulsa Descargar para enriquecer
+            </div>
+          )}
         </div>
         <Button onClick={() => trigger(hasData)} disabled={busy || running} variant="gold" size="sm">
           {busy || running ? <Loader2 className="h-3 w-3 animate-spin" /> : hasData ? <RefreshCw className="h-3 w-3" /> : <Download className="h-3 w-3" />}
@@ -60,7 +62,6 @@ export function ScoringV2Section({ buildingId }: { buildingId: string }) {
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Stepper */}
         <div className="flex items-center gap-3">
           {phases.map((p) => {
             const active = status?.current_phase === p.key;
@@ -83,7 +84,6 @@ export function ScoringV2Section({ buildingId }: { buildingId: string }) {
 
         {hasData ? (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="Score v2" value={a?.confidence != null ? "ver banner" : "—"} accent />
             <Stat label="Ventanas fachada" value={a?.ventanas_fachada_total ?? "—"} />
             <Stat label="Patios" value={a?.patios_detectados ?? "—"} />
             <Stat label="Esquina" value={a?.esquina ? "Sí" : "No"} />
@@ -91,6 +91,7 @@ export function ScoringV2Section({ buildingId }: { buildingId: string }) {
             <Stat label="Plantas visibles" value={a?.plantas_visibles ?? "—"} />
             <Stat label="Plantas máx norm." value={a?.plantas_max_normativa ?? "—"} />
             <Stat label="Levantables" value={a?.plantas_levantables ?? "—"} accent={a?.plantas_levantables > 0} />
+            <Stat label="Protegido" value={a?.protegido_historicamente ? "Sí" : "No"} />
           </div>
         ) : (
           <div className="text-sm text-muted-foreground">

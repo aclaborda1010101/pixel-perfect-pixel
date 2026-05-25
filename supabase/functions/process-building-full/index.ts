@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
       const j = await r.json();
       steps.push({ name: "vision", res: j });
       if (!r.ok) throw new Error(j?.error ?? "vision fail");
-      return json({ status: "ok", score_v2: j.score_v2, steps });
+      return json({ status: "ok", score: j.score, steps });
     } catch (e) {
       steps.push({ name: "vision", error: String((e as Error).message ?? e) });
       return json({ status: "failed_vision", steps }, 200);

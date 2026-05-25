@@ -662,9 +662,9 @@ export type Database = {
           notas: string | null
           numero_propietarios: number | null
           refcatastral: string | null
-          score_v2: number | null
-          score_v2_breakdown: Json | null
-          score_v2_updated_at: string | null
+          score: number | null
+          score_breakdown: Json | null
+          score_updated_at: string | null
           updated_at: string
         }
         Insert: {
@@ -682,9 +682,9 @@ export type Database = {
           notas?: string | null
           numero_propietarios?: number | null
           refcatastral?: string | null
-          score_v2?: number | null
-          score_v2_breakdown?: Json | null
-          score_v2_updated_at?: string | null
+          score?: number | null
+          score_breakdown?: Json | null
+          score_updated_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -702,9 +702,9 @@ export type Database = {
           notas?: string | null
           numero_propietarios?: number | null
           refcatastral?: string | null
-          score_v2?: number | null
-          score_v2_breakdown?: Json | null
-          score_v2_updated_at?: string | null
+          score?: number | null
+          score_breakdown?: Json | null
+          score_updated_at?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -2650,6 +2650,7 @@ export type Database = {
           dividido_texto: string | null
           division_horizontal: boolean | null
           elementos_comunes_unidades: number | null
+          has_ai_analysis: boolean | null
           id: string | null
           industrial_unidades: number | null
           m2_almacen: number | null
@@ -2672,6 +2673,9 @@ export type Database = {
           s_ratio: number | null
           s_viviendas: number | null
           score: number | null
+          score_ai: number | null
+          score_base: number | null
+          score_breakdown: Json | null
           tipo_activo: string | null
           tipo_oportunidad: string | null
           valoracion_locales: number | null
@@ -2811,7 +2815,7 @@ export type Database = {
           total: number
         }[]
       }
-      compute_score_v2: { Args: { p_building_id: string }; Returns: number }
+      compute_score: { Args: { p_building_id: string }; Returns: number }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
