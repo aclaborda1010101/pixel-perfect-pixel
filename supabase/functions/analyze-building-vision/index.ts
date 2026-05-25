@@ -42,6 +42,7 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
   "ventanas_por_planta": { "1": number, "2": number, ... },
   "fachada_lineal_total_m": number,                 // si puedes estimarla, devuélvela; si no, usa null. No la uses para inferir ventanas a patio.
   "patios_areas_m2": { "P01": number, "PATIO_2": number },  // opcional para auditoría del plano. USA las mismas claves que patios_codigos.
+  "paredes_por_patio": { "P01": 4, "P02": 3 },     // número de paredes/lados visibles en planta del patio (típico 3-4 en patios madrileños). USA las mismas claves que patios_codigos.
   "ventanas_patios_total": number,                 // si no puedes contarlas visualmente, devuelve una estimación prudente. El backend recalibra este valor con heurística catastral.
   "ventanas_patios_por_planta": { "1": number, "2": number, ... },
   "ventanas_patios_por_patio": { "P01": number, "PATIO_2": number },  // ventanas por patio si identificable, si no omite la clave
