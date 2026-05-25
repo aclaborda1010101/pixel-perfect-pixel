@@ -1,63 +1,51 @@
-## Objetivo
-Mejorar la precisión del análisis IA de plantas para que cuente correctamente todos los patios y añada el conteo (o estimación) de ventanas que dan a patio, y fijar Gemini 3.5 Flash como modelo único.
+# Plan: ventanas a patio auditable + validación humana
 
-## 1. Prompt del análisis (`analyze-building-vision/index.ts`)
+## 1. Migración DB
+Nueva migración en `supabase/migrations/` para:
+- `building_analysis`: añadir
+  - `densidad_ventanas_fachada numeric` (ventanas/m de fachada exterior)
+  - `fachada_lineal_total_m numeric` (estimación o dato Catastro)
+  - `ventanas_patios_estimadas integer` (resultado fórmula)
+  - `ventanas_patios_desglose jsonb` (array `{codigo, area_m2, perimetro_estimado_m, ventanas_estimadas}`)
+  - `formula_ventanas_patio text` (texto auditable)
+  - `confidence_ventanas numeric` + `aviso_ventanas text` (rango 4-10 vent/vivienda)
+- Tabla `scoring_v2_feedback` (si no existe) con `building_id`, `user_id`, `tipo` (`ventanas_patio` | otros), `valor` (`ok` | `ajuste`), `comentario text`, `payload jsonb`, `created_at`. RLS: usuarios autenticados insertan/leen propios; admin todo.
 
-**Patios — corregir conteo:**
-- Reforzar la regla de detección: contar TODOS los recintos cerrados sin techo del PISO 01, no solo los etiquetados `P01..P0N`.
-- Aceptar variantes de etiqueta: `P`, `PI`, `PT`, `PTO`, `PAT`, `P-`, sufijos numéricos (`P01`, `P02`, `PTO1`, `PTO2`…), y patios sin código (huecos interiores rodeados por viviendas).
-- Pedir que liste explícitamente cada patio en `patios_codigos` (uno por entrada) y que `patios_detectados = length(patios_codigos)`.
-- Añadir verificación cruzada con el plano cenital de página 1 (huecos oscuros centrales) y satélite cenital.
-- Bajar confidence si hay discrepancia entre fuentes.
+## 2. Edge function `analyze-building-vision`
+- Pedir al LLM también: por cada patio → `area_m2` aproximada (de plano catastral PISO 01) y `fachada_lineal_total_m` (perímetro del edificio que da a calle).
+- Tras parseo, calcular **localmente** (no en el LLM):
+  ```
+  densidad = ventanas_fachada_total / fachada_lineal_total_m
+  por cada patio p:
+    perimetro_p = 4 * sqrt(area_p)
+    ventanas_p = round(perimetro_p * densidad * plantas_visibles)
+  ventanas_patios_estimadas = sum(ventanas_p)
+  formula = "7 patios × densidad X vent/m × 8 plantas = Y ventanas"
+  ```
+- Cross-validation: `ratio = (ventanas_fachada + ventanas_patios_estimadas) / viviendas_totales`. Si fuera de [4, 10] → `confidence_ventanas = 0.4`, `aviso_ventanas` con texto explicativo.
+- Persistir los nuevos campos. Sigue usando `google/gemini-3.5-flash`.
 
-**Ventanas a patio — nuevo campo:**
-- Añadir al JSON:
-  - `ventanas_patios_total: number`
-  - `ventanas_patios_por_planta: { "1": n, "2": n, ... }`
-  - `ventanas_patios_por_patio: { "P01": n, "P02": n, ... }` (cuando sea identificable)
-- Instrucción de conteo:
-  1. Si los planos de planta muestran huecos en los muros que dan al patio → contarlos directamente por patio y multiplicar por nº de plantas tipo.
-  2. Si no son visibles → **estimar** asumiendo 1 ventana por vivienda colindante al patio en cada planta tipo.
-  3. Incluir en `metricas_detalle.ventanas_patios_total` el `reasoning` y marcar `source: ["catastro_pdf_piso_01", "inferred_symmetry"]` cuando sea estimación.
+## 3. Edge function `fetch-google-imagery`
+Añadir 2 capturas oblicuas extra: `heading=45` y `heading=225` con `maptype=hybrid` zoom 19 (la API Static Maps no soporta tilt real; usamos hybrid con esos rumbos para variar la vista). Persistirlas como source `oblique` con `heading`.
 
-## 2. Modelo — Gemini 3.5 Flash siempre
+## 4. UI — `AnalisisIASection.tsx`
+- Chip "Ventanas patios" con `Popover` mostrando `formula_ventanas_patio` + confianza + aviso.
+- Card "🔍 Análisis del plano catastral" (`AnalisisPlanoCatastralCard.tsx`): nuevo bloque
+  - "Plano detectó N patios [P01: 23m², …]"
+  - "Ratio fachada: X vent/m · Fórmula: …"
+  - Botones **Sí, correcto** / **No, ajustar** → insert en `scoring_v2_feedback`.
 
-En `runVisionAnalysis`:
-- `primaryModel` por defecto = `google/gemini-3.5-flash` (ya hecho).
-- **Eliminar el fallback** que reintenta con otro modelo cuando confidence < 0.6. Mantener solo los 3 reintentos sobre el mismo modelo (Flash 3.5).
-- `model_override` sigue respetándose por si el usuario lo fuerza desde UI, pero sin fallback automático a Pro.
+## 5. Reprocesar Cava Baja 42
+Tras desplegar, invocar `process-building-full` (o `analyze-building-vision` + `fetch-google-imagery`) para el `building_id` 0485d8cf-c1a2-4412-b38f-e37fb18961a2 y validar 7 patios + ~40-60 ventanas patio.
 
-## 3. Persistencia y UI
+## Archivos a tocar
+- `supabase/migrations/<timestamp>_ventanas_patio_formula.sql` (nuevo)
+- `supabase/functions/analyze-building-vision/index.ts`
+- `supabase/functions/fetch-google-imagery/index.ts`
+- `src/components/comercial/AnalisisIASection.tsx`
+- `src/components/comercial/AnalisisPlanoCatastralCard.tsx`
 
-**`building_analysis`** — añadir columnas (migración):
-- `ventanas_patios_total integer`
-- `ventanas_patios_por_planta jsonb`
-- `ventanas_patios_por_patio jsonb`
-
-**Mapeo en la edge function:** parsear los nuevos campos del JSON y guardarlos en el upsert.
-
-**Ficha del edificio** (`/comercial/edificios/:id`):
-- Mostrar junto al chip de "ventanas fachada" otro chip "ventanas patio".
-- En el desglose por planta añadir una columna/fila "Ventanas patio".
-- Mostrar nº de patios con detalle de códigos detectados.
-
-## 4. Scoring (vista `v_building_score`)
-
-No tocar pesos (recién rebalanceados a 100). Solo asegurar que `ventanas_fachada_total` sigue siendo el campo principal del score; las ventanas a patio se muestran pero no entran en el score (no aportan a "elevable/comercializable").
-
-## Detalle técnico
-
-```text
-Edge function flow:
-  POST → waitUntil(runVisionAnalysis)
-    └─ build PROMPT (con nuevas reglas patios + ventanas_patios)
-    └─ call Lovable AI Gateway model=gemini-3.5-flash (3 reintentos)
-    └─ parse JSON estricto
-    └─ upsert building_analysis con:
-         ventanas_fachada_total, ventanas_por_planta,
-         ventanas_patios_total, ventanas_patios_por_planta, ventanas_patios_por_patio,
-         patios_detectados, patios_codigos, ...
-    └─ trigger compute_score (sin cambios)
-```
-
-Tras esto, relanzar el análisis sobre el edificio actual (Cava Baja 42) para validar que detecta los 7 patios y muestra ventanas a patio.
+## Notas técnicas
+- La fórmula vive en TS (determinista), el LLM solo aporta `area_m2` por patio y `fachada_lineal_total_m`.
+- `scoring_v2_feedback` con RLS por usuario; sin trigger de score (solo telemetría).
+- No tocamos `v_building_score` — las ventanas a patio siguen siendo informativas.
