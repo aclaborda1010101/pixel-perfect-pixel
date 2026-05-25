@@ -221,7 +221,12 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
                     {" "}con códigos{" "}
                     <span className="font-mono text-[11px]">
                       [{a.ventanas_patios_desglose
-                        .map((p: any) => `${p.codigo}${p.area_m2 != null ? `:${Math.round(p.area_m2)}m²` : ""}${p.factor != null ? `×${p.factor}` : ""}`)
+                        .map((p: any) => {
+                          const paredes = p.paredes != null ? `${p.paredes}p` : "";
+                          const area = p.area_m2 != null ? `${Math.round(p.area_m2)}m²` : "";
+                          const v = p.ventanas_estimadas != null ? `→${p.ventanas_estimadas}v` : "";
+                          return `${p.codigo}(${[paredes, area].filter(Boolean).join(",")}${v})`;
+                        })
                         .join(", ")}]
                     </span>
                   </>

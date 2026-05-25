@@ -42,6 +42,7 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
   "ventanas_por_planta": { "1": number, "2": number, ... },
   "fachada_lineal_total_m": number,                 // si puedes estimarla, devuélvela; si no, usa null. No la uses para inferir ventanas a patio.
   "patios_areas_m2": { "P01": number, "PATIO_2": number },  // opcional para auditoría del plano. USA las mismas claves que patios_codigos.
+  "paredes_por_patio": { "P01": 4, "P02": 3 },     // número de paredes/lados visibles en planta del patio (típico 3-4 en patios madrileños). USA las mismas claves que patios_codigos.
   "ventanas_patios_total": number,                 // si no puedes contarlas visualmente, devuelve una estimación prudente. El backend recalibra este valor con heurística catastral.
   "ventanas_patios_por_planta": { "1": number, "2": number, ... },
   "ventanas_patios_por_patio": { "P01": number, "PATIO_2": number },  // ventanas por patio si identificable, si no omite la clave
@@ -228,6 +229,7 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     const fachadaLineal = Number(parsed.fachada_lineal_total_m ?? 0);
     const patiosCods: string[] = Array.isArray(parsed.patios_codigos) ? parsed.patios_codigos : [];
     const patiosAreas: Record<string, number> = (parsed.patios_areas_m2 && typeof parsed.patios_areas_m2 === "object") ? parsed.patios_areas_m2 : {};
+    const paredesPorPatio: Record<string, number> = (parsed.paredes_por_patio && typeof parsed.paredes_por_patio === "object") ? parsed.paredes_por_patio : {};
     const nPatios = Math.max(Number(parsed.patios_detectados ?? patiosCods.length ?? 0), patiosCods.length);
     const dnprcViviendas = countDnprcViviendas(cat?.dnprc_json);
     const plantasParaFallback = Math.max(plantasVis, 1);
@@ -235,38 +237,40 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     const densidad = (isFinite(fachadaLineal) && fachadaLineal > 0 && ventFachada > 0) ? +(ventFachada / fachadaLineal).toFixed(3) : null;
 
     // ============================================================
-    // FÓRMULA REFLEJO: ventanas a patio = ventanas_fachada × Σ factor_reflejo_patio_i
-    // Edificios madrileños pasantes: viviendas tienen ventanas a ambos lados.
-    // Factor por patio según superficie: <15→0.3, 15-30→0.5, 30-50→0.7, ≥50→0.9
+    // FÓRMULA PAREDES: ventanas_patio_i = paredes_visibles_patio_i × plantas_visibles × 1
+    // (proyectamos las ventanas de fachada al patio: 1 ventana/pared/planta)
+    // Si IA no devuelve paredes para un patio, asumimos 4 (típico patio cerrado madrileño).
+    // Patios muy pequeños (<10 m², patio de luces) → 2 paredes efectivas (solo baños/cocinas).
     // ============================================================
-    const factorReflejo = (area: number | null): number => {
-      if (area == null || !isFinite(area)) return 0.5; // default patio medio
-      if (area >= 50) return 0.9;
-      if (area >= 30) return 0.7;
-      if (area >= 15) return 0.5;
-      return 0.3;
+    const paredesEfectivas = (codigo: string, area: number | null): { paredes: number; fuente: "ia" | "fallback_area" | "fallback_default" } => {
+      const raw = Number(paredesPorPatio[codigo]);
+      if (isFinite(raw) && raw >= 1 && raw <= 6) return { paredes: Math.round(raw), fuente: "ia" };
+      if (area != null && area < 10) return { paredes: 2, fuente: "fallback_area" };
+      return { paredes: 4, fuente: "fallback_default" };
     };
 
-    const desglose: Array<{ codigo: string; area_m2: number | null; factor: number; ventanas_estimadas: number }> = [];
-    let sumaFactores = 0;
+    const desglose: Array<{ codigo: string; area_m2: number | null; paredes: number; paredes_fuente: string; plantas: number; ventanas_estimadas: number }> = [];
+    let ventanasPatioEstim = 0;
 
     if (nPatios > 0) {
       const codigos = patiosCods.length ? patiosCods : Array.from({ length: nPatios }, (_, i) => `PATIO_${i + 1}`);
       for (const cod of codigos) {
         const areaRaw = Number(patiosAreas[cod]);
         const area = isFinite(areaRaw) && areaRaw > 0 ? areaRaw : null;
-        const f = factorReflejo(area);
-        sumaFactores += f;
+        const { paredes, fuente } = paredesEfectivas(cod, area);
+        const vent = paredes * plantasParaFallback * 1;
+        ventanasPatioEstim += vent;
         desglose.push({
           codigo: cod,
           area_m2: area,
-          factor: f,
-          ventanas_estimadas: Math.round(ventFachada * f),
+          paredes,
+          paredes_fuente: fuente,
+          plantas: plantasParaFallback,
+          ventanas_estimadas: vent,
         });
       }
     }
 
-    let ventanasPatioEstim = Math.round(ventFachada * sumaFactores);
     let ventanasTotal = ventFachada + ventanasPatioEstim;
     let confianzaVent: number = Number(parsed.confidence ?? 0.7);
     let ratioVentanasPorVivienda: number | null = null;
@@ -275,27 +279,26 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     if (viviendasTotales && viviendasTotales > 0) {
       ratioVentanasPorVivienda = +(ventanasTotal / viviendasTotales).toFixed(2);
       if (ratioVentanasPorVivienda > 10) {
-        // Cap: forzamos ratio = 8
         const objetivo = viviendasTotales * 8;
         ventanasPatioEstim = Math.max(0, Math.round(objetivo - ventFachada));
         ventanasTotal = ventFachada + ventanasPatioEstim;
         confianzaVent = 0.5;
         avisoVent = `Ratio ${ratioVentanasPorVivienda} > 10 fuera de rango. Capeado a ${ventanasTotal} (${viviendasTotales} viv × 8).`;
         // re-escalar desglose proporcionalmente
-        if (desglose.length > 0 && sumaFactores > 0) {
-          const escala = ventanasPatioEstim / (ventFachada * sumaFactores);
-          for (const d of desglose) d.ventanas_estimadas = Math.round(ventFachada * d.factor * escala);
+        const sumaOriginal = desglose.reduce((s, d) => s + d.ventanas_estimadas, 0);
+        if (sumaOriginal > 0) {
+          const escala = ventanasPatioEstim / sumaOriginal;
+          for (const d of desglose) d.ventanas_estimadas = Math.round(d.ventanas_estimadas * escala);
         }
       } else if (ratioVentanasPorVivienda < 4) {
         confianzaVent = 0.4;
-        avisoVent = `Ratio ${ratioVentanasPorVivienda} < 4. Probablemente Street View no detectó todas las ventanas de fachada. No se ajusta automáticamente.`;
+        avisoVent = `Ratio ${ratioVentanasPorVivienda} < 4. Probablemente Street View no detectó todas las ventanas de fachada o faltan paredes/plantas. No se ajusta automáticamente.`;
       } else {
         avisoVent = `Ratio ${ratioVentanasPorVivienda} ventanas/vivienda dentro del rango plausible Madrid (4-10).`;
       }
     }
 
     const ratioFinal = viviendasTotales && viviendasTotales > 0 ? +(ventanasTotal / viviendasTotales).toFixed(2) : null;
-    const factorMedio = nPatios > 0 ? +(sumaFactores / nPatios).toFixed(2) : 0;
     const ventanasPatiosPorPatio = desglose.length > 0
       ? Object.fromEntries(desglose.map((item) => [item.codigo, item.ventanas_estimadas ?? 0]))
       : null;
@@ -307,8 +310,9 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
         }))
       : null;
 
-    const areasResumen = desglose.map(d => `${d.codigo}${d.area_m2 != null ? `=${Math.round(d.area_m2)}m²` : ""}(×${d.factor})`).join(", ");
-    const formulaTxt = `${ventFachada} ventanas fachada × Σ factor reflejo ${sumaFactores.toFixed(2)} (media ${factorMedio} de ${nPatios} patios: ${areasResumen || "—"}) = ${ventanasPatioEstim} ventanas a patio. Total = ${ventanasTotal}. Ratio ventanas/vivienda = ${ratioFinal ?? "—"} (rango plausible 4-10). Lógica: edificios madrileños pasantes — viviendas tienen ventanas a ambos lados con coeficiente según tamaño del patio (<15m²→0.3, 15-30→0.5, 30-50→0.7, ≥50→0.9).`;
+    const totalParedes = desglose.reduce((s, d) => s + d.paredes, 0);
+    const resumenPatios = desglose.map(d => `${d.codigo}(${d.paredes}p${d.paredes_fuente === "ia" ? "" : "*"}${d.area_m2 != null ? `,${Math.round(d.area_m2)}m²` : ""})`).join(", ");
+    const formulaTxt = `${nPatios} patios × paredes visibles (Σ=${totalParedes}) × ${plantasParaFallback} plantas × 1 ventana/pared = ${ventanasPatioEstim} ventanas a patio. Total con fachada = ${ventFachada}+${ventanasPatioEstim}=${ventanasTotal}. Ratio ventanas/vivienda = ${ratioFinal ?? "—"} (rango plausible 4-10). Lógica: las ventanas de fachada se proyectan sobre las paredes del patio (≈1 ventana por pared y planta — cocina/baño/dormitorio interior). Detalle por patio: ${resumenPatios || "—"} (* = paredes asumidas por fallback).`;
 
     const ventanasPatiosTotalFinal = ventanasPatioEstim;
 
