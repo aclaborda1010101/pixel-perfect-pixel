@@ -230,10 +230,8 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
     const patiosAreas: Record<string, number> = (parsed.patios_areas_m2 && typeof parsed.patios_areas_m2 === "object") ? parsed.patios_areas_m2 : {};
     const nPatios = Math.max(Number(parsed.patios_detectados ?? patiosCods.length ?? 0), patiosCods.length);
     const dnprcViviendas = countDnprcViviendas(cat?.dnprc_json);
-    const vivPlanta = Number(parsed.viviendas_por_planta_tipo ?? 0);
     const plantasParaFallback = Math.max(plantasVis, 1);
-    const viviendasFromPlano = vivPlanta > 0 && plantasParaFallback > 0 ? vivPlanta * plantasParaFallback : null;
-    const viviendasTotales = dnprcViviendas ?? viviendasFromPlano;
+    const viviendasTotales = dnprcViviendas;
     const densidad = (isFinite(fachadaLineal) && fachadaLineal > 0 && ventFachada > 0) ? +(ventFachada / fachadaLineal).toFixed(3) : null;
 
     const desglose: Array<{ codigo: string; area_m2: number | null; ventanas_estimadas: number | null }> = [];
