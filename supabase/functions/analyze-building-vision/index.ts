@@ -201,7 +201,7 @@ async function runVisionAnalysis(sb: any, building_id: string, model_override: s
         analysis_duration_ms: Date.now() - startedAt,
       }, { onConflict: "building_id" });
       await setProcessingStatus(building_id, "vision", "error", lastErr ?? "sin resultado");
-      return err(lastErr ?? "Vision sin resultado", 502);
+      return;
     }
 
     // Calcula plantas_levantables
