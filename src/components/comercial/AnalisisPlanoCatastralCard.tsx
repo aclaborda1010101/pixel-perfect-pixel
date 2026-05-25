@@ -211,6 +211,66 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
             NO se extraen del plano sino de Street View y Satélite — el plano solo aporta{" "}
             <span className="font-medium text-foreground">forma, patios, fachada y escaleras</span>.
           </div>
+
+          {/* Bloque auditable de ventanas a patio */}
+          {(a.patios_detectados != null || a.ventanas_patios_estimadas != null) && (
+            <div className="rounded-md border border-cyan-400/30 bg-cyan-400/5 p-3 text-xs">
+              <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-cyan-300">
+                Estimación de ventanas a patio · fórmula determinista
+              </div>
+              <p className="leading-relaxed text-foreground">
+                Plano catastral detectó <strong>{a.patios_detectados ?? "—"}</strong> patios
+                {Array.isArray(a.ventanas_patios_desglose) && a.ventanas_patios_desglose.length > 0 && (
+                  <>
+                    {" "}con códigos{" "}
+                    <span className="font-mono text-[11px]">
+                      [{a.ventanas_patios_desglose
+                        .map((p: any) => `${p.codigo}${p.area_m2 != null ? `: ${Math.round(p.area_m2)}m²` : ""}`)
+                        .join(", ")}]
+                    </span>
+                  </>
+                )}
+                .{" "}
+                {a.densidad_ventanas_fachada != null && (
+                  <>Ratio fachada Street View: <strong>{a.densidad_ventanas_fachada}</strong> ventanas/m. </>
+                )}
+                Aplicando fórmula:{" "}
+                <strong>{a.ventanas_patios_estimadas ?? a.ventanas_patios_total ?? "—"}</strong>{" "}
+                ventanas a patio estimadas.
+              </p>
+              {a.formula_ventanas_patio && (
+                <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+                  {a.formula_ventanas_patio}
+                </p>
+              )}
+              {a.aviso_ventanas && (
+                <p className="mt-2 rounded-sm border border-border-faint bg-surface-1/50 p-2 text-[11px] text-muted-foreground">
+                  ⚠ {a.aviso_ventanas}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  ¿Coincide con lo que ves en Google Earth oblicua?
+                </span>
+                <Button
+                  size="sm"
+                  variant={feedbackSent === "ok" ? "gold" : "outline"}
+                  onClick={() => enviarFeedback("ok")}
+                  disabled={feedbackBusy || feedbackSent !== null}
+                >
+                  <ThumbsUp className="h-3 w-3" /> Sí, correcto
+                </Button>
+                <Button
+                  size="sm"
+                  variant={feedbackSent === "ajuste" ? "gold" : "outline"}
+                  onClick={() => enviarFeedback("ajuste")}
+                  disabled={feedbackBusy || feedbackSent !== null}
+                >
+                  <ThumbsDown className="h-3 w-3" /> No, ajustar manualmente
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
