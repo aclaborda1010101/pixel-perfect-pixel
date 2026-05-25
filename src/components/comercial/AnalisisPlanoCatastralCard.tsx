@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, RefreshCw, Sparkles, Eye, ScanSearch } from "lucide-react";
+import { Loader2, RefreshCw, Sparkles, Eye, ScanSearch, FileText } from "lucide-react";
 import { useBuildingAnalysis } from "@/lib/analisisIA";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -28,9 +28,13 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
   const qc = useQueryClient();
   const [busy, setBusy] = useState<null | "re" | "premium">(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [pageZoom, setPageZoom] = useState<{ url: string; label: string } | null>(null);
 
   const a = data?.analysis;
-  const plano = data?.catastro?.plano_url;
+  const cat = data?.catastro;
+  const plano = cat?.plano_url;
+  const pages: string[] = Array.isArray(cat?.plantas_pages_urls) ? cat!.plantas_pages_urls : [];
+  const pdfUrl: string | null = cat?.plantas_pdf_url ?? null;
   const anotaciones: any[] = Array.isArray(a?.anotaciones_plano) ? a.anotaciones_plano : [];
 
   if (!a) {
@@ -68,23 +72,36 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
 
   const dur = a.analysis_duration_ms ? `${(a.analysis_duration_ms / 1000).toFixed(1)}s` : "—";
   const conf = a.confidence != null ? `${Math.round(Number(a.confidence) * 100)}%` : "—";
-  const ancho = data?.catastro?.ancho_calle_m;
+  const escP01 = a.n_escaleras_en_piso01;
+  const escBaja = a.n_escaleras_en_planta_baja;
+  const vivTipo = a.viviendas_por_planta_tipo;
+  const locBaja = a.n_locales_planta_baja;
+  const almSot = a.n_almacenes_sotano;
+  const patios = a.patios_detectados;
+  const accesos = Array.isArray(a.accesos_codigos) ? a.accesos_codigos.length : null;
 
-  const fachadaAnots = anotaciones.filter((x) => /fachada/i.test(x.tipo || x.etiqueta || ""));
-  const fachadaPrincipal = fachadaAnots[0];
-  const fachadaSecundaria = fachadaAnots[1];
+  const tienePages = pages.length > 0;
+  const escFraseHotelero = escP01 != null
+    ? ` ${escP01} ${escP01 === 1 ? "escalera" : "escaleras"} en PISO 01 (clave para cambio uso hotelero, criterio normativa Madrid)`
+    : " escaleras en PISO 01 no detectadas";
+  const explicacion = tienePages
+    ? `Analicé las ${pages.length} plantas del edificio: en el PISO 01 detecté${escFraseHotelero}` +
+      `${vivTipo != null ? `, ${vivTipo} viviendas tipo` : ""}` +
+      `${patios != null ? `, ${patios} patios` : ""}.` +
+      ` En planta baja hay ${locBaja ?? "—"} locales comerciales` +
+      `${accesos != null ? ` y ${accesos} accesos` : ""}` +
+      `${almSot != null ? `, ${almSot} almacenes en sótano` : ""}` +
+      `${a.tiene_azotea_transitable ? ", azotea transitable" : ""}.` +
+      ` Modelo: ${a.modelo_usado}${a.modelo_fallback ? " (fallback)" : ""}. Confianza ${conf}. Tiempo: ${dur}.`
+    : `Analicé el croquis catastral (PDF de plantas no disponible). Detecté ${patios ?? 0} patios, parcela ${a.esquina ? "en esquina" : "no esquina"}, ${a.segundas_escaleras ? "≥2 cajas de escaleras" : "1 caja de escaleras"}. Modelo: ${a.modelo_usado}${a.modelo_fallback ? " (fallback)" : ""}. Confianza ${conf}. Tiempo: ${dur}.`;
 
-  const explicacion = [
-    `Analicé el plano catastral`,
-    plano ? "" : "(plano no disponible)",
-    `. Detecté: ${a.patios_detectados ?? 0} patios interiores`,
-    `, parcela ${a.esquina ? "en esquina" : "no esquina"}`,
-    ancho ? `, ancho de calle ${ancho} m` : "",
-    fachadaPrincipal?.descripcion ? `, ${fachadaPrincipal.descripcion}` : "",
-    a.esquina && fachadaSecundaria?.descripcion ? `, ${fachadaSecundaria.descripcion}` : "",
-    `, ${a.segundas_escaleras ? "2+ cajas de escaleras visibles" : "1 caja de escaleras"}`,
-    `. Confianza ${conf}. Modelo: ${a.modelo_usado}${a.modelo_fallback ? " (fallback)" : ""}. Tiempo: ${dur}.`,
-  ].join("");
+  const pageLabel = (i: number) => {
+    if (pages.length <= 1) return `Plano`;
+    if (i === 0) return "Pág 1 · Vista general";
+    if (i === 1) return "Pág 2 · Planta BAJA";
+    if (i === pages.length - 1) return `Pág ${i + 1} · SÓTANO`;
+    return `Pág ${i + 1} · PISO ${String(i - 1).padStart(2, "0")}`;
+  };
 
   return (
     <>
@@ -96,8 +113,51 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
         <CardContent className="space-y-4">
           <p className="text-sm leading-relaxed text-foreground">{explicacion}</p>
 
+          {tienePages && (
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <Eyebrow>{pages.length} páginas del PDF de distribución por plantas</Eyebrow>
+                {pdfUrl && (
+                  <Button asChild size="sm" variant="outline">
+                    <a href={pdfUrl} target="_blank" rel="noreferrer">
+                      <FileText className="h-3 w-3" /> Abrir PDF completo ↗
+                    </a>
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
+                {pages.map((url, i) => (
+                  <button
+                    key={url}
+                    type="button"
+                    onClick={() => setPageZoom({ url, label: pageLabel(i) })}
+                    className="group block overflow-hidden rounded-md border border-border-faint bg-white text-left transition hover:border-gold"
+                  >
+                    <img src={url} alt={pageLabel(i)} loading="lazy" className="aspect-[3/4] w-full object-contain" />
+                    <div className="bg-surface-1 px-2 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground group-hover:text-gold">
+                      {pageLabel(i)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tienePages && (
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              <MiniStat label="ESC piso 01" value={escP01} accent={escP01 != null && escP01 >= 2} />
+              <MiniStat label="ESC planta baja" value={escBaja} />
+              <MiniStat label="Viv./planta tipo" value={vivTipo} />
+              <MiniStat label="Locales baja" value={locBaja} />
+              <MiniStat label="Almacenes sótano" value={almSot} />
+              <MiniStat label="Sótano" value={a.tiene_sotano == null ? "—" : a.tiene_sotano ? "Sí" : "No"} />
+              <MiniStat label="Azotea transit." value={a.tiene_azotea_transitable == null ? "—" : a.tiene_azotea_transitable ? "Sí" : "No"} />
+              <MiniStat label="Patios" value={patios} />
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setModalOpen(true)} disabled={!plano}>
+            <Button size="sm" variant="outline" onClick={() => setModalOpen(true)} disabled={!plano && pages.length === 0}>
               <Eye className="h-3 w-3" /> Ver plano procesado con anotaciones
             </Button>
             <Button size="sm" variant="outline" onClick={() => reanalizar()} disabled={busy !== null}>
@@ -126,12 +186,38 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-5xl">
           <DialogHeader>
-            <DialogTitle>Plano catastral · anotaciones IA</DialogTitle>
+            <DialogTitle>
+              {pages.length > 0 ? "PISO 01 · anotaciones IA" : "Plano catastral · anotaciones IA"}
+            </DialogTitle>
           </DialogHeader>
-          <PlanoAnotado planoUrl={plano} anotaciones={anotaciones} />
+          <PlanoAnotado planoUrl={pages[2] ?? pages[0] ?? plano} anotaciones={anotaciones} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!pageZoom} onOpenChange={(v) => !v && setPageZoom(null)}>
+        <DialogContent className="max-w-6xl">
+          <DialogHeader>
+            <DialogTitle>{pageZoom?.label}</DialogTitle>
+          </DialogHeader>
+          {pageZoom && (
+            <div className="max-h-[80vh] overflow-auto rounded-md border border-border-faint bg-white">
+              <img src={pageZoom.url} alt={pageZoom.label} className="block w-full" />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function MiniStat({ label, value, accent }: { label: string; value: any; accent?: boolean }) {
+  return (
+    <div className="rounded-md border border-border-faint bg-surface-1/40 p-2">
+      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">{label}</div>
+      <div className={`mt-0.5 font-mono text-base tabular-nums ${accent ? "text-gold" : "text-foreground"}`}>
+        {value == null || value === "" ? "—" : String(value)}
+      </div>
+    </div>
   );
 }
 
