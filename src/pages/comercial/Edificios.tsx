@@ -459,8 +459,8 @@ export default function ComercialEdificios() {
         eyebrow="Edificios"
         title="Cartera y catálogo"
         subtitle={`${mias.length} en tu cartera · ${rows.length} edificios totales`}
-      >
-        <div className="flex gap-2">
+        actions={
+          <div className="flex gap-2">
           <Button
             onClick={() => launchBatch(true)}
             disabled={batchBusy || !userId}
@@ -478,8 +478,9 @@ export default function ComercialEdificios() {
           >
             Reprocesar todos los {mias.length}
           </Button>
-        </div>
-      </PageHeader>
+          </div>
+        }
+      />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
