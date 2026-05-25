@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
@@ -255,6 +255,18 @@ export default function ComercialEdificios() {
   );
   // Si la URL trae ?filter=cartera_demo aplicamos solo demo y forzamos sort score desc
   const carteraDemoOnly = urlFilter === "cartera_demo";
+
+  useEffect(() => {
+    if (carteraDemoOnly) {
+      setTab("mia");
+      setSort("score_desc");
+    }
+  }, [carteraDemoOnly]);
+
+  const visibleMias = useMemo(
+    () => (carteraDemoOnly ? mias.filter((r) => r.cartera_demo) : mias),
+    [mias, carteraDemoOnly],
+  );
 
   const allBarrios = useMemo(() => {
     const set = new Set<string>();
