@@ -180,6 +180,7 @@ export type Database = {
       }
       building_analysis: {
         Row: {
+          accesos_codigos: Json | null
           analysis_duration_ms: number | null
           analyze_error: string | null
           analyzed_at: string | null
@@ -193,6 +194,11 @@ export type Database = {
           metricas_extra: Json | null
           modelo_fallback: boolean | null
           modelo_usado: string | null
+          n_almacenes_sotano: number | null
+          n_escaleras_en_piso01: number | null
+          n_escaleras_en_planta_baja: number | null
+          n_locales_planta_baja: number | null
+          patios_codigos: Json | null
           patios_detectados: number | null
           plano_render_url: string | null
           plantas_levantables: number | null
@@ -201,11 +207,15 @@ export type Database = {
           protegido_historicamente: boolean | null
           segundas_escaleras: boolean | null
           sources_used: Json | null
+          tiene_azotea_transitable: boolean | null
+          tiene_sotano: boolean | null
           updated_at: string
           ventanas_fachada_total: number | null
           ventanas_por_planta: Json | null
+          viviendas_por_planta_tipo: number | null
         }
         Insert: {
+          accesos_codigos?: Json | null
           analysis_duration_ms?: number | null
           analyze_error?: string | null
           analyzed_at?: string | null
@@ -219,6 +229,11 @@ export type Database = {
           metricas_extra?: Json | null
           modelo_fallback?: boolean | null
           modelo_usado?: string | null
+          n_almacenes_sotano?: number | null
+          n_escaleras_en_piso01?: number | null
+          n_escaleras_en_planta_baja?: number | null
+          n_locales_planta_baja?: number | null
+          patios_codigos?: Json | null
           patios_detectados?: number | null
           plano_render_url?: string | null
           plantas_levantables?: number | null
@@ -227,11 +242,15 @@ export type Database = {
           protegido_historicamente?: boolean | null
           segundas_escaleras?: boolean | null
           sources_used?: Json | null
+          tiene_azotea_transitable?: boolean | null
+          tiene_sotano?: boolean | null
           updated_at?: string
           ventanas_fachada_total?: number | null
           ventanas_por_planta?: Json | null
+          viviendas_por_planta_tipo?: number | null
         }
         Update: {
+          accesos_codigos?: Json | null
           analysis_duration_ms?: number | null
           analyze_error?: string | null
           analyzed_at?: string | null
@@ -245,6 +264,11 @@ export type Database = {
           metricas_extra?: Json | null
           modelo_fallback?: boolean | null
           modelo_usado?: string | null
+          n_almacenes_sotano?: number | null
+          n_escaleras_en_piso01?: number | null
+          n_escaleras_en_planta_baja?: number | null
+          n_locales_planta_baja?: number | null
+          patios_codigos?: Json | null
           patios_detectados?: number | null
           plano_render_url?: string | null
           plantas_levantables?: number | null
@@ -253,9 +277,12 @@ export type Database = {
           protegido_historicamente?: boolean | null
           segundas_escaleras?: boolean | null
           sources_used?: Json | null
+          tiene_azotea_transitable?: boolean | null
+          tiene_sotano?: boolean | null
           updated_at?: string
           ventanas_fachada_total?: number | null
           ventanas_por_planta?: Json | null
+          viviendas_por_planta_tipo?: number | null
         }
         Relationships: [
           {
@@ -913,6 +940,10 @@ export type Database = {
           lat: number | null
           lon: number | null
           plano_url: string | null
+          plantas_num_pages: number | null
+          plantas_pages_urls: Json | null
+          plantas_pdf_disponible: boolean | null
+          plantas_pdf_url: string | null
           refcatastral: string
           updated_at: string
         }
@@ -926,6 +957,10 @@ export type Database = {
           lat?: number | null
           lon?: number | null
           plano_url?: string | null
+          plantas_num_pages?: number | null
+          plantas_pages_urls?: Json | null
+          plantas_pdf_disponible?: boolean | null
+          plantas_pdf_url?: string | null
           refcatastral: string
           updated_at?: string
         }
@@ -939,6 +974,10 @@ export type Database = {
           lat?: number | null
           lon?: number | null
           plano_url?: string | null
+          plantas_num_pages?: number | null
+          plantas_pages_urls?: Json | null
+          plantas_pdf_disponible?: boolean | null
+          plantas_pdf_url?: string | null
           refcatastral?: string
           updated_at?: string
         }

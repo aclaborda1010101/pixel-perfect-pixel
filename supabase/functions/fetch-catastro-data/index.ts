@@ -1,6 +1,72 @@
 import { corsHeaders, err, getServiceClient, json, setProcessingStatus, sleep } from "../_shared/scoring_v2_common.ts";
+// MuPDF WASM — renders PDF pages to PNG inside Deno
+// deno-lint-ignore no-explicit-any
+let _mupdf: any = null;
+async function getMupdf() {
+  if (_mupdf) return _mupdf;
+  _mupdf = await import("npm:mupdf@1.3.0");
+  return _mupdf;
+}
 
 const NOMINATIM_UA = "AffluxProperty/1.0 (acifuentes@abius.es)";
+const SEDE = "https://www1.sedecatastro.gob.es";
+const PLANTAS_PDF_CANDIDATES = (refcat: string) => [
+  `${SEDE}/Cartografia/GeneraDocPlantas.aspx?refcat=${refcat}&del=&mun=`,
+  `${SEDE}/Cartografia/GeneraGraficoPlantas.aspx?refcat=${refcat}&del=&mun=`,
+  `${SEDE}/Cartografia/GeneraDocPlantasParcela.aspx?refcat=${refcat}`,
+];
+const PLANTAS_HTML_PAGE = (refcat: string) =>
+  `${SEDE}/Cartografia/mapa.aspx?refcat=${refcat}&del=&mun=&final=`;
+const UA = "Mozilla/5.0 (AffluxProperty/1.0; +mailto:acifuentes@abius.es)";
+
+async function tryFetchPdf(url: string): Promise<Uint8Array | null> {
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA, "Accept": "application/pdf,*/*" } });
+    if (!r.ok) { await r.body?.cancel(); return null; }
+    const ct = r.headers.get("content-type") ?? "";
+    const buf = new Uint8Array(await r.arrayBuffer());
+    // PDF magic %PDF
+    if (buf.length > 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return buf;
+    if (ct.toLowerCase().includes("pdf") && buf.length > 100) return buf;
+    return null;
+  } catch (_e) { return null; }
+}
+
+async function discoverPlantasPdfUrl(refcat: string): Promise<string | null> {
+  try {
+    const r = await fetch(PLANTAS_HTML_PAGE(refcat), { headers: { "User-Agent": UA } });
+    const html = await r.text();
+    // Look for hrefs that mention "plantas" or "distribuc"
+    const hrefs = [...html.matchAll(/href=["']([^"']+)["']/gi)].map((m) => m[1]);
+    for (const h of hrefs) {
+      if (/plantas|distribuc/i.test(h) && /\.pdf|GeneraDoc|GeneraGrafico/i.test(h)) {
+        return h.startsWith("http") ? h : `${SEDE}${h.startsWith("/") ? h : "/" + h}`;
+      }
+    }
+  } catch (_e) { /* ignore */ }
+  return null;
+}
+
+async function rasterizePdfToPng(buf: Uint8Array, maxPages = 12, scale = 2): Promise<Uint8Array[]> {
+  const mupdf = await getMupdf();
+  const doc = mupdf.Document.openDocument(buf, "application/pdf");
+  const n = Math.min(doc.countPages(), maxPages);
+  const out: Uint8Array[] = [];
+  for (let i = 0; i < n; i++) {
+    const page = doc.loadPage(i);
+    const pixmap = page.toPixmap(
+      mupdf.Matrix.scale(scale, scale),
+      mupdf.ColorSpace.DeviceRGB,
+      false,
+      true,
+    );
+    out.push(pixmap.asPNG());
+    pixmap.destroy();
+    page.destroy();
+  }
+  doc.destroy();
+  return out;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -76,29 +142,77 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Descargar SVG del plano (idempotente)
+    // 2a. Descargar SVG croquis (fallback / referencia rápida)
     const svgPath = `${refcat}.svg`;
-    const { data: existing } = await sb.storage.from("catastro").list("", { search: svgPath });
     let plano_url: string | null = null;
-    if (!existing?.some((f) => f.name === svgPath) || force) {
-      try {
-        const planoRes = await fetch(
-          `https://www1.sedecatastro.gob.es/Cartografia/GeneraGraficoParcela.aspx?refcat=${refcat}&del=&mun=`,
-        );
-        const planoTxt = await planoRes.text();
-        const svgMatch = /<svg[\s\S]*?<\/svg>/i.exec(planoTxt);
-        if (svgMatch) {
-          const bytes = new TextEncoder().encode(svgMatch[0]);
-          await sb.storage.from("catastro").upload(svgPath, bytes, {
-            contentType: "image/svg+xml",
-            upsert: true,
-          });
-        }
-      } catch (e) {
-        console.warn("plano fetch fail", e);
+    try {
+      const planoRes = await fetch(
+        `${SEDE}/Cartografia/GeneraGraficoParcela.aspx?refcat=${refcat}&del=&mun=`,
+        { headers: { "User-Agent": UA } },
+      );
+      const planoTxt = await planoRes.text();
+      const svgMatch = /<svg[\s\S]*?<\/svg>/i.exec(planoTxt);
+      if (svgMatch) {
+        const bytes = new TextEncoder().encode(svgMatch[0]);
+        await sb.storage.from("catastro").upload(svgPath, bytes, {
+          contentType: "image/svg+xml",
+          upsert: true,
+        });
       }
+    } catch (e) {
+      console.warn("plano svg fetch fail", e);
     }
     plano_url = sb.storage.from("catastro").getPublicUrl(svgPath).data.publicUrl;
+
+    // 2b. Descargar PDF "Documento de distribución por plantas" + rasterizar páginas
+    let plantas_pdf_url: string | null = null;
+    let plantas_pages_urls: string[] = [];
+    let plantas_num_pages = 0;
+    let plantas_pdf_disponible = false;
+
+    let pdfBuf: Uint8Array | null = null;
+    for (const candidate of PLANTAS_PDF_CANDIDATES(refcat)) {
+      pdfBuf = await tryFetchPdf(candidate);
+      if (pdfBuf) break;
+    }
+    if (!pdfBuf) {
+      const discovered = await discoverPlantasPdfUrl(refcat);
+      if (discovered) pdfBuf = await tryFetchPdf(discovered);
+    }
+
+    if (pdfBuf) {
+      try {
+        const pdfPath = `${refcat}_plantas.pdf`;
+        await sb.storage.from("catastro").upload(pdfPath, pdfBuf, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+        plantas_pdf_url = sb.storage.from("catastro").getPublicUrl(pdfPath).data.publicUrl;
+
+        try {
+          const pages = await rasterizePdfToPng(pdfBuf, 12, 2);
+          plantas_num_pages = pages.length;
+          const urls: string[] = [];
+          for (let i = 0; i < pages.length; i++) {
+            const pPath = `${refcat}_p${i + 1}.png`;
+            await sb.storage.from("catastro").upload(pPath, pages[i], {
+              contentType: "image/png",
+              upsert: true,
+            });
+            urls.push(sb.storage.from("catastro").getPublicUrl(pPath).data.publicUrl);
+          }
+          plantas_pages_urls = urls;
+          plantas_pdf_disponible = true;
+        } catch (rasterErr) {
+          console.warn("rasterización PDF falló", rasterErr);
+          plantas_pdf_disponible = true; // tenemos PDF aunque no PNGs
+        }
+      } catch (uErr) {
+        console.warn("upload plantas PDF fail", uErr);
+      }
+    } else {
+      console.warn("plantas PDF no disponible, usando solo SVG croquis");
+    }
 
     // 3. DNPRC datos alfanuméricos
     let dnprc_json: unknown = null;
@@ -115,12 +229,23 @@ Deno.serve(async (req) => {
     await sb.from("catastro_data").update({
       plano_url,
       dnprc_json,
+      plantas_pdf_url,
+      plantas_pages_urls,
+      plantas_num_pages: plantas_num_pages || null,
+      plantas_pdf_disponible,
       fetched_at: new Date().toISOString(),
       fetch_error: null,
     }).eq("refcatastral", refcat);
 
     await setProcessingStatus(building_id, "catastro", "ok");
-    return json({ status: "ok", refcatastral: refcat, plano_url });
+    return json({
+      status: "ok",
+      refcatastral: refcat,
+      plano_url,
+      plantas_pdf_url,
+      plantas_num_pages,
+      plantas_pdf_disponible,
+    });
   } catch (e) {
     console.error("fetch-catastro-data error", e);
     return err(String((e as Error).message ?? e));
