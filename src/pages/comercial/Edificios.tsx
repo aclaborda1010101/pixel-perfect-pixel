@@ -521,8 +521,8 @@ export default function ComercialEdificios() {
 
   // "Mi cartera" = asignados al user actual OR cartera_demo_seed=true
   const mias = useMemo(
-    () => rows.filter((r) => r.assigned || r.cartera_demo),
-    [rows],
+    () => miasRows.filter((r) => r.assigned || r.cartera_demo),
+    [miasRows],
   );
   // Si la URL trae ?filter=cartera_demo aplicamos solo demo y forzamos sort score desc
   const carteraDemoOnly = urlFilter === "cartera_demo";
@@ -541,9 +541,9 @@ export default function ComercialEdificios() {
 
   const allBarrios = useMemo(() => {
     const set = new Set<string>();
-    rows.forEach((r) => r.barrio && set.add(r.barrio));
+    (tab === "todos" ? rows : mias).forEach((r) => r.barrio && set.add(r.barrio));
     return Array.from(set).sort();
-  }, [rows]);
+  }, [rows, mias, tab]);
 
   const apply = (list: Row[]) => {
     const s = q.trim().toLowerCase();
@@ -568,6 +568,7 @@ export default function ComercialEdificios() {
       if (advSinProteccion && r.protegido_historicamente) return false;
       if (advSinReforma && r.edificio_reformado) return false;
       if (advSinGestionPro && r.gestion_profesional) return false;
+      if (advClusters.size > 0 && (!r.cluster_asignado || !advClusters.has(r.cluster_asignado))) return false;
       return true;
     });
 
@@ -612,6 +613,7 @@ export default function ComercialEdificios() {
     setAdvSinProteccion(false);
     setAdvSinReforma(false);
     setAdvSinGestionPro(false);
+    setAdvClusters(new Set());
   };
 
   const advancedCount =
@@ -622,7 +624,8 @@ export default function ComercialEdificios() {
     (advEsquina ? 1 : 0) +
     (advSinProteccion ? 1 : 0) +
     (advSinReforma ? 1 : 0) +
-    (advSinGestionPro ? 1 : 0);
+    (advSinGestionPro ? 1 : 0) +
+    (advClusters.size > 0 ? 1 : 0);
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0) +
