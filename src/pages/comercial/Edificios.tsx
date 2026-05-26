@@ -604,62 +604,18 @@ export default function ComercialEdificios() {
 
           <div className="flex items-center gap-1">
             <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-              Score
+              Score mín
             </span>
             <Input
               type="number"
               min={0}
               max={100}
-              placeholder="min"
+              placeholder="0"
               value={scoreMin}
               onChange={(e) => setScoreMin(e.target.value)}
               className="h-8 w-16 text-xs"
             />
-            <span className="text-muted-foreground">–</span>
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              placeholder="max"
-              value={scoreMax}
-              onChange={(e) => setScoreMax(e.target.value)}
-              className="h-8 w-16 text-xs"
-            />
           </div>
-
-          <div className="flex items-center gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-              Viv.
-            </span>
-            <Input
-              type="number"
-              min={0}
-              placeholder="min"
-              value={vivMin}
-              onChange={(e) => setVivMin(e.target.value)}
-              className="h-8 w-16 text-xs"
-            />
-            <span className="text-muted-foreground">–</span>
-            <Input
-              type="number"
-              min={0}
-              placeholder="max"
-              value={vivMax}
-              onChange={(e) => setVivMax(e.target.value)}
-              className="h-8 w-16 text-xs"
-            />
-          </div>
-
-          <Select value={dh} onValueChange={(v) => setDh(v as any)}>
-            <SelectTrigger className="h-8 w-40 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">DH: todos</SelectItem>
-              <SelectItem value="no" className="text-xs">Sin div. horizontal</SelectItem>
-              <SelectItem value="yes" className="text-xs">Con div. horizontal</SelectItem>
-            </SelectContent>
-          </Select>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -691,6 +647,66 @@ export default function ComercialEdificios() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
+                <SlidersHorizontal className="h-3 w-3" />
+                Filtros avanzados
+                {advancedCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                    {advancedCount}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 space-y-3" align="end">
+              <div className="space-y-2">
+                <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Ventanas fachada (mínimo)
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="ej. 50"
+                  value={ventanasMin}
+                  onChange={(e) => setVentanasMin(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-2 border-t border-border-faint pt-3">
+                <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Potencial estructural
+                </Label>
+                {[
+                  { id: "esc", v: advSegundasEscaleras, s: setAdvSegundasEscaleras, l: "Tiene segundas escaleras" },
+                  { id: "alt", v: advPlantasLevantables, s: setAdvPlantasLevantables, l: "Puede aumentar altura (plantas levantables)" },
+                  { id: "azo", v: advAzotea, s: setAdvAzotea, l: "Azotea transitable" },
+                  { id: "esq", v: advEsquina, s: setAdvEsquina, l: "Edificio en esquina" },
+                ].map((o) => (
+                  <div key={o.id} className="flex items-center gap-2">
+                    <Checkbox id={o.id} checked={o.v} onCheckedChange={(c) => o.s(!!c)} />
+                    <Label htmlFor={o.id} className="cursor-pointer text-xs font-normal">{o.l}</Label>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2 border-t border-border-faint pt-3">
+                <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Excluir penalizaciones
+                </Label>
+                {[
+                  { id: "prot", v: advSinProteccion, s: setAdvSinProteccion, l: "Sin protección histórica" },
+                  { id: "ref", v: advSinReforma, s: setAdvSinReforma, l: "Sin reforma reciente" },
+                  { id: "ges", v: advSinGestionPro, s: setAdvSinGestionPro, l: "Sin gestión profesional" },
+                ].map((o) => (
+                  <div key={o.id} className="flex items-center gap-2">
+                    <Checkbox id={o.id} checked={o.v} onCheckedChange={(c) => o.s(!!c)} />
+                    <Label htmlFor={o.id} className="cursor-pointer text-xs font-normal">{o.l}</Label>
+                  </div>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {activeFiltersCount > 0 && (
             <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={clearFilters}>
