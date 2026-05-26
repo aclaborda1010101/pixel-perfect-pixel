@@ -180,7 +180,7 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     });
 
     let parsed: any = null;
-    const primaryModel = "google/gemini-3.5-flash";
+    const primaryModel = "google/gemini-3.1-flash-lite-preview";
     let modelo_usado = primaryModel;
     let modelo_fallback = false;
     let llm_raw: any = null;

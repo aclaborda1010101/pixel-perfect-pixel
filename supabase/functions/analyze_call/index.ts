@@ -81,7 +81,7 @@ async function aiAnalyze(transcript: string, dur: number): Promise<any> {
     method: 'POST',
     headers: { Authorization: `Bearer ${LK}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
+      model: 'google/gemini-3.1-flash-lite-preview',
       messages: [{ role: 'user', content: buildPrompt(transcript, dur) }],
       response_format: { type: 'json_object' },
     }),
@@ -144,7 +144,7 @@ async function analyzeOne(supabase: any, callRow: any): Promise<{ ok: boolean; e
 
   let parsed: any = null;
   let usage: any = {};
-  let modelo = 'google/gemini-2.5-flash';
+  let modelo = 'google/gemini-3.1-flash-lite-preview';
 
   if (!transcript || transcript.length < MIN_CHARS) {
     parsed = {

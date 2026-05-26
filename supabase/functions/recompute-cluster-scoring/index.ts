@@ -47,7 +47,7 @@ Si no hay información para una clave, usa null. Devuelve SOLO el JSON.`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-3.1-flash-lite-preview",
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
       }),
