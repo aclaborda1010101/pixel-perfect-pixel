@@ -123,6 +123,7 @@ function BuildingCard({ r }: { r: Row }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Eyebrow>{r.barrio ?? r.ciudad ?? "—"}</Eyebrow>
+              <ClusterChip cluster={r.cluster_asignado} />
               {r.assigned && (
                 <Badge variant="gold" className="h-4 px-1.5 text-[9px]">
                   Tu cartera
@@ -261,7 +262,7 @@ export default function ComercialEdificios() {
           .range(from, from + PAGE - 1);
       const fetchBldgsPage = (from: number) =>
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo")
           // also need cluster_asignado for chips
           .range(from, from + PAGE - 1);
       const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
@@ -344,6 +345,7 @@ export default function ComercialEdificios() {
           confianza_media: extra.confianza_media ?? null,
           has_analysis: !!b.has_ai_analysis,
           ventanas_fachada_total: analysisMap.get(b.id) ?? null,
+          cluster_asignado: extra.cluster_asignado ?? null,
         };
       });
       return { rows };
