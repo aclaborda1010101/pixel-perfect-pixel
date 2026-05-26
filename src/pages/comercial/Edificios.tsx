@@ -248,6 +248,15 @@ export default function ComercialEdificios() {
   const [vivMax, setVivMax] = useState<string>("");
   const [dh, setDh] = useState<"all" | "yes" | "no">("all");
   const [barrios, setBarrios] = useState<Set<string>>(new Set());
+  // Filtros avanzados
+  const [ventanasMin, setVentanasMin] = useState<string>("");
+  const [advSegundasEscaleras, setAdvSegundasEscaleras] = useState(false);
+  const [advPlantasLevantables, setAdvPlantasLevantables] = useState(false);
+  const [advAzotea, setAdvAzotea] = useState(false);
+  const [advEsquina, setAdvEsquina] = useState(false);
+  const [advSinProteccion, setAdvSinProteccion] = useState(false);
+  const [advSinReforma, setAdvSinReforma] = useState(false);
+  const [advSinGestionPro, setAdvSinGestionPro] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["comercial:edificios:all", userId],
