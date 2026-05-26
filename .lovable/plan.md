@@ -1,45 +1,36 @@
+## Fix descarga PDF + diagnóstico SVG en `fetch-catastro-data`
 
-## Diagnóstico
+### Problema actual
+Job `44eb03bc...` en fase catastro: 12/74 procesados, **12 con lat/lon ✅**, pero **0 PDF y 0 SVG**.
 
-`fetch-catastro-data` tiene un bug: cuando un edificio ya trae `buildings.refcatastral` rellenado (caso de 73/74 tras el backfill), entra en el `if (!refcat || force)` de la línea 101 y **lo salta entero**. Eso significa que **nunca geocodifica ni llama a RCCOOR**, por lo que el upsert posterior (líneas 160-163) escribe sólo `refcatastral + building_id`, dejando `lat/lon = NULL` en `catastro_data`.
+Logs confirman:
+- `se descarta PDF genérico de consulta descriptiva` → el guard `isKnownGenericCatastroPdf` está tirando los PDFs correctos
+- `plano svg: no <svg> in response` → OVC ya no devuelve SVG inline en `GeneraGraficoParcela.aspx`
 
-Consecuencia:
-- La función devuelve `200 ok` → orquestador cuenta `catastro: ok 74/74`.
-- `fetch-google-imagery` lee lat/lon → falla con `HTTP 400: Sin coordenadas`.
-- Confirmado en BD: 74 edificios cartera_demo, sólo 1 con `lat`. El nuevo job `174e316d` está repitiendo el mismo error (52 "ok" pero sin coords).
+### Cambios en `supabase/functions/fetch-catastro-data/index.ts`
 
-## Cambios
+1. **Eliminar el guard `isKnownGenericCatastroPdf`** (líneas ~207-254). Los PDFs de `SECImprimirCroquisYDatos` y `SECImprimirDatos` son los oficiales con croquis + datos; subirlos a storage y rasterizarlos como hasta ahora.
 
-### 1. `supabase/functions/fetch-catastro-data/index.ts`
+2. **Loggear los primeros 500 chars** de la respuesta de `GeneraGraficoParcela.aspx` cuando no contenga `<svg>`, para diagnosticar qué devuelve ahora OVC (HTML con imagen embebida, redirect, etc.). Solo logging — el fix del SVG vendrá en una segunda iteración cuando sepamos el formato real.
 
-Mover la geocodificación a un **paso siempre ejecutado** cuando faltan coords, independiente de si ya hay refcat:
+### Despliegue y continuación
 
-- Después de cargar el building, leer la fila actual de `catastro_data` (si existe) para saber si ya hay `lat/lon`.
-- Si **no hay lat/lon** (o `force`): ejecutar Nominatim → obtener `(lat, lon)`. Si falla → devolver **HTTP 422** y marcar `fetch_error` (no 200).
-- Si **no hay refcat**: con esas coords llamar a RCCOOR para resolverlo. Si falla → HTTP 422 + `fetch_error`.
-- Hacer un único `upsert` a `catastro_data` con `refcatastral`, `building_id`, `lat`, `lon` (sólo si los tenemos) **antes** de seguir con SVG/PDF/DNPRC.
-- En caso de cualquier excepción no controlada, escribir `fetch_error` y devolver no-200.
+3. **Deploy** de `fetch-catastro-data` (job actual sigue corriendo; los ~62 restantes se beneficiarán del fix de PDF inmediatamente).
 
-### 2. Abortar los jobs antiguos en curso
+4. **Al terminar el job**, relanzar los 12 primeros con `force:true` desde el orquestador para completar su PDF (el SVG depende del análisis del log nuevo).
 
-Marcar como `aborted` los dos jobs (`ea300eb6…` y `174e316d…`) — ya no merece la pena que sigan.
+### Verificación post-batch
+```sql
+SELECT 
+  COUNT(*) FILTER (WHERE lat IS NOT NULL) AS con_coords,
+  COUNT(*) FILTER (WHERE plantas_pdf_url IS NOT NULL) AS con_pdf,
+  COUNT(*) FILTER (WHERE plano_url IS NOT NULL) AS con_svg
+FROM catastro_data cd
+JOIN buildings b ON b.id = cd.building_id
+WHERE b.cartera_demo_seed = true;
+```
+Esperado: con_coords=74, con_pdf cerca de 74. con_svg se atacará después con los logs nuevos.
 
-### 3. Re-lanzar el batch limpio
-
-Una vez deployada la edge function corregida, lanzar un nuevo `auto-process-cartera-demo` desde el botón existente. Procesará en orden:
-- Fase A catastro → ahora sí escribirá lat/lon para los 73 que faltan + reintentará el PDF/SVG.
-- Fase B Google → ya no fallará por falta de coords.
-- Fase C Vision + Fase D Score → normales.
-
-### 4. Verificación post-batch
-
-Tras terminar, query a `catastro_data` filtrando `cartera_demo_seed=true` para confirmar:
-- `COUNT(lat)` = 74
-- `COUNT(plano_url)` + `COUNT(plantas_pdf_url)` cercanos a 74 (los que OVC sirva)
-- `fetch_error` sólo en los irrecuperables, documentado.
-
-## Fuera de scope
-
-- No tocamos el orquestador (`auto-process-cartera-demo`) ni `fetch-google-imagery`: el bug es 100% de catastro.
-- No bajamos concurrencia: 2 paralelos + 2 s sleep ya está siendo bien tolerado por OVC (74/74 respondieron 200).
-- Dashboard de validación seed_label vs IA en /admin se queda para después del batch, como acordamos.
+### Fuera de alcance
+- Fix definitivo del SVG (requiere ver respuesta real de OVC primero)
+- Cambios en `auto-process-cartera-demo`, `fetch-google-imagery`, dashboard `/admin`
