@@ -106,7 +106,6 @@ export default function ComercialEdificioDetalle() {
   const s = data.score ?? {};
   const assigned = data.assigned;
   const analysis = data.analysis;
-  const score = Number(s.score ?? 0);
   const ratio =
     s?.m2_total && s?.num_viviendas ? Number(s.m2_total) / Number(s.num_viviendas) : null;
   const anioConstr =
