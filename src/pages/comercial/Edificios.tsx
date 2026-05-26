@@ -323,17 +323,15 @@ export default function ComercialEdificios() {
       }
 
       // Análisis IA: ventanas por edificio
-      const analysisMap = new Map<string, number>();
+      const analysisMap = new Map<string, any>();
       let aFrom = 0;
       while (true) {
         const { data: aPage } = await (supabase.from("building_analysis" as any) as any)
-          .select("building_id, ventanas_fachada_total")
+          .select("building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional")
           .range(aFrom, aFrom + PAGE - 1);
         const chunk = aPage ?? [];
         for (const row of chunk) {
-          if (row.ventanas_fachada_total != null) {
-            analysisMap.set(row.building_id, row.ventanas_fachada_total);
-          }
+          analysisMap.set(row.building_id, row);
         }
         if (chunk.length < PAGE) break;
         aFrom += PAGE;
@@ -344,6 +342,7 @@ export default function ComercialEdificios() {
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
         const extra = bldgsById.get(b.id) ?? {};
         const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
+        const an = analysisMap.get(b.id) ?? {};
         return {
           id: b.id,
           direccion: b.direccion,
@@ -363,8 +362,15 @@ export default function ComercialEdificios() {
           score_summary: extra.score_summary ?? null,
           confianza_media: extra.confianza_media ?? null,
           has_analysis: !!b.has_ai_analysis,
-          ventanas_fachada_total: analysisMap.get(b.id) ?? null,
+          ventanas_fachada_total: an.ventanas_fachada_total ?? null,
           cluster_asignado: extra.cluster_asignado ?? null,
+          segundas_escaleras: an.segundas_escaleras ?? null,
+          plantas_levantables: an.plantas_levantables ?? null,
+          tiene_azotea_transitable: an.tiene_azotea_transitable ?? null,
+          esquina: an.esquina ?? null,
+          protegido_historicamente: an.protegido_historicamente ?? null,
+          edificio_reformado: an.edificio_reformado ?? null,
+          gestion_profesional: an.gestion_profesional ?? null,
         };
       });
       return { rows };
