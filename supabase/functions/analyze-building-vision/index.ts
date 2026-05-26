@@ -134,14 +134,18 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     // Recoge URLs públicas
     const { data: cat } = await sb
       .from("catastro_data")
-      .select("plano_url, refcatastral, plantas_pages_urls, plantas_num_pages, plantas_pdf_disponible, dnprc_json")
+      .select("plano_url, refcatastral, plantas_pages_urls, plantas_num_pages, plantas_pdf_disponible, fxcc_pages_urls, fxcc_num_pages, fxcc_disponible, dnprc_json")
       .eq("building_id", building_id).maybeSingle();
     const { data: imgs } = await sb
       .from("building_imagery").select("source, public_url, heading").eq("building_id", building_id);
 
     const imageUrls: string[] = [];
-    // 1) Páginas del PDF de distribución por plantas (PISO 01 = página 3 idealmente)
-    const plantasPages: string[] = Array.isArray(cat?.plantas_pages_urls) ? cat!.plantas_pages_urls : [];
+    // 1) Páginas del PDF — preferimos FXCC (croquis por plantas reales) sobre la consulta descriptiva.
+    const fxccPages: string[] = Array.isArray(cat?.fxcc_pages_urls) ? cat!.fxcc_pages_urls : [];
+    const descPages: string[] = Array.isArray(cat?.plantas_pages_urls) ? cat!.plantas_pages_urls : [];
+    const plantasPages: string[] = fxccPages.length > 0 ? fxccPages : descPages;
+    const planoSource = fxccPages.length > 0 ? "fxcc" : "descriptivo";
+    console.log(`[vision] building=${building_id} plano_source=${planoSource} pages=${plantasPages.length}`);
     plantasPages.forEach((u) => imageUrls.push(u));
     // 2) Fallback: si no hay PNGs de plantas, el croquis SVG
     if (plantasPages.length === 0 && cat?.plano_url) imageUrls.push(cat.plano_url);
