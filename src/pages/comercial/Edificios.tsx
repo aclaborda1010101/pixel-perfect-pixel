@@ -223,7 +223,7 @@ function BuildingCard({ r }: { r: Row }) {
               {r.ventanas_total ?? "—"}
             </div>
             <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-              ventanas
+              ventanas total
             </div>
           </div>
         </div>
