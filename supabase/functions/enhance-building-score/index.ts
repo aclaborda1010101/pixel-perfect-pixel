@@ -153,7 +153,7 @@ Datos:
 - Score total: ${score ?? "—"}
 - Score breakdown: ${JSON.stringify(breakdown ?? {})}
 - Avisos detectados: ${JSON.stringify(avisos.map(a => ({ label: a.label, reasoning: a.reasoning })))}
-- Métricas IA: ventanas=${an?.ventanas_fachada_total ?? "—"}, plantas_visibles=${an?.plantas_visibles ?? "—"}, plantas_levantables=${an?.plantas_levantables ?? "—"}, escaleras_piso01=${an?.n_escaleras_en_piso01 ?? "—"}, esquina=${an?.esquina ?? "—"}, historico=${an?.protegido_historicamente ?? "—"}
+- Métricas IA: ventanas_total=${((Number(an?.ventanas_fachada_total ?? 0) + Number(an?.ventanas_patios_total ?? 0)) || "—")} (fachada=${an?.ventanas_fachada_total ?? "—"} + patios=${an?.ventanas_patios_total ?? "—"}), plantas_visibles=${an?.plantas_visibles ?? "—"}, plantas_levantables=${an?.plantas_levantables ?? "—"}, escaleras_piso01=${an?.n_escaleras_en_piso01 ?? "—"}, esquina=${an?.esquina ?? "—"}, historico=${an?.protegido_historicamente ?? "—"}
 
 Devuelve SOLO el párrafo, sin encabezados ni listas.`;
 
