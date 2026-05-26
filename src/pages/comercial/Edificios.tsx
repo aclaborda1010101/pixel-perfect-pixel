@@ -72,7 +72,27 @@ type Row = {
   confianza_media: number | null;
   has_analysis: boolean;
   ventanas_fachada_total?: number | null;
+  cluster_asignado?: string | null;
 };
+
+const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
+  ultra_prime: { label: "Ultra Prime", cls: "bg-purple-500/15 text-purple-300 border-purple-500/30" },
+  prime_value_add: { label: "Prime Value-Add", cls: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+  flex_living_core: { label: "Flex Living Core", cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+  outer_distressed: { label: "Outer Distressed", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+  outer_distressed_selectivo: { label: "Outer selectivo", cls: "bg-amber-500/10 text-amber-300/80 border-amber-500/20" },
+  baja_prioridad: { label: "Baja prioridad", cls: "bg-muted text-muted-foreground border-border-faint" },
+};
+
+export function ClusterChip({ cluster }: { cluster?: string | null }) {
+  if (!cluster) return null;
+  const c = CLUSTER_LABELS[cluster] ?? { label: cluster, cls: "bg-muted text-muted-foreground border-border-faint" };
+  return (
+    <Badge variant="outline" className={cn("h-4 px-1.5 text-[9px] uppercase tracking-eyebrow", c.cls)}>
+      {c.label}
+    </Badge>
+  );
+}
 
 type SortKey =
   | "score_desc"
