@@ -138,38 +138,47 @@ function BuildingCard({ r }: { r: Row }) {
     <Card className="overflow-hidden">
       <CardContent className="space-y-4 p-5">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Eyebrow>{r.barrio ?? r.ciudad ?? "—"}</Eyebrow>
+          <div className="min-w-0 flex-1 space-y-2">
+            <Eyebrow>{r.barrio ?? r.ciudad ?? "—"}</Eyebrow>
+            <h3 className="truncate text-base font-medium leading-tight text-foreground">
+              {r.direccion}
+            </h3>
+            <div className="flex flex-wrap items-center gap-1.5">
               <ClusterChip cluster={r.cluster_asignado} />
               {r.assigned && (
-                <Badge variant="gold" className="h-4 px-1.5 text-[9px]">
+                <Badge
+                  variant="gold"
+                  className="h-5 whitespace-nowrap rounded-sm px-1.5 text-[10px] uppercase tracking-eyebrow"
+                >
                   Tu cartera
                 </Badge>
               )}
               {r.cartera_demo && (
-                <Badge
-                  className="h-4 border-0 bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 text-[9px] text-white"
-                >
-                  Marcado manual
+                <Badge className="h-5 whitespace-nowrap rounded-sm border-0 bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 text-[10px] uppercase tracking-eyebrow text-white">
+                  Marcado
                 </Badge>
               )}
             </div>
-            <h3 className="mt-1 truncate text-base font-medium text-foreground">{r.direccion}</h3>
           </div>
           {r.score_summary ? (
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="cursor-help"><ScorePill score={r.score} /></div>
+                  <div className="shrink-0 cursor-help">
+                    <ScorePill score={r.score} />
+                  </div>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-sm">
-                  <p className="text-xs leading-relaxed">{r.score_summary.split(".").slice(0, 2).join(".") + "."}</p>
+                  <p className="text-xs leading-relaxed">
+                    {r.score_summary.split(".").slice(0, 2).join(".") + "."}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           ) : (
-            <ScorePill score={r.score} />
+            <div className="shrink-0">
+              <ScorePill score={r.score} />
+            </div>
           )}
         </div>
 
