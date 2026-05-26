@@ -30,13 +30,9 @@ import {
   Tag,
 } from "lucide-react";
 import {
-  ScoreGauge,
-  ScoreFactorBar,
   ScorePill,
   scoreTier,
   tierBarClass,
-  tierTextClass,
-  buildingScoreFactors,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
