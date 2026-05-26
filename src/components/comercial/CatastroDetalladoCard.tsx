@@ -129,16 +129,20 @@ export function CatastroDetalladoCard({ buildingId, refCatastral }: { buildingId
               </div>
             )}
 
-            {data.plano_url && (
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              {data.plano_url ? (
                 <Button asChild size="sm" variant="outline">
                   <a href={data.plano_url} target="_blank" rel="noreferrer">Abrir plano catastral SVG ↗</a>
                 </Button>
-                <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-                  fetched: {data.fetched_at ? new Date(data.fetched_at).toLocaleString("es") : "—"}
+              ) : (
+                <span className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground border border-border/40 rounded px-2 py-1">
+                  Plano SVG no disponible en Catastro
                 </span>
-              </div>
-            )}
+              )}
+              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                fetched: {data.fetched_at ? new Date(data.fetched_at).toLocaleString("es") : "—"}
+              </span>
+            </div>
           </>
         )}
       </CardContent>
