@@ -62,21 +62,23 @@ Deno.serve(async (req) => {
         contentType: "image/png", upsert: true,
       });
       const public_url = sb.storage.from("building_imagery").getPublicUrl(path).data.publicUrl;
-      await sb.from("building_imagery").upsert({
-        building_id,
-        source: s.source,
-        heading: s.heading,
-        pitch: s.pitch,
-        zoom: s.zoom,
-        file_path: path,
-        public_url,
-      }, { onConflict: "file_path" } as any).catch(async () => {
-        // si no hay constraint unique en file_path, insert simple
+      try {
+        const { error: upErr } = await sb.from("building_imagery").upsert({
+          building_id,
+          source: s.source,
+          heading: s.heading,
+          pitch: s.pitch,
+          zoom: s.zoom,
+          file_path: path,
+          public_url,
+        }, { onConflict: "file_path" } as any);
+        if (upErr) throw upErr;
+      } catch {
         await sb.from("building_imagery").insert({
           building_id, source: s.source, heading: s.heading, pitch: s.pitch, zoom: s.zoom,
           file_path: path, public_url,
         });
-      });
+      }
       imagenes.push({ source: s.source, public_url, bytes: buf.byteLength });
     }
 
