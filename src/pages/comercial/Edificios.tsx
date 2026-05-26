@@ -315,7 +315,7 @@ export default function ComercialEdificios() {
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
-            "building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
+            "building_id, ventanas_fachada_total, ventanas_patios_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
           )
           .in("building_id", ids),
       ]);
@@ -431,7 +431,7 @@ export default function ComercialEdificios() {
       if (interestingIds.length > 0) {
         const { data: aPage } = await (supabase.from("building_analysis" as any) as any)
           .select(
-            "building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
+            "building_id, ventanas_fachada_total, ventanas_patios_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
           )
           .in("building_id", interestingIds);
         for (const row of (aPage ?? []) as any[]) analysisMap.set(row.building_id, row);
