@@ -447,9 +447,7 @@ export default function ComercialEdificios() {
   const apply = (list: Row[]) => {
     const s = q.trim().toLowerCase();
     const smin = scoreMin === "" ? -Infinity : Number(scoreMin);
-    const smax = scoreMax === "" ? Infinity : Number(scoreMax);
-    const vmin = vivMin === "" ? -Infinity : Number(vivMin);
-    const vmax = vivMax === "" ? Infinity : Number(vivMax);
+    const vntMin = ventanasMin === "" ? -Infinity : Number(ventanasMin);
 
     let out = list.filter((r) => {
       if (s) {
@@ -459,12 +457,16 @@ export default function ComercialEdificios() {
           (r.barrio ?? "").toLowerCase().includes(s);
         if (!hay) return false;
       }
-      if (r.score < smin || r.score > smax) return false;
-      const v = r.num_viviendas ?? 0;
-      if (v < vmin || v > vmax) return false;
-      if (dh === "yes" && !r.division_horizontal) return false;
-      if (dh === "no" && r.division_horizontal) return false;
+      if (r.score < smin) return false;
       if (barrios.size > 0 && (!r.barrio || !barrios.has(r.barrio))) return false;
+      if (vntMin > -Infinity && (r.ventanas_fachada_total ?? -1) < vntMin) return false;
+      if (advSegundasEscaleras && !r.segundas_escaleras) return false;
+      if (advPlantasLevantables && !((r.plantas_levantables ?? 0) > 0)) return false;
+      if (advAzotea && !r.tiene_azotea_transitable) return false;
+      if (advEsquina && !r.esquina) return false;
+      if (advSinProteccion && r.protegido_historicamente) return false;
+      if (advSinReforma && r.edificio_reformado) return false;
+      if (advSinGestionPro && r.gestion_profesional) return false;
       return true;
     });
 
@@ -500,20 +502,30 @@ export default function ComercialEdificios() {
   const clearFilters = () => {
     setQ("");
     setScoreMin("");
-    setScoreMax("");
-    setVivMin("");
-    setVivMax("");
-    setDh("all");
     setBarrios(new Set());
+    setVentanasMin("");
+    setAdvSegundasEscaleras(false);
+    setAdvPlantasLevantables(false);
+    setAdvAzotea(false);
+    setAdvEsquina(false);
+    setAdvSinProteccion(false);
+    setAdvSinReforma(false);
+    setAdvSinGestionPro(false);
   };
 
+  const advancedCount =
+    (ventanasMin !== "" ? 1 : 0) +
+    (advSegundasEscaleras ? 1 : 0) +
+    (advPlantasLevantables ? 1 : 0) +
+    (advAzotea ? 1 : 0) +
+    (advEsquina ? 1 : 0) +
+    (advSinProteccion ? 1 : 0) +
+    (advSinReforma ? 1 : 0) +
+    (advSinGestionPro ? 1 : 0);
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
-    (scoreMax !== "" ? 1 : 0) +
-    (vivMin !== "" ? 1 : 0) +
-    (vivMax !== "" ? 1 : 0) +
-    (dh !== "all" ? 1 : 0) +
-    (barrios.size > 0 ? 1 : 0);
+    (barrios.size > 0 ? 1 : 0) +
+    advancedCount;
 
   const filteredMias = apply(visibleMias);
   const filteredTodos = apply(rows);
