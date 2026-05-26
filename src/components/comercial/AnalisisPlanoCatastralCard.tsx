@@ -248,13 +248,7 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
       ` Modelo: ${a.modelo_usado}${a.modelo_fallback ? " (fallback)" : ""}. Confianza ${conf}. Tiempo: ${dur}.`
     : `Analicé el croquis catastral (PDF de plantas no disponible). Detecté ${patios ?? 0} patios, parcela ${a.esquina ? "en esquina" : "no esquina"}, ${a.segundas_escaleras ? "≥2 cajas de escaleras" : "1 caja de escaleras"}. Modelo: ${a.modelo_usado}${a.modelo_fallback ? " (fallback)" : ""}. Confianza ${conf}. Tiempo: ${dur}.`;
 
-  const pageLabel = (i: number) => {
-    if (pages.length <= 1) return `Plano`;
-    if (i === 0) return "Pág 1 · Vista general";
-    if (i === 1) return "Pág 2 · Planta BAJA";
-    if (i === pages.length - 1) return `Pág ${i + 1} · SÓTANO`;
-    return `Pág ${i + 1} · PISO ${String(i - 1).padStart(2, "0")}`;
-  };
+  const pageLabel = pageLabelFn;
 
   return (
     <>
