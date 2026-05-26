@@ -335,8 +335,30 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
           for (const d of desglose) d.ventanas_estimadas = Math.round(d.ventanas_estimadas * escala);
         }
       } else if (ratioVentanasPorVivienda < 4) {
-        confianzaVent = 0.4;
-        avisoVent = `Ratio ${ratioVentanasPorVivienda} < 4. Probablemente Street View no detectó todas las ventanas de fachada o faltan paredes/plantas. No se ajusta automáticamente.`;
+        // Auto-ajuste: cada vivienda madrileña típica tiene ≥1 ventana al patio (cocina/baño).
+        // Si la heurística de paredes infraestima, escalamos a un mínimo plausible (ratio = 5):
+        //   ventanasPatio = max(estimado, viviendas × 5 − ventFachada)
+        const objetivo = Math.max(0, viviendasTotales * 5 - ventFachada);
+        if (objetivo > ventanasPatioEstim) {
+          const original = ventanasPatioEstim;
+          ventanasPatioEstim = objetivo;
+          ventanasTotal = ventFachada + ventanasPatioEstim;
+          confianzaVent = 0.5;
+          avisoVent = `Ratio original ${ratioVentanasPorVivienda} < 4 (infraestimación por paredes/plantas). Ajustado: patio ${original}→${ventanasPatioEstim} (mínimo ${viviendasTotales} viv × 5 − ${ventFachada} fachada). Nuevo total ${ventanasTotal}.`;
+          // re-escalar desglose proporcionalmente
+          const sumaOriginal = desglose.reduce((s, d) => s + d.ventanas_estimadas, 0);
+          if (sumaOriginal > 0) {
+            const escala = ventanasPatioEstim / sumaOriginal;
+            for (const d of desglose) d.ventanas_estimadas = Math.round(d.ventanas_estimadas * escala);
+          } else if (desglose.length > 0) {
+            const base = Math.floor(ventanasPatioEstim / desglose.length);
+            const resto = ventanasPatioEstim % desglose.length;
+            desglose.forEach((d, i) => { d.ventanas_estimadas = base + (i < resto ? 1 : 0); });
+          }
+        } else {
+          confianzaVent = 0.4;
+          avisoVent = `Ratio ${ratioVentanasPorVivienda} < 4. Posible infraestimación de Street View; no se autoajusta.`;
+        }
       } else {
         avisoVent = `Ratio ${ratioVentanasPorVivienda} ventanas/vivienda dentro del rango plausible Madrid (4-10).`;
       }
