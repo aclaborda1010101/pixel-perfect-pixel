@@ -141,8 +141,34 @@ Deno.serve(async (req) => {
     let lon: number = lonRaw != null ? Number(lonRaw) : NaN;
     const haveCoords = isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0;
 
-    // 1. Geocodificar si faltan coords o no hay refcat (o force)
-    if (!haveCoords || !refcat || force) {
+    // 1. Si YA tenemos refcatastral, resolver lat/lon DIRECTO con Catastro CPMRC
+    //    (mucho más fiable que Nominatim, que confunde calles homónimas en otros municipios).
+    if (refcat && (!haveCoords || force)) {
+      try {
+        const rc14 = refcat.replace(/[^A-Z0-9]/gi, "").slice(0, 14);
+        const rcRes = await fetch(
+          `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:4326&RC=${rc14}`,
+        );
+        const rcXml = await rcRes.text();
+        const xcen = Number(/<xcen>([^<]+)<\/xcen>/i.exec(rcXml)?.[1]);
+        const ycen = Number(/<ycen>([^<]+)<\/ycen>/i.exec(rcXml)?.[1]);
+        // CPMRC con SRS=EPSG:4326 devuelve xcen=lon, ycen=lat
+        if (isFinite(xcen) && isFinite(ycen) && xcen !== 0 && ycen !== 0) {
+          lon = xcen;
+          lat = ycen;
+          console.log("[catastro] CPMRC ok refcat=", rc14, "lat=", lat, "lon=", lon);
+        } else {
+          console.warn("[catastro] CPMRC sin coords para refcat", rc14, rcXml.slice(0, 300));
+        }
+      } catch (e) {
+        console.warn("[catastro] CPMRC fail", e);
+      }
+    }
+
+    const haveCoordsNow = isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0;
+
+    // 2. Geocodificar SOLO si seguimos sin coords o sin refcat (último recurso)
+    if (!haveCoordsNow || !refcat || force) {
       const direccion = b.direccion;
       if (!direccion) {
         await setProcessingStatus(building_id, "catastro", "error", "sin dirección");
@@ -155,8 +181,10 @@ Deno.serve(async (req) => {
         `${direccion}, ${ciudadClean}, España`,
         `${direccion}, Madrid, España`,
       ];
-      lat = NaN; lon = NaN;
+      // Si ya teníamos coords vía CPMRC, no las pisamos: saltamos a refcat lookup
+      if (!haveCoordsNow) { lat = NaN; lon = NaN; }
       for (const t of tries) {
+        if (haveCoordsNow) break;
         const q = encodeURIComponent(t);
         const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`, {
           headers: { "User-Agent": NOMINATIM_UA },
