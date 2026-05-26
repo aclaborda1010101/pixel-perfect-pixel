@@ -1,16 +1,23 @@
 import { corsHeaders, err, getServiceClient, json, setProcessingStatus, sleep } from "../_shared/scoring_v2_common.ts";
 
-function buildPrompt(numPlantasPages: number) {
-  return `Eres un experto en análisis arquitectónico inmobiliario en Madrid.
-
-Te paso las imágenes en este ORDEN (importante):
+function buildPrompt(numPlantasPages: number, planoSource: "fxcc" | "descriptivo" = "descriptivo") {
+  const layout = planoSource === "fxcc"
+    ? `Te paso las imágenes en este ORDEN (importante):
+- Página 1: PLANTA GENERAL del FXCC (huella completa del edificio con códigos de planta -I, P, I, II, III, IV, V… y superficies en m²).
+- Páginas 2-${Math.max(2, numPlantasPages)}: UNA página por PLANTA del edificio (sótano, planta baja, plantas tipo I, II, III…), cada una con sus subparcelas etiquetadas por uso (V.A.1, V.B.2, COM.TA, COM.VA, PTO…) y superficies m². ESTOS planos son la fuente PRIMARIA para contar viviendas, locales, almacenes, accesos y patios.
+- Después: 4 fotos de Street View de la fachada.
+- Después: foto satélite cenital y satélite oblicua.`
+    : `Te paso las imágenes en este ORDEN (importante):
 - Página 1: vista general de la parcela (planta cenital con altura -I+V indicada y mini-foto de fachada).
 - Página 2: planta BAJA (accesos comunes, locales, portal).
 - Página 3: PISO 01 — primera planta real. AQUÍ se cuentan las cajas de escalera (códigos ESC) y los patios.
 - Páginas 4-${Math.max(4, numPlantasPages - 2)}: pisos tipo (PISO 02, 03, 04…).
 - Última página de plantas: SÓTANO (si existe; mira código AAL, garajes).
 - Después: 4 fotos de Street View de la fachada.
-- Después: foto satélite cenital y satélite oblicua.
+- Después: foto satélite cenital y satélite oblicua.`;
+  return `Eres un experto en análisis arquitectónico inmobiliario en Madrid.
+
+${layout}
 
 CONVENCIONES de etiquetas en el plano catastral (CLAVE):
 - ESC = caja de escaleras. En PISO 01 cuenta cuántas ESC distintas hay; si son 2 no comunicadas espacialmente → 2 escaleras (apto cambio uso hotelero según normativa Madrid). En planta baja la escalera suele comunicar accesos comunes y NO es indicador fiable.
@@ -157,7 +164,7 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
       return;
     }
 
-    const PROMPT = buildPrompt(plantasPages.length || 1);
+    const PROMPT = buildPrompt(plantasPages.length || 1, planoSource as any);
 
     // Construye payload OpenAI-compatible para Lovable AI Gateway
     const buildPayload = (model: string) => ({
