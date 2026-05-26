@@ -201,7 +201,7 @@ Deno.serve(async (req) => {
         if (!upErr) plano_svg_uploaded = true;
         else console.warn("plano svg upload fail", upErr);
       } else {
-        console.warn("plano svg: no <svg> in response for", refcat);
+        console.warn("plano svg: no <svg> in response for", refcat, "preview:", planoTxt.slice(0, 500));
       }
     } catch (e) {
       console.warn("plano svg fetch fail", e);
@@ -230,9 +230,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const isKnownGenericCatastroPdf = !!pdfSourceUrl && /SECImprimirCroquisYDatos|SECImprimirDatos/i.test(pdfSourceUrl);
-
-    if (pdfBuf && !isKnownGenericCatastroPdf) {
+    if (pdfBuf) {
       try {
         const pdfPath = `${refcat}_plantas.pdf`;
         await sb.storage.from("catastro").upload(pdfPath, pdfBuf, {
@@ -262,8 +260,6 @@ Deno.serve(async (req) => {
       } catch (uErr) {
         console.warn("upload plantas PDF fail", uErr);
       }
-    } else if (isKnownGenericCatastroPdf) {
-      console.warn("se descarta PDF genérico de consulta descriptiva; no es distribución por plantas", { refcat, pdfSourceUrl });
     } else {
       console.warn("plantas PDF no disponible, usando solo SVG croquis");
     }
