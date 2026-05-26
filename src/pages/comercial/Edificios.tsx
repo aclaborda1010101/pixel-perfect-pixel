@@ -639,7 +639,7 @@ export default function ComercialEdificios() {
       <PageHeader
         eyebrow="Edificios"
         title="Cartera y catálogo"
-        subtitle={`${mias.length} en tu cartera · ${rows.length} edificios totales`}
+        subtitle={`${mias.length} en tu cartera${todosRows.length ? ` · ${todosRows.length} edificios totales` : ""}`}
         actions={
           <div className="flex gap-2">
           <Button
@@ -676,7 +676,9 @@ export default function ComercialEdificios() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
             <TabsTrigger value="mia">Mi cartera ({mias.length})</TabsTrigger>
-            <TabsTrigger value="todos">Todos los edificios ({rows.length})</TabsTrigger>
+            <TabsTrigger value="todos">
+              Todos los edificios{todosRows.length ? ` (${todosRows.length})` : ""}
+            </TabsTrigger>
           </TabsList>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
