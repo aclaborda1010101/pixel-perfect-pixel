@@ -218,9 +218,9 @@ function BuildingCard({ r }: { r: Row }) {
             <AppWindow className="mx-auto mb-0.5 h-3 w-3 text-muted-foreground" />
             <div className={cn(
               "font-mono text-sm tabular-nums",
-              r.ventanas_fachada_total ? "text-gold" : "text-muted-foreground"
+              r.ventanas_total ? "text-gold" : "text-muted-foreground"
             )}>
-              {r.ventanas_fachada_total ?? "—"}
+              {r.ventanas_total ?? "—"}
             </div>
             <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
               ventanas
