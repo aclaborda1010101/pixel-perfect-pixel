@@ -769,6 +769,39 @@ export default function ComercialEdificios() {
             <PopoverContent className="w-80 space-y-3" align="end">
               <div className="space-y-2">
                 <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Cluster de inversión
+                </Label>
+                <div className="flex flex-wrap gap-1">
+                  {CLUSTER_KEYS.map((k) => {
+                    const meta = CLUSTER_LABELS[k];
+                    const active = advClusters.has(k);
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() =>
+                          setAdvClusters((prev) => {
+                            const n = new Set(prev);
+                            n.has(k) ? n.delete(k) : n.add(k);
+                            return n;
+                          })
+                        }
+                        className={cn(
+                          "rounded-sm border px-2 py-1 text-[10px] uppercase tracking-eyebrow transition-colors",
+                          active
+                            ? meta.cls
+                            : "border-border-faint bg-transparent text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="border-t border-border-faint" />
+              <div className="space-y-2">
+                <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                   Ventanas fachada (mínimo)
                 </Label>
                 <Input
