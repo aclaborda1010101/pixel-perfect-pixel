@@ -88,6 +88,14 @@ export function AnalisisIASection({ buildingId }: { buildingId: string }) {
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat label="Ventanas fachada" value={a?.ventanas_fachada_total ?? "—"} />
               <VentanasPatiosStat a={a} />
+              <Stat
+                label="Ventanas TOTAL"
+                value={
+                  (Number(a?.ventanas_fachada_total) || 0) +
+                  (Number(a?.ventanas_patios_total ?? a?.ventanas_patios_estimadas) || 0) || "—"
+                }
+                accent
+              />
               <Stat label="Patios" value={a?.patios_detectados ?? "—"} />
               <Stat label="Esquina" value={a?.esquina ? "Sí" : "No"} />
               <Stat label="2ª escalera" value={a?.segundas_escaleras ? "Sí" : "No"} />
