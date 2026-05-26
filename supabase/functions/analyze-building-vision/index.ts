@@ -188,8 +188,9 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     });
 
     let parsed: any = null;
-    const primaryModel = "google/gemini-3.1-flash-lite-preview";
-    const fallbackModel = "google/gemini-3.1-pro-preview";
+    // Pro como primario: el flash-lite infracuenta ventanas de fachada (p.ej. Porvenir 8 da 8 cuando son ~24).
+    const primaryModel = "google/gemini-3.1-pro-preview";
+    const fallbackModel = "google/gemini-2.5-pro";
     let modelo_usado = primaryModel;
     let modelo_fallback = false;
     let llm_raw: any = null;
