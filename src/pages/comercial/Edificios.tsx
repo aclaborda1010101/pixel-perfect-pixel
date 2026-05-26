@@ -75,6 +75,8 @@ type Row = {
   confianza_media: number | null;
   has_analysis: boolean;
   ventanas_fachada_total?: number | null;
+  ventanas_patios_total?: number | null;
+  ventanas_total?: number | null;
   cluster_asignado?: string | null;
   segundas_escaleras?: boolean | null;
   plantas_levantables?: number | null;
@@ -216,9 +218,9 @@ function BuildingCard({ r }: { r: Row }) {
             <AppWindow className="mx-auto mb-0.5 h-3 w-3 text-muted-foreground" />
             <div className={cn(
               "font-mono text-sm tabular-nums",
-              r.ventanas_fachada_total ? "text-gold" : "text-muted-foreground"
+              r.ventanas_total ? "text-gold" : "text-muted-foreground"
             )}>
-              {r.ventanas_fachada_total ?? "—"}
+              {r.ventanas_total ?? "—"}
             </div>
             <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
               ventanas
@@ -313,7 +315,7 @@ export default function ComercialEdificios() {
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
-            "building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
+            "building_id, ventanas_fachada_total, ventanas_patios_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
           )
           .in("building_id", ids),
       ]);
@@ -352,6 +354,8 @@ export default function ComercialEdificios() {
           confianza_media: extra.confianza_media ?? null,
           has_analysis: !!b.has_ai_analysis,
           ventanas_fachada_total: an.ventanas_fachada_total ?? null,
+          ventanas_patios_total: an.ventanas_patios_total ?? null,
+          ventanas_total: ((an.ventanas_fachada_total ?? 0) + (an.ventanas_patios_total ?? 0)) || null,
           cluster_asignado: extra.cluster_asignado ?? null,
           segundas_escaleras: an.segundas_escaleras ?? null,
           plantas_levantables: an.plantas_levantables ?? null,
@@ -429,7 +433,7 @@ export default function ComercialEdificios() {
       if (interestingIds.length > 0) {
         const { data: aPage } = await (supabase.from("building_analysis" as any) as any)
           .select(
-            "building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
+            "building_id, ventanas_fachada_total, ventanas_patios_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
           )
           .in("building_id", interestingIds);
         for (const row of (aPage ?? []) as any[]) analysisMap.set(row.building_id, row);
@@ -461,6 +465,8 @@ export default function ComercialEdificios() {
           confianza_media: extra.confianza_media ?? null,
           has_analysis: !!b.has_ai_analysis,
           ventanas_fachada_total: an.ventanas_fachada_total ?? null,
+          ventanas_patios_total: an.ventanas_patios_total ?? null,
+          ventanas_total: ((an.ventanas_fachada_total ?? 0) + (an.ventanas_patios_total ?? 0)) || null,
           cluster_asignado: extra.cluster_asignado ?? null,
           segundas_escaleras: an.segundas_escaleras ?? null,
           plantas_levantables: an.plantas_levantables ?? null,
@@ -560,7 +566,7 @@ export default function ComercialEdificios() {
       }
       if (r.score < smin) return false;
       if (barrios.size > 0 && (!r.barrio || !barrios.has(r.barrio))) return false;
-      if (vntMin > -Infinity && (r.ventanas_fachada_total ?? -1) < vntMin) return false;
+      if (vntMin > -Infinity && (r.ventanas_total ?? -1) < vntMin) return false;
       if (advSegundasEscaleras && !r.segundas_escaleras) return false;
       if (advPlantasLevantables && !((r.plantas_levantables ?? 0) > 0)) return false;
       if (advAzotea && !r.tiene_azotea_transitable) return false;
@@ -802,7 +808,7 @@ export default function ComercialEdificios() {
               <div className="border-t border-border-faint" />
               <div className="space-y-2">
                 <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-                  Ventanas fachada (mínimo)
+                  Ventanas totales (mínimo)
                 </Label>
                 <Input
                   type="number"

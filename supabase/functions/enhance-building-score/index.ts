@@ -25,11 +25,13 @@ function buildAvisos(an: any, cat: any): Aviso[] {
   const d = an?.metricas_detalle ?? {};
 
   // Ventanas
-  const ventTotal = an?.ventanas_fachada_total;
-  if (typeof ventTotal === "number" && ventTotal >= 20) {
+  const ventFachada = Number(an?.ventanas_fachada_total ?? 0);
+  const ventPatios = Number(an?.ventanas_patios_total ?? 0);
+  const ventTotal = ventFachada + ventPatios;
+  if (ventTotal >= 20) {
     const det = pickDetalle(d, "ventanas_fachada_total");
     const reasoning = det?.reasoning
-      ?? `Detectadas ${ventTotal} ventanas exteriores totales en fachadas analizadas. Más ventanas = más habitaciones potenciales y mejor iluminación natural.`;
+      ?? `Detectadas ${ventTotal} ventanas en total (${ventFachada} a fachada + ${ventPatios} a patios). Cada ventana es una habitación potencial — todas suman valor para reposicionamiento residencial/coliving.`;
     out.push({
       key: "ventanas_total",
       label: `🪟 ${ventTotal} ventanas`,
@@ -37,7 +39,7 @@ function buildAvisos(an: any, cat: any): Aviso[] {
       color: "oportunidad",
       reasoning,
       confidence: det?.confidence ?? an?.confidence ?? null,
-      sources: Array.isArray(det?.source) ? det.source : ["street_view"],
+      sources: Array.isArray(det?.source) ? det.source : ["street_view", "catastro_pdf_piso_01"],
     });
   }
 
@@ -151,7 +153,7 @@ Datos:
 - Score total: ${score ?? "—"}
 - Score breakdown: ${JSON.stringify(breakdown ?? {})}
 - Avisos detectados: ${JSON.stringify(avisos.map(a => ({ label: a.label, reasoning: a.reasoning })))}
-- Métricas IA: ventanas=${an?.ventanas_fachada_total ?? "—"}, plantas_visibles=${an?.plantas_visibles ?? "—"}, plantas_levantables=${an?.plantas_levantables ?? "—"}, escaleras_piso01=${an?.n_escaleras_en_piso01 ?? "—"}, esquina=${an?.esquina ?? "—"}, historico=${an?.protegido_historicamente ?? "—"}
+- Métricas IA: ventanas_total=${((Number(an?.ventanas_fachada_total ?? 0) + Number(an?.ventanas_patios_total ?? 0)) || "—")} (fachada=${an?.ventanas_fachada_total ?? "—"} + patios=${an?.ventanas_patios_total ?? "—"}), plantas_visibles=${an?.plantas_visibles ?? "—"}, plantas_levantables=${an?.plantas_levantables ?? "—"}, escaleras_piso01=${an?.n_escaleras_en_piso01 ?? "—"}, esquina=${an?.esquina ?? "—"}, historico=${an?.protegido_historicamente ?? "—"}
 
 Devuelve SOLO el párrafo, sin encabezados ni listas.`;
 
