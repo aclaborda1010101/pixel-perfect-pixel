@@ -1,36 +1,29 @@
-## Fix descarga PDF + diagnóstico SVG en `fetch-catastro-data`
+## Fix coords=0 en `fetch-catastro-data` + reintento de fallidos
 
-### Problema actual
-Job `44eb03bc...` en fase catastro: 12/74 procesados, **12 con lat/lon ✅**, pero **0 PDF y 0 SVG**.
+### Bug
+En `fetch-catastro-data/index.ts:106-108`, `Number(null)===0` y `isFinite(0)===true`, así que cuando ya existía un row en `catastro_data` con `lat/lon` NULL (de jobs anteriores), `haveCoords` se evaluaba `true`, se saltaba el geocoding y el upsert final escribía `lat=0, lon=0`. Por eso 7 edificios pasan a fase Google con coords inválidas y `fetch-google-imagery` devuelve 400.
 
-Logs confirman:
-- `se descarta PDF genérico de consulta descriptiva` → el guard `isKnownGenericCatastroPdf` está tirando los PDFs correctos
-- `plano svg: no <svg> in response` → OVC ya no devuelve SVG inline en `GeneraGraficoParcela.aspx`
+### Cambios
 
-### Cambios en `supabase/functions/fetch-catastro-data/index.ts`
-
-1. **Eliminar el guard `isKnownGenericCatastroPdf`** (líneas ~207-254). Los PDFs de `SECImprimirCroquisYDatos` y `SECImprimirDatos` son los oficiales con croquis + datos; subirlos a storage y rasterizarlos como hasta ahora.
-
-2. **Loggear los primeros 500 chars** de la respuesta de `GeneraGraficoParcela.aspx` cuando no contenga `<svg>`, para diagnosticar qué devuelve ahora OVC (HTML con imagen embebida, redirect, etc.). Solo logging — el fix del SVG vendrá en una segunda iteración cuando sepamos el formato real.
-
-### Despliegue y continuación
-
-3. **Deploy** de `fetch-catastro-data` (job actual sigue corriendo; los ~62 restantes se beneficiarán del fix de PDF inmediatamente).
-
-4. **Al terminar el job**, relanzar los 12 primeros con `force:true` desde el orquestador para completar su PDF (el SVG depende del análisis del log nuevo).
-
-### Verificación post-batch
-```sql
-SELECT 
-  COUNT(*) FILTER (WHERE lat IS NOT NULL) AS con_coords,
-  COUNT(*) FILTER (WHERE plantas_pdf_url IS NOT NULL) AS con_pdf,
-  COUNT(*) FILTER (WHERE plano_url IS NOT NULL) AS con_svg
-FROM catastro_data cd
-JOIN buildings b ON b.id = cd.building_id
-WHERE b.cartera_demo_seed = true;
+**1. `supabase/functions/fetch-catastro-data/index.ts` (líneas 106-108)**
+```ts
+const latRaw = existing?.lat;
+const lonRaw = existing?.lon;
+let lat: number = latRaw != null ? Number(latRaw) : NaN;
+let lon: number = lonRaw != null ? Number(lonRaw) : NaN;
+const haveCoords = isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0;
 ```
-Esperado: con_coords=74, con_pdf cerca de 74. con_svg se atacará después con los logs nuevos.
+
+**2. Deploy** `fetch-catastro-data`.
+
+**3. Limpiar coords inválidas existentes** (migración):
+```sql
+UPDATE catastro_data SET lat = NULL, lon = NULL 
+WHERE lat = 0 OR lon = 0;
+```
+
+**4. Esperar a que el job actual `f5cf3643…` termine** (no abortarlo — está procesando los 60 restantes correctamente). Cuando finalice, lanzar un nuevo job de `auto-process-cartera-demo` con `force:true` solo para los que tengan `fetch_error` o sigan sin Google imagery / sin PDF — el orquestador detectará coords NULL, las repobblará con Nominatim y reintentará la fase Google.
 
 ### Fuera de alcance
-- Fix definitivo del SVG (requiere ver respuesta real de OVC primero)
-- Cambios en `auto-process-cartera-demo`, `fetch-google-imagery`, dashboard `/admin`
+- Fix del SVG (sigue pendiente del log diagnóstico)
+- Cambios en `fetch-google-imagery` (su validación `!cat?.lat` es correcta)
