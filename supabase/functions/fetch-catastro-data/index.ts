@@ -103,9 +103,11 @@ Deno.serve(async (req) => {
       .select("lat, lon")
       .eq(refcat ? "refcatastral" : "building_id", refcat ?? building_id)
       .maybeSingle();
-    let lat: number = Number(existing?.lat);
-    let lon: number = Number(existing?.lon);
-    const haveCoords = isFinite(lat) && isFinite(lon);
+    const latRaw = existing?.lat;
+    const lonRaw = existing?.lon;
+    let lat: number = latRaw != null ? Number(latRaw) : NaN;
+    let lon: number = lonRaw != null ? Number(lonRaw) : NaN;
+    const haveCoords = isFinite(lat) && isFinite(lon) && lat !== 0 && lon !== 0;
 
     // 1. Geocodificar si faltan coords o no hay refcat (o force)
     if (!haveCoords || !refcat || force) {
