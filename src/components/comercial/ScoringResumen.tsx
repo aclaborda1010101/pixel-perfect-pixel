@@ -211,11 +211,18 @@ export function ScoringResumen({
 }) {
   const cluster: ClusterKey = b?.cluster_asignado ?? "baja_prioridad";
   const clusterInfo = CLUSTER_LABELS[cluster] ?? CLUSTER_LABELS.baja_prioridad;
-  const score = Number(b?.cluster_score ?? s?.score ?? 0);
+  // Usamos siempre el score de v_building_score (s.score) como fuente única,
+  // que es el que se muestra en la lista de edificios. Esto evita que el
+  // cluster recompute (que puede bajar a "baja_prioridad" barrios no mapeados)
+  // contradiga al usuario lo que ve en la card.
+  const score = Number(s?.score ?? b?.score ?? b?.cluster_score ?? 0);
   const tier = scoreTier(score);
-  const breakdown = Array.isArray(b?.cluster_breakdown) && b.cluster_breakdown.length > 0
-    ? b.cluster_breakdown
-    : s?.score_breakdown ?? [];
+  const breakdown =
+    (Array.isArray(s?.score_breakdown) && s.score_breakdown.length > 0
+      ? s.score_breakdown
+      : Array.isArray(b?.cluster_breakdown) && b.cluster_breakdown.length > 0
+      ? b.cluster_breakdown
+      : []) as any[];
   const factors = factorsFrom(breakdown);
 
   // Separar positivos (pts>0) y penalizaciones (pts<0 o weight<0)
