@@ -189,11 +189,11 @@ Deno.serve(async (req) => {
 
     const sb = getServiceClient();
 
-    // Asegurar compute_score corrido (idempotente, baratísimo)
-    await sb.rpc("compute_score", { p_building_id: building_id });
+    // Asegurar score por clusters corrido (idempotente, baratísimo)
+    await sb.rpc("compute_cluster_score", { p_building_id: building_id });
 
     const [{ data: bld }, { data: an }, { data: cat }] = await Promise.all([
-      sb.from("buildings").select("id, direccion, ciudad, score, score_breakdown").eq("id", building_id).maybeSingle(),
+      sb.from("buildings").select("id, direccion, ciudad, score, score_breakdown, cluster_asignado, cluster_motivo").eq("id", building_id).maybeSingle(),
       sb.from("building_analysis").select("*").eq("building_id", building_id).maybeSingle(),
       sb.from("catastro_data").select("ancho_calle_m").eq("building_id", building_id).maybeSingle(),
     ]);
