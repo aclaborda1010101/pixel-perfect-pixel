@@ -104,14 +104,25 @@ Deno.serve(async (req) => {
         await setProcessingStatus(building_id, "catastro", "error", "sin dirección");
         return err("building sin dirección para geocodificar", 400);
       }
-      const q = encodeURIComponent(`${direccion}, ${b.ciudad ?? "Madrid"}, España`);
-      const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`, {
-        headers: { "User-Agent": NOMINATIM_UA },
-      });
-      const nom = await nomRes.json();
-      await sleep(1100);
-      const lat = Number(nom?.[0]?.lat);
-      const lon = Number(nom?.[0]?.lon);
+      // Limpiar ciudad: descartar sufijos tipo "Centro (01)" → "Madrid"
+      const ciudadRaw = (b.ciudad ?? "").trim();
+      const ciudadClean = /^\s*$|\(\d+\)|^centro/i.test(ciudadRaw) ? "Madrid" : ciudadRaw;
+      const tries = [
+        `${direccion}, ${ciudadClean}, España`,
+        `${direccion}, Madrid, España`,
+      ];
+      let lat = NaN, lon = NaN;
+      for (const t of tries) {
+        const q = encodeURIComponent(t);
+        const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`, {
+          headers: { "User-Agent": NOMINATIM_UA },
+        });
+        const nom = await nomRes.json();
+        await sleep(1100);
+        lat = Number(nom?.[0]?.lat);
+        lon = Number(nom?.[0]?.lon);
+        if (isFinite(lat) && isFinite(lon)) break;
+      }
       if (!isFinite(lat) || !isFinite(lon)) {
         await setProcessingStatus(building_id, "catastro", "error", "geocoding falló");
         return err("Nominatim no devolvió coordenadas", 422);
