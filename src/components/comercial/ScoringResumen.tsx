@@ -62,7 +62,27 @@ function plural(n: number, sing: string, plur: string) {
   return n === 1 ? `1 ${sing}` : `${n} ${plur}`;
 }
 
-/** Compone la narrativa de por qué este edificio tiene este scoring. */
+/** Devuelve el reasoning textual generado por la IA para una métrica concreta. */
+function reasonFor(an: any | null, key: string): { reasoning?: string; confidence?: number; sources?: string[] } | null {
+  const det = an?.metricas_detalle?.[key];
+  if (!det || typeof det !== "object") return null;
+  return {
+    reasoning: typeof det.reasoning === "string" ? det.reasoning : undefined,
+    confidence: typeof det.confidence === "number" ? det.confidence : undefined,
+    sources: Array.isArray(det.source) ? det.source : undefined,
+  };
+}
+
+function confTxt(c?: number) {
+  if (typeof c !== "number") return "";
+  return ` _(confianza ${(c * 100).toFixed(0)}%)_`;
+}
+
+/**
+ * Compone la narrativa de por qué este edificio tiene este scoring.
+ * Texto descriptivo en párrafos (no bullets), explicando POR QUÉ la IA
+ * detectó cada característica a partir del plano y de qué planta/fuente lo dedujo.
+ */
 function buildNarrative(b: any, an: any | null, s: any): string[] {
   const parts: string[] = [];
   const md = b?.metadatos ?? {};
@@ -70,76 +90,153 @@ function buildNarrative(b: any, an: any | null, s: any): string[] {
   const clusterInfo = CLUSTER_LABELS[cluster] ?? CLUSTER_LABELS.baja_prioridad;
   const barrio = md?.barrios_completos__clonada_ ?? md?.barrio ?? null;
   const distrito = md?.distrito ?? null;
+  const score = Number(s?.score ?? b?.score ?? 0);
 
-  // Frase 1: ubicación + cluster
+  // 1) Ubicación + cluster + EXPLICACIÓN del cluster (clave: por qué baja_prioridad pese a score alto)
   const ubic = barrio
-    ? `en ${barrio}${distrito ? ` (${distrito})` : ""}`
+    ? `en **${barrio}**${distrito ? ` (${distrito})` : ""}`
     : distrito
-    ? `en el distrito ${distrito}`
-    : "";
-  parts.push(
-    `Edificio ${ubic} clasificado como **${clusterInfo.label}**. ${clusterInfo.tagline}.`
-  );
+    ? `en el distrito **${distrito}**`
+    : "sin barrio asignado en HubSpot";
+  let frase1 = `Edificio ${ubic}, clasificado dentro de la tesis **${clusterInfo.label}** porque ${clusterInfo.tagline.toLowerCase()}.`;
+  if (cluster === "baja_prioridad") {
+    frase1 +=
+      ` Aunque el scoring numérico ronda los **${score.toFixed(0)} puntos**, este edificio cae en _baja prioridad_ porque su barrio` +
+      (barrio ? ` (${barrio})` : " (no informado en HubSpot)") +
+      ` no figura en el mapa de clusters de tesis Madrid (Ultra Prime, Prime Value-Add, Flex Living Core, Outer Distressed). En esa situación aplicamos pesos genéricos y conviene revisarlo caso a caso antes de descartarlo.`;
+  } else {
+    frase1 += ` Con un score de **${score.toFixed(0)}/100**, queda dentro del rango operativo de esta tesis.`;
+  }
+  parts.push(frase1);
 
-  // Frase 2: tamaño y composición
+  // 2) Composición física (m² + viviendas + ratio + propietarios + DH) — en prosa
   const m2 = num(s?.m2_total);
   const viv = num(s?.num_viviendas);
   const ratio = m2 && viv ? m2 / viv : null;
-  const partsComp: string[] = [];
-  if (m2) partsComp.push(`${m2.toLocaleString()} m²`);
-  if (viv) partsComp.push(plural(viv, "vivienda", "viviendas"));
-  if (ratio) partsComp.push(`ratio **${ratio.toFixed(0)} m²/viv**`);
-  if (partsComp.length) parts.push(`Cuenta con ${partsComp.join(", ")}.`);
-
-  // Frase 3: propietarios + DH
   const owners = num(s?.owners_count) ?? 0;
   const dh = b?.division_horizontal;
-  const dhTxt = dh ? "con división horizontal" : "**sin división horizontal**";
-  parts.push(`${plural(owners, "propietario", "propietarios")} registrado(s), ${dhTxt}.`);
+  const dhTxt = dh ? "ya tiene división horizontal constituida" : "**no tiene división horizontal**";
+  const compFrag: string[] = [];
+  if (m2) compFrag.push(`${m2.toLocaleString()} m² construidos`);
+  if (viv) compFrag.push(plural(viv, "vivienda", "viviendas"));
+  if (ratio) compFrag.push(`un ratio medio de **${ratio.toFixed(0)} m²/vivienda**`);
+  if (compFrag.length) {
+    parts.push(
+      `Según los datos cruzados con HubSpot y Catastro, cuenta con ${compFrag.join(", ")}. ` +
+      `Hay ${plural(owners, "propietario registrado", "propietarios registrados")} y ${dhTxt}, lo que ${
+        owners >= 5
+          ? "encaja con la tesis de consolidación de propietarios"
+          : owners >= 2
+          ? "facilita una negociación de bloque relativamente acotada"
+          : "apunta a un propietario único, ideal para acuerdo directo"
+      }.`
+    );
+  }
 
-  // Frase 4: análisis IA del plano (lo más jugoso visualmente)
-  if (an) {
-    const fortalezas: string[] = [];
-    if ((an.plantas_levantables ?? 0) >= 2) {
-      fortalezas.push(
-        `**potencial de elevación** de ${an.plantas_levantables} planta(s) (actuales ${an.plantas_visibles ?? "?"} / máximo normativo ${an.plantas_max_normativa ?? "?"})`
-      );
-    } else if ((an.plantas_levantables ?? 0) === 1) {
-      fortalezas.push(`opción de levantar 1 planta adicional`);
-    }
-    if (an.esquina) fortalezas.push(`hace **esquina** (doble fachada)`);
-    if (an.segundas_escaleras) fortalezas.push(`**dos escaleras** detectadas (facilita segregación)`);
-    const vent = num(an.ventanas_fachada_total);
-    if (vent && vent >= 20) fortalezas.push(`**${vent} ventanas** a fachada (alta segregabilidad)`);
-    else if (vent) fortalezas.push(`${vent} ventanas a fachada`);
-    if (an.tiene_azotea_transitable) fortalezas.push(`azotea transitable`);
-    if ((an.n_locales_planta_baja ?? 0) > 0)
-      fortalezas.push(
-        `${plural(an.n_locales_planta_baja, "local en planta baja", "locales en planta baja")}`
-      );
-    if ((an.local_pb_m2 ?? 0) >= 80)
-      fortalezas.push(`local PB de ${Math.round(an.local_pb_m2)} m² convertible`);
+  // 3) Análisis del plano: cada métrica como párrafo razonado citando reasoning de la IA
+  if (!an) {
+    parts.push(
+      `_Análisis IA del plano todavía pendiente. Subiendo el FXCC catastral se enriquecerá el scoring con detección automática de escaleras, patios, ventanas y potencial de elevación._`
+    );
+    return parts;
+  }
 
-    if (fortalezas.length) {
-      parts.push(`Es **muy interesante** porque ${fortalezas.join(", ")}.`);
+  // --- Escaleras (CRÍTICO: razonado SIEMPRE sobre PISO 01, no planta baja) ---
+  const escPiso01 = num(an?.n_escaleras_en_piso01);
+  const escPB = num(an?.n_escaleras_en_planta_baja);
+  if (escPiso01 !== null) {
+    const r = reasonFor(an, "n_escaleras_en_piso01");
+    let frase = `Sobre el **plano de la primera planta (PISO 01)** —que es donde la normativa Madrid exige evaluar el número real de cajas de escalera, porque en planta baja las escaleras suelen comunicar únicamente accesos comunes y no son indicador fiable— la IA ha identificado **${escPiso01} ${escPiso01 === 1 ? "caja ESC" : "cajas ESC independientes"}**`;
+    if (escPB !== null && escPB !== escPiso01) {
+      frase += ` (en planta baja se ven ${escPB}, pero esa cifra no se usa para la decisión)`;
     }
+    frase += `. ${
+      r?.reasoning
+        ? `Razonamiento del modelo: "${r.reasoning}"`
+        : escPiso01 >= 2
+        ? "Se han localizado dos núcleos verticales claramente separados, sin comunicación espacial entre sí."
+        : "Solo se observa un único núcleo vertical en la planta tipo."
+    }${confTxt(r?.confidence)}.`;
+    if (escPiso01 >= 2) {
+      frase += ` Esto es **muy relevante** porque cumple el requisito de doble evacuación necesario para un cambio de uso a hotelero o coliving en Madrid.`;
+    }
+    parts.push(frase);
+  }
 
-    const debilidades: string[] = [];
-    if (an.protegido_historicamente) debilidades.push("protección histórica");
-    if (an.edificio_reformado) debilidades.push("edificio ya reformado");
-    if (an.gestion_profesional) debilidades.push("gestión profesional (menos margen)");
-    if (debilidades.length) {
-      parts.push(`A tener en cuenta: ${debilidades.join(", ")}.`);
+  // --- Ventanas a fachada ---
+  const vent = num(an?.ventanas_fachada_total);
+  if (vent !== null) {
+    const r = reasonFor(an, "ventanas_fachada_total");
+    const fach = num(an?.fachada_lineal_total_m);
+    let frase = `En cuanto a la fachada, se han contado **${vent} ventanas exteriores** revisando las 4 vistas de Street View (norte, este, sur, oeste)${
+      fach ? ` sobre una fachada lineal estimada de ${Math.round(fach)} m` : ""
+    }. ${
+      r?.reasoning
+        ? `El modelo lo justifica así: "${r.reasoning}"`
+        : "El conteo se hace ventana a ventana, sin extrapolar geométricamente, y se capa al rango plausible 0-200."
+    }${confTxt(r?.confidence)}.`;
+    if (vent >= 50) {
+      frase += ` Con más de 50 ventanas a fachada, el edificio tiene **alta segregabilidad**: permite muchas estancias exteriores y, por tanto, más unidades reposicionables.`;
     }
+    parts.push(frase);
+  }
 
-    const mg = num(an.mala_gestion_score) ?? 0;
-    if (mg >= 6) {
-      parts.push(
-        `Señales de **mala gestión / conflicto** (${mg}/10) — palanca clave para negociar entrada.`
-      );
-    }
-  } else {
-    parts.push(`_Análisis IA del plano pendiente: subir FXCC para enriquecer el scoring._`);
+  // --- Ventanas a patio (fórmula) ---
+  const ventPatio = num(an?.ventanas_patios_total);
+  const nPatios = num(an?.patios_detectados);
+  if (ventPatio !== null && nPatios !== null && nPatios > 0) {
+    const r = reasonFor(an, "ventanas_patios_total");
+    const formula = typeof an?.formula_ventanas_patio === "string" ? an.formula_ventanas_patio : null;
+    let frase = `Hacia el interior, la IA ha detectado **${nPatios} ${nPatios === 1 ? "patio" : "patios"}** sobre el plano del PISO 01 (los patios son verticales y se repiten en todas las plantas tipo), contrastando con la vista cenital satélite para no confundir con balcones exteriores. A partir de las paredes visibles de cada patio se proyecta **1 ventana por pared y planta** (cocina/baño/dormitorio interior), lo que da una estimación de **${ventPatio} ventanas a patio**. ${
+      r?.reasoning ? `Detalle del razonamiento: "${r.reasoning}"` : ""
+    }${confTxt(r?.confidence)}.`;
+    if (formula) frase += ` _Fórmula aplicada:_ ${formula}`;
+    parts.push(frase);
+  }
+
+  // --- Elevación ---
+  const lev = num(an?.plantas_levantables);
+  if (lev !== null && lev >= 1) {
+    const r = reasonFor(an, "plantas_levantables");
+    const vis = an?.plantas_visibles;
+    const maxN = an?.plantas_max_normativa;
+    parts.push(
+      `Existe **potencial de elevación de ${lev} ${lev === 1 ? "planta" : "plantas"}**: el edificio tiene hoy ${vis ?? "?"} plantas sobre rasante y la normativa Madrid (en función del ancho de calle estimado) permite hasta ${maxN ?? "?"}. ${
+        r?.reasoning ?? "El cálculo cruza el ancho de calle visible en Street View con la tabla de alturas máximas del PGOU."
+      }${confTxt(r?.confidence)}.`
+    );
+  }
+
+  // --- Esquina ---
+  if (an?.esquina === true) {
+    const r = reasonFor(an, "esquina");
+    parts.push(
+      `Hace **esquina**: ${
+        r?.reasoning ?? "se confirma doble fachada cruzando la vista satélite cenital con las 4 vistas de Street View."
+      }${confTxt(r?.confidence)} Esto maximiza ventanas exteriores y luz natural, muy valorado para reposicionamiento residencial premium u hotelero.`
+    );
+  }
+
+  // --- Histórico / debilidades ---
+  const debilidades: string[] = [];
+  if (an?.protegido_historicamente) {
+    const r = reasonFor(an, "protegido_historicamente");
+    debilidades.push(
+      `posible **protección histórica** (${r?.reasoning ?? "fachada con elementos decorativos protegibles según PGOU"})`
+    );
+  }
+  if (an?.edificio_reformado) debilidades.push(`el edificio ya aparece reformado, por lo que el margen de valor-añadido se reduce`);
+  if (an?.gestion_profesional) debilidades.push(`existe gestión profesional del activo, lo que suele endurecer la negociación`);
+  if (debilidades.length) {
+    parts.push(`Como puntos a vigilar: ${debilidades.join("; ")}.`);
+  }
+
+  // --- Mala gestión ---
+  const mg = num(an?.mala_gestion_score) ?? 0;
+  if (mg >= 6) {
+    parts.push(
+      `Se detectan **señales de mala gestión o conflicto entre propietarios** (puntuación ${mg}/10). Es una palanca clave para negociar la entrada y suele justificar un descuento real sobre comparables.`
+    );
   }
 
   return parts;
