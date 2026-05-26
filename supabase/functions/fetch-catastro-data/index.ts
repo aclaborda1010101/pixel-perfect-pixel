@@ -165,24 +165,36 @@ Deno.serve(async (req) => {
     // 2a. Descargar SVG croquis (fallback / referencia rápida)
     const svgPath = `${refcat}.svg`;
     let plano_url: string | null = null;
+    let plano_svg_uploaded = false;
     try {
       const planoRes = await fetch(
         `${SEDE}/Cartografia/GeneraGraficoParcela.aspx?refcat=${refcat}&del=&mun=`,
-        { headers: { "User-Agent": UA } },
+        {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+            "Accept": "image/svg+xml,text/html,*/*;q=0.8",
+          },
+        },
       );
       const planoTxt = await planoRes.text();
       const svgMatch = /<svg[\s\S]*?<\/svg>/i.exec(planoTxt);
       if (svgMatch) {
         const bytes = new TextEncoder().encode(svgMatch[0]);
-        await sb.storage.from("catastro").upload(svgPath, bytes, {
+        const { error: upErr } = await sb.storage.from("catastro").upload(svgPath, bytes, {
           contentType: "image/svg+xml",
           upsert: true,
         });
+        if (!upErr) plano_svg_uploaded = true;
+        else console.warn("plano svg upload fail", upErr);
+      } else {
+        console.warn("plano svg: no <svg> in response for", refcat);
       }
     } catch (e) {
       console.warn("plano svg fetch fail", e);
     }
-    plano_url = sb.storage.from("catastro").getPublicUrl(svgPath).data.publicUrl;
+    plano_url = plano_svg_uploaded
+      ? sb.storage.from("catastro").getPublicUrl(svgPath).data.publicUrl
+      : null;
 
     // 2b. Descargar PDF "Documento de distribución por plantas" + rasterizar páginas
     let plantas_pdf_url: string | null = null;
