@@ -68,7 +68,69 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
   const pdfUrl: string | null = cat?.plantas_pdf_url ?? null;
   const anotaciones: any[] = Array.isArray(a?.anotaciones_plano) ? a.anotaciones_plano : [];
 
+  const pageLabelFn = (i: number) => {
+    if (pages.length <= 1) return `Plano`;
+    if (i === 0) return "Pág 1 · Vista general";
+    if (i === 1) return "Pág 2 · Planta BAJA";
+    if (i === pages.length - 1) return `Pág ${i + 1} · SÓTANO`;
+    return `Pág ${i + 1} · PISO ${String(i - 1).padStart(2, "0")}`;
+  };
+
   if (!a) {
+    // Sin análisis IA todavía, pero si tenemos el PDF de plantas lo mostramos
+    if (pages.length > 0) {
+      return (
+        <Card>
+          <CardHeader>
+            <Eyebrow><ScanSearch className="mr-1 inline h-3 w-3" /> Plano catastral · distribución por plantas</Eyebrow>
+            <CardTitle>📐 Distribución por plantas (Catastro)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Eyebrow>{pages.length} páginas del PDF</Eyebrow>
+              {pdfUrl && (
+                <Button asChild size="sm" variant="outline">
+                  <a href={pdfUrl} target="_blank" rel="noreferrer">
+                    <FileText className="h-3 w-3" /> Abrir PDF completo ↗
+                  </a>
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
+              {pages.map((url, i) => (
+                <button
+                  key={url}
+                  type="button"
+                  onClick={() => setPageZoom({ url, label: pageLabelFn(i) })}
+                  className="group block overflow-hidden rounded-md border border-border-faint bg-white text-left transition hover:border-gold"
+                >
+                  <img src={url} alt={pageLabelFn(i)} loading="lazy" className="aspect-[3/4] w-full object-contain" />
+                  <div className="bg-surface-1 px-2 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground group-hover:text-gold">
+                    {pageLabelFn(i)}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              El análisis IA del plano aún no se ha ejecutado. Pulsa "Descargar Catastro + Planos + IA" arriba para procesar.
+            </div>
+          </CardContent>
+
+          <Dialog open={!!pageZoom} onOpenChange={(v) => !v && setPageZoom(null)}>
+            <DialogContent className="max-w-6xl">
+              <DialogHeader>
+                <DialogTitle>{pageZoom?.label}</DialogTitle>
+              </DialogHeader>
+              {pageZoom && (
+                <div className="max-h-[80vh] overflow-auto rounded-md border border-border-faint bg-white">
+                  <img src={pageZoom.url} alt={pageZoom.label} className="block w-full" />
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+        </Card>
+      );
+    }
     return (
       <Card>
         <CardHeader>
