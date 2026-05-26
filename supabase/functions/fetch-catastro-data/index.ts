@@ -50,6 +50,38 @@ async function discoverPlantasPdfUrl(refcat: string): Promise<string | null> {
   return null;
 }
 
+// Expande refcat de 14 chars (parcela) a 20 chars (bien inmueble) usando DNPRC.
+// Toma el primer bien inmueble; si hay varios, prioriza uso vivienda.
+async function expandRefcat14to20(refcat14: string): Promise<string | null> {
+  if (!refcat14 || refcat14.length !== 14) return null;
+  try {
+    const r = await fetch(
+      `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/Consulta_DNPRC?Provincia=&Municipio=&RC=${refcat14}`,
+      { headers: { "User-Agent": UA } },
+    );
+    const xml = await r.text();
+    // Cada bien inmueble viene en bloques <bico> o <rcdnp><rc>...</rc></rcdnp>
+    // Recogemos todos los bloques <rc> y reconstruimos pc1+pc2+car+cc1+cc2 (20 chars)
+    const rcBlocks = [...xml.matchAll(/<rc>([\s\S]*?)<\/rc>/gi)].map((m) => m[1]);
+    const candidates: { full: string; uso: string | null }[] = [];
+    for (const block of rcBlocks) {
+      const pc1 = /<pc1>([^<]+)<\/pc1>/i.exec(block)?.[1] ?? "";
+      const pc2 = /<pc2>([^<]+)<\/pc2>/i.exec(block)?.[1] ?? "";
+      const car = /<car>([^<]+)<\/car>/i.exec(block)?.[1] ?? "";
+      const cc1 = /<cc1>([^<]+)<\/cc1>/i.exec(block)?.[1] ?? "";
+      const cc2 = /<cc2>([^<]+)<\/cc2>/i.exec(block)?.[1] ?? "";
+      const full = (pc1 + pc2 + car + cc1 + cc2).trim();
+      if (full.length === 20) candidates.push({ full, uso: null });
+    }
+    if (candidates.length === 0) return null;
+    // Si hay <luso>V (vivienda) cerca de algún rc, no es trivial mapear sin orden; tomamos el primero.
+    return candidates[0].full;
+  } catch (e) {
+    console.warn("expandRefcat14to20 fail", e);
+    return null;
+  }
+}
+
 async function rasterizePdfToPng(buf: Uint8Array, maxPages = 12, scale = 2): Promise<Uint8Array[]> {
   const mupdf = await getMupdf();
   const doc = mupdf.Document.openDocument(buf, "application/pdf");
@@ -177,6 +209,29 @@ Deno.serve(async (req) => {
       lon: isFinite(lon) ? lon : null,
       fetched_at: new Date().toISOString(),
     }, { onConflict: "refcatastral" });
+
+    // Si refcat es de parcela (14 chars), expandirlo a bien inmueble (20 chars)
+    // para poder descargar el PDF de distribución por plantas.
+    let refcatPdf = refcat;
+    if (refcat.length === 14) {
+      const full = await expandRefcat14to20(refcat);
+      if (full) {
+        console.log(`refcat expandido ${refcat} → ${full}`);
+        refcatPdf = full;
+        await sb.from("buildings").update({ refcatastral: full }).eq("id", building_id);
+        // Crear/actualizar fila con el refcat de 20 chars heredando lat/lon
+        await sb.from("catastro_data").upsert({
+          refcatastral: full,
+          building_id,
+          lat: isFinite(lat) ? lat : null,
+          lon: isFinite(lon) ? lon : null,
+          fetched_at: new Date().toISOString(),
+        }, { onConflict: "refcatastral" });
+        refcat = full;
+      } else {
+        console.warn(`No se pudo expandir refcat ${refcat} a 20 chars`);
+      }
+    }
 
     // 2a. Descargar SVG croquis (fallback / referencia rápida)
     const svgPath = `${refcat}.svg`;
