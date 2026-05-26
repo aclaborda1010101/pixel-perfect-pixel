@@ -1,51 +1,43 @@
-# Plan: ventanas a patio auditable + validación humana
+# Cotejo refcatastrales + Fix enlace "Abrir plano catastral SVG"
 
-## 1. Migración DB
-Nueva migración en `supabase/migrations/` para:
-- `building_analysis`: añadir
-  - `densidad_ventanas_fachada numeric` (ventanas/m de fachada exterior)
-  - `fachada_lineal_total_m numeric` (estimación o dato Catastro)
-  - `ventanas_patios_estimadas integer` (resultado fórmula)
-  - `ventanas_patios_desglose jsonb` (array `{codigo, area_m2, perimetro_estimado_m, ventanas_estimadas}`)
-  - `formula_ventanas_patio text` (texto auditable)
-  - `confidence_ventanas numeric` + `aviso_ventanas text` (rango 4-10 vent/vivienda)
-- Tabla `scoring_v2_feedback` (si no existe) con `building_id`, `user_id`, `tipo` (`ventanas_patio` | otros), `valor` (`ok` | `ajuste`), `comentario text`, `payload jsonb`, `created_at`. RLS: usuarios autenticados insertan/leen propios; admin todo.
+## 1. Cotejo con `refcatastrales_79_LOVABLE.numbers`
 
-## 2. Edge function `analyze-building-vision`
-- Pedir al LLM también: por cada patio → `area_m2` aproximada (de plano catastral PISO 01) y `fachada_lineal_total_m` (perímetro del edificio que da a calle).
-- Tras parseo, calcular **localmente** (no en el LLM):
-  ```
-  densidad = ventanas_fachada_total / fachada_lineal_total_m
-  por cada patio p:
-    perimetro_p = 4 * sqrt(area_p)
-    ventanas_p = round(perimetro_p * densidad * plantas_visibles)
-  ventanas_patios_estimadas = sum(ventanas_p)
-  formula = "7 patios × densidad X vent/m × 8 plantas = Y ventanas"
-  ```
-- Cross-validation: `ratio = (ventanas_fachada + ventanas_patios_estimadas) / viviendas_totales`. Si fuera de [4, 10] → `confidence_ventanas = 0.4`, `aviso_ventanas` con texto explicativo.
-- Persistir los nuevos campos. Sigue usando `google/gemini-3.5-flash`.
+He cruzado los 79 edificios. **73 coinciden**. **6 con discrepancia** entre la refcat de la BD (Lovable/HubSpot) y la real de Catastro OVC:
 
-## 3. Edge function `fetch-google-imagery`
-Añadir 2 capturas oblicuas extra: `heading=45` y `heading=225` con `maptype=hybrid` zoom 19 (la API Static Maps no soporta tilt real; usamos hybrid con esos rumbos para variar la vista). Persistirlas como source `oblique` con `heading`.
+| Edificio | building_id | Refcat BD (Lovable) | Refcat real OVC | Acción sugerida |
+|---|---|---|---|---|
+| **Cava Baja 42** | `0485d8cf…` | ~~9441101VK3794A0001FT~~ | **9839518VK3793H0001FT** | BD ya tiene la correcta ✅ (corregido en pasos previos) |
+| **Ciudad Rodrigo 51 / 5** | `d7ba43d2…` | 0728703VK4702H0001KP | 0043101VK4704C0001 | Confirmar primero si la dirección real es 51 o 5 |
+| **General Margallo 13** | `5786db99…` | 0600802VK4800B0001EL | 1093403VK4719C0001LL | Sustituir por la OVC |
+| **José Ortega y Gasset 46** | `9a830bdc…` | 2352407VK4725C (truncada, 14 chars) | 2658202VK4725H0001DM | Sustituir por la OVC |
+| **Ruda 19** | `48f3e17f…` | 9538907VK3793H0001MT | 0037102VK4703E0001WM | Verificar manualmente (posible homonimia) |
+| **Málaga 51 / 5** | sin building_id | ? | 1269711VK4716G0001 | Confirmar dirección |
 
-## 4. UI — `AnalisisIASection.tsx`
-- Chip "Ventanas patios" con `Popover` mostrando `formula_ventanas_patio` + confianza + aviso.
-- Card "🔍 Análisis del plano catastral" (`AnalisisPlanoCatastralCard.tsx`): nuevo bloque
-  - "Plano detectó N patios [P01: 23m², …]"
-  - "Ratio fachada: X vent/m · Fórmula: …"
-  - Botones **Sí, correcto** / **No, ajustar** → insert en `scoring_v2_feedback`.
+Además:
+- **Labrador 19** y **Serrano 8** existen en Catastro pero **no están sincronizados** en Lovable.
 
-## 5. Reprocesar Cava Baja 42
-Tras desplegar, invocar `process-building-full` (o `analyze-building-vision` + `fetch-google-imagery`) para el `building_id` 0485d8cf-c1a2-4412-b38f-e37fb18961a2 y validar 7 patios + ~40-60 ventanas patio.
+## 2. Bug "Abrir plano catastral SVG" devuelve 404
 
-## Archivos a tocar
-- `supabase/migrations/<timestamp>_ventanas_patio_formula.sql` (nuevo)
-- `supabase/functions/analyze-building-vision/index.ts`
-- `supabase/functions/fetch-google-imagery/index.ts`
-- `src/components/comercial/AnalisisIASection.tsx`
-- `src/components/comercial/AnalisisPlanoCatastralCard.tsx`
+Causa raíz confirmada en BD/Storage:
+- `catastro_data.plano_url` para Cava Baja 42 apunta a `…/catastro/9839518VK3793H0001FT.svg`.
+- Ese fichero **no existe** en el bucket `catastro` (sólo están los `_plantas.pdf` y `_plantas_pX.png`).
+- En `supabase/functions/fetch-catastro-data/index.ts` (líneas 165-185), el código guarda `plano_url` con `getPublicUrl(svgPath)` **siempre**, incluso si el fetch al endpoint `GeneraGraficoParcela.aspx` no devolvió `<svg>` (frecuente: Catastro OVC bloquea por bot/UA o devuelve HTML con imagen rasterizada).
 
-## Notas técnicas
-- La fórmula vive en TS (determinista), el LLM solo aporta `area_m2` por patio y `fachada_lineal_total_m`.
-- `scoring_v2_feedback` con RLS por usuario; sin trigger de score (solo telemetría).
-- No tocamos `v_building_score` — las ventanas a patio siguen siendo informativas.
+## 3. Cambios a implementar
+
+### a) Edge function `fetch-catastro-data`
+- Sólo setear `plano_url` cuando el upload del SVG haya tenido éxito; en caso contrario dejarlo `null` y registrar el motivo en `fetch_error` (sin abortar el resto).
+- Reintento simple del fetch al SVG con `User-Agent` de navegador y `Accept: image/svg+xml,*/*`.
+
+### b) UI `CatastroDetalladoCard.tsx`
+- Si `plano_url` es `null`, mostrar texto deshabilitado "Plano SVG no disponible en Catastro" en vez del link que rompe.
+- Añadir botón de "Reintentar descarga SVG" que invoca de nuevo la edge function para esa refcat.
+
+### c) Re-ejecutar `fetch-catastro-data` para Cava Baja 42
+- Limpia el `plano_url` actual (huérfano) y deja el estado coherente.
+
+### d) Migración correctiva opcional (solo tras confirmación del usuario)
+Para las 4 discrepancias claras (Margallo 13, Ortega y Gasset 46, Ciudad Rodrigo, Málaga), `UPDATE buildings SET refcatastral=…` y re-procesar.
+
+## Pregunta antes de implementar
+¿Aplico también **(d)** las correcciones de refcatastral para General Margallo 13 y Ortega y Gasset 46 ahora (las 2 inequívocas), y dejo Ciudad Rodrigo / Ruda / Málaga pendientes de tu confirmación de dirección?
