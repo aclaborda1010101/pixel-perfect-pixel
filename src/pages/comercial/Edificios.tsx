@@ -76,6 +76,13 @@ type Row = {
   has_analysis: boolean;
   ventanas_fachada_total?: number | null;
   cluster_asignado?: string | null;
+  segundas_escaleras?: boolean | null;
+  plantas_levantables?: number | null;
+  tiene_azotea_transitable?: boolean | null;
+  esquina?: boolean | null;
+  protegido_historicamente?: boolean | null;
+  edificio_reformado?: boolean | null;
+  gestion_profesional?: boolean | null;
 };
 
 const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
