@@ -41,6 +41,9 @@ import {
   Loader2,
   Sparkles,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   ScorePill,
   scoreTier,
@@ -73,6 +76,13 @@ type Row = {
   has_analysis: boolean;
   ventanas_fachada_total?: number | null;
   cluster_asignado?: string | null;
+  segundas_escaleras?: boolean | null;
+  plantas_levantables?: number | null;
+  tiene_azotea_transitable?: boolean | null;
+  esquina?: boolean | null;
+  protegido_historicamente?: boolean | null;
+  edificio_reformado?: boolean | null;
+  gestion_profesional?: boolean | null;
 };
 
 const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
@@ -248,6 +258,15 @@ export default function ComercialEdificios() {
   const [vivMax, setVivMax] = useState<string>("");
   const [dh, setDh] = useState<"all" | "yes" | "no">("all");
   const [barrios, setBarrios] = useState<Set<string>>(new Set());
+  // Filtros avanzados
+  const [ventanasMin, setVentanasMin] = useState<string>("");
+  const [advSegundasEscaleras, setAdvSegundasEscaleras] = useState(false);
+  const [advPlantasLevantables, setAdvPlantasLevantables] = useState(false);
+  const [advAzotea, setAdvAzotea] = useState(false);
+  const [advEsquina, setAdvEsquina] = useState(false);
+  const [advSinProteccion, setAdvSinProteccion] = useState(false);
+  const [advSinReforma, setAdvSinReforma] = useState(false);
+  const [advSinGestionPro, setAdvSinGestionPro] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["comercial:edificios:all", userId],
@@ -304,17 +323,15 @@ export default function ComercialEdificios() {
       }
 
       // Análisis IA: ventanas por edificio
-      const analysisMap = new Map<string, number>();
+      const analysisMap = new Map<string, any>();
       let aFrom = 0;
       while (true) {
         const { data: aPage } = await (supabase.from("building_analysis" as any) as any)
-          .select("building_id, ventanas_fachada_total")
+          .select("building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional")
           .range(aFrom, aFrom + PAGE - 1);
         const chunk = aPage ?? [];
         for (const row of chunk) {
-          if (row.ventanas_fachada_total != null) {
-            analysisMap.set(row.building_id, row.ventanas_fachada_total);
-          }
+          analysisMap.set(row.building_id, row);
         }
         if (chunk.length < PAGE) break;
         aFrom += PAGE;
@@ -325,6 +342,7 @@ export default function ComercialEdificios() {
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
         const extra = bldgsById.get(b.id) ?? {};
         const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
+        const an = analysisMap.get(b.id) ?? {};
         return {
           id: b.id,
           direccion: b.direccion,
@@ -344,8 +362,15 @@ export default function ComercialEdificios() {
           score_summary: extra.score_summary ?? null,
           confianza_media: extra.confianza_media ?? null,
           has_analysis: !!b.has_ai_analysis,
-          ventanas_fachada_total: analysisMap.get(b.id) ?? null,
+          ventanas_fachada_total: an.ventanas_fachada_total ?? null,
           cluster_asignado: extra.cluster_asignado ?? null,
+          segundas_escaleras: an.segundas_escaleras ?? null,
+          plantas_levantables: an.plantas_levantables ?? null,
+          tiene_azotea_transitable: an.tiene_azotea_transitable ?? null,
+          esquina: an.esquina ?? null,
+          protegido_historicamente: an.protegido_historicamente ?? null,
+          edificio_reformado: an.edificio_reformado ?? null,
+          gestion_profesional: an.gestion_profesional ?? null,
         };
       });
       return { rows };
@@ -422,9 +447,7 @@ export default function ComercialEdificios() {
   const apply = (list: Row[]) => {
     const s = q.trim().toLowerCase();
     const smin = scoreMin === "" ? -Infinity : Number(scoreMin);
-    const smax = scoreMax === "" ? Infinity : Number(scoreMax);
-    const vmin = vivMin === "" ? -Infinity : Number(vivMin);
-    const vmax = vivMax === "" ? Infinity : Number(vivMax);
+    const vntMin = ventanasMin === "" ? -Infinity : Number(ventanasMin);
 
     let out = list.filter((r) => {
       if (s) {
@@ -434,12 +457,16 @@ export default function ComercialEdificios() {
           (r.barrio ?? "").toLowerCase().includes(s);
         if (!hay) return false;
       }
-      if (r.score < smin || r.score > smax) return false;
-      const v = r.num_viviendas ?? 0;
-      if (v < vmin || v > vmax) return false;
-      if (dh === "yes" && !r.division_horizontal) return false;
-      if (dh === "no" && r.division_horizontal) return false;
+      if (r.score < smin) return false;
       if (barrios.size > 0 && (!r.barrio || !barrios.has(r.barrio))) return false;
+      if (vntMin > -Infinity && (r.ventanas_fachada_total ?? -1) < vntMin) return false;
+      if (advSegundasEscaleras && !r.segundas_escaleras) return false;
+      if (advPlantasLevantables && !((r.plantas_levantables ?? 0) > 0)) return false;
+      if (advAzotea && !r.tiene_azotea_transitable) return false;
+      if (advEsquina && !r.esquina) return false;
+      if (advSinProteccion && r.protegido_historicamente) return false;
+      if (advSinReforma && r.edificio_reformado) return false;
+      if (advSinGestionPro && r.gestion_profesional) return false;
       return true;
     });
 
@@ -475,20 +502,30 @@ export default function ComercialEdificios() {
   const clearFilters = () => {
     setQ("");
     setScoreMin("");
-    setScoreMax("");
-    setVivMin("");
-    setVivMax("");
-    setDh("all");
     setBarrios(new Set());
+    setVentanasMin("");
+    setAdvSegundasEscaleras(false);
+    setAdvPlantasLevantables(false);
+    setAdvAzotea(false);
+    setAdvEsquina(false);
+    setAdvSinProteccion(false);
+    setAdvSinReforma(false);
+    setAdvSinGestionPro(false);
   };
 
+  const advancedCount =
+    (ventanasMin !== "" ? 1 : 0) +
+    (advSegundasEscaleras ? 1 : 0) +
+    (advPlantasLevantables ? 1 : 0) +
+    (advAzotea ? 1 : 0) +
+    (advEsquina ? 1 : 0) +
+    (advSinProteccion ? 1 : 0) +
+    (advSinReforma ? 1 : 0) +
+    (advSinGestionPro ? 1 : 0);
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
-    (scoreMax !== "" ? 1 : 0) +
-    (vivMin !== "" ? 1 : 0) +
-    (vivMax !== "" ? 1 : 0) +
-    (dh !== "all" ? 1 : 0) +
-    (barrios.size > 0 ? 1 : 0);
+    (barrios.size > 0 ? 1 : 0) +
+    advancedCount;
 
   const filteredMias = apply(visibleMias);
   const filteredTodos = apply(rows);
@@ -567,62 +604,18 @@ export default function ComercialEdificios() {
 
           <div className="flex items-center gap-1">
             <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-              Score
+              Score mín
             </span>
             <Input
               type="number"
               min={0}
               max={100}
-              placeholder="min"
+              placeholder="0"
               value={scoreMin}
               onChange={(e) => setScoreMin(e.target.value)}
               className="h-8 w-16 text-xs"
             />
-            <span className="text-muted-foreground">–</span>
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              placeholder="max"
-              value={scoreMax}
-              onChange={(e) => setScoreMax(e.target.value)}
-              className="h-8 w-16 text-xs"
-            />
           </div>
-
-          <div className="flex items-center gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-              Viv.
-            </span>
-            <Input
-              type="number"
-              min={0}
-              placeholder="min"
-              value={vivMin}
-              onChange={(e) => setVivMin(e.target.value)}
-              className="h-8 w-16 text-xs"
-            />
-            <span className="text-muted-foreground">–</span>
-            <Input
-              type="number"
-              min={0}
-              placeholder="max"
-              value={vivMax}
-              onChange={(e) => setVivMax(e.target.value)}
-              className="h-8 w-16 text-xs"
-            />
-          </div>
-
-          <Select value={dh} onValueChange={(v) => setDh(v as any)}>
-            <SelectTrigger className="h-8 w-40 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">DH: todos</SelectItem>
-              <SelectItem value="no" className="text-xs">Sin div. horizontal</SelectItem>
-              <SelectItem value="yes" className="text-xs">Con div. horizontal</SelectItem>
-            </SelectContent>
-          </Select>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -654,6 +647,66 @@ export default function ComercialEdificios() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
+                <SlidersHorizontal className="h-3 w-3" />
+                Filtros avanzados
+                {advancedCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                    {advancedCount}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 space-y-3" align="end">
+              <div className="space-y-2">
+                <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Ventanas fachada (mínimo)
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="ej. 50"
+                  value={ventanasMin}
+                  onChange={(e) => setVentanasMin(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-2 border-t border-border-faint pt-3">
+                <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Potencial estructural
+                </Label>
+                {[
+                  { id: "esc", v: advSegundasEscaleras, s: setAdvSegundasEscaleras, l: "Tiene segundas escaleras" },
+                  { id: "alt", v: advPlantasLevantables, s: setAdvPlantasLevantables, l: "Puede aumentar altura (plantas levantables)" },
+                  { id: "azo", v: advAzotea, s: setAdvAzotea, l: "Azotea transitable" },
+                  { id: "esq", v: advEsquina, s: setAdvEsquina, l: "Edificio en esquina" },
+                ].map((o) => (
+                  <div key={o.id} className="flex items-center gap-2">
+                    <Checkbox id={o.id} checked={o.v} onCheckedChange={(c) => o.s(!!c)} />
+                    <Label htmlFor={o.id} className="cursor-pointer text-xs font-normal">{o.l}</Label>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2 border-t border-border-faint pt-3">
+                <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Excluir penalizaciones
+                </Label>
+                {[
+                  { id: "prot", v: advSinProteccion, s: setAdvSinProteccion, l: "Sin protección histórica" },
+                  { id: "ref", v: advSinReforma, s: setAdvSinReforma, l: "Sin reforma reciente" },
+                  { id: "ges", v: advSinGestionPro, s: setAdvSinGestionPro, l: "Sin gestión profesional" },
+                ].map((o) => (
+                  <div key={o.id} className="flex items-center gap-2">
+                    <Checkbox id={o.id} checked={o.v} onCheckedChange={(c) => o.s(!!c)} />
+                    <Label htmlFor={o.id} className="cursor-pointer text-xs font-normal">{o.l}</Label>
+                  </div>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {activeFiltersCount > 0 && (
             <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={clearFilters}>
