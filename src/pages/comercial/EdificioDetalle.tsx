@@ -30,13 +30,9 @@ import {
   Tag,
 } from "lucide-react";
 import {
-  ScoreGauge,
-  ScoreFactorBar,
   ScorePill,
   scoreTier,
   tierBarClass,
-  tierTextClass,
-  buildingScoreFactors,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
@@ -44,6 +40,7 @@ import { syncBuildingTasks } from "@/lib/buildingTasks";
 import { AnalisisIASection } from "@/components/comercial/AnalisisIASection";
 import { CatastroDetalladoCard } from "@/components/comercial/CatastroDetalladoCard";
 import { AnalisisPlanoCatastralCard } from "@/components/comercial/AnalisisPlanoCatastralCard";
+import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -74,7 +71,7 @@ export default function ComercialEdificioDetalle() {
     queryKey: ["comercial:edificio", id, user?.id],
     enabled: !!id,
     queryFn: async () => {
-      const [{ data: b }, { data: score }, { data: owners }, { data: assign }] = await Promise.all([
+      const [{ data: b }, { data: score }, { data: owners }, { data: assign }, { data: analysis }] = await Promise.all([
         supabase.from("buildings").select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_building_score" as any) as any).select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_owner_score" as any) as any).select("*").eq("building_id", id!),
@@ -86,12 +83,17 @@ export default function ComercialEdificioDetalle() {
               .eq("status", "active")
               .maybeSingle()
           : Promise.resolve({ data: null }),
+        (supabase.from("building_analysis" as any) as any)
+          .select("*")
+          .eq("building_id", id!)
+          .maybeSingle(),
       ]);
       return {
         b: b as any,
         score: score as any,
         owners: (owners ?? []) as any[],
         assigned: !!assign,
+        analysis: (analysis ?? null) as any,
       };
     },
   });
@@ -103,9 +105,7 @@ export default function ComercialEdificioDetalle() {
   const b = data.b;
   const s = data.score ?? {};
   const assigned = data.assigned;
-  const score = Number(s.score ?? 0);
-  const factors = buildingScoreFactors(s);
-  const tier = scoreTier(score);
+  const analysis = data.analysis;
   const ratio =
     s?.m2_total && s?.num_viviendas ? Number(s.m2_total) / Number(s.num_viviendas) : null;
   const anioConstr =
@@ -176,35 +176,8 @@ export default function ComercialEdificioDetalle() {
         }
       />
 
-      {/* Scoring banner */}
-      <Card>
-        <CardContent className="flex flex-col items-center gap-6 p-6 lg:flex-row lg:items-stretch">
-          <div className="flex flex-col items-center justify-center gap-2 lg:w-1/4">
-            <ScoreGauge score={score} size={160} thickness={12} label="Score total" />
-            <div className={cn("font-mono text-xs uppercase tracking-eyebrow", tierTextClass[tier])}>
-              Potencial {tier === "high" ? "alto" : tier === "mid" ? "medio" : "bajo"}
-            </div>
-          </div>
-          <div className="flex-1 space-y-3">
-            <div>
-              <Eyebrow>Desglose del scoring</Eyebrow>
-              <CardTitle className="mt-1 text-base">Factores que aportan al score</CardTitle>
-            </div>
-            <div className="space-y-3">
-              {factors.map((f) => (
-                <ScoreFactorBar
-                  key={f.label}
-                  label={f.label}
-                  value={f.raw}
-                  pct={f.pct}
-                  pts={f.pts}
-                  weight={f.weight}
-                />
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Resumen narrativo + scoring visual */}
+      <ScoringResumen b={b} s={s} analysis={analysis} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Catastro */}
