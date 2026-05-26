@@ -1,72 +1,85 @@
+## Objetivo
 
-# Descargar el plano correcto: FXCC (croquis por plantas)
+Sustituir el scoring actual (fórmula única en `v_building_score`) por el **modelo de 5 clusters** del PDF, aplicarlo a los **74 edificios** y reflejarlo en la ficha y el listado.
 
-## El problema
+## 1. Tabla de clusters por barrio (nueva)
 
-Lo que el sistema ha estado guardando como `plantas_pdf` **no es** el plano de distribución por plantas. Es la **"Consulta Descriptiva y Gráfica"** (2 páginas: ficha del bien inmueble + croquis general de la parcela). Es el "plano general" que ves ahora.
+Nueva tabla `madrid_barrio_clusters`:
+- `distrito text`, `barrio text` (PK compuesto, normalizado en mayúsculas sin acentos)
+- `cluster text` enum: `ultra_prime`, `prime_value_add`, `flex_living_core`, `outer_distressed`, `outer_distressed_selectivo`, `baja_prioridad`
+- Se semilla desde el PDF (sección 3, ~todos los barrios de Madrid).
 
-El plano que has adjuntado (`FXCC_2658209VK4725H.pdf`, 8 páginas) es otro documento totalmente distinto del Catastro: el **FXCC – Croquis por plantas**, que muestra:
-- PLANTA GENERAL con toda la huella
-- Una página por cada planta (sótano, baja, I, II, III, IV…) con las subparcelas, usos (V.A.2, V.B.2, COM.TA…) y superficies en m²
+Tabla `madrid_calles_comerciales` (cluster 5 transversal):
+- `calle text` PK normalizada (Bravo Murillo, General Ricardos, Alcalá, Ibiza, Narváez, etc.)
+- `tipo text`: `buena` (renta comercial) | `mala` (cambio de uso)
 
-Es exactamente la información que necesita la IA para sacar plantas elevables, distribución, esquinas, comunes, etc.
+## 2. Señales nuevas en `building_analysis` (IA)
 
-## La complicación
+Añadir columnas para que la IA de visión + lectura de CRM pueble:
+- `mala_gestion_score smallint` (0-10) ← derramas, ITE, impagos, contratos caóticos, propietarios cansados
+- `local_pb_m2 numeric`, `local_pb_fachada_m numeric`, `local_pb_esquina bool`, `local_pb_viviendas_potenciales smallint`
+- `edificio_reformado bool`, `gestion_profesional bool` (penalizaciones)
+- `cluster_asignado text`, `cluster_score numeric`, `cluster_breakdown jsonb`
 
-Verificado contra la Sede del Catastro: el endpoint del FXCC existe
+## 3. Función `compute_cluster_score(building_id)` (PL/pgSQL)
 
+Reemplaza `compute_score`. Pasos:
+1. Lee `buildings + building_analysis + metadatos`.
+2. Resuelve `barrio → cluster` vía `madrid_barrio_clusters` (fallback `baja_prioridad`).
+3. Aplica la **tabla de pesos del cluster** (Ultra Prime, Prime Value-Add, Flex Living Core, Outer Distressed) usando los rangos del PDF (m², ratio m²/vivienda, nº viviendas, nº propietarios, mala gestión).
+4. Si la dirección hace match con `madrid_calles_comerciales` o el local PB cumple criterios → suma cluster 5.
+5. Resta penalizaciones (reformado -25, gestión profesional -15, sin conflicto -10, etc.).
+6. Guarda `score`, `cluster_asignado`, `cluster_breakdown` en `buildings`.
+
+Vista `v_building_score` se reescribe encima de esta lógica para mantener compatibilidad con el frontend.
+
+## 4. IA de lectura de CRM/notas (`enhance-building-score`)
+
+Extender el prompt para que, además de visión, devuelva en JSON:
+- `mala_gestion_score`, evidencias citadas
+- `edificio_reformado`, `gestion_profesional`
+- `local_pb_*` cuando aparezca en plano FXCC o foto fachada
+
+Llamado vía Lovable AI Gateway (`google/gemini-2.5-pro`) con contexto: notas comerciales, llamadas analizadas, FXCC, fachada Google.
+
+## 5. Reproceso de los 74 edificios
+
+Nueva edge function `recompute-cluster-scoring` (batch):
+- Itera los 74 edificios
+- Reanaliza con `enhance-building-score` (lectura CRM + visión) si `cluster_breakdown` está vacío o desactualizado
+- Llama `compute_cluster_score(id)` para cada uno
+- Devuelve resumen por cluster
+
+Se dispara desde un botón "Recalcular scoring (clusters)" en `/comercial/edificios`.
+
+## 6. UI
+
+- **Listado `Edificios.tsx`**: añadir chip `cluster_asignado` y filtro por cluster.
+- **Ficha `EdificioDetalle.tsx`** + `scoring.tsx`: mostrar cluster, pesos del cluster aplicado, breakdown nuevo, penalizaciones, señales CRM detectadas.
+- Tooltip que explique por qué este edificio cayó en este cluster.
+
+## Detalles técnicos
+
+```text
+flow:
+ buildings.barrio  ──► madrid_barrio_clusters ──► cluster
+ building_analysis ──► variables IA + CRM
+              ▼
+ compute_cluster_score(id)
+   ├── pesos cluster (tabla del PDF)
+   ├── bonus cluster 5 (calle/local)
+   └── penalizaciones
+              ▼
+ buildings.score / cluster_asignado / cluster_breakdown
+              ▼
+ UI: chip + breakdown
 ```
-https://www1.sedecatastro.gob.es/Cartografia/ImprimirPDFCroquisParcela.aspx
-  ?del=<cp>&mun=<cmc>&refcat=<refcat14>
-```
 
-pero **está protegido por reCAPTCHA de Google** desde hace ya un tiempo. El botón en la web abre un aviso que dice literalmente: "La descarga de esos productos se realiza desde el visor cartográfico" y va a través de `CaptchaGoogleFXCC`. He probado con sesión + cookies + referer del visor y el endpoint devuelve `200 / text/html / 0 bytes` — no entrega el PDF sin resolver captcha.
+Migraciones nuevas (no se tocan las antiguas):
+- `add_cluster_tables.sql` (2 tablas + seed)
+- `add_cluster_columns_building_analysis.sql`
+- `compute_cluster_score.sql` (reemplaza función) + `v_building_score` v2
 
-Por eso lo que tenemos guardado en storage para los 74 edificios es la consulta descriptiva (sin per-planta), no el FXCC.
+## Confirmación necesaria
 
-## Plan propuesto
-
-### 1. Integrar un servicio anti-captcha
-Añadir secret `TWOCAPTCHA_API_KEY` (2Captcha — el más barato y fiable para reCAPTCHA v2/v3, ~$2.99 por 1000 resoluciones). Para 74 edificios = ~$0.22 la primera tanda.
-
-### 2. Nueva función `fetch-catastro-fxcc`
-Aislada del scraper actual (que sigue valiendo para la consulta descriptiva). Flujo:
-
-1. Recibe `refcat14` (los 14 primeros) y opcionalmente `cp`/`cmc`; si faltan, los obtiene de `Consulta_DNPRC` (ya lo hacemos).
-2. Abre `mapaC.aspx?refcat=<refcat14>` para iniciar sesión + obtener el `sitekey` del reCAPTCHA.
-3. Llama a 2Captcha con el sitekey y la URL → recibe `g-recaptcha-response` token (~20-40 s).
-4. Hace POST/GET al endpoint `ImprimirPDFCroquisParcela.aspx` con el token en la cookie/cabecera que espere el servidor.
-5. Guarda el PDF en storage como `<refcat14>_fxcc.pdf` (nombre distinto al actual para no pisar nada).
-6. Rasteriza páginas a PNG con MuPDF.
-7. Persiste en `catastro_data`: `fxcc_pdf_url`, `fxcc_pages_urls[]`, `fxcc_num_pages`.
-
-### 3. Migración de DB
-Añadir columnas a `catastro_data`:
-- `fxcc_pdf_url text`
-- `fxcc_pages_urls text[]`
-- `fxcc_num_pages int`
-- `fxcc_disponible boolean default false`
-
-Las columnas `plantas_*` actuales se mantienen para no romper, pero se renombrarán internamente en el UI como "Consulta descriptiva".
-
-### 4. UI — Ficha del edificio
-`AnalisisPlanoCatastralCard.tsx`:
-- Si hay `fxcc_pages_urls` → mostrar éstas como "Distribución por plantas" (es lo que la IA debe analizar).
-- Si solo hay `plantas_pages_urls` → mostrarlas como "Consulta descriptiva" (info general).
-- Permitir **subir manualmente** el FXCC desde la ficha (botón "Subir plano FXCC") por si el captcha falla.
-
-### 5. IA — `analyze-building-vision`
-Cambiar la entrada de imágenes: priorizar `fxcc_pages_urls` cuando exista (es el plano que sirve). El prompt actual ya está orientado a leer plantas, esquina, doble escalera, etc. — funciona mejor con las páginas del FXCC.
-
-### 6. Relanzar
-- Job `fxcc-batch` sobre los 74 edificios → bajar FXCC.
-- Luego `analyze-building-vision` (forzado) → nuevo análisis IA con el plano correcto.
-- `compute_score` recalcula avisos automáticamente vía trigger.
-
-### Subir el de Diaz Porlier 47 ahora mismo
-Como ya tienes el FXCC en mano para `2658209VK4725H`, lo subo directamente a storage como `2658209VK4725H_fxcc.pdf`, lo registro en `catastro_data` y lanzo el análisis IA solo de este edificio para validar la cadena end-to-end **antes** de gastar captchas con los 74.
-
-## Lo que necesito confirmar
-
-1. **¿Activamos 2Captcha?** Es la única vía automática viable. Alternativa: que tú (o el equipo) suba el FXCC manualmente desde la ficha — viable para 74 edificios si lo hacéis una vez.
-2. **Validación con Diaz Porlier 47**: ¿OK que empiece subiendo tu PDF, registrándolo y relanzando solo la IA de este edificio para ver que el flujo IA→score funciona con el plano correcto, antes de tocar nada de captcha?
+¿Procedo tal cual, o quieres ajustar algo antes (por ejemplo, conservar el scoring viejo en paralelo como `score_legacy`, o cambiar algún peso del PDF)?
