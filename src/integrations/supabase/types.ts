@@ -191,11 +191,20 @@ export type Database = {
           confidence_ventanas: number | null
           created_at: string
           densidad_ventanas_fachada: number | null
+          edificio_reformado: boolean | null
           esquina: boolean | null
           fachada_lineal_total_m: number | null
           formula_ventanas_patio: string | null
+          gestion_profesional: boolean | null
           id: string
           llm_raw_response: Json | null
+          local_pb_esquina: boolean | null
+          local_pb_fachada_m: number | null
+          local_pb_m2: number | null
+          local_pb_tipo_calle: string | null
+          local_pb_viviendas_potenciales: number | null
+          mala_gestion_evidencias: Json | null
+          mala_gestion_score: number | null
           metricas_detalle: Json | null
           metricas_extra: Json | null
           modelo_fallback: boolean | null
@@ -237,11 +246,20 @@ export type Database = {
           confidence_ventanas?: number | null
           created_at?: string
           densidad_ventanas_fachada?: number | null
+          edificio_reformado?: boolean | null
           esquina?: boolean | null
           fachada_lineal_total_m?: number | null
           formula_ventanas_patio?: string | null
+          gestion_profesional?: boolean | null
           id?: string
           llm_raw_response?: Json | null
+          local_pb_esquina?: boolean | null
+          local_pb_fachada_m?: number | null
+          local_pb_m2?: number | null
+          local_pb_tipo_calle?: string | null
+          local_pb_viviendas_potenciales?: number | null
+          mala_gestion_evidencias?: Json | null
+          mala_gestion_score?: number | null
           metricas_detalle?: Json | null
           metricas_extra?: Json | null
           modelo_fallback?: boolean | null
@@ -283,11 +301,20 @@ export type Database = {
           confidence_ventanas?: number | null
           created_at?: string
           densidad_ventanas_fachada?: number | null
+          edificio_reformado?: boolean | null
           esquina?: boolean | null
           fachada_lineal_total_m?: number | null
           formula_ventanas_patio?: string | null
+          gestion_profesional?: boolean | null
           id?: string
           llm_raw_response?: Json | null
+          local_pb_esquina?: boolean | null
+          local_pb_fachada_m?: number | null
+          local_pb_m2?: number | null
+          local_pb_tipo_calle?: string | null
+          local_pb_viviendas_potenciales?: number | null
+          mala_gestion_evidencias?: Json | null
+          mala_gestion_score?: number | null
           metricas_detalle?: Json | null
           metricas_extra?: Json | null
           modelo_fallback?: boolean | null
@@ -721,6 +748,10 @@ export type Database = {
           cartera_demo_seed: boolean
           catastro_ref: string | null
           ciudad: string
+          cluster_asignado: string | null
+          cluster_breakdown: Json | null
+          cluster_motivo: string | null
+          cluster_score: number | null
           codigo_postal: string | null
           confianza_media: number | null
           created_at: string
@@ -744,6 +775,10 @@ export type Database = {
           cartera_demo_seed?: boolean
           catastro_ref?: string | null
           ciudad: string
+          cluster_asignado?: string | null
+          cluster_breakdown?: Json | null
+          cluster_motivo?: string | null
+          cluster_score?: number | null
           codigo_postal?: string | null
           confianza_media?: number | null
           created_at?: string
@@ -767,6 +802,10 @@ export type Database = {
           cartera_demo_seed?: boolean
           catastro_ref?: string | null
           ciudad?: string
+          cluster_asignado?: string | null
+          cluster_breakdown?: Json | null
+          cluster_motivo?: string | null
+          cluster_score?: number | null
           codigo_postal?: string | null
           confianza_media?: number | null
           created_at?: string
@@ -1827,6 +1866,51 @@ export type Database = {
           referencia_id?: string | null
           scope_id?: string | null
           scope_type?: string | null
+        }
+        Relationships: []
+      }
+      madrid_barrio_clusters: {
+        Row: {
+          barrio: string
+          barrio_norm: string
+          cluster: string
+          cluster_secundario: string | null
+          distrito: string
+          notas: string | null
+        }
+        Insert: {
+          barrio: string
+          barrio_norm: string
+          cluster: string
+          cluster_secundario?: string | null
+          distrito: string
+          notas?: string | null
+        }
+        Update: {
+          barrio?: string
+          barrio_norm?: string
+          cluster?: string
+          cluster_secundario?: string | null
+          distrito?: string
+          notas?: string | null
+        }
+        Relationships: []
+      }
+      madrid_calles_comerciales: {
+        Row: {
+          calle: string
+          calle_norm: string
+          tipo: string
+        }
+        Insert: {
+          calle: string
+          calle_norm: string
+          tipo: string
+        }
+        Update: {
+          calle?: string
+          calle_norm?: string
+          tipo?: string
         }
         Relationships: []
       }
@@ -2953,6 +3037,10 @@ export type Database = {
           total: number
         }[]
       }
+      compute_cluster_score: {
+        Args: { p_building_id: string }
+        Returns: number
+      }
       compute_score: { Args: { p_building_id: string }; Returns: number }
       current_user_role: {
         Args: never
@@ -2987,6 +3075,7 @@ export type Database = {
           similarity: number
         }[]
       }
+      normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
       notas_simples_kpis: {
         Args: {

@@ -72,7 +72,27 @@ type Row = {
   confianza_media: number | null;
   has_analysis: boolean;
   ventanas_fachada_total?: number | null;
+  cluster_asignado?: string | null;
 };
+
+const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
+  ultra_prime: { label: "Ultra Prime", cls: "bg-purple-500/15 text-purple-300 border-purple-500/30" },
+  prime_value_add: { label: "Prime Value-Add", cls: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+  flex_living_core: { label: "Flex Living Core", cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+  outer_distressed: { label: "Outer Distressed", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+  outer_distressed_selectivo: { label: "Outer selectivo", cls: "bg-amber-500/10 text-amber-300/80 border-amber-500/20" },
+  baja_prioridad: { label: "Baja prioridad", cls: "bg-muted text-muted-foreground border-border-faint" },
+};
+
+export function ClusterChip({ cluster }: { cluster?: string | null }) {
+  if (!cluster) return null;
+  const c = CLUSTER_LABELS[cluster] ?? { label: cluster, cls: "bg-muted text-muted-foreground border-border-faint" };
+  return (
+    <Badge variant="outline" className={cn("h-4 px-1.5 text-[9px] uppercase tracking-eyebrow", c.cls)}>
+      {c.label}
+    </Badge>
+  );
+}
 
 type SortKey =
   | "score_desc"
@@ -103,6 +123,7 @@ function BuildingCard({ r }: { r: Row }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Eyebrow>{r.barrio ?? r.ciudad ?? "—"}</Eyebrow>
+              <ClusterChip cluster={r.cluster_asignado} />
               {r.assigned && (
                 <Badge variant="gold" className="h-4 px-1.5 text-[9px]">
                   Tu cartera
@@ -241,7 +262,8 @@ export default function ComercialEdificios() {
           .range(from, from + PAGE - 1);
       const fetchBldgsPage = (from: number) =>
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo")
+          // also need cluster_asignado for chips
           .range(from, from + PAGE - 1);
       const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
         (supabase.from("building_assignments" as any) as any)
@@ -323,6 +345,7 @@ export default function ComercialEdificios() {
           confianza_media: extra.confianza_media ?? null,
           has_analysis: !!b.has_ai_analysis,
           ventanas_fachada_total: analysisMap.get(b.id) ?? null,
+          cluster_asignado: extra.cluster_asignado ?? null,
         };
       });
       return { rows };
@@ -348,6 +371,23 @@ export default function ComercialEdificios() {
       }
     } catch (e: any) {
       toast.error("Error al lanzar batch: " + (e?.message ?? String(e)));
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  const launchClusterRecompute = async () => {
+    setBatchBusy(true);
+    try {
+      toast.info("Recalculando scoring por clusters de los 74 edificios… esto tardará 2-5 min.");
+      const { data, error } = await supabase.functions.invoke("recompute-cluster-scoring", {
+        body: { only_seed: true },
+      });
+      if (error) throw error;
+      const d = data as any;
+      toast.success(`Listo: ${d?.processed ?? 0} edificios recalculados. Refresca la página.`);
+    } catch (e: any) {
+      toast.error("Error al recalcular: " + (e?.message ?? String(e)));
     } finally {
       setBatchBusy(false);
     }
@@ -461,6 +501,15 @@ export default function ComercialEdificios() {
         subtitle={`${mias.length} en tu cartera · ${rows.length} edificios totales`}
         actions={
           <div className="flex gap-2">
+          <Button
+            onClick={launchClusterRecompute}
+            disabled={batchBusy}
+            variant="default"
+            size="sm"
+          >
+            {batchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            Recalcular clusters (74)
+          </Button>
           <Button
             onClick={() => launchBatch(true)}
             disabled={batchBusy || !userId}
