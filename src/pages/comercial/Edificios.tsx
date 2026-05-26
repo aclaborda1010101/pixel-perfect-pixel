@@ -562,7 +562,7 @@ export default function ComercialEdificios() {
       }
       if (r.score < smin) return false;
       if (barrios.size > 0 && (!r.barrio || !barrios.has(r.barrio))) return false;
-      if (vntMin > -Infinity && (r.ventanas_fachada_total ?? -1) < vntMin) return false;
+      if (vntMin > -Infinity && (r.ventanas_total ?? -1) < vntMin) return false;
       if (advSegundasEscaleras && !r.segundas_escaleras) return false;
       if (advPlantasLevantables && !((r.plantas_levantables ?? 0) > 0)) return false;
       if (advAzotea && !r.tiene_azotea_transitable) return false;
@@ -804,7 +804,7 @@ export default function ComercialEdificios() {
               <div className="border-t border-border-faint" />
               <div className="space-y-2">
                 <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-                  Ventanas fachada (mínimo)
+                  Ventanas totales (mínimo)
                 </Label>
                 <Input
                   type="number"
