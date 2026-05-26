@@ -323,10 +323,14 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
       }
     }
 
+    const ventanasPatioBase = ventanasPatioEstim;
+    const totalParedes = desglose.reduce((s, d) => s + d.paredes, 0);
+
     let ventanasTotal = ventFachada + ventanasPatioEstim;
     let confianzaVent: number = Number(parsed.confidence ?? 0.7);
     let ratioVentanasPorVivienda: number | null = null;
     let avisoVent: string | null = null;
+    let ajusteFormulaTxt: string | null = null;
 
     if (viviendasTotales && viviendasTotales > 0) {
       ratioVentanasPorVivienda = +(ventanasTotal / viviendasTotales).toFixed(2);
@@ -343,16 +347,16 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
           for (const d of desglose) d.ventanas_estimadas = Math.round(d.ventanas_estimadas * escala);
         }
       } else if (ratioVentanasPorVivienda < 4) {
-        // Auto-ajuste: cada vivienda madrileña típica tiene ≥1 ventana al patio (cocina/baño).
-        // Si la heurística de paredes infraestima, escalamos a un mínimo plausible (ratio = 5):
-        //   ventanasPatio = max(estimado, viviendas × 5 − ventFachada)
-        const objetivo = Math.max(0, viviendasTotales * 5 - ventFachada);
+        // Ajuste conservador: si la geometría queda corta, densificamos el patio sin escalar por nº de viviendas.
+        // Máximo prudente: 2 ventanas por pared y planta en patios interiores.
+        const objetivo = Math.max(ventanasPatioEstim, totalParedes * plantasParaFallback * 2);
         if (objetivo > ventanasPatioEstim) {
           const original = ventanasPatioEstim;
           ventanasPatioEstim = objetivo;
           ventanasTotal = ventFachada + ventanasPatioEstim;
           confianzaVent = 0.5;
-          avisoVent = `Ratio original ${ratioVentanasPorVivienda} < 4 (infraestimación por paredes/plantas). Ajustado: patio ${original}→${ventanasPatioEstim} (mínimo ${viviendasTotales} viv × 5 − ${ventFachada} fachada). Nuevo total ${ventanasTotal}.`;
+          ajusteFormulaTxt = `Ajuste conservador por infraestimación: Σparedes ${totalParedes} × ${plantasParaFallback} plantas × 2 ventanas/pared = ${objetivo}.`;
+          avisoVent = `Ratio original ${ratioVentanasPorVivienda} < 4. Ajustado de forma conservadora: patio ${original}→${ventanasPatioEstim} usando geometría del patio (máx. 2 ventanas por pared y planta), sin escalar por número de viviendas. Nuevo total ${ventanasTotal}.`;
           // re-escalar desglose proporcionalmente
           const sumaOriginal = desglose.reduce((s, d) => s + d.ventanas_estimadas, 0);
           if (sumaOriginal > 0) {
@@ -384,9 +388,9 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
         }))
       : null;
 
-    const totalParedes = desglose.reduce((s, d) => s + d.paredes, 0);
     const resumenPatios = desglose.map(d => `${d.codigo}(${d.paredes}p${d.paredes_fuente === "ia" ? "" : "*"}${d.area_m2 != null ? `,${Math.round(d.area_m2)}m²` : ""})`).join(", ");
-    const formulaTxt = `${nPatios} patios × paredes visibles (Σ=${totalParedes}) × ${plantasParaFallback} plantas × 1 ventana/pared = ${ventanasPatioEstim} ventanas a patio. Total con fachada = ${ventFachada}+${ventanasPatioEstim}=${ventanasTotal}. Ratio ventanas/vivienda = ${ratioFinal ?? "—"} (rango plausible 4-10). Lógica: las ventanas de fachada se proyectan sobre las paredes del patio (≈1 ventana por pared y planta — cocina/baño/dormitorio interior). Detalle por patio: ${resumenPatios || "—"} (* = paredes asumidas por fallback).`;
+    const formulaBaseTxt = `${nPatios} patios × paredes visibles (Σ=${totalParedes}) × ${plantasParaFallback} plantas × 1 ventana/pared = ${ventanasPatioBase} ventanas a patio.`;
+    const formulaTxt = `${formulaBaseTxt}${ajusteFormulaTxt ? ` ${ajusteFormulaTxt}` : ""} Total con fachada = ${ventFachada}+${ventanasPatioEstim}=${ventanasTotal}. Ratio ventanas/vivienda = ${ratioFinal ?? "—"} (rango plausible 4-10). Lógica: la estimación de patio se apoya en la geometría visible del patio y se mantiene conservadora; no se multiplica por el número de viviendas. Detalle por patio: ${resumenPatios || "—"} (* = paredes asumidas por fallback).`;
 
     const ventanasPatiosTotalFinal = ventanasPatioEstim;
 
@@ -443,9 +447,9 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
         ventanas_patios_total: {
           value: ventanasPatioEstim,
           source: viviendasTotales && viviendasTotales > 0 ? ["dnprc_json", "catastro_pdf_piso_01"] : ["catastro_pdf_piso_01", "inferred_symmetry"],
-          reasoning: viviendasTotales && viviendasTotales > 0
-            ? `${nPatios} patios detectados y ${viviendasTotales} viviendas catastrales. Heurística calibrada Madrid: viviendas × 2.5.`
-            : `${nPatios} patios detectados sin viviendas catastrales fiables. Fallback: patios × plantas visibles × 4.`,
+          reasoning: ajusteFormulaTxt
+            ? `${nPatios} patios detectados. Estimación geométrica del patio reajustada de forma conservadora con paredes visibles y plantas analizadas, sin escalar por número de viviendas.`
+            : `${nPatios} patios detectados. Estimación geométrica: patios × paredes visibles × plantas analizadas × 1 ventana/pared.`,
           confidence: confianzaVent,
         },
       },
