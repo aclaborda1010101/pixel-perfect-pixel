@@ -97,8 +97,18 @@ Deno.serve(async (req) => {
       ?? (b.metadatos as any)?.referencia_catastral
       ?? null;
 
-    // 1. Si no hay refcatastral: geocodificar + RCCOOR
-    if (!refcat || force) {
+    // Leer fila existente para saber si ya tenemos lat/lon
+    const { data: existing } = await sb
+      .from("catastro_data")
+      .select("lat, lon")
+      .eq(refcat ? "refcatastral" : "building_id", refcat ?? building_id)
+      .maybeSingle();
+    let lat: number = Number(existing?.lat);
+    let lon: number = Number(existing?.lon);
+    const haveCoords = isFinite(lat) && isFinite(lon);
+
+    // 1. Geocodificar si faltan coords o no hay refcat (o force)
+    if (!haveCoords || !refcat || force) {
       const direccion = b.direccion;
       if (!direccion) {
         await setProcessingStatus(building_id, "catastro", "error", "sin dirección");
@@ -111,7 +121,7 @@ Deno.serve(async (req) => {
         `${direccion}, ${ciudadClean}, España`,
         `${direccion}, Madrid, España`,
       ];
-      let lat = NaN, lon = NaN;
+      lat = NaN; lon = NaN;
       for (const t of tries) {
         const q = encodeURIComponent(t);
         const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`, {
@@ -124,42 +134,46 @@ Deno.serve(async (req) => {
         if (isFinite(lat) && isFinite(lon)) break;
       }
       if (!isFinite(lat) || !isFinite(lon)) {
+        if (refcat) {
+          await sb.from("catastro_data").upsert({
+            refcatastral: refcat,
+            building_id,
+            fetch_error: "geocoding falló (Nominatim sin resultado)",
+            fetched_at: new Date().toISOString(),
+          }, { onConflict: "refcatastral" });
+        }
         await setProcessingStatus(building_id, "catastro", "error", "geocoding falló");
         return err("Nominatim no devolvió coordenadas", 422);
       }
 
-      // Catastro RCCOOR (JSON)
-      try {
-        const rRes = await fetch(
-          `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?Coordenada_X=${lon}&Coordenada_Y=${lat}&SRS=EPSG:4326`,
-        );
-        const rXml = await rRes.text();
-        const pc1 = /<pc1>([^<]+)<\/pc1>/i.exec(rXml)?.[1] ?? "";
-        const pc2 = /<pc2>([^<]+)<\/pc2>/i.exec(rXml)?.[1] ?? "";
-        refcat = (pc1 + pc2).trim() || null;
-      } catch (e) {
-        console.warn("RCCOOR fail", e);
-      }
-
-      if (refcat) {
-        await sb.from("catastro_data").upsert({
-          refcatastral: refcat,
-          building_id,
-          lat, lon,
-          fetched_at: new Date().toISOString(),
-        }, { onConflict: "refcatastral" });
+      // Si no hay refcat aún, intentar resolverlo vía RCCOOR
+      if (!refcat) {
+        try {
+          const rRes = await fetch(
+            `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?Coordenada_X=${lon}&Coordenada_Y=${lat}&SRS=EPSG:4326`,
+          );
+          const rXml = await rRes.text();
+          const pc1 = /<pc1>([^<]+)<\/pc1>/i.exec(rXml)?.[1] ?? "";
+          const pc2 = /<pc2>([^<]+)<\/pc2>/i.exec(rXml)?.[1] ?? "";
+          refcat = (pc1 + pc2).trim() || null;
+        } catch (e) {
+          console.warn("RCCOOR fail", e);
+        }
+        if (!refcat) {
+          await setProcessingStatus(building_id, "catastro", "error", "no se obtuvo refcatastral");
+          return err("RCCOOR no devolvió refcatastral", 422);
+        }
         await sb.from("buildings").update({ refcatastral: refcat }).eq("id", building_id);
-      } else {
-        await setProcessingStatus(building_id, "catastro", "error", "no se obtuvo refcatastral");
-        return json({ status: "no_refcatastral", lat, lon });
       }
     }
 
-    // Garantizar que existe la fila en catastro_data antes del UPDATE final
-    // (caso: edificio ya tenía refcatastral en buildings pero nunca pasó por la rama de arriba)
+    // Garantizar fila con lat/lon antes del UPDATE final
     await sb.from("catastro_data").upsert({
       refcatastral: refcat,
       building_id,
+      lat: isFinite(lat) ? lat : null,
+      lon: isFinite(lon) ? lon : null,
+      fetched_at: new Date().toISOString(),
     }, { onConflict: "refcatastral" });
 
     // 2a. Descargar SVG croquis (fallback / referencia rápida)
