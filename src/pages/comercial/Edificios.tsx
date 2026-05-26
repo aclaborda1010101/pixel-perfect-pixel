@@ -94,11 +94,19 @@ const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
   baja_prioridad: { label: "Baja prioridad", cls: "bg-muted text-muted-foreground border-border-faint" },
 };
 
+const CLUSTER_KEYS = Object.keys(CLUSTER_LABELS);
+
 export function ClusterChip({ cluster }: { cluster?: string | null }) {
   if (!cluster) return null;
   const c = CLUSTER_LABELS[cluster] ?? { label: cluster, cls: "bg-muted text-muted-foreground border-border-faint" };
   return (
-    <Badge variant="outline" className={cn("h-4 px-1.5 text-[9px] uppercase tracking-eyebrow", c.cls)}>
+    <Badge
+      variant="outline"
+      className={cn(
+        "h-5 whitespace-nowrap rounded-sm border px-1.5 text-[10px] font-medium uppercase tracking-eyebrow",
+        c.cls,
+      )}
+    >
       {c.label}
     </Badge>
   );
