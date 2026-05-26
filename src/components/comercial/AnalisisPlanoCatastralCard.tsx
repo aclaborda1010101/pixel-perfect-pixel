@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, RefreshCw, Eye, ScanSearch, FileText, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Loader2, RefreshCw, Eye, ScanSearch, FileText, ThumbsUp, ThumbsDown, Upload } from "lucide-react";
 import { useBuildingAnalysis } from "@/lib/analisisIA";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -31,6 +31,28 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
   const [pageZoom, setPageZoom] = useState<{ url: string; label: string } | null>(null);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState<null | "ok" | "ajuste">(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const subirFxcc = async (file: File) => {
+    setUploading(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const { data: resp, error } = await supabase.functions.invoke("upload-fxcc-pdf", {
+        body: { building_id: buildingId, filename: file.name, content_base64: b64 },
+      });
+      if (error) throw error;
+      toast.success(`FXCC subido: ${(resp as any)?.num_pages ?? "?"} páginas. Re-lanza el análisis IA para que use el nuevo plano.`);
+      qc.invalidateQueries({ queryKey: ["building_analysis", buildingId] });
+      qc.invalidateQueries({ queryKey: ["comercial:edificio", buildingId] });
+    } catch (e: any) {
+      toast.error("Error subiendo FXCC: " + (e?.message ?? String(e)));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const enviarFeedback = async (valor: "ok" | "ajuste") => {
     setFeedbackBusy(true);
@@ -64,17 +86,51 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
   const a = data?.analysis;
   const cat = data?.catastro;
   const plano = cat?.plano_url;
-  const pages: string[] = Array.isArray(cat?.plantas_pages_urls) ? cat!.plantas_pages_urls : [];
-  const pdfUrl: string | null = cat?.plantas_pdf_url ?? null;
+  // Preferir FXCC (croquis por plantas reales) sobre la consulta descriptiva
+  const fxccPages: string[] = Array.isArray(cat?.fxcc_pages_urls) ? cat!.fxcc_pages_urls : [];
+  const descPages: string[] = Array.isArray(cat?.plantas_pages_urls) ? cat!.plantas_pages_urls : [];
+  const usingFxcc = fxccPages.length > 0;
+  const pages: string[] = usingFxcc ? fxccPages : descPages;
+  const pdfUrl: string | null = usingFxcc ? (cat?.fxcc_pdf_url ?? null) : (cat?.plantas_pdf_url ?? null);
+  const planoTipoLabel = usingFxcc ? "FXCC · distribución por plantas" : "Consulta descriptiva (general)";
   const anotaciones: any[] = Array.isArray(a?.anotaciones_plano) ? a.anotaciones_plano : [];
 
   const pageLabelFn = (i: number) => {
     if (pages.length <= 1) return `Plano`;
+    if (usingFxcc) {
+      // FXCC: pág 1 = PLANTA GENERAL; siguientes = una por planta con superficies/usos
+      if (i === 0) return "Pág 1 · PLANTA GENERAL";
+      return `Pág ${i + 1} · Planta`;
+    }
     if (i === 0) return "Pág 1 · Vista general";
     if (i === 1) return "Pág 2 · Planta BAJA";
     if (i === pages.length - 1) return `Pág ${i + 1} · SÓTANO`;
     return `Pág ${i + 1} · PISO ${String(i - 1).padStart(2, "0")}`;
   };
+
+  const uploadButton = (
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) subirFxcc(f);
+        }}
+      />
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+      >
+        {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+        {usingFxcc ? "Reemplazar FXCC" : "Subir FXCC manual"}
+      </Button>
+    </>
+  );
 
   if (!a) {
     // Sin análisis IA todavía, pero si tenemos el PDF de plantas lo mostramos
@@ -82,19 +138,22 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
       return (
         <Card>
           <CardHeader>
-            <Eyebrow><ScanSearch className="mr-1 inline h-3 w-3" /> Plano catastral · distribución por plantas</Eyebrow>
-            <CardTitle>📐 Distribución por plantas (Catastro)</CardTitle>
+            <Eyebrow><ScanSearch className="mr-1 inline h-3 w-3" /> {planoTipoLabel}</Eyebrow>
+            <CardTitle>📐 Plano del Catastro</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between">
-              <Eyebrow>{pages.length} páginas del PDF</Eyebrow>
-              {pdfUrl && (
-                <Button asChild size="sm" variant="outline">
-                  <a href={pdfUrl} target="_blank" rel="noreferrer">
-                    <FileText className="h-3 w-3" /> Abrir PDF completo ↗
-                  </a>
-                </Button>
-              )}
+              <Eyebrow>{pages.length} páginas · {planoTipoLabel}</Eyebrow>
+              <div className="flex items-center gap-2">
+                {pdfUrl && (
+                  <Button asChild size="sm" variant="outline">
+                    <a href={pdfUrl} target="_blank" rel="noreferrer">
+                      <FileText className="h-3 w-3" /> Abrir PDF ↗
+                    </a>
+                  </Button>
+                )}
+                {uploadButton}
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
               {pages.map((url, i) => (
@@ -137,10 +196,11 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
           <Eyebrow><ScanSearch className="mr-1 inline h-3 w-3" /> Análisis del plano catastral</Eyebrow>
           <CardTitle>🔍 Análisis del plano catastral</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           <div className="text-sm text-muted-foreground">
-            Sin análisis aún. Pulsa "Descargar Catastro + Planos + IA" arriba para procesar el edificio.
+            Sin análisis aún. Pulsa "Descargar Catastro + Planos + IA" arriba para procesar el edificio. Si tienes el FXCC del Catastro (croquis por plantas), súbelo aquí:
           </div>
+          <div>{uploadButton}</div>
         </CardContent>
       </Card>
     );
@@ -188,13 +248,7 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
       ` Modelo: ${a.modelo_usado}${a.modelo_fallback ? " (fallback)" : ""}. Confianza ${conf}. Tiempo: ${dur}.`
     : `Analicé el croquis catastral (PDF de plantas no disponible). Detecté ${patios ?? 0} patios, parcela ${a.esquina ? "en esquina" : "no esquina"}, ${a.segundas_escaleras ? "≥2 cajas de escaleras" : "1 caja de escaleras"}. Modelo: ${a.modelo_usado}${a.modelo_fallback ? " (fallback)" : ""}. Confianza ${conf}. Tiempo: ${dur}.`;
 
-  const pageLabel = (i: number) => {
-    if (pages.length <= 1) return `Plano`;
-    if (i === 0) return "Pág 1 · Vista general";
-    if (i === 1) return "Pág 2 · Planta BAJA";
-    if (i === pages.length - 1) return `Pág ${i + 1} · SÓTANO`;
-    return `Pág ${i + 1} · PISO ${String(i - 1).padStart(2, "0")}`;
-  };
+  const pageLabel = pageLabelFn;
 
   return (
     <>
@@ -209,14 +263,17 @@ export function AnalisisPlanoCatastralCard({ buildingId }: { buildingId: string 
           {tienePages && (
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <Eyebrow>{pages.length} páginas del PDF de distribución por plantas</Eyebrow>
-                {pdfUrl && (
-                  <Button asChild size="sm" variant="outline">
-                    <a href={pdfUrl} target="_blank" rel="noreferrer">
-                      <FileText className="h-3 w-3" /> Abrir PDF completo ↗
-                    </a>
-                  </Button>
-                )}
+                <Eyebrow>{pages.length} páginas · {planoTipoLabel}</Eyebrow>
+                <div className="flex items-center gap-2">
+                  {pdfUrl && (
+                    <Button asChild size="sm" variant="outline">
+                      <a href={pdfUrl} target="_blank" rel="noreferrer">
+                        <FileText className="h-3 w-3" /> Abrir PDF ↗
+                      </a>
+                    </Button>
+                  )}
+                  {uploadButton}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
                 {pages.map((url, i) => (

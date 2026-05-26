@@ -980,6 +980,11 @@ export type Database = {
           fetch_error: string | null
           fetch_quality: string | null
           fetched_at: string | null
+          fxcc_disponible: boolean
+          fxcc_num_pages: number | null
+          fxcc_pages_urls: Json | null
+          fxcc_pdf_url: string | null
+          fxcc_source: string | null
           lat: number | null
           lon: number | null
           plano_url: string | null
@@ -998,6 +1003,11 @@ export type Database = {
           fetch_error?: string | null
           fetch_quality?: string | null
           fetched_at?: string | null
+          fxcc_disponible?: boolean
+          fxcc_num_pages?: number | null
+          fxcc_pages_urls?: Json | null
+          fxcc_pdf_url?: string | null
+          fxcc_source?: string | null
           lat?: number | null
           lon?: number | null
           plano_url?: string | null
@@ -1016,6 +1026,11 @@ export type Database = {
           fetch_error?: string | null
           fetch_quality?: string | null
           fetched_at?: string | null
+          fxcc_disponible?: boolean
+          fxcc_num_pages?: number | null
+          fxcc_pages_urls?: Json | null
+          fxcc_pdf_url?: string | null
+          fxcc_source?: string | null
           lat?: number | null
           lon?: number | null
           plano_url?: string | null
