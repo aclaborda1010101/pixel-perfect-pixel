@@ -180,13 +180,14 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     });
 
     let parsed: any = null;
-    const primaryModel = "google/gemini-3.5-flash";
+    const primaryModel = "google/gemini-3.1-flash-lite-preview";
+    const fallbackModel = "google/gemini-3.1-pro-preview";
     let modelo_usado = primaryModel;
     let modelo_fallback = false;
     let llm_raw: any = null;
     let lastErr: string | null = null;
 
-    // Intenta hasta 3 veces con el modelo primario (Gemini 3.5 Flash por defecto). Sin fallback a otros modelos.
+    // Intenta hasta 3 veces con el modelo primario (Gemini 3.1 Flash Lite). Si falla, fallback a Gemini 3.1 Pro.
     for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
       try {
         const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -209,6 +210,38 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
       } catch (e) {
         lastErr = String((e as Error).message ?? e);
         await sleep(2000 * (attempt + 1));
+      }
+    }
+
+    // Fallback a Gemini 3.1 Pro si el primario no devolvió resultado válido
+    if (!parsed) {
+      for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+        try {
+          const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(buildPayload(fallbackModel)),
+          });
+          if (r.status === 429 || r.status === 402) {
+            lastErr = `gateway ${r.status} (fallback)`;
+            await sleep(3000 * (attempt + 1));
+            continue;
+          }
+          const j = await r.json();
+          llm_raw = j;
+          const txt = j?.choices?.[0]?.message?.content ?? "";
+          try {
+            parsed = JSON.parse(txt);
+            modelo_usado = fallbackModel;
+            modelo_fallback = true;
+          } catch { lastErr = "JSON inválido (fallback)"; }
+        } catch (e) {
+          lastErr = String((e as Error).message ?? e);
+          await sleep(3000 * (attempt + 1));
+        }
       }
     }
 

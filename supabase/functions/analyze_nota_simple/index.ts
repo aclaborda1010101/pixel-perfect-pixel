@@ -18,7 +18,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "google/gemini-3.1-flash-lite-preview";
 
 const TOOL = {
   type: "function",
