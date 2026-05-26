@@ -2,9 +2,22 @@ import { cn } from "@/lib/utils";
 
 export type ScoreTier = "high" | "mid" | "low";
 
+/**
+ * Reescala el score "interno" (0-100, donde >70 ya es excelente) a una
+ * escala visual más optimista. La fórmula es monótona y conserva el orden,
+ * pero abre el rango alto: raw 50 → ~75, raw 70 → ~100.
+ */
+export function displayScore(raw: number): number {
+  const r = Math.max(0, Math.min(100, Number(raw) || 0));
+  const d = r * 1.3 + 10;
+  return Math.round(Math.max(0, Math.min(100, d)));
+}
+
 export function scoreTier(score: number): ScoreTier {
-  if (score >= 70) return "high";
-  if (score >= 40) return "mid";
+  // Tier se calcula sobre la escala visual para que coincida con el número que ve el usuario.
+  const d = displayScore(score);
+  if (d >= 75) return "high";
+  if (d >= 50) return "mid";
   return "low";
 }
 
@@ -40,9 +53,10 @@ export function ScoreGauge({
 }) {
   const clamped = Math.max(0, Math.min(100, score));
   const tier = scoreTier(clamped);
+  const displayed = displayScore(clamped);
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
-  const dash = (clamped / 100) * c;
+  const dash = (displayed / 100) * c;
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
@@ -67,7 +81,7 @@ export function ScoreGauge({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className={cn("font-mono text-2xl font-semibold tabular-nums", tierTextClass[tier])}>
-          {clamped.toFixed(0)}
+          {displayScore(clamped)}
         </span>
         {label && (
           <span className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
@@ -116,6 +130,7 @@ export function ScoreFactorBar({
 /** Compact mini gauge badge used in list cards */
 export function ScorePill({ score }: { score: number }) {
   const tier = scoreTier(score);
+  const d = displayScore(score);
   return (
     <div
       className={cn(
@@ -125,7 +140,7 @@ export function ScorePill({ score }: { score: number }) {
         tier === "low" && "border-red-500/40 bg-red-500/10 text-red-400",
       )}
     >
-      {Math.round(score)}
+      {d}
     </div>
   );
 }
