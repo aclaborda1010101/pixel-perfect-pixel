@@ -75,6 +75,8 @@ type Row = {
   confianza_media: number | null;
   has_analysis: boolean;
   ventanas_fachada_total?: number | null;
+  ventanas_patios_total?: number | null;
+  ventanas_total?: number | null;
   cluster_asignado?: string | null;
   segundas_escaleras?: boolean | null;
   plantas_levantables?: number | null;
