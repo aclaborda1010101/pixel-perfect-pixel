@@ -53,9 +53,10 @@ export function ScoreGauge({
 }) {
   const clamped = Math.max(0, Math.min(100, score));
   const tier = scoreTier(clamped);
+  const displayed = displayScore(clamped);
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
-  const dash = (clamped / 100) * c;
+  const dash = (displayed / 100) * c;
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
