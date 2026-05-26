@@ -87,7 +87,15 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
 }
 
 IMPORTANTE para "anotaciones": coordenadas RELATIVAS al PISO 01 (la 3ª imagen si está disponible), valores 0..1. bbox = [x, y, ancho, alto] esquina superior izquierda. Si no puedes anotar, devuelve [].
-Si una métrica no es deducible, usa null y baja confidence. Cuenta ventanas de fachada DIRECTAMENTE en Street View y evita fórmulas geométricas para patios. SIEMPRE incluye reasoning en español, no en inglés.`;
+Si una métrica no es deducible, usa null y baja confidence. SIEMPRE incluye reasoning en español, no en inglés.
+
+REGLA CRÍTICA — VENTANAS DE FACHADA (ventanas_fachada_total):
+- "Fachada" = ÚNICAMENTE la(s) fachada(s) EXTERIORES VISIBLES desde la calle en las fotos de Street View (la fachada principal, y la lateral SOLO si el edificio hace esquina y la lateral también da a vía pública).
+- NO incluyas la fachada trasera, ni medianeras, ni fachadas que dan a patios interiores, ni huecos visibles en satélite oblicua que no se vean desde Street View.
+- En edificios "exentos" (bloque aislado): cuenta SOLO el lado principal que se ve en Street View heading 0/180, no los 4 lados.
+- Cuenta ventanas DIRECTAMENTE sobre las fotos de Street View (ventanas reales por planta visible). Si ves 6 ventanas por planta y 4 plantas → 24, no multipliques por nº de fachadas del bloque.
+- ventanas_por_planta debe sumar exactamente ventanas_fachada_total y reflejar SOLO la fachada visible desde la calle.
+- Para patios usa la heurística catastral (no la fórmula geométrica de fachada).`;
 }
 
 function clampInt(value: unknown, min: number, max: number) {
