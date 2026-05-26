@@ -284,10 +284,93 @@ export default function ComercialEdificios() {
   const [advSinProteccion, setAdvSinProteccion] = useState(false);
   const [advSinReforma, setAdvSinReforma] = useState(false);
   const [advSinGestionPro, setAdvSinGestionPro] = useState(false);
+  const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["comercial:edificios:all", userId],
+  // --- Mi cartera: query ligera (~80 filas) que se carga siempre ---
+  const { data: miaData, isLoading: loadingMia } = useQuery({
+    queryKey: ["comercial:edificios:mia", userId],
     enabled: !!userId,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const [{ data: assignments }, { data: demoBldgs }] = await Promise.all([
+        (supabase.from("building_assignments" as any) as any)
+          .select("building_id")
+          .eq("user_id", userId)
+          .eq("status", "active"),
+        (supabase.from("buildings" as any) as any)
+          .select("id")
+          .eq("cartera_demo_seed", true),
+      ]);
+      const ids = Array.from(new Set<string>([
+        ...((assignments ?? []) as any[]).map((a: any) => a.building_id),
+        ...((demoBldgs ?? []) as any[]).map((b: any) => b.id),
+      ]));
+      if (ids.length === 0) return { rows: [] as Row[] };
+      const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
+        (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
+        (supabase.from("buildings" as any) as any)
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo")
+          .in("id", ids),
+        (supabase.from("building_analysis" as any) as any)
+          .select(
+            "building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
+          )
+          .in("building_id", ids),
+      ]);
+      const assignedIds = new Set<string>(((assignments ?? []) as any[]).map((a: any) => a.building_id));
+      const bldgsById = new Map<string, any>();
+      const demoIds = new Set<string>();
+      for (const b of (bldgsRes.data ?? []) as any[]) {
+        bldgsById.set(b.id, b);
+        if (b.cartera_demo_seed) demoIds.add(b.id);
+      }
+      const analysisMap = new Map<string, any>();
+      for (const a of (analysisRes.data ?? []) as any[]) analysisMap.set(a.building_id, a);
+      const rows: Row[] = ((scoresRes.data ?? []) as any[]).map((b: any) => {
+        const m2 = b.m2_total != null ? Number(b.m2_total) : null;
+        const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
+        const extra = bldgsById.get(b.id) ?? {};
+        const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
+        const an = analysisMap.get(b.id) ?? {};
+        return {
+          id: b.id,
+          direccion: b.direccion,
+          ciudad: b.ciudad,
+          barrio: b.barrio ?? null,
+          distrito: b.distrito ?? null,
+          score: Number(b.score ?? 0),
+          num_viviendas: viv,
+          m2_total: m2,
+          owners_count: b.owners_count,
+          division_horizontal: !!b.division_horizontal,
+          ratio: m2 && viv ? m2 / viv : null,
+          raw: b,
+          assigned: assignedIds.has(b.id),
+          cartera_demo: demoIds.has(b.id),
+          avisos,
+          score_summary: extra.score_summary ?? null,
+          confianza_media: extra.confianza_media ?? null,
+          has_analysis: !!b.has_ai_analysis,
+          ventanas_fachada_total: an.ventanas_fachada_total ?? null,
+          cluster_asignado: extra.cluster_asignado ?? null,
+          segundas_escaleras: an.segundas_escaleras ?? null,
+          plantas_levantables: an.plantas_levantables ?? null,
+          tiene_azotea_transitable: an.tiene_azotea_transitable ?? null,
+          esquina: an.esquina ?? null,
+          protegido_historicamente: an.protegido_historicamente ?? null,
+          edificio_reformado: an.edificio_reformado ?? null,
+          gestion_profesional: an.gestion_profesional ?? null,
+        };
+      });
+      return { rows };
+    },
+  });
+
+  // --- Catálogo completo: lazy, sólo al activar tab "todos" ---
+  const { data: todosData, isLoading: loadingTodos } = useQuery({
+    queryKey: ["comercial:edificios:todos", userId],
+    enabled: !!userId && tab === "todos",
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       // Fetch all scored buildings paginated (Supabase caps each request at 1000 rows).
       const PAGE = 1000;
@@ -339,19 +422,17 @@ export default function ComercialEdificios() {
         if (b.cartera_demo_seed) demoIds.add(b.id);
       }
 
-      // Análisis IA: ventanas por edificio
+      // Análisis IA: sólo para los edificios de la cartera (asignados + demo).
+      // El catálogo completo no necesita esta info en la tarjeta y bajaba la página.
       const analysisMap = new Map<string, any>();
-      let aFrom = 0;
-      while (true) {
+      const interestingIds = Array.from(new Set<string>([...assignedIds, ...demoIds]));
+      if (interestingIds.length > 0) {
         const { data: aPage } = await (supabase.from("building_analysis" as any) as any)
-          .select("building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional")
-          .range(aFrom, aFrom + PAGE - 1);
-        const chunk = aPage ?? [];
-        for (const row of chunk) {
-          analysisMap.set(row.building_id, row);
-        }
-        if (chunk.length < PAGE) break;
-        aFrom += PAGE;
+          .select(
+            "building_id, ventanas_fachada_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
+          )
+          .in("building_id", interestingIds);
+        for (const row of (aPage ?? []) as any[]) analysisMap.set(row.building_id, row);
       }
 
       const rows: Row[] = (scores ?? []).map((b: any) => {
@@ -394,7 +475,10 @@ export default function ComercialEdificios() {
     },
   });
 
-  const rows = data?.rows ?? [];
+  const miasRows: Row[] = miaData?.rows ?? [];
+  const todosRows: Row[] = todosData?.rows ?? [];
+  const rows: Row[] = tab === "todos" && todosRows.length > 0 ? todosRows : miasRows;
+  const isLoading = loadingMia || (tab === "todos" && loadingTodos);
   const [batchBusy, setBatchBusy] = useState(false);
 
   const launchBatch = async (onlyMissing: boolean) => {
