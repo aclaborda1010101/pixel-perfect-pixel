@@ -376,6 +376,23 @@ export default function ComercialEdificios() {
     }
   };
 
+  const launchClusterRecompute = async () => {
+    setBatchBusy(true);
+    try {
+      toast.info("Recalculando scoring por clusters de los 74 edificios… esto tardará 2-5 min.");
+      const { data, error } = await supabase.functions.invoke("recompute-cluster-scoring", {
+        body: { only_seed: true },
+      });
+      if (error) throw error;
+      const d = data as any;
+      toast.success(`Listo: ${d?.processed ?? 0} edificios recalculados. Refresca la página.`);
+    } catch (e: any) {
+      toast.error("Error al recalcular: " + (e?.message ?? String(e)));
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
   // "Mi cartera" = asignados al user actual OR cartera_demo_seed=true
   const mias = useMemo(
     () => rows.filter((r) => r.assigned || r.cartera_demo),
@@ -484,6 +501,15 @@ export default function ComercialEdificios() {
         subtitle={`${mias.length} en tu cartera · ${rows.length} edificios totales`}
         actions={
           <div className="flex gap-2">
+          <Button
+            onClick={launchClusterRecompute}
+            disabled={batchBusy}
+            variant="default"
+            size="sm"
+          >
+            {batchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            Recalcular clusters (74)
+          </Button>
           <Button
             onClick={() => launchBatch(true)}
             disabled={batchBusy || !userId}
