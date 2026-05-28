@@ -16,7 +16,19 @@ Deno.serve(async (req) => {
 
     const steps: Array<{ name: string; res?: any; error?: string }> = [];
 
-    // 1. Catastro
+    // 0. Catastro Authority Layer — capa única y determinista ANTES de cualquier visual.
+    //    No bloquea si falla: el resto del pipeline puede seguir con sus fuentes.
+    try {
+      const r = await fetch(`${base}/catastro-authority-layer`, {
+        method: "POST", headers: auth, body: JSON.stringify({ building_id, force }),
+      });
+      const j = await r.json();
+      steps.push({ name: "authority", res: j });
+    } catch (e) {
+      steps.push({ name: "authority", error: String((e as Error).message ?? e) });
+    }
+
+    // 1. Catastro (descarga SVG/PDF/imágenes — separado de la authority layer)
     try {
       const r = await fetch(`${base}/fetch-catastro-data`, {
         method: "POST", headers: auth, body: JSON.stringify({ building_id, force }),

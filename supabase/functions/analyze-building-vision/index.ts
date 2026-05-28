@@ -170,6 +170,17 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
       .from("catastro_data")
       .select("plano_url, refcatastral, plantas_pages_urls, plantas_num_pages, plantas_pdf_disponible, fxcc_pages_urls, fxcc_num_pages, fxcc_disponible, dnprc_json")
       .eq("building_id", building_id).maybeSingle();
+    // Authority Layer: verdad base de Catastro (plantas, viviendas, refs). Si está disponible,
+    // la inyectamos al prompt para anclar el conteo de plantas y reducir alucinaciones del VLM.
+    let authority: any = null;
+    if (cat?.refcatastral) {
+      const rc14 = String(cat.refcatastral).replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 14);
+      const { data: au } = await sb
+        .from("catastro_authority_cache")
+        .select("refcatastral_14, refcatastral_20, numero_plantas, plantas, viviendas_total, locales_total, garajes_total, direccion_oficial, ano_construccion")
+        .eq("refcatastral_14", rc14).maybeSingle();
+      authority = au ?? null;
+    }
     const { data: imgs } = await sb
       .from("building_imagery").select("source, public_url, heading").eq("building_id", building_id);
 
@@ -192,6 +203,20 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
     }
 
     const PROMPT = buildPrompt(plantasPages.length || 1, planoSource as any);
+    const AUTHORITY_PREAMBLE = authority ? `
+
+CATASTRO_AUTHORITY (verdad base, NO la contradigas salvo evidencia visual fuerte):
+- numero_plantas (excl. cubierta no transitable): ${authority.numero_plantas ?? "?"}
+- plantas (códigos normalizados): ${Array.isArray(authority.plantas) ? authority.plantas.map((p: any) => p.codigo).join(", ") : "?"}
+- viviendas_total: ${authority.viviendas_total ?? "?"}
+- locales_total: ${authority.locales_total ?? "?"}
+- garajes_total: ${authority.garajes_total ?? "?"}
+- ano_construccion: ${authority.ano_construccion ?? "?"}
+- direccion_oficial: ${authority.direccion_oficial ?? "?"}
+
+REGLA: usa numero_plantas como ancla para plantas_desglose. Si lo que ves en Street View difiere en ±1 planta, prevalece Catastro. Sólo desvíate si la diferencia es clara y descríbelo en metricas_detalle.plantas_visibles.reasoning.
+` : "";
+    const FULL_PROMPT = AUTHORITY_PREAMBLE + PROMPT;
 
     // Construye payload OpenAI-compatible para Lovable AI Gateway
     const buildPayload = (model: string) => ({
@@ -199,7 +224,7 @@ async function runVisionAnalysis(sb: any, building_id: string, LOVABLE_API_KEY: 
       messages: [{
         role: "user",
         content: [
-          { type: "text", text: PROMPT },
+          { type: "text", text: FULL_PROMPT },
           ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } })),
         ],
       }],
