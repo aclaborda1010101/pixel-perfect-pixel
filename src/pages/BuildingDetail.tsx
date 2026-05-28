@@ -78,7 +78,7 @@ export default function BuildingDetail() {
 
     const [{ data: bo }, { data: bc }, { data: ns }, { data: na }] = await Promise.all([
       supabase.from("building_owners")
-        .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona)")
+        .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona, metadatos)")
         .eq("building_id", id),
       supabase.from("building_companies")
         .select("id, role, percentage, fecha_inicio, fecha_fin, source, company:company_id(id, nombre, cif, email, telefono)")
@@ -190,7 +190,18 @@ export default function BuildingDetail() {
   if (loading || !building) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
   const existingOwnerIds = bos.map((r) => r.owner_id);
-  const totalCuota = bos.reduce((a, r) => a + (Number(r.cuota) || 0), 0);
+  // Porcentaje efectivo: cuota propia del edificio si existe, si no el porcentaje_de_participacion de HubSpot
+  const pctOf = (r: any): number | null => {
+    if (r.cuota != null && r.cuota !== "") {
+      const n = Number(r.cuota);
+      if (isFinite(n)) return n;
+    }
+    const raw = r.owners?.metadatos?.porcentaje_de_participacion;
+    if (raw == null) return null;
+    const n = Number(String(raw).replace(",", ".").replace(/[^\d.]/g, ""));
+    return isFinite(n) && n > 0 ? n : null;
+  };
+  const totalCuota = bos.reduce((a, r) => a + (pctOf(r) ?? 0), 0);
   const personas = bos;
   const empresas = bcs;
 
@@ -387,7 +398,16 @@ export default function BuildingDetail() {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>}
+                      {(() => {
+                        const pct = pctOf(r);
+                        if (pct == null) return null;
+                        const fromHs = r.cuota == null || r.cuota === "";
+                        return (
+                          <Badge variant="gold" title={fromHs ? "Porcentaje de participación (HubSpot)" : "Cuota del edificio"}>
+                            {Number(pct.toFixed(2))}%
+                          </Badge>
+                        );
+                      })()}
                       <Badge variant="outline">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
                       {r.owners?.rol && <Badge variant="info">{r.owners.rol}</Badge>}
                       <Button size="icon" variant="ghost" onClick={() => removeOwner(r.owner_id)}><X className="h-3 w-3" /></Button>
@@ -592,7 +612,7 @@ export default function BuildingDetail() {
               id: p.owner_id ?? p.id,
               kind: "owner" as const,
               label: p.owner?.nombre ?? p.nombre ?? "Propietario",
-              sublabel: [p.subrole && p.subrole !== "ninguno" ? (SUBROLE_LABEL[p.subrole] ?? p.subrole) : null, p.cuota ? `${p.cuota}%` : null].filter(Boolean).join(" · "),
+              sublabel: [p.subrole && p.subrole !== "ninguno" ? (SUBROLE_LABEL[p.subrole] ?? p.subrole) : null, (() => { const x = pctOf(p); return x != null ? `${Number(x.toFixed(2))}%` : null; })()].filter(Boolean).join(" · "),
               href: `/propietarios/${p.owner_id ?? p.id}`,
               badge: p.es_influencer ? "influencer" : undefined,
             }))}
