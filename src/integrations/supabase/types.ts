@@ -1341,6 +1341,82 @@ export type Database = {
         }
         Relationships: []
       }
+      facade_window_counts: {
+        Row: {
+          building_id: string
+          confidence: string
+          created_at: string
+          ejes_verticales: number
+          fachada_principal: Json
+          fachada_secundaria: Json | null
+          final_count: number
+          flags: string[]
+          id: string
+          longitud_fachada_m: number | null
+          longitud_fachada_source: string | null
+          refcatastral_14: string
+          street_view_panoramas: Json
+          vlm_parsed: Json | null
+          vlm_raw_response: string
+        }
+        Insert: {
+          building_id: string
+          confidence: string
+          created_at?: string
+          ejes_verticales: number
+          fachada_principal: Json
+          fachada_secundaria?: Json | null
+          final_count: number
+          flags?: string[]
+          id?: string
+          longitud_fachada_m?: number | null
+          longitud_fachada_source?: string | null
+          refcatastral_14: string
+          street_view_panoramas?: Json
+          vlm_parsed?: Json | null
+          vlm_raw_response: string
+        }
+        Update: {
+          building_id?: string
+          confidence?: string
+          created_at?: string
+          ejes_verticales?: number
+          fachada_principal?: Json
+          fachada_secundaria?: Json | null
+          final_count?: number
+          flags?: string[]
+          id?: string
+          longitud_fachada_m?: number | null
+          longitud_fachada_source?: string | null
+          refcatastral_14?: string
+          street_view_panoramas?: Json
+          vlm_parsed?: Json | null
+          vlm_raw_response?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facade_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facade_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "facade_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hubspot_calls: {
         Row: {
           associated_contact_ids: string[] | null
