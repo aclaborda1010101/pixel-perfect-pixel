@@ -448,18 +448,21 @@ function parseDnprcXml(xml: string) {
   const superficie_construida = pickNum(debi, "sfc");
   const coef_participacion = pickNum(debi, "cpt");
 
-  // Subparcelas / locales: <lcons> con <lcd> cada uno
+  // Subparcelas / locales: <lcons> contiene varios <cons>
+  // Cada <cons> tiene <lcd> (uso), <dt><lourb><loint> con <es>/<pt>/<pu>,
+  // y <dfcons><stl> con la superficie m².
   const subparcelas: any[] = [];
   const lconsBlock = /<lcons[^>]*>[\s\S]*?<\/lcons>/i.exec(xml)?.[0] ?? "";
-  const lcdMatches = lconsBlock.matchAll(/<lcd[^>]*>[\s\S]*?<\/lcd>/gi);
-  for (const m of lcdMatches) {
+  const consMatches = lconsBlock.matchAll(/<cons[^>]*>[\s\S]*?<\/cons>/gi);
+  for (const m of consMatches) {
     const b = m[0];
+    const usoTxt = pick(b, "lcd");
     subparcelas.push({
-      uso: usoFromCode(pick(b, "lcd")) || pick(b, "dt"),
-      planta: pick(b, "pt") || pick(b, "lcd"),
+      uso: usoTxt,
+      planta: pick(b, "pt"),
       puerta: pick(b, "pu"),
       escalera: pick(b, "es"),
-      superficie_m2: pickNum(b, "dfcc") ?? pickNum(b, "sfc"),
+      superficie_m2: pickNum(b, "stl") ?? pickNum(b, "dfcc") ?? pickNum(b, "sfc"),
     });
   }
 
