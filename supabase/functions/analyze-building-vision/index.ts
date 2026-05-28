@@ -90,12 +90,23 @@ IMPORTANTE para "anotaciones": coordenadas RELATIVAS al PISO 01 (la 3ª imagen s
 Si una métrica no es deducible, usa null y baja confidence. SIEMPRE incluye reasoning en español, no en inglés.
 
 REGLA CRÍTICA — VENTANAS DE FACHADA (ventanas_fachada_total):
-- "Fachada" = ÚNICAMENTE la(s) fachada(s) EXTERIORES VISIBLES desde la calle en las fotos de Street View (la fachada principal, y la lateral SOLO si el edificio hace esquina y la lateral también da a vía pública).
-- NO incluyas la fachada trasera, ni medianeras, ni fachadas que dan a patios interiores, ni huecos visibles en satélite oblicua que no se vean desde Street View.
-- En edificios "exentos" (bloque aislado): cuenta SOLO el lado principal que se ve en Street View heading 0/180, no los 4 lados.
-- Cuenta ventanas DIRECTAMENTE sobre las fotos de Street View (ventanas reales por planta visible). Si ves 6 ventanas por planta y 4 plantas → 24, no multipliques por nº de fachadas del bloque.
-- ventanas_por_planta debe sumar exactamente ventanas_fachada_total y reflejar SOLO la fachada visible desde la calle.
-- Para patios usa la heurística catastral (no la fórmula geométrica de fachada).`;
+- "Fachada" = TODAS las fachadas EXTERIORES a vía pública. La fachada principal SIEMPRE; las laterales SOLO si el edificio hace esquina y dan también a calle. CRUZA con el plano del PISO 01 y la vista satélite cenital: si en planta la huella tiene dos lados que limitan con calle (en vez de medianera), el edificio es de DOS FACHADAS y debes contar ambas.
+- NO incluyas fachada trasera, medianeras ni fachadas que dan a patios interiores.
+- METODOLOGÍA OBLIGATORIA para contar ventanas:
+    1) Identifica el número de PLANTAS VISIBLES en Street View (incluyendo planta baja, sin contar áticos retranqueados aparte). Cuenta huecos horizontales reales en la fachada — cada nivel de balcones/ventanas = 1 planta.
+    2) Identifica el número de "EJES VERTICALES" de huecos (columnas de ventanas/balcones alineadas verticalmente). En arquitectura madrileña casi TODAS las plantas tienen el MISMO número de ejes — solo la planta baja suele cambiar (portal + locales). Por tanto: ventanas_por_planta_tipo = nº de ejes verticales detectados.
+    3) ventanas_fachada_total ≈ (nº ejes × nº plantas tipo) + ventanas planta baja. Si planta baja es solo portal+local sin ventanas residenciales, no la sumes.
+    4) ÁRBOLES, FAROLAS, COCHES, TOLDOS pueden tapar ventanas en algunas plantas. NUNCA reduzcas el conteo por culpa de oclusión: aplica simetría — si las plantas 2-7 tienen 6 ejes claramente visibles, la planta 1 tapada por el árbol también tiene 6.
+    5) Si el edificio hace esquina y se ven 2 fachadas, suma los ejes de AMBAS por nº de plantas.
+- ventanas_por_planta debe reflejar este conteo por planta (clave "1" = planta baja, "2" = primera, etc.) y sumar ventanas_fachada_total.
+- Para patios usa la heurística catastral (no la fórmula geométrica de fachada).
+
+REGLA CRÍTICA — PLANTAS_VISIBLES:
+- Cuenta TODOS los forjados habitables visibles desde Street View, INCLUYENDO la planta baja. Si ves PB + 6 plantas residenciales → plantas_visibles = 7. Si hay ático retranqueado claramente diferenciado, súmalo también.
+- Cruza con el plano catastral: si el plano lista PB, PISO 01..PISO 06, son 7. No restes ni sumes "por convención".
+
+REGLA CRÍTICA — ANÁLISIS DE PATIOS Y ESCALERAS:
+- SIEMPRE sobre el plano del PISO 01 (primera planta tipo). Está disponible en TODOS los edificios (es parte de la consulta descriptiva del Catastro). Si no lo identificas claramente entre las páginas, usa la página de plantas que más viviendas (VA, VB...) tenga — esa es el piso tipo.`;
 }
 
 function clampInt(value: unknown, min: number, max: number) {
