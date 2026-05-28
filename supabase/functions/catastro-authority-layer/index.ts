@@ -52,6 +52,15 @@ function num(v: string | null | undefined): number | null {
   const n = Number(String(v).replace(/\./g, "").replace(",", "."));
   return isFinite(n) ? n : null;
 }
+// Coordenadas y otros decimales "limpios" (Catastro CPMRC ya usa punto decimal).
+function numFloat(v: string | null | undefined): number | null {
+  if (!v) return null;
+  const s = String(v).trim();
+  // Si tiene coma decimal y NO tiene punto, sustituye coma por punto.
+  const cleaned = (s.includes(",") && !s.includes(".")) ? s.replace(",", ".") : s;
+  const n = Number(cleaned);
+  return isFinite(n) ? n : null;
+}
 
 // Normaliza códigos de planta de Catastro (campo <pt>) a un código canónico.
 function normalizePlantaCodigo(raw: string): { codigo: string; computa_alturas: boolean } {
@@ -136,8 +145,8 @@ async function fetchCPMRC(rc14: string): Promise<{ lat: number; lon: number } | 
       { headers: { "User-Agent": UA } },
     );
     const xml = await r.text();
-    const xcen = num(pick(xml, "xcen"));
-    const ycen = num(pick(xml, "ycen"));
+    const xcen = numFloat(pick(xml, "xcen"));
+    const ycen = numFloat(pick(xml, "ycen"));
     if (xcen && ycen) return { lat: ycen, lon: xcen };
   } catch (_e) { /* ignore */ }
   return null;
@@ -307,22 +316,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3) Llamada principal a DNPRC con rc14
-    let xml = await fetchDnprcByRC(rc14);
+    // 3) Llamada principal a DNPRC con rc14 (devuelve TODOS los bienes inmuebles del edificio,
+    //    de donde podemos agregar lcons para reconstruir TODAS las plantas).
+    const xml = await fetchDnprcByRC(rc14);
     if (!xml || !xml.trim().startsWith("<")) {
       errors.push("dnprc_html_no_xml");
     }
-
-    let rc20 = expand14to20FromXml(xml);
-    if (rc20) {
-      // Volver a pedir DNPRC con el refcatastral de bien inmueble: trae más detalle de plantas.
-      try {
-        const xml20 = await fetchDnprcByRC(rc20);
-        if (xml20 && xml20.includes("<lcons")) xml = xml20;
-      } catch (_e) { /* keep rc14 xml */ }
-    } else {
-      flags.push("no_rc20_expansion");
-    }
+    const rc20 = expand14to20FromXml(xml);
+    if (!rc20) flags.push("no_rc20_expansion");
 
     const { plantas, usos: usosRaw } = parsePlantasFromDnprc(xml);
     const numero_plantas = plantas.filter((p) => p.computa_alturas).length || null;
