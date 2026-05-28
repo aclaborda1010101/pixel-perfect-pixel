@@ -190,7 +190,18 @@ export default function BuildingDetail() {
   if (loading || !building) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
   const existingOwnerIds = bos.map((r) => r.owner_id);
-  const totalCuota = bos.reduce((a, r) => a + (Number(r.cuota) || 0), 0);
+  // Porcentaje efectivo: cuota propia del edificio si existe, si no el porcentaje_de_participacion de HubSpot
+  const pctOf = (r: any): number | null => {
+    if (r.cuota != null && r.cuota !== "") {
+      const n = Number(r.cuota);
+      if (isFinite(n)) return n;
+    }
+    const raw = r.owners?.metadatos?.porcentaje_de_participacion;
+    if (raw == null) return null;
+    const n = Number(String(raw).replace(",", ".").replace(/[^\d.]/g, ""));
+    return isFinite(n) && n > 0 ? n : null;
+  };
+  const totalCuota = bos.reduce((a, r) => a + (pctOf(r) ?? 0), 0);
   const personas = bos;
   const empresas = bcs;
 
