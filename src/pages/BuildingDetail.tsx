@@ -78,7 +78,7 @@ export default function BuildingDetail() {
 
     const [{ data: bo }, { data: bc }, { data: ns }, { data: na }] = await Promise.all([
       supabase.from("building_owners")
-        .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona)")
+        .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona, metadatos)")
         .eq("building_id", id),
       supabase.from("building_companies")
         .select("id, role, percentage, fecha_inicio, fecha_fin, source, company:company_id(id, nombre, cif, email, telefono)")
