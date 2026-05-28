@@ -379,17 +379,10 @@ Deno.serve(async (req) => {
     const captures: { lat: number; lng: number; heading: number; storage_path: string; b64?: string }[] = [];
     const insideBearing = (heading_fachada! + 180) % 360; // desde fachada hacia la calle (alejarse 8m)
     const tangent = (heading_fachada! + 90) % 360;
-    const points = [
-      offsetAlongBearing(centroidLat, centroidLon, 8, insideBearing), // central, alejado 8m hacia calle
-      offsetAlongBearing(
-        ...Object.values(offsetAlongBearing(centroidLat, centroidLon, 8, insideBearing)) as [number, number],
-        6, tangent,
-      ),
-      offsetAlongBearing(
-        ...Object.values(offsetAlongBearing(centroidLat, centroidLon, 8, insideBearing)) as [number, number],
-        6, (tangent + 180) % 360,
-      ),
-    ];
+    const center = offsetAlongBearing(centroidLat, centroidLon, 8, insideBearing);
+    const left = offsetAlongBearing(center.lat, center.lon, 6, tangent);
+    const right = offsetAlongBearing(center.lat, center.lon, 6, (tangent + 180) % 360);
+    const points = [center, left, right];
 
     for (let i = 0; i < 3; i++) {
       const { lat, lon } = points[i];
