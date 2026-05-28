@@ -35,6 +35,24 @@ Deno.serve(async (req) => {
     }
 
     const center = `${cat.lat},${cat.lon}`;
+
+    // Para Street View usamos la dirección textual cuando esté disponible:
+    // el centroide catastral suele caer en el patio interior de la parcela y
+    // Google "salta" al panorama más cercano (callejón, calle paralela, etc.).
+    // Pasando la dirección, Google geocodifica y engancha el panorama de la
+    // calle correcta frente a la fachada.
+    const { data: bldg } = await sb
+      .from("buildings")
+      .select("direccion, ciudad, codigo_postal")
+      .eq("id", building_id)
+      .maybeSingle();
+    const addressParts = [bldg?.direccion, bldg?.codigo_postal, bldg?.ciudad, "España"]
+      .filter(Boolean)
+      .join(", ");
+    const streetviewLocation = addressParts
+      ? encodeURIComponent(addressParts)
+      : center;
+
     const imagenes: any[] = [];
     const skipped: string[] = [];
 
@@ -47,7 +65,7 @@ Deno.serve(async (req) => {
       { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_225.png", heading: 225, pitch: null, zoom: 19 },
       ...[0, 90, 180, 270].map((h) => ({
         source: "streetview",
-        url: `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${center}&fov=80&heading=${h}&pitch=10&key=${API_KEY}`,
+        url: `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${streetviewLocation}&fov=80&heading=${h}&pitch=10&source=outdoor&key=${API_KEY}`,
         name: `streetview_${h}.png`,
         heading: h, pitch: 10, zoom: null as number | null,
       })),
