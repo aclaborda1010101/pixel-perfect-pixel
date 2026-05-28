@@ -2682,6 +2682,79 @@ export type Database = {
         }
         Relationships: []
       }
+      patio_window_counts: {
+        Row: {
+          building_id: string
+          confianza: string
+          created_at: string
+          densidad_patio_m: number | null
+          estimacion_rango: Json
+          estimacion_total: number
+          flags: string[]
+          id: string
+          metodo: string
+          notas: string | null
+          numero_viviendas: number | null
+          patios_detectados: Json
+          plantas_residenciales: number | null
+          refcatastral_14: string
+        }
+        Insert: {
+          building_id: string
+          confianza: string
+          created_at?: string
+          densidad_patio_m?: number | null
+          estimacion_rango: Json
+          estimacion_total: number
+          flags?: string[]
+          id?: string
+          metodo: string
+          notas?: string | null
+          numero_viviendas?: number | null
+          patios_detectados: Json
+          plantas_residenciales?: number | null
+          refcatastral_14: string
+        }
+        Update: {
+          building_id?: string
+          confianza?: string
+          created_at?: string
+          densidad_patio_m?: number | null
+          estimacion_rango?: Json
+          estimacion_total?: number
+          flags?: string[]
+          id?: string
+          metodo?: string
+          notas?: string | null
+          numero_viviendas?: number | null
+          patios_detectados?: Json
+          plantas_residenciales?: number | null
+          refcatastral_14?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "patio_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "patio_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "patio_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
