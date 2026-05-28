@@ -155,7 +155,12 @@ Deno.serve(async (req) => {
     for (const s of shots) {
       const r = await fetch(s.url);
       const buf = new Uint8Array(await r.arrayBuffer());
-      if (buf.byteLength < 5000) { skipped.push(s.name); continue; }
+      if (buf.byteLength < 5000) {
+        const sniff = new TextDecoder().decode(buf).slice(0, 200);
+        console.warn(`[imagery] skip ${s.name} status=${r.status} bytes=${buf.byteLength} body="${sniff}"`);
+        skipped.push(s.name);
+        continue;
+      }
       const path = `${building_id}/${s.name}`;
       await sb.storage.from("building_imagery").upload(path, buf, {
         contentType: "image/png", upsert: true,
