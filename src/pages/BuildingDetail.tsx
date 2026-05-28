@@ -398,7 +398,16 @@ export default function BuildingDetail() {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>}
+                      {(() => {
+                        const pct = pctOf(r);
+                        if (pct == null) return null;
+                        const fromHs = r.cuota == null || r.cuota === "";
+                        return (
+                          <Badge variant="gold" title={fromHs ? "Porcentaje de participación (HubSpot)" : "Cuota del edificio"}>
+                            {Number(pct.toFixed(2))}%
+                          </Badge>
+                        );
+                      })()}
                       <Badge variant="outline">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
                       {r.owners?.rol && <Badge variant="info">{r.owners.rol}</Badge>}
                       <Button size="icon" variant="ghost" onClick={() => removeOwner(r.owner_id)}><X className="h-3 w-3" /></Button>
