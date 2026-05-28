@@ -68,10 +68,10 @@ function normalizePlantaCodigo(raw: string): { codigo: string; computa_alturas: 
   if (!r) return { codigo: "??", computa_alturas: false };
   // Sótanos: -1, -2, S1, SS, SO
   if (/^-\d+$/.test(r)) return { codigo: r, computa_alturas: false };
-  if (/^S\d*$/.test(r) || r === "SS" || r === "SO" || r === "SM") {
+  if (/^S\d*$/.test(r) || r === "SS" || r === "SO" || r === "SM" || r === "SE") {
     return { codigo: r, computa_alturas: false };
   }
-  if (r === "BJ" || r === "PB" || r === "B") return { codigo: "BJ", computa_alturas: true };
+  if (r === "BJ" || r === "PB" || r === "B" || r === "00") return { codigo: "BJ", computa_alturas: true };
   if (r === "EN" || r === "ENT" || r === "EP") return { codigo: "EN", computa_alturas: true };
   if (r === "BC" || r === "BAJ-C") return { codigo: "BC", computa_alturas: true };
   if (r === "TZ" || r === "TZA" || r === "AZ" || r === "AZOT") return { codigo: "TZA", computa_alturas: false };
@@ -80,22 +80,23 @@ function normalizePlantaCodigo(raw: string): { codigo: string; computa_alturas: 
   const m = /^P?0*(\d{1,2})$/.exec(r);
   if (m) {
     const n = Number(m[1]);
+    if (n === 0) return { codigo: "BJ", computa_alturas: true };
     return { codigo: String(n).padStart(2, "0"), computa_alturas: true };
   }
   return { codigo: r, computa_alturas: false };
 }
 
-// Lee bloques <lcons> que describen cada elemento constructivo (planta + uso + superficie).
+// Lee bloques <cons> dentro de <lcons>: cada <cons> describe un elemento constructivo
+// (vivienda, local, trastero, garaje) ubicado en una planta concreta via <loint><pt>.
+// La clase de uso viene en <lcd> (texto): VIVIENDA / LOCAL / ALMACEN / GARAJE / TRASTERO / OFICINA.
 function parsePlantasFromDnprc(xml: string): { plantas: Planta[]; usos: Record<string, number> } {
-  // <cons><lcons><pt>NN</pt><po>...</po><pnp>...</pnp></lcons></cons>
-  // <dvi>... uso por subparcela (V/A/C/G/etc) ...</dvi> dentro de cada lcons
-  const lcons = pickAll(xml, "lcons");
   const plantaMap = new Map<string, Planta>();
   const usos: Record<string, number> = {};
-  for (const block of lcons) {
+  const consBlocks = pickAll(xml, "cons");
+  for (const block of consBlocks) {
     const pt = pick(block, "pt") || "";
-    const usoCode = (pick(block, "luso") || "").toUpperCase();
-    if (usoCode) usos[usoCode] = (usos[usoCode] ?? 0) + 1;
+    const lcd = (pick(block, "lcd") || "").toUpperCase().trim();
+    if (lcd) usos[lcd] = (usos[lcd] ?? 0) + 1;
     if (!pt) continue;
     const { codigo, computa_alturas } = normalizePlantaCodigo(pt);
     if (!plantaMap.has(codigo)) {
@@ -117,20 +118,14 @@ function parsePlantasFromDnprc(xml: string): { plantas: Planta[]; usos: Record<s
   return { plantas, usos };
 }
 
-function countSubparcelasUso(xml: string, codes: string[]): number {
-  // Cuenta apariciones de <luso>X</luso> donde X ∈ codes
-  const all = [...xml.matchAll(/<luso>([^<]+)<\/luso>/gi)].map((m) => m[1].toUpperCase());
-  return all.filter((u) => codes.includes(u)).length;
+function countUsoByLcd(usos: Record<string, number>, matchers: RegExp[]): number {
+  let total = 0;
+  for (const [k, v] of Object.entries(usos)) {
+    if (matchers.some((re) => re.test(k))) total += v;
+  }
+  return total;
 }
 
-function usoNombre(code: string): string {
-  const map: Record<string, string> = {
-    V: "Vivienda", R: "Residencial", C: "Comercial", O: "Oficinas", A: "Almacén",
-    P: "Aparcamiento", G: "Garaje", I: "Industrial", T: "Espectáculos",
-    Y: "Sanidad/Beneficencia", E: "Cultural", H: "Hostelería",
-  };
-  return map[code] ?? code;
-}
 
 async function fetchDnprcByRC(rc: string): Promise<string> {
   const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/Consulta_DNPRC?Provincia=&Municipio=&RC=${encodeURIComponent(rc)}`;
@@ -145,8 +140,10 @@ async function fetchCPMRC(rc14: string): Promise<{ lat: number; lon: number } | 
       { headers: { "User-Agent": UA } },
     );
     const xml = await r.text();
+    console.log("[authority] CPMRC raw (first 600):", xml.slice(0, 600));
     const xcen = numFloat(pick(xml, "xcen"));
     const ycen = numFloat(pick(xml, "ycen"));
+    console.log("[authority] CPMRC parsed xcen=", xcen, "ycen=", ycen);
     if (xcen && ycen) return { lat: ycen, lon: xcen };
   } catch (_e) { /* ignore */ }
   return null;
@@ -327,12 +324,12 @@ Deno.serve(async (req) => {
 
     const { plantas, usos: usosRaw } = parsePlantasFromDnprc(xml);
     const numero_plantas = plantas.filter((p) => p.computa_alturas).length || null;
-    const viviendas_total = countSubparcelasUso(xml, ["V"]) || null;
-    const locales_total = countSubparcelasUso(xml, ["C", "O", "H"]) || null;
-    const garajes_total = countSubparcelasUso(xml, ["G", "P"]) || null;
+    const viviendas_total = countUsoByLcd(usosRaw, [/VIVIENDA/]) || null;
+    const locales_total = countUsoByLcd(usosRaw, [/LOCAL/, /OFICINA/, /COMERCIO/, /HOSTELER/]) || null;
+    const garajes_total = countUsoByLcd(usosRaw, [/GARAJE/, /APARCAMIENTO/, /PARKING/]) || null;
     const ano = num(pick(xml, "ant"));
     const ano_construccion = ano && ano > 1700 && ano < 2100 ? Math.round(ano) : null;
-    const superficie = num(pick(xml, "sfc"));
+    const superficie = numFloat(pick(xml, "sfc"));
 
     const direccion_oficial = direccionOficialFromXml(xml);
     let lat: number | null = null, lon: number | null = null;
@@ -344,7 +341,7 @@ Deno.serve(async (req) => {
     if (!viviendas_total) flags.push("no_viviendas_in_dnprc");
 
     const usos: Authority["usos"] = Object.entries(usosRaw)
-      .map(([code, count]) => ({ code, nombre: usoNombre(code), count }))
+      .map(([code, count]) => ({ code, nombre: code, count }))
       .sort((a, b) => b.count - a.count);
 
     const confidence = {
