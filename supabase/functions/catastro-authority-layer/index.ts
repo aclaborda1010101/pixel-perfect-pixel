@@ -45,7 +45,8 @@ function pick(xml: string, tag: string): string | null {
   return m?.[1]?.trim() || null;
 }
 function pickAll(xml: string, tag: string): string[] {
-  return [...xml.matchAll(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "gi"))].map((m) => m[1]);
+  // Garantiza tag exacto: o cierra inmediatamente con '>' o tiene espacio + atributos.
+  return [...xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "gi"))].map((m) => m[1]);
 }
 function num(v: string | null | undefined): number | null {
   if (!v) return null;
