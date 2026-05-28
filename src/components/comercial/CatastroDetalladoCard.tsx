@@ -96,7 +96,6 @@ export function CatastroDetalladoCard({ buildingId, refCatastral }: { buildingId
                           <th className="px-3 py-2 text-left">#</th>
                           <th className="px-3 py-2 text-left">Uso</th>
                           <th className="px-3 py-2 text-left">Planta</th>
-                          <th className="px-3 py-2 text-left">Esc/Puerta</th>
                           <th className="px-3 py-2 text-right">Superficie</th>
                         </tr>
                       </thead>
@@ -113,9 +112,6 @@ export function CatastroDetalladoCard({ buildingId, refCatastral }: { buildingId
                                 </span>
                               </td>
                               <td className="px-3 py-2 font-mono text-xs">{sp.planta ?? "—"}</td>
-                              <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                                {[sp.escalera, sp.puerta].filter(Boolean).join(" / ") || "—"}
-                              </td>
                               <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
                                 {sp.superficie_m2 != null ? `${Number(sp.superficie_m2).toLocaleString()} m²` : "—"}
                               </td>
