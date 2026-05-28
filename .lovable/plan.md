@@ -1,85 +1,56 @@
-## Objetivo
+# Plan: Conteo correcto de ventanas + vistas aéreas para patios
 
-Sustituir el scoring actual (fórmula única en `v_building_score`) por el **modelo de 5 clusters** del PDF, aplicarlo a los **74 edificios** y reflejarlo en la ficha y el listado.
+## Diagnóstico
 
-## 1. Tabla de clusters por barrio (nueva)
+**Por qué siguen 35 ventanas en lugar de 47:**
+El prompt actual dice "ejes × plantas tipo + ventanas planta baja". Gemini, al ver PB con escaparates/portal en vez de ventanas residenciales, decide **no sumar PB** ("no las sumes si solo es portal+local"). El entresuelo tampoco se cuenta porque el prompt no lo menciona. Resultado: faltan ~12 huecos (6 PB + 6 entresuelo).
 
-Nueva tabla `madrid_barrio_clusters`:
-- `distrito text`, `barrio text` (PK compuesto, normalizado en mayúsculas sin acentos)
-- `cluster text` enum: `ultra_prime`, `prime_value_add`, `flex_living_core`, `outer_distressed`, `outer_distressed_selectivo`, `baja_prioridad`
-- Se semilla desde el PDF (sección 3, ~todos los barrios de Madrid).
+**Vistas tipo Google Earth para patios:**
+Las fotos que adjuntas son del cliente Google Earth (3D oblicuo) — no hay API pública directa para esa vista exacta. Pero **Google Maps Platform sí tiene Aerial View API** que devuelve renders 3D oblicuos en vídeo + thumbnails de cualquier dirección. Está disponible para Madrid. Otra opción complementaria: subir el zoom de las oblicuas estáticas (z19→z20) para ver mejor los patios desde arriba.
 
-Tabla `madrid_calles_comerciales` (cluster 5 transversal):
-- `calle text` PK normalizada (Bravo Murillo, General Ricardos, Alcalá, Ibiza, Narváez, etc.)
-- `tipo text`: `buena` (renta comercial) | `mala` (cambio de uso)
+## Cambios
 
-## 2. Señales nuevas en `building_analysis` (IA)
+### 1. `analyze-building-vision/index.ts` — prompt fachada
 
-Añadir columnas para que la IA de visión + lectura de CRM pueble:
-- `mala_gestion_score smallint` (0-10) ← derramas, ITE, impagos, contratos caóticos, propietarios cansados
-- `local_pb_m2 numeric`, `local_pb_fachada_m numeric`, `local_pb_esquina bool`, `local_pb_viviendas_potenciales smallint`
-- `edificio_reformado bool`, `gestion_profesional bool` (penalizaciones)
-- `cluster_asignado text`, `cluster_score numeric`, `cluster_breakdown jsonb`
+Reescribir la sección "VENTANAS DE FACHADA":
+- PB **SIEMPRE** cuenta como planta (aunque sea portal + locales). Cada portal/escaparate/persiana = 1 hueco = 1 eje.
+- Si hay **entresuelo/entreplanta** (forjado intermedio visible), también cuenta como planta independiente.
+- Fórmula nueva: `ventanas = ejes × (pb + entresuelo + plantas_tipo + atico)` — sin restas ni excepciones por uso comercial.
+- Añadir campo `plantas_desglose: { pb, entresuelo, plantas_tipo, atico }` para auditar.
+- Simetría obligatoria también para PB tapada por toldos/coches.
 
-## 3. Función `compute_cluster_score(building_id)` (PL/pgSQL)
+Actualizar `plantas_visibles` para que sea la suma del desglose.
 
-Reemplaza `compute_score`. Pasos:
-1. Lee `buildings + building_analysis + metadatos`.
-2. Resuelve `barrio → cluster` vía `madrid_barrio_clusters` (fallback `baja_prioridad`).
-3. Aplica la **tabla de pesos del cluster** (Ultra Prime, Prime Value-Add, Flex Living Core, Outer Distressed) usando los rangos del PDF (m², ratio m²/vivienda, nº viviendas, nº propietarios, mala gestión).
-4. Si la dirección hace match con `madrid_calles_comerciales` o el local PB cumple criterios → suma cluster 5.
-5. Resta penalizaciones (reformado -25, gestión profesional -15, sin conflicto -10, etc.).
-6. Guarda `score`, `cluster_asignado`, `cluster_breakdown` en `buildings`.
+### 2. `fetch-google-imagery/index.ts` — Aerial View API + oblicuas reforzadas
 
-Vista `v_building_score` se reescribe encima de esta lógica para mantener compatibilidad con el frontend.
+a) **Aerial View API** (mejor esfuerzo, gracioso si falla):
+   - `POST aerialview/v1/videos:lookupVideo` con `address` del edificio.
+   - Si devuelve `state: ACTIVE` con `uris.image`, guardar como `aerial_oblique.jpg` con `source: "aerial"`.
+   - Si `404`/`NOT_FOUND` → llamar `videos:renderVideo` (dispara el render para la próxima vez) y seguir sin bloquear.
+   - Llamada vía el secret `GOOGLE_MAPS_API_KEY` ya configurado (no requiere conector nuevo).
 
-## 4. IA de lectura de CRM/notas (`enhance-building-score`)
+b) **Oblicuas reforzadas** (siempre): subir `oblique_45` y `oblique_225` de z19 a z20 y añadir `oblique_135` y `oblique_315` para tener 4 ángulos de patio.
 
-Extender el prompt para que, además de visión, devuelva en JSON:
-- `mala_gestion_score`, evidencias citadas
-- `edificio_reformado`, `gestion_profesional`
-- `local_pb_*` cuando aparezca en plano FXCC o foto fachada
+### 3. `analyze-building-vision/index.ts` — prompt patios
 
-Llamado vía Lovable AI Gateway (`google/gemini-2.5-pro`) con contexto: notas comerciales, llamadas analizadas, FXCC, fachada Google.
+Añadir al prompt: *"Si hay imágenes con source 'aerial' u 'oblique' que muestren los patios desde arriba, cuenta directamente las ventanas visibles en las paredes interiores del patio. Solo si no hay visibilidad, recurre a la heurística geométrica."*
 
-## 5. Reproceso de los 74 edificios
+Mantener la fórmula geométrica como fallback (ya está implementada).
 
-Nueva edge function `recompute-cluster-scoring` (batch):
-- Itera los 74 edificios
-- Reanaliza con `enhance-building-score` (lectura CRM + visión) si `cluster_breakdown` está vacío o desactualizado
-- Llama `compute_cluster_score(id)` para cada uno
-- Devuelve resumen por cluster
+### 4. UI — sin cambios
 
-Se dispara desde un botón "Recalcular scoring (clusters)" en `/comercial/edificios`.
+Las imágenes aéreas/oblicuas extra aparecen automáticamente en el carrusel existente.
 
-## 6. UI
+## Validación
 
-- **Listado `Edificios.tsx`**: añadir chip `cluster_asignado` y filtro por cluster.
-- **Ficha `EdificioDetalle.tsx`** + `scoring.tsx`: mostrar cluster, pesos del cluster aplicado, breakdown nuevo, penalizaciones, señales CRM detectadas.
-- Tooltip que explique por qué este edificio cayó en este cluster.
+Tras desplegar:
+1. Lanzar `fetch-google-imagery` + `analyze-building-vision` sobre **Díaz Porlier 47**.
+2. Verificar que `plantas_desglose.pb = 1` y `ventanas_fachada_total ≈ 47`.
+3. Verificar que aparezca `aerial_oblique.jpg` (o que el log muestre el render disparado en su defecto).
 
-## Detalles técnicos
+## Riesgos
 
-```text
-flow:
- buildings.barrio  ──► madrid_barrio_clusters ──► cluster
- building_analysis ──► variables IA + CRM
-              ▼
- compute_cluster_score(id)
-   ├── pesos cluster (tabla del PDF)
-   ├── bonus cluster 5 (calle/local)
-   └── penalizaciones
-              ▼
- buildings.score / cluster_asignado / cluster_breakdown
-              ▼
- UI: chip + breakdown
-```
+- Aerial View API puede no tener cobertura para una dirección concreta o requerir minutos para renderizar la primera vez → manejado con fallback gracioso, no bloquea el resto del análisis.
+- Más imágenes → más tokens al modelo → coste algo mayor, pero sigue dentro de límites.
 
-Migraciones nuevas (no se tocan las antiguas):
-- `add_cluster_tables.sql` (2 tablas + seed)
-- `add_cluster_columns_building_analysis.sql`
-- `compute_cluster_score.sql` (reemplaza función) + `v_building_score` v2
-
-## Confirmación necesaria
-
-¿Procedo tal cual, o quieres ajustar algo antes (por ejemplo, conservar el scoring viejo en paralelo como `score_legacy`, o cambiar algún peso del PDF)?
+¿Apruebas para implementar?

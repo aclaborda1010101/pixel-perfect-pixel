@@ -126,10 +126,12 @@ Deno.serve(async (req) => {
     const shots = [
       { source: "satellite", url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=20&size=640x640&maptype=satellite&key=${API_KEY}`, name: "satellite.png", heading: null, pitch: null, zoom: 20 },
       { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique.png",   heading: null, pitch: null, zoom: 19 },
-      // Vistas oblicuas adicionales (rumbos 45º y 225º) — permiten que Gemini vea los patios interiores
-      // desde dos ángulos distintos y estime las ventanas exteriores a patio.
-      { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_45.png",  heading: 45,  pitch: null, zoom: 19 },
-      { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_225.png", heading: 225, pitch: null, zoom: 19 },
+      // 4 vistas oblicuas (z20) en rumbos 45/135/225/315 → cubren los 4 patios interiores desde ángulos
+      // distintos para que el modelo cuente ventanas a patio directamente.
+      { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=20&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_45.png",  heading: 45,  pitch: null, zoom: 20 },
+      { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=20&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_135.png", heading: 135, pitch: null, zoom: 20 },
+      { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=20&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_225.png", heading: 225, pitch: null, zoom: 20 },
+      { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=20&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_315.png", heading: 315, pitch: null, zoom: 20 },
       ...headings.map((h, idx) => {
         const rounded = Math.round(h);
         // La foto desde la acera de enfrente (idx 3) usa FOV 100 + pitch 25
@@ -153,7 +155,12 @@ Deno.serve(async (req) => {
     for (const s of shots) {
       const r = await fetch(s.url);
       const buf = new Uint8Array(await r.arrayBuffer());
-      if (buf.byteLength < 5000) { skipped.push(s.name); continue; }
+      if (buf.byteLength < 5000) {
+        const sniff = new TextDecoder().decode(buf).slice(0, 200);
+        console.warn(`[imagery] skip ${s.name} status=${r.status} bytes=${buf.byteLength} body="${sniff}"`);
+        skipped.push(s.name);
+        continue;
+      }
       const path = `${building_id}/${s.name}`;
       await sb.storage.from("building_imagery").upload(path, buf, {
         contentType: "image/png", upsert: true,
@@ -173,8 +180,63 @@ Deno.serve(async (req) => {
       imagenes.push({ source: s.source, public_url, bytes: buf.byteLength });
     }
 
+    // ------------------------------------------------------------------
+    // Aerial View API (mejor esfuerzo) — render 3D oblicuo tipo Google
+    // Earth de la dirección. Si existe vídeo cacheado en estado ACTIVE,
+    // descargamos el thumbnail; si no, disparamos render y seguimos.
+    // ------------------------------------------------------------------
+    let aerial_status: string | null = null;
+    try {
+      if (addressParts) {
+        const lookupUrl = `https://aerialview.googleapis.com/v1/videos:lookupVideo?address=${encodeURIComponent(addressParts)}&key=${API_KEY}`;
+        const lr = await fetch(lookupUrl);
+        const lj = await lr.json().catch(() => ({}));
+        aerial_status = lj?.state ?? lj?.error?.status ?? `http_${lr.status}`;
+        const imageUri: string | undefined = lj?.uris?.image?.landscapeUri
+          ?? lj?.uris?.IMAGE?.landscapeUri
+          ?? lj?.uris?.thumbnail?.landscapeUri;
+        if (lr.ok && lj?.state === "ACTIVE" && imageUri) {
+          const ir = await fetch(imageUri);
+          if (ir.ok) {
+            const buf = new Uint8Array(await ir.arrayBuffer());
+            if (buf.byteLength > 5000) {
+              const path = `${building_id}/aerial_oblique.jpg`;
+              await sb.storage.from("building_imagery").upload(path, buf, {
+                contentType: "image/jpeg", upsert: true,
+              });
+              const public_url = sb.storage.from("building_imagery").getPublicUrl(path).data.publicUrl;
+              await sb.from("building_imagery").upsert({
+                building_id,
+                source: "aerial",
+                heading: null,
+                pitch: null,
+                zoom: null,
+                file_path: path,
+                public_url,
+                fetched_at: new Date().toISOString(),
+              }, { onConflict: "building_id,file_path" } as any);
+              imagenes.push({ source: "aerial", public_url, bytes: buf.byteLength });
+              aerial_status = "saved";
+            }
+          }
+        } else if (lr.status === 404 || lj?.state === "PROCESSING" || lj?.error?.code === 404) {
+          // Disparamos render para próximas ejecuciones (no bloquea).
+          fetch(`https://aerialview.googleapis.com/v1/videos:renderVideo?key=${API_KEY}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: addressParts }),
+          }).catch(() => {});
+          aerial_status = aerial_status ?? "render_triggered";
+        }
+      }
+    } catch (e) {
+      console.warn("aerial view skipped", e);
+      aerial_status = `error:${String((e as Error).message ?? e).slice(0, 80)}`;
+    }
+    console.log(`[imagery] aerial_view status=${aerial_status}`);
+
     await setProcessingStatus(building_id, "google", "ok");
-    return json({ imagenes, skipped });
+    return json({ imagenes, skipped, aerial_status });
   } catch (e) {
     console.error("fetch-google-imagery error", e);
     return err(String((e as Error).message ?? e));
