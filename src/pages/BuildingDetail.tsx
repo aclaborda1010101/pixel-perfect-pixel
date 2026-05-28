@@ -612,7 +612,7 @@ export default function BuildingDetail() {
               id: p.owner_id ?? p.id,
               kind: "owner" as const,
               label: p.owner?.nombre ?? p.nombre ?? "Propietario",
-              sublabel: [p.subrole && p.subrole !== "ninguno" ? (SUBROLE_LABEL[p.subrole] ?? p.subrole) : null, p.cuota ? `${p.cuota}%` : null].filter(Boolean).join(" · "),
+              sublabel: [p.subrole && p.subrole !== "ninguno" ? (SUBROLE_LABEL[p.subrole] ?? p.subrole) : null, (() => { const x = pctOf(p); return x != null ? `${Number(x.toFixed(2))}%` : null; })()].filter(Boolean).join(" · "),
               href: `/propietarios/${p.owner_id ?? p.id}`,
               badge: p.es_influencer ? "influencer" : undefined,
             }))}
