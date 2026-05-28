@@ -67,6 +67,7 @@ Devuelve un OBJETO JSON ESTRICTO con esta estructura (sin texto fuera del JSON):
   "esquina": boolean,
   "protegido_historicamente": boolean,
   "plantas_visibles": number,
+  "plantas_desglose": { "pb": number, "entresuelo": number, "plantas_tipo": number, "atico": number },
   "ancho_calle_estimado_m": number,
   "metricas_extra": { "observaciones": string },
   "metricas_detalle": {
