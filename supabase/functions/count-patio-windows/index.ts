@@ -141,14 +141,14 @@ Deno.serve(async (req) => {
     // 1) Building
     const { data: building, error: bErr } = await supabase
       .from("buildings")
-      .select("id, refcatastral, refcatastral_14, metadatos")
+      .select("id, refcatastral, metadatos")
       .eq("id", buildingId)
       .maybeSingle();
     if (bErr || !building) return err(`Building no encontrado: ${bErr?.message ?? "missing"}`, 404);
 
-    const rc14: string | null =
-      (building.refcatastral_14 as string | null) ??
-      (building.refcatastral ? String(building.refcatastral).slice(0, 14) : null);
+    const rc14: string | null = building.refcatastral
+      ? String(building.refcatastral).slice(0, 14)
+      : null;
     if (!rc14) return err("Edificio sin refcatastral_14", 400);
 
     // 2) Autoridad Catastro (cache; invoca layer si falta)
