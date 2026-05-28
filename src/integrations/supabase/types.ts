@@ -1010,6 +1010,78 @@ export type Database = {
           },
         ]
       }
+      catastro_authority_cache: {
+        Row: {
+          ano_construccion: number | null
+          confidence: Json
+          created_at: string
+          direccion_oficial: string | null
+          errors: Json
+          fetched_at: string
+          flags: Json
+          garajes_total: number | null
+          id: string
+          lat: number | null
+          locales_total: number | null
+          lon: number | null
+          numero_plantas: number | null
+          payload: Json
+          plantas: Json
+          refcatastral_14: string
+          refcatastral_20: string | null
+          superficie_parcela_m2: number | null
+          updated_at: string
+          usos: Json | null
+          viviendas_total: number | null
+        }
+        Insert: {
+          ano_construccion?: number | null
+          confidence?: Json
+          created_at?: string
+          direccion_oficial?: string | null
+          errors?: Json
+          fetched_at?: string
+          flags?: Json
+          garajes_total?: number | null
+          id?: string
+          lat?: number | null
+          locales_total?: number | null
+          lon?: number | null
+          numero_plantas?: number | null
+          payload?: Json
+          plantas?: Json
+          refcatastral_14: string
+          refcatastral_20?: string | null
+          superficie_parcela_m2?: number | null
+          updated_at?: string
+          usos?: Json | null
+          viviendas_total?: number | null
+        }
+        Update: {
+          ano_construccion?: number | null
+          confidence?: Json
+          created_at?: string
+          direccion_oficial?: string | null
+          errors?: Json
+          fetched_at?: string
+          flags?: Json
+          garajes_total?: number | null
+          id?: string
+          lat?: number | null
+          locales_total?: number | null
+          lon?: number | null
+          numero_plantas?: number | null
+          payload?: Json
+          plantas?: Json
+          refcatastral_14?: string
+          refcatastral_20?: string | null
+          superficie_parcela_m2?: number | null
+          updated_at?: string
+          usos?: Json | null
+          viviendas_total?: number | null
+        }
+        Relationships: []
+      }
       catastro_data: {
         Row: {
           ancho_calle_m: number | null
