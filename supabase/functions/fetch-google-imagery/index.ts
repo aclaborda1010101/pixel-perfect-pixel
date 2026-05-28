@@ -109,14 +109,15 @@ Deno.serve(async (req) => {
       ? `pano=${encodeURIComponent(panoId)}`
       : `location=${panoLat},${panoLng}`;
 
-    // 4 fotos: 2 frontales (heading y heading±15) + 2 laterales para contexto
+    // 4 fotos hacia el portal con offsets ±20º para esquivar árboles/farolas
+    // y capturar fachadas laterales si el edificio hace esquina.
     const headings: number[] = panoSameAsPortal
       ? [0, 90, 180, 270]
       : [
           headingToPortal,
-          (headingToPortal + 345) % 360, // -15º
-          (headingToPortal + 15) % 360,
-          (headingToPortal + 180) % 360, // contrario (acera de enfrente)
+          (headingToPortal + 340) % 360, // -20º (lateral izq, posible 2ª fachada)
+          (headingToPortal + 20) % 360,  // +20º (lateral der, posible 2ª fachada)
+          (headingToPortal + 180) % 360, // acera de enfrente: vista completa del edificio
         ];
 
     const imagenes: any[] = [];
@@ -129,14 +130,21 @@ Deno.serve(async (req) => {
       // desde dos ángulos distintos y estime las ventanas exteriores a patio.
       { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_45.png",  heading: 45,  pitch: null, zoom: 19 },
       { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_225.png", heading: 225, pitch: null, zoom: 19 },
-      ...headings.map((h) => {
+      ...headings.map((h, idx) => {
         const rounded = Math.round(h);
+        // La foto desde la acera de enfrente (idx 3) usa FOV 100 + pitch 25
+        // para encuadrar el edificio completo de abajo arriba (como una foto humana
+        // mirando hacia arriba). Las otras tres usan FOV 90 + pitch 30 desde la
+        // misma acera, donde la cámara está muy pegada y necesita mirar más arriba.
+        const isAcrossStreet = idx === 3;
+        const fov = isAcrossStreet ? 100 : 90;
+        const pitch = isAcrossStreet ? 25 : 30;
         return {
           source: "streetview",
-          url: `https://maps.googleapis.com/maps/api/streetview?size=640x640&${svLocationParam}&fov=80&heading=${rounded}&pitch=10&source=outdoor&key=${API_KEY}`,
+          url: `https://maps.googleapis.com/maps/api/streetview?size=640x640&${svLocationParam}&fov=${fov}&heading=${rounded}&pitch=${pitch}&source=outdoor&key=${API_KEY}`,
           name: `streetview_${rounded}.png`,
           heading: rounded,
-          pitch: 10,
+          pitch,
           zoom: null as number | null,
         };
       }),
