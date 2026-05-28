@@ -35,6 +35,24 @@ Deno.serve(async (req) => {
     }
 
     const center = `${cat.lat},${cat.lon}`;
+
+    // Para Street View usamos la dirección textual cuando esté disponible:
+    // el centroide catastral suele caer en el patio interior de la parcela y
+    // Google "salta" al panorama más cercano (callejón, calle paralela, etc.).
+    // Pasando la dirección, Google geocodifica y engancha el panorama de la
+    // calle correcta frente a la fachada.
+    const { data: bldg } = await sb
+      .from("buildings")
+      .select("direccion, ciudad, codigo_postal")
+      .eq("id", building_id)
+      .maybeSingle();
+    const addressParts = [bldg?.direccion, bldg?.codigo_postal, bldg?.ciudad, "España"]
+      .filter(Boolean)
+      .join(", ");
+    const streetviewLocation = addressParts
+      ? encodeURIComponent(addressParts)
+      : center;
+
     const imagenes: any[] = [];
     const skipped: string[] = [];
 
@@ -47,7 +65,7 @@ Deno.serve(async (req) => {
       { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique_225.png", heading: 225, pitch: null, zoom: 19 },
       ...[0, 90, 180, 270].map((h) => ({
         source: "streetview",
-        url: `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${center}&fov=80&heading=${h}&pitch=10&key=${API_KEY}`,
+        url: `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${streetviewLocation}&fov=80&heading=${h}&pitch=10&source=outdoor&key=${API_KEY}`,
         name: `streetview_${h}.png`,
         heading: h, pitch: 10, zoom: null as number | null,
       })),
@@ -62,23 +80,17 @@ Deno.serve(async (req) => {
         contentType: "image/png", upsert: true,
       });
       const public_url = sb.storage.from("building_imagery").getPublicUrl(path).data.publicUrl;
-      try {
-        const { error: upErr } = await sb.from("building_imagery").upsert({
-          building_id,
-          source: s.source,
-          heading: s.heading,
-          pitch: s.pitch,
-          zoom: s.zoom,
-          file_path: path,
-          public_url,
-        }, { onConflict: "file_path" } as any);
-        if (upErr) throw upErr;
-      } catch {
-        await sb.from("building_imagery").insert({
-          building_id, source: s.source, heading: s.heading, pitch: s.pitch, zoom: s.zoom,
-          file_path: path, public_url,
-        });
-      }
+      const { error: upErr } = await sb.from("building_imagery").upsert({
+        building_id,
+        source: s.source,
+        heading: s.heading,
+        pitch: s.pitch,
+        zoom: s.zoom,
+        file_path: path,
+        public_url,
+        fetched_at: new Date().toISOString(),
+      }, { onConflict: "building_id,file_path" } as any);
+      if (upErr) console.error("imagery upsert error", upErr);
       imagenes.push({ source: s.source, public_url, bytes: buf.byteLength });
     }
 
