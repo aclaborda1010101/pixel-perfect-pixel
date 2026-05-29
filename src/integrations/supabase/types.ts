@@ -3263,6 +3263,10 @@ export type Database = {
         Returns: number
       }
       compute_score: { Args: { p_building_id: string }; Returns: number }
+      count_distinct_owners: {
+        Args: { p_building_id: string }
+        Returns: number
+      }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
@@ -3298,6 +3302,7 @@ export type Database = {
       }
       normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
+      normalize_person_name: { Args: { p: string }; Returns: string }
       notas_simples_kpis: {
         Args: {
           p_building_id?: string
