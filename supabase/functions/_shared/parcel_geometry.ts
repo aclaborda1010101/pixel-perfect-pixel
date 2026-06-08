@@ -530,6 +530,19 @@ function extractGmlRingsFromXml(xml: string): { exterior: [number, number][]; in
   return polys;
 }
 
+// Extrae <cp:areaValue uom="m2">N</cp:areaValue> por cada feature CadastralParcel.
+// Devuelve la lista en orden de aparición. Si no encuentra ninguno, devuelve [].
+function extractAreaValuesFromXml(xml: string): number[] {
+  const out: number[] = [];
+  const re = /<(?:\w+:)?areaValue[^>]*>\s*([\d.]+)\s*<\/(?:\w+:)?areaValue>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const v = Number(m[1]);
+    if (isFinite(v) && v > 0) out.push(v);
+  }
+  return out;
+}
+
 async function callCatastroCP(params: Record<string, string>): Promise<{ polys: ReturnType<typeof extractGmlRingsFromXml> } | null> {
   const u = new URL(CP_ENDPOINT);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
