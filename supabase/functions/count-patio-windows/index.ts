@@ -161,11 +161,22 @@ Deno.serve(async (req) => {
     }
 
     // 3) Polígono con anillos interiores
-    const { exterior, interior } = await fetchParcelRings(rc14);
-    const flags: string[] = [];
+    const lat = (authority.lat as number | null) ?? null;
+    const lon = (authority.lon as number | null) ?? null;
+    const geom = await fetchParcelGeometry({
+      refcatastral_14: rc14,
+      lat,
+      lon,
+      force,
+      sbAdmin: supabase,
+    });
+    const exterior = geom.exterior_ring.length >= 4 ? geom.exterior_ring : null;
+    const interior = geom.interior_rings ?? [];
+    const flags: string[] = [...geom.flags];
     const notas: string[] = [];
+    notas.push(`Geometría: source=${geom.source}, confianza=${geom.confidence}${geom.cached ? " (cache)" : ""}.`);
 
-    if (!exterior) {
+    if (!exterior || geom.source === "fallback") {
       // Fallback duro: sin polígono no podemos estimar geométricamente.
       const fallback = {
         patios_detectados: [],
@@ -173,8 +184,8 @@ Deno.serve(async (req) => {
         estimacion_rango: { min: 0, max: 0 },
         metodo: "fallback_estimado",
         confianza: "baja",
-        flags: ["sin_poligono_real"],
-        notas: "WFS-INSPIRE no devolvió polígono. Estimación no posible sin fuente alternativa.",
+        flags: [...flags, "sin_poligono_real"],
+        notas: `No se obtuvo polígono real (source=${geom.source}). Estimación no posible.`,
       };
       const { data: inserted } = await supabase
         .from("patio_window_counts")
@@ -226,14 +237,19 @@ Deno.serve(async (req) => {
 
     if (patiosReales.length === 0) {
       flags.push("sin_patios_detectados");
-      notas.push("No se detectaron patios reales (área ≥ 9 m² y lado menor ≥ 3 m).");
+      if (interior.length === 0) {
+        notas.push("Polígono sin anillos interiores: o no hay patios o no figuran en la fuente.");
+        flags.push("patio_estimado_sin_geometria");
+      } else {
+        notas.push("No se detectaron patios reales (área ≥ 9 m² y lado menor ≥ 3 m).");
+      }
     } else {
       const perimetroTotalPatios = patiosReales.reduce((s, p) => s + p.perimetro_m, 0);
       const ventanasPorPlanta = Math.round(perimetroTotalPatios / densidad);
       estimacionTotal = ventanasPorPlanta * plantasResidenciales;
       confianza = "media";
       notas.push(
-        `Estimación geométrica: ${patiosReales.length} patio(s) reales, perímetro total ${perimetroTotalPatios.toFixed(1)} m, densidad ${densidad} m/hueco × ${plantasResidenciales} plantas residenciales.`,
+        `Estimación geométrica (${geom.source}): ${patiosReales.length} patio(s) reales, perímetro total ${perimetroTotalPatios.toFixed(1)} m, densidad ${densidad} m/hueco × ${plantasResidenciales} plantas residenciales.`,
       );
     }
 
