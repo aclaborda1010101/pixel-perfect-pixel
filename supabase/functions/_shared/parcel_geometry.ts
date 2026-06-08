@@ -535,7 +535,10 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      const t0 = Date.now();
       const r = await fetchWithTimeout(u.toString(), { headers: CP_HEADERS });
+      const ct0 = r.headers.get("content-type") ?? "";
+      console.log(`catastro-CP attempt=${attempt + 1} status=${r.status} ct=${ct0} url=${u.toString()}`);
       if (!r.ok) {
         console.warn(`catastro-CP ${r.status} attempt ${attempt + 1}`);
         await new Promise((res) => setTimeout(res, 800 + attempt * 1200));
@@ -543,6 +546,7 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
       }
       const ct = r.headers.get("content-type") ?? "";
       const body = await r.text();
+      console.log(`catastro-CP bytes=${body.length} ms=${Date.now() - t0} snippet=${body.slice(0, 180).replace(/\s+/g, " ")}`);
       // Soportar JSON o GML/XML.
       if (ct.includes("json")) {
         try {
@@ -565,6 +569,7 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
       }
       // Tratar como XML/GML.
       const polys = extractGmlRingsFromXml(body);
+      console.log(`catastro-CP parsed polys=${polys.length}`);
       if (polys.length > 0) return { polys };
       return null;
     } catch (e) {
