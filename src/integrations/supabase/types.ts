@@ -1347,13 +1347,17 @@ export type Database = {
           confidence: string
           created_at: string
           ejes_verticales: number
+          es_esquina: boolean | null
+          esquina_source: string | null
           fachada_principal: Json
           fachada_secundaria: Json | null
+          fachadas_a_calle: Json | null
           final_count: number
           flags: string[]
           id: string
           longitud_fachada_m: number | null
           longitud_fachada_source: string | null
+          longitud_fachada_total_m: number | null
           refcatastral_14: string
           street_view_panoramas: Json
           vlm_parsed: Json | null
@@ -1364,13 +1368,17 @@ export type Database = {
           confidence: string
           created_at?: string
           ejes_verticales: number
+          es_esquina?: boolean | null
+          esquina_source?: string | null
           fachada_principal: Json
           fachada_secundaria?: Json | null
+          fachadas_a_calle?: Json | null
           final_count: number
           flags?: string[]
           id?: string
           longitud_fachada_m?: number | null
           longitud_fachada_source?: string | null
+          longitud_fachada_total_m?: number | null
           refcatastral_14: string
           street_view_panoramas?: Json
           vlm_parsed?: Json | null
@@ -1381,13 +1389,17 @@ export type Database = {
           confidence?: string
           created_at?: string
           ejes_verticales?: number
+          es_esquina?: boolean | null
+          esquina_source?: string | null
           fachada_principal?: Json
           fachada_secundaria?: Json | null
+          fachadas_a_calle?: Json | null
           final_count?: number
           flags?: string[]
           id?: string
           longitud_fachada_m?: number | null
           longitud_fachada_source?: string | null
+          longitud_fachada_total_m?: number | null
           refcatastral_14?: string
           street_view_panoramas?: Json
           vlm_parsed?: Json | null
@@ -2694,12 +2706,15 @@ export type Database = {
           flags: string[]
           id: string
           interior_rings: Json
+          is_corner: boolean | null
           osm_id: number | null
           osm_type: string | null
           perimeter_m: number | null
           raw_response: Json | null
           refcatastral_14: string
           source: string
+          street_edges_jsonb: Json | null
+          total_street_length_m: number | null
         }
         Insert: {
           area_m2?: number | null
@@ -2712,12 +2727,15 @@ export type Database = {
           flags?: string[]
           id?: string
           interior_rings?: Json
+          is_corner?: boolean | null
           osm_id?: number | null
           osm_type?: string | null
           perimeter_m?: number | null
           raw_response?: Json | null
           refcatastral_14: string
           source: string
+          street_edges_jsonb?: Json | null
+          total_street_length_m?: number | null
         }
         Update: {
           area_m2?: number | null
@@ -2730,12 +2748,15 @@ export type Database = {
           flags?: string[]
           id?: string
           interior_rings?: Json
+          is_corner?: boolean | null
           osm_id?: number | null
           osm_type?: string | null
           perimeter_m?: number | null
           raw_response?: Json | null
           refcatastral_14?: string
           source?: string
+          street_edges_jsonb?: Json | null
+          total_street_length_m?: number | null
         }
         Relationships: []
       }
