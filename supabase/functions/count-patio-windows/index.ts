@@ -4,6 +4,7 @@
 // Confianza máxima: "media" (geometric_perimeter) / "baja" (fallback).
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
+import { fetchParcelGeometry } from "../_shared/parcel_geometry.ts";
 
 // ---------- Geometría ----------
 const toRad = (d: number) => (d * Math.PI) / 180;
@@ -71,35 +72,6 @@ function minBBoxShortSide(ring: [number, number][]): number {
     if (shortSide < best) best = shortSide;
   }
   return isFinite(best) ? best : 0;
-}
-
-// ---------- Catastro WFS-INSPIRE: polígono con anillos interiores ----------
-async function fetchParcelRings(rc14: string): Promise<{
-  exterior: [number, number][] | null;
-  interior: [number, number][][];
-}> {
-  const filter =
-    `<ogc:Filter xmlns:ogc="http://www.opengis.net/ogc"><ogc:PropertyIsEqualTo><ogc:PropertyName>cp:nationalCadastralReference</ogc:PropertyName><ogc:Literal>${rc14}</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter>`;
-  const url = `https://ovc.catastro.meh.es/INSPIRE/wfsParcel.aspx?service=WFS&version=2.0.0&request=GetFeature&typeNames=cp:CadastralParcel&srsName=EPSG:4326&outputFormat=application/json&Filter=${encodeURIComponent(filter)}`;
-  try {
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!r.ok) return { exterior: null, interior: [] };
-    const ct = r.headers.get("content-type") ?? "";
-    if (!ct.includes("json")) return { exterior: null, interior: [] };
-    const j = await r.json();
-    const f = j?.features?.[0];
-    const geom = f?.geometry;
-    if (!geom) return { exterior: null, interior: [] };
-    let rings: [number, number][][] | null = null;
-    if (geom.type === "Polygon") rings = geom.coordinates;
-    else if (geom.type === "MultiPolygon") rings = geom.coordinates?.[0] ?? null;
-    if (!rings || rings.length === 0) return { exterior: null, interior: [] };
-    const exterior = rings[0];
-    const interior = rings.slice(1).filter((r) => r && r.length >= 4);
-    return { exterior, interior };
-  } catch {
-    return { exterior: null, interior: [] };
-  }
 }
 
 // ---------- Densidad por año de construcción ----------
