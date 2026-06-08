@@ -5,7 +5,7 @@
 // Validado contra Díaz Porlier 47 → 47 ventanas (7 ejes × 5 + 6 + 6).
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
-import { fetchParcelGeometry } from "../_shared/parcel_geometry.ts";
+import { fetchParcelGeometry, type StreetEdge } from "../_shared/parcel_geometry.ts";
 
 const TTL_CAPTURES_MS = 90 * 24 * 60 * 60 * 1000;
 const SV_SIZE = "640x640";
@@ -168,10 +168,13 @@ async function callVlm(imagesBase64: string[], ctx: {
   inferred_floor_count: number;
   has_entresuelo: boolean;
   plantas_tipo: number;
-  longitud_fachada_m: number | null;
+  longitud_principal_m: number | null;
+  longitud_secundaria_m: number | null;
+  es_esquina: boolean;
+  fachada_label: "principal" | "secundaria";
 }): Promise<{ raw: string; parsed: any | null }> {
   const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
-  const prompt = `Eres un arquitecto técnico analizando una fachada de un edificio residencial en Madrid. Te paso 3 fotos de Street View del mismo edificio desde 3 puntos distintos de la calle.
+  const prompt = `Eres un arquitecto técnico analizando UNA fachada concreta de un edificio residencial en Madrid. Te paso 3 fotos de Street View de la MISMA fachada (la "${ctx.fachada_label}") desde 3 puntos distintos.
 
 DEFINICIÓN VINCULANTE de "ventana":
 Hueco arquitectónico en una habitación con salida al exterior que permite segregar esa habitación como pieza habitable independiente.
@@ -184,23 +187,27 @@ DATOS DE CATASTRO (vinculantes, no contradigas):
 - Plantas habitables sobre rasante: ${ctx.inferred_floor_count}
 - Tiene entresuelo: ${ctx.has_entresuelo}
 - Plantas tipo residenciales (P01..PN): ${ctx.plantas_tipo}
-- Longitud fachada principal (m): ${ctx.longitud_fachada_m ?? "desconocida"}
+- Edificio en esquina: ${ctx.es_esquina ? "SÍ (analiza SOLO la fachada indicada)" : "no"}
+- Longitud fachada principal (m): ${ctx.longitud_principal_m ?? "desconocida"}
+- Longitud fachada secundaria (m): ${ctx.longitud_secundaria_m ?? "no aplica"}
+- ESTÁS ANALIZANDO la fachada: ${ctx.fachada_label.toUpperCase()}
 
 TU TAREA:
-Identifica los EJES VERTICALES de huecos en la fachada principal. Un eje vertical es una columna de huecos alineada que va desde planta baja hasta la última planta visible.
+Identifica los EJES VERTICALES de huecos en ESTA fachada (la ${ctx.fachada_label}). Un eje vertical es una columna de huecos alineada que va desde planta baja hasta la última planta visible.
 
-Cuenta los ejes reconciliando las 3 imágenes: una ve mejor la izquierda, otra el centro, otra la derecha. Si un eje está parcialmente tapado por árboles, toldos o vehículos pero ves huecos arriba alineados verticalmente, el eje existe completo.
+Cuenta los ejes reconciliando las 3 imágenes: una ve mejor la izquierda, otra el centro, otra la derecha. Si un eje está parcialmente tapado por árboles, toldos o vehículos pero ves huecos arriba alineados verticalmente, el eje existe completo. Si la fachada continúa al doblar en esquina, NO incluyas los ejes de la otra fachada — solo los de esta cara.
 
 Aplica la fórmula:
   total = ejes × plantas_tipo + ventanas_planta_baja + ventanas_entresuelo
-  ventanas_planta_baja  = ejes - 1 si hay portal en esta fachada
+  ventanas_planta_baja  = ejes - 1 si hay portal en ESTA fachada (los locales comerciales sí cuentan como ventanas)
   ventanas_entresuelo   = ejes - 1 si hay entresuelo
 
 DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
 {
+  "fachada_analizada": "${ctx.fachada_label}",
   "ejes_verticales_detectados": N,
   "razon_del_conteo": "...",
-  "hay_portal_en_fachada_principal": boolean,
+  "hay_portal_en_esta_fachada": boolean,
   "ventanas_planta_baja": M,
   "ventanas_entresuelo": K,
   "ventanas_plantas_tipo": N * plantas_tipo,
@@ -209,8 +216,6 @@ DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
   "balcones_corridos_detectados": número,
   "confianza": "alta" | "media" | "baja",
   "flags": [],
-  "edificio_hace_esquina": boolean,
-  "se_ve_segunda_fachada": boolean,
   "ejes_por_imagen": [
     { "image_index": 0, "ejes_visibles": N, "completos": boolean },
     { "image_index": 1, "ejes_visibles": N, "completos": boolean },
@@ -297,206 +302,235 @@ Deno.serve(async (req) => {
     if (derived.plantas_tipo === 0) flags.push("sin_plantas_tipo");
 
     // (B) Geometría: WMS-INSPIRE → polígono parcela → arista de fachada
-    let longitud_fachada_m: number | null = null;
-    let longitud_fachada_source:
-      | "overpass_ref"
-      | "overpass_bbox"
-      | "wms_inspire"
-      | "sqrt_area_fallback"
-      | "fallback" = "sqrt_area_fallback";
-    let heading_fachada: number | null = null;
-    let polyCentroid: [number, number] | null = null;
-
     const geom = await fetchParcelGeometry({
       refcatastral_14: rc14,
       lat: centroidLat,
       lon: centroidLon,
       force: !!force,
       sbAdmin: sb,
+      expected_area_m2: auth.superficie_parcela_m2 as number | null,
     });
     for (const f of geom.flags) if (!flags.includes(f)) flags.push(f);
-    const ring = geom.exterior_ring.length >= 4 ? geom.exterior_ring : null;
-    let edges: ReturnType<typeof ringEdges> = [];
-    if (ring && ring.length >= 4) {
-      edges = ringEdges(ring);
-      polyCentroid = ringCentroid(ring);
-      // Bearing de la calle vía Google (viewport del street_address)
-      const streetInfo = await streetBearingFromGoogle(centroidLat, centroidLon, apiKey);
-      const streetBearingDeg = streetInfo?.bearing ?? null;
 
-      // Elige arista cuyo bearing sea más PARALELO a la calle (la fachada va paralela a la calle).
-      // Si no hay info de calle, escoge la arista más larga.
-      let best = edges[0];
-      let bestScore = -Infinity;
-      for (const e of edges) {
-        const score = streetBearingDeg != null
-          ? (90 - angularDiff(e.bearing, streetBearingDeg)) * 1000 + e.len // paralela ≈ 0° diff
-          : e.len;
-        if (score > bestScore) { bestScore = score; best = e; }
-      }
-      longitud_fachada_m = best.len;
-      // Mapeo de fuente: la geometría puede venir de Overpass o WFS.
-      longitud_fachada_source = geom.source === "fallback"
-        ? "sqrt_area_fallback"
-        : (geom.source as typeof longitud_fachada_source);
-      // Heading hacia la fachada: normal exterior a la arista, apuntando desde el lado-calle hacia la parcela.
-      const normalLeft = (best.bearing - 90 + 360) % 360;
-      const normalRight = (best.bearing + 90) % 360;
-      // El "exterior" es el sentido cuya proyección desde midpoint se aleja del centroide.
-      const probe1 = offsetAlongBearing(best.midpoint[1], best.midpoint[0], 5, normalLeft);
-      const probe2 = offsetAlongBearing(best.midpoint[1], best.midpoint[0], 5, normalRight);
-      const d1 = haversine([probe1.lon, probe1.lat], polyCentroid);
-      const d2 = haversine([probe2.lon, probe2.lat], polyCentroid);
-      const outsideBearing = d1 > d2 ? normalLeft : normalRight;
-      // La cámara está FUERA y mira HACIA la fachada → heading = outsideBearing + 180.
-      heading_fachada = (outsideBearing + 180) % 360;
+    // (B.1) Seleccionar fachadas a calle desde street_edges geométricos
+    type Fachada = {
+      role: "principal" | "secundaria";
+      edge: StreetEdge;
+      captures: { lat: number; lng: number; heading: number; storage_path: string; b64?: string }[];
+      vlm_raw: string;
+      vlm_parsed: any;
+      ejes: number;
+      hay_portal: boolean;
+      vbp: number; ven: number; vtt: number; total: number;
+    };
+    const fachadas: Fachada[] = [];
+    const street_edges = (geom.street_edges ?? []) as StreetEdge[];
+    const es_esquina_geom = !!geom.is_corner;
+    const total_street_len = Number(geom.total_street_length_m ?? 0);
+    let longitud_fachada_source: string = geom.source;
+
+    if (street_edges.length > 0) {
+      const principal = street_edges.find((e) => e.role === "principal") ?? street_edges[0];
+      const secundaria = es_esquina_geom
+        ? street_edges.find((e) => e.role === "secundaria")
+        : undefined;
+      if (principal) fachadas.push({
+        role: "principal", edge: principal, captures: [], vlm_raw: "", vlm_parsed: null,
+        ejes: 0, hay_portal: true, vbp: 0, ven: 0, vtt: 0, total: 0,
+      });
+      if (secundaria) fachadas.push({
+        role: "secundaria", edge: secundaria, captures: [], vlm_raw: "", vlm_parsed: null,
+        ejes: 0, hay_portal: false, vbp: 0, ven: 0, vtt: 0, total: 0,
+      });
     } else {
-      flags.push("longitud_fachada_estimada");
-      const sup = Number(auth.superficie_parcela_m2 ?? 0);
-      longitud_fachada_m = sup > 0 ? Math.sqrt(sup) : null;
-      // Sin polígono, heading = bearing desde panorama hacia centroide (Google StreetView Metadata)
+      // Fallback: sin aristas a calle detectadas → 1 captura desde panorama hacia centroide
+      flags.push("esquina_no_detectable_por_geometria");
+      flags.push("sin_aristas_a_calle_detectadas");
+      let heading_fallback = 0;
       try {
         const m = await fetch(
           `https://maps.googleapis.com/maps/api/streetview/metadata?location=${centroidLat},${centroidLon}&radius=50&source=outdoor&key=${apiKey}`,
         ).then((r) => r.json());
         if (m?.status === "OK" && m?.location) {
-          heading_fachada = bearing([m.location.lng, m.location.lat], [centroidLon, centroidLat]);
+          heading_fallback = bearing([m.location.lng, m.location.lat], [centroidLon, centroidLat]);
         }
       } catch { /* ignore */ }
-      if (heading_fachada == null) heading_fachada = 0;
+      const fakeEdge: StreetEdge = {
+        index: -1, a: [centroidLon, centroidLat], b: [centroidLon, centroidLat],
+        len_m: Number(auth.superficie_parcela_m2 ?? 0) > 0 ? Math.sqrt(Number(auth.superficie_parcela_m2)) : 12,
+        bearing: 0, midpoint: [centroidLon, centroidLat],
+        outside_bearing: (heading_fallback + 180) % 360, heading: heading_fallback, probes_hit: 0,
+        role: "principal",
+      };
+      fachadas.push({
+        role: "principal", edge: fakeEdge, captures: [], vlm_raw: "", vlm_parsed: null,
+        ejes: 0, hay_portal: true, vbp: 0, ven: 0, vtt: 0, total: 0,
+      });
+      longitud_fachada_source = "sqrt_area_fallback";
     }
 
-    // (C) Tres capturas Street View (con caché)
-    const captures: { lat: number; lng: number; heading: number; storage_path: string; b64?: string }[] = [];
-    const insideBearing = (heading_fachada! + 180) % 360; // desde fachada hacia la calle (alejarse 8m)
-    const tangent = (heading_fachada! + 90) % 360;
-    const center = offsetAlongBearing(centroidLat, centroidLon, 8, insideBearing);
-    const left = offsetAlongBearing(center.lat, center.lon, 6, tangent);
-    const right = offsetAlongBearing(center.lat, center.lon, 6, (tangent + 180) % 360);
-    const points = [center, left, right];
-
-    for (let i = 0; i < 3; i++) {
-      const { lat, lon } = points[i];
-      const storage_path = `${building_id}/${i}.jpg`;
-      let buf: ArrayBuffer | null = null;
-
-      if (!force) {
-        // Caché: revisar si existe y es fresca
-        const { data: list } = await sb.storage.from(BUCKET).list(building_id, { limit: 10 });
-        const found = list?.find((o) => o.name === `${i}.jpg`);
-        const fresh = found && found.updated_at && (Date.now() - new Date(found.updated_at).getTime() < TTL_CAPTURES_MS);
-        if (fresh) {
-          const dl = await sb.storage.from(BUCKET).download(storage_path);
-          if (!dl.error && dl.data) buf = await dl.data.arrayBuffer();
+    // (C) Capturas Street View — 3 por fachada
+    for (const f of fachadas) {
+      const e = f.edge;
+      const heading = e.heading;
+      const insideBearing = (heading + 180) % 360; // desde fachada → alejarse 8m
+      const tangent = (heading + 90) % 360;
+      const midLat = e.midpoint[1], midLon = e.midpoint[0];
+      const center = offsetAlongBearing(midLat, midLon, 8, insideBearing);
+      const sideOff = Math.min(8, Math.max(3, e.len_m / 3));
+      const left = offsetAlongBearing(center.lat, center.lon, sideOff, tangent);
+      const right = offsetAlongBearing(center.lat, center.lon, sideOff, (tangent + 180) % 360);
+      const pts = [center, left, right];
+      for (let i = 0; i < 3; i++) {
+        const { lat, lon } = pts[i];
+        const storage_path = `${building_id}/${f.role}_${i}.jpg`;
+        let buf: ArrayBuffer | null = null;
+        if (!force) {
+          const { data: list } = await sb.storage.from(BUCKET).list(building_id, { limit: 20 });
+          const found = list?.find((o: any) => o.name === `${f.role}_${i}.jpg`);
+          const fresh = found && found.updated_at && (Date.now() - new Date(found.updated_at).getTime() < TTL_CAPTURES_MS);
+          if (fresh) {
+            const dl = await sb.storage.from(BUCKET).download(storage_path);
+            if (!dl.error && dl.data) buf = await dl.data.arrayBuffer();
+          }
         }
+        if (!buf) {
+          const exists = await checkPanoramaExists(lat, lon, apiKey);
+          if (!exists) continue;
+          buf = await fetchStreetView(lat, lon, heading, apiKey);
+          if (!buf) continue;
+          await sb.storage.from(BUCKET).upload(storage_path, new Uint8Array(buf), {
+            contentType: "image/jpeg", upsert: true,
+          });
+        }
+        f.captures.push({ lat, lng: lon, heading, storage_path, b64: ab2b64(buf) });
       }
-
-      if (!buf) {
-        const exists = await checkPanoramaExists(lat, lon, apiKey);
-        if (!exists) continue;
-        buf = await fetchStreetView(lat, lon, heading_fachada!, apiKey);
-        if (!buf) continue;
-        await sb.storage.from(BUCKET).upload(storage_path, new Uint8Array(buf), {
-          contentType: "image/jpeg",
-          upsert: true,
-        });
-      }
-      captures.push({ lat, lng: lon, heading: heading_fachada!, storage_path, b64: ab2b64(buf) });
+      if (f.captures.length < 3) flags.push(`cobertura_streetview_insuficiente_${f.role}`);
     }
 
-    if (captures.length < 3) flags.push("cobertura_streetview_insuficiente");
-
-    // (D) VLM
-    let vlmRaw = "";
-    let vlmParsed: any = null;
-    if (captures.length > 0) {
-      const res = await callVlm(captures.map((c) => c.b64!), {
+    // (D) VLM por fachada
+    const principalLen = fachadas.find((f) => f.role === "principal")?.edge.len_m ?? null;
+    const secundariaLen = fachadas.find((f) => f.role === "secundaria")?.edge.len_m ?? null;
+    for (const f of fachadas) {
+      if (f.captures.length === 0) continue;
+      const res = await callVlm(f.captures.map((c) => c.b64!), {
         inferred_floor_count: derived.inferred_floor_count,
         has_entresuelo: derived.has_entresuelo,
         plantas_tipo: derived.plantas_tipo,
-        longitud_fachada_m,
+        longitud_principal_m: principalLen,
+        longitud_secundaria_m: secundariaLen,
+        es_esquina: es_esquina_geom,
+        fachada_label: f.role,
       });
-      vlmRaw = res.raw;
-      vlmParsed = res.parsed;
+      f.vlm_raw = res.raw;
+      f.vlm_parsed = res.parsed;
+      const ejes = Number(res.parsed?.ejes_verticales_detectados ?? 0);
+      const hayPortal = res.parsed?.hay_portal_en_esta_fachada !== false && f.role === "principal";
+      f.ejes = ejes;
+      f.hay_portal = !!hayPortal;
+      f.vbp = hayPortal ? Math.max(0, ejes - 1) : (f.role === "principal" ? ejes : 0);
+      f.ven = derived.has_entresuelo ? Math.max(0, ejes - 1) : 0;
+      f.vtt = ejes * derived.plantas_tipo;
+      f.total = f.vtt + f.vbp + f.ven;
+      if (ejes < 2 || ejes > 15) flags.push(`ejes_fuera_de_rango_${f.role}`);
     }
 
-    // (E) Validación dura + fórmula determinista
-    const ejesVlm = Number(vlmParsed?.ejes_verticales_detectados ?? 0);
-    const hayPortal = vlmParsed?.hay_portal_en_fachada_principal !== false;
-    const ejes = ejesVlm;
-    const plantas_tipo = derived.plantas_tipo;
-    const has_entresuelo = derived.has_entresuelo;
-    const vbp = hayPortal ? Math.max(0, ejes - 1) : ejes;
-    const ven = has_entresuelo ? Math.max(0, ejes - 1) : 0;
-    const vtt = ejes * plantas_tipo;
-    const totalFormula = vtt + vbp + ven;
-
-    if (ejes < 3 || ejes > 15) flags.push("ejes_fuera_de_rango");
-    // Validación de densidad sólo cuando la longitud viene de un polígono real
-    const longitudFiable = (longitud_fachada_source === "overpass_ref"
-      || longitud_fachada_source === "overpass_bbox"
-      || longitud_fachada_source === "wms_inspire");
-    if (longitudFiable && longitud_fachada_m && longitud_fachada_m > 0) {
-      const dens = totalFormula / longitud_fachada_m;
-      if (dens < 1.5 || dens > 4.5) flags.push("densidad_inusual");
-    }
-    if (vlmParsed && typeof vlmParsed.total === "number" && vlmParsed.total !== totalFormula) {
-      flags.push("formula_no_se_cumple");
-    }
-    if (vlmParsed?.ejes_por_imagen && Array.isArray(vlmParsed.ejes_por_imagen)) {
-      const vals = vlmParsed.ejes_por_imagen.map((x: any) => Number(x.ejes_visibles)).filter((n: number) => isFinite(n));
-      if (vals.length >= 2 && Math.max(...vals) - Math.min(...vals) > 2) flags.push("divergencia_entre_capturas");
-    }
+    // (E) Suma de fachadas
+    const fachada_principal_obj = fachadas.find((f) => f.role === "principal");
+    const fachada_secundaria_obj = fachadas.find((f) => f.role === "secundaria");
+    const ejes_total = fachadas.reduce((s, f) => s + f.ejes, 0);
+    const total_ventanas = fachadas.reduce((s, f) => s + f.total, 0);
+    const longitud_fachada_total_m = fachadas.reduce((s, f) => s + (f.edge.len_m || 0), 0);
+    const longitud_fachada_principal_m = fachada_principal_obj?.edge.len_m ?? null;
 
     let confidence: "alta" | "media" | "baja" = "alta";
-    if (vlmParsed?.confianza) confidence = vlmParsed.confianza;
-    if (flags.includes("cobertura_streetview_insuficiente")) confidence = "baja";
-    if (flags.includes("ejes_fuera_de_rango")) confidence = "baja";
-    else if (flags.includes("divergencia_entre_capturas") && confidence === "alta") confidence = "media";
+    if (flags.some((f) => f.startsWith("cobertura_streetview_insuficiente"))) confidence = "media";
+    if (flags.includes("polygon_no_fiable") || flags.includes("esquina_no_detectable_por_geometria")) confidence = "baja";
+    if (flags.some((f) => f.startsWith("ejes_fuera_de_rango"))) confidence = "baja";
 
-    const fachada_principal = {
-      ejes_verticales_detectados: ejes,
-      plantas_tipo,
-      ventanas_planta_baja: vbp,
-      ventanas_entresuelo: ven,
-      ventanas_plantas_tipo: vtt,
-      total: totalFormula,
-      confidence,
-      flags,
-      razon_del_conteo: vlmParsed?.razon_del_conteo ?? null,
-      miradores_detectados: vlmParsed?.miradores_detectados ?? null,
-      balcones_corridos_detectados: vlmParsed?.balcones_corridos_detectados ?? null,
-      ejes_por_imagen: vlmParsed?.ejes_por_imagen ?? null,
+    const fachadas_a_calle = fachadas.map((f) => ({
+      role: f.role,
+      len_m: f.edge.len_m,
+      heading: f.edge.heading,
+      ejes: f.ejes,
+      total: f.total,
+      vbp: f.vbp, ven: f.ven, vtt: f.vtt,
+      capturas: f.captures.length,
+    }));
+
+    const fachada_principal = fachada_principal_obj ? {
+      ejes_verticales_detectados: fachada_principal_obj.ejes,
+      plantas_tipo: derived.plantas_tipo,
+      ventanas_planta_baja: fachada_principal_obj.vbp,
+      ventanas_entresuelo: fachada_principal_obj.ven,
+      ventanas_plantas_tipo: fachada_principal_obj.vtt,
+      total: fachada_principal_obj.total,
+      longitud_m: fachada_principal_obj.edge.len_m,
+      heading: fachada_principal_obj.edge.heading,
+      razon_del_conteo: fachada_principal_obj.vlm_parsed?.razon_del_conteo ?? null,
+      ejes_por_imagen: fachada_principal_obj.vlm_parsed?.ejes_por_imagen ?? null,
+    } : null;
+    const fachada_secundaria = fachada_secundaria_obj ? {
+      ejes_verticales_detectados: fachada_secundaria_obj.ejes,
+      plantas_tipo: derived.plantas_tipo,
+      ventanas_planta_baja: fachada_secundaria_obj.vbp,
+      ventanas_entresuelo: fachada_secundaria_obj.ven,
+      ventanas_plantas_tipo: fachada_secundaria_obj.vtt,
+      total: fachada_secundaria_obj.total,
+      longitud_m: fachada_secundaria_obj.edge.len_m,
+      heading: fachada_secundaria_obj.edge.heading,
+      razon_del_conteo: fachada_secundaria_obj.vlm_parsed?.razon_del_conteo ?? null,
+      ejes_por_imagen: fachada_secundaria_obj.vlm_parsed?.ejes_por_imagen ?? null,
+    } : null;
+
+    const allPanoramas = fachadas.flatMap((f) => f.captures.map((c) => ({
+      role: f.role, lat: c.lat, lng: c.lng, heading: c.heading, storage_path: c.storage_path,
+    })));
+    const vlmRaw = fachadas.map((f) => `[${f.role}]\n${f.vlm_raw}`).join("\n---\n");
+    const vlmParsed = {
+      principal: fachada_principal_obj?.vlm_parsed ?? null,
+      secundaria: fachada_secundaria_obj?.vlm_parsed ?? null,
     };
 
-    // (G) Persistir
     const insertRes = await sb.from("facade_window_counts").insert({
       building_id,
       refcatastral_14: rc14,
-      vlm_raw_response: vlmRaw || "",
+      vlm_raw_response: vlmRaw,
       vlm_parsed: vlmParsed,
-      street_view_panoramas: captures.map((c) => ({ lat: c.lat, lng: c.lng, heading: c.heading, storage_path: c.storage_path })),
+      street_view_panoramas: allPanoramas,
       fachada_principal,
-      fachada_secundaria: null,
-      longitud_fachada_m,
+      fachada_secundaria,
+      longitud_fachada_m: longitud_fachada_principal_m,
       longitud_fachada_source,
-      final_count: totalFormula,
-      ejes_verticales: ejes,
+      final_count: total_ventanas,
+      ejes_verticales: ejes_total,
       confidence,
       flags,
+      es_esquina: es_esquina_geom,
+      esquina_source: street_edges.length > 0 ? "geometria_parcela" : "no_detectable",
+      fachadas_a_calle,
+      longitud_fachada_total_m,
     }).select("id").maybeSingle();
 
     return json({
+      source_geometria: geom.source,
+      area_polygon_m2: geom.area_m2,
+      polygon_confidence: geom.confidence,
+      es_esquina: es_esquina_geom,
+      esquina_source: street_edges.length > 0 ? "geometria_parcela" : "no_detectable",
+      longitud_fachada_total_m,
+      longitud_fachada_principal_m,
+      longitud_fachada_secundaria_m: secundariaLen,
+      total_ventanas_fachada_exterior: total_ventanas,
+      ejes_total,
       fachada_principal,
-      fachada_secundaria: null,
-      total_ventanas_fachada_exterior: totalFormula,
-      longitud_fachada_m,
-      longitud_fachada_source,
-      heading_fachada,
+      fachada_secundaria,
+      heading_fachada: fachada_principal?.heading ?? null,
       plantas_tipo_codigos: derived.plantas_tipo_codigos,
       inferred_floor_count: derived.inferred_floor_count,
       has_entresuelo: derived.has_entresuelo,
-      notas_vlm: vlmParsed?.razon_del_conteo ?? null,
+      confidence,
+      flags,
       audit_id: insertRes.data?.id ?? null,
     }, 200);
   } catch (e) {
