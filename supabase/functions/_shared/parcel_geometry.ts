@@ -143,11 +143,11 @@ async function callOverpass(query: string): Promise<any | null> {
         const r = await fetchWithTimeout(endpoint, {
           method: "POST",
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Type": "text/plain; charset=utf-8",
             "Accept": "application/json",
-            "User-Agent": UA,
+            "User-Agent": "AffluxOS/1.0 (geometry-fetch; contact: ops@affluxos.com)",
           },
-          body: `data=${encodeURIComponent(query)}`,
+          body: query,
         });
         if (r.ok) {
           const j = await r.json();
