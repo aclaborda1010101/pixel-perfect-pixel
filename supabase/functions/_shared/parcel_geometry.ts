@@ -1,8 +1,17 @@
 // Módulo compartido: geometría de parcela.
-// Estrategia: Overpass (OSM) primario → WFS-INSPIRE fallback → fallback geométrico.
+// Orden de fuentes:
+//   1) catastro_parcel_ref  (INSPIRE WFS-CP, por refcatastral)
+//   2) catastro_parcel_bbox (INSPIRE WFS-CP, por coordenadas)
+//   3) overpass_ref         (OSM por ref:catastral)
+//   4) overpass_bbox        (OSM por bbox alrededor del centroide)
+//   5) wfs_inspire          (servicio antiguo wfsParcel.aspx — fallback)
+//   6) fallback             (cuadrado equivalente)
+// Cada candidato pasa por validación de área contra el catastro authority.
 // Cachea en `parcel_geometry_cache` por rc14, TTL 180 días.
 
 export type GeometrySource =
+  | "catastro_parcel_ref"
+  | "catastro_parcel_bbox"
   | "overpass_ref"
   | "overpass_bbox"
   | "wfs_inspire"
@@ -23,6 +32,29 @@ export interface ParcelGeometry {
   osm_id?: number;
   osm_type?: "way" | "relation";
   cached: boolean;
+  street_edges?: StreetEdge[] | null;
+  is_corner?: boolean | null;
+  total_street_length_m?: number | null;
+}
+
+export interface StreetEdge {
+  index: number;
+  a: [number, number];
+  b: [number, number];
+  len_m: number;
+  bearing: number;          // 0..360 a→b
+  midpoint: [number, number];
+  outside_bearing: number;  // desde el polígono hacia fuera (calle)
+  heading: number;          // heading cámara→fachada
+  role?: "principal" | "secundaria";
+  probes_hit: number;
+}
+
+export interface StreetEdgesResult {
+  street_edges: StreetEdge[];
+  is_corner: boolean;
+  total_street_length_m: number;
+  corner_angle_deg: number | null;
 }
 
 const OVERPASS_ENDPOINTS = [
