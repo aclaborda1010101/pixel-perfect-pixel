@@ -502,8 +502,9 @@ function parsePosListToRing(posList: string): [number, number][] {
 function extractGmlRingsFromXml(xml: string): { exterior: [number, number][]; interiors: [number, number][][] }[] {
   // Devuelve TODOS los polígonos encontrados (puede haber varios features).
   const polys: { exterior: [number, number][]; interiors: [number, number][][] }[] = [];
-  // Capturar bloques <gml:Polygon>...</gml:Polygon> (cualquier prefijo).
-  const polyRe = /<(?:\w+:)?Polygon[^>]*>([\s\S]*?)<\/(?:\w+:)?Polygon>/g;
+  // Capturar bloques <gml:Polygon> o <gml:PolygonPatch> (Catastro INSPIRE usa
+  // PolygonPatch dentro de Surface/patches en lugar de Polygon clásico).
+  const polyRe = /<(?:\w+:)?(?:Polygon|PolygonPatch)[^>]*>([\s\S]*?)<\/(?:\w+:)?(?:Polygon|PolygonPatch)>/g;
   let m: RegExpExecArray | null;
   while ((m = polyRe.exec(xml)) !== null) {
     const body = m[1];
