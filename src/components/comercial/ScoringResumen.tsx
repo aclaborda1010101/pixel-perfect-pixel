@@ -284,9 +284,14 @@ function factorsFrom(breakdown: any): Factor[] {
   return breakdown.map((c: any) => ({
     key: String(c.key ?? c.label ?? ""),
     label: String(c.label ?? c.key ?? ""),
-    weight: Number(c.peso ?? 0),
-    pts: Number(c.contribucion ?? 0),
-    raw: c.valor_raw,
+    weight: Number(c.peso ?? c.weight ?? 0),
+    pts: Number(
+      c.contribucion ??
+        (c.pct != null && Number.isFinite(Number(c.pct))
+          ? (Number(c.pct) / 100) * Math.abs(Number(c.peso ?? c.weight ?? 0))
+          : 0),
+    ),
+    raw: c.valor_raw ?? c.raw,
   }));
 }
 
@@ -312,10 +317,13 @@ export function ScoringResumen({
   // que es el que se muestra en la lista de edificios. Esto evita que el
   // cluster recompute (que puede bajar a "baja_prioridad" barrios no mapeados)
   // contradiga al usuario lo que ve en la card.
-  const score = Number(s?.score ?? b?.score ?? b?.cluster_score ?? 0);
+  const hasClusterBreakdown = Array.isArray(b?.score_breakdown) && b.score_breakdown.length > 0;
+  const score = Number((hasClusterBreakdown ? b?.score : s?.score) ?? b?.score ?? b?.cluster_score ?? 0);
   const tier = scoreTier(score);
   const breakdown =
-    (Array.isArray(s?.score_breakdown) && s.score_breakdown.length > 0
+    (hasClusterBreakdown
+      ? b.score_breakdown
+      : Array.isArray(s?.score_breakdown) && s.score_breakdown.length > 0
       ? s.score_breakdown
       : Array.isArray(b?.cluster_breakdown) && b.cluster_breakdown.length > 0
       ? b.cluster_breakdown

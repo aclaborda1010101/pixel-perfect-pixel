@@ -2,19 +2,11 @@ import { cn } from "@/lib/utils";
 
 export type ScoreTier = "high" | "mid" | "low";
 
-/**
- * Reescala el score "interno" (0-100, donde >70 ya es excelente) a una
- * escala visual más optimista. La fórmula es monótona y conserva el orden,
- * pero abre el rango alto: raw 50 → ~75, raw 70 → ~100.
- */
 export function displayScore(raw: number): number {
-  const r = Math.max(0, Math.min(100, Number(raw) || 0));
-  const d = r * 1.3 + 10;
-  return Math.round(Math.max(0, Math.min(100, d)));
+  return Math.round(Math.max(0, Math.min(100, Number(raw) || 0)));
 }
 
 export function scoreTier(score: number): ScoreTier {
-  // Tier se calcula sobre la escala visual para que coincida con el número que ve el usuario.
   const d = displayScore(score);
   if (d >= 75) return "high";
   if (d >= 50) return "mid";
@@ -152,12 +144,17 @@ export function buildingScoreFactors(s: any) {
   const bd: any[] = Array.isArray(s?.score_breakdown) ? s.score_breakdown : [];
   if (bd.length > 0) {
     return bd.map((c: any) => {
-      const weight = Number(c.peso ?? 0);
-      const pts = Number(c.contribucion ?? 0);
+      const weight = Number(c.peso ?? c.weight ?? 0);
+      const pts = Number(
+        c.contribucion ??
+          (c.pct != null && Number.isFinite(Number(c.pct))
+            ? (Number(c.pct) / 100) * Math.abs(weight)
+            : 0),
+      );
       const pctRaw = weight !== 0 ? (pts / Math.abs(weight)) * 100 : 0;
       const pct = Math.max(0, Math.min(100, pctRaw));
       let raw: string;
-      const v = c.valor_raw;
+      const v = c.valor_raw ?? c.raw ?? null;
       if (v === null || v === undefined) raw = "—";
       else if (typeof v === "boolean") raw = v ? "Sí" : "No";
       else if (typeof v === "number") raw = Number.isFinite(v) ? v.toLocaleString() : "—";
