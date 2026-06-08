@@ -219,6 +219,7 @@ export type Database = {
           plantas_levantables: number | null
           plantas_max_normativa: number | null
           plantas_visibles: number | null
+          proteccion_source: string | null
           protegido_historicamente: boolean | null
           segundas_escaleras: boolean | null
           sources_used: Json | null
@@ -274,6 +275,7 @@ export type Database = {
           plantas_levantables?: number | null
           plantas_max_normativa?: number | null
           plantas_visibles?: number | null
+          proteccion_source?: string | null
           protegido_historicamente?: boolean | null
           segundas_escaleras?: boolean | null
           sources_used?: Json | null
@@ -329,6 +331,7 @@ export type Database = {
           plantas_levantables?: number | null
           plantas_max_normativa?: number | null
           plantas_visibles?: number | null
+          proteccion_source?: string | null
           protegido_historicamente?: boolean | null
           segundas_escaleras?: boolean | null
           sources_used?: Json | null
@@ -2077,6 +2080,78 @@ export type Database = {
         }
         Relationships: []
       }
+      madrid_calles_subzona: {
+        Row: {
+          barrio: string | null
+          calle_norm: string
+          cluster_override: string
+          created_at: string
+          id: string
+          notas: string | null
+          numero_desde: number | null
+          numero_hasta: number | null
+          sub_zona: string
+        }
+        Insert: {
+          barrio?: string | null
+          calle_norm: string
+          cluster_override: string
+          created_at?: string
+          id?: string
+          notas?: string | null
+          numero_desde?: number | null
+          numero_hasta?: number | null
+          sub_zona: string
+        }
+        Update: {
+          barrio?: string | null
+          calle_norm?: string
+          cluster_override?: string
+          created_at?: string
+          id?: string
+          notas?: string | null
+          numero_desde?: number | null
+          numero_hasta?: number | null
+          sub_zona?: string
+        }
+        Relationships: []
+      }
+      madrid_edificios_protegidos: {
+        Row: {
+          created_at: string
+          direccion: string | null
+          direccion_norm: string | null
+          fuente: string
+          id: string
+          nivel_proteccion: string | null
+          raw: Json | null
+          refcat: string | null
+          refcat_norm: string | null
+        }
+        Insert: {
+          created_at?: string
+          direccion?: string | null
+          direccion_norm?: string | null
+          fuente?: string
+          id?: string
+          nivel_proteccion?: string | null
+          raw?: Json | null
+          refcat?: string | null
+          refcat_norm?: string | null
+        }
+        Update: {
+          created_at?: string
+          direccion?: string | null
+          direccion_norm?: string | null
+          fuente?: string
+          id?: string
+          nivel_proteccion?: string | null
+          raw?: Json | null
+          refcat?: string | null
+          refcat_norm?: string | null
+        }
+        Relationships: []
+      }
       match_candidates: {
         Row: {
           asset_id: string
@@ -3164,46 +3239,39 @@ export type Database = {
       }
       v_building_score: {
         Row: {
-          almacen_unidades: number | null
-          aparcamiento_unidades: number | null
-          barrio: string | null
           ciudad: string | null
-          comercio_unidades: number | null
+          confidence: number | null
           direccion: string | null
-          distrito: string | null
-          dividido_texto: string | null
           division_horizontal: boolean | null
-          elementos_comunes_unidades: number | null
+          esquina: boolean | null
           has_ai_analysis: boolean | null
           id: string | null
-          industrial_unidades: number | null
-          m2_almacen: number | null
-          m2_comercio: number | null
-          m2_elementos_comunes: number | null
-          m2_industrial: number | null
-          m2_ocio_hostel: number | null
-          m2_oficina: number | null
+          intencion_venta: boolean | null
+          m2_almacen_x: number | null
+          m2_comercio_x: number | null
+          m2_exactos: number | null
+          m2_industrial_x: number | null
+          m2_oficina_x: number | null
           m2_rango: string | null
           m2_total: number | null
-          m2_totales_exactos: number | null
-          m2_viviendas: number | null
+          md: Json | null
           num_viviendas: number | null
-          ocio_hostel_unidades: number | null
-          oficina_unidades: number | null
+          numero_propietarios: number | null
           owners_count: number | null
+          patios_detectados: number | null
+          plantas_levantables: number | null
+          protegido_historicamente: boolean | null
           s_m2: number | null
           s_no_dh: number | null
           s_owners: number | null
           s_ratio: number | null
           s_viviendas: number | null
           score: number | null
-          score_ai: number | null
-          score_base: number | null
           score_breakdown: Json | null
-          tipo_activo: string | null
-          tipo_oportunidad: string | null
-          valoracion_locales: number | null
-          valoracion_viviendas: number | null
+          score_raw: number | null
+          segundas_escaleras: boolean | null
+          ventanas_fachada_total: number | null
+          viviendas_unidades: number | null
         }
         Relationships: []
       }

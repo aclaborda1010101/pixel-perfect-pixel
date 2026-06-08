@@ -1,88 +1,75 @@
-## Objetivo
-Arreglar el conteo de fachada en edificios cuyo footprint de OSM es un fragmento (caso Topete 33) y dejar de depender del VLM para saber si un edificio hace esquina. La geometría manda; el VLM cuenta ejes sobre fachadas que ya sabemos dónde están.
+## Plan: arreglo global tras feedback de 11 edificios
 
-## Cambios
+Trabajo dividido en **5 frentes** que se pueden ir cerrando en este orden. Algunos toques entran en el motor de scoring; los acoto.
 
-### 1. Nueva fuente autoritativa: INSPIRE Catastral Parcels (`_shared/parcel_geometry.ts`)
-Añadir `source: 'catastro_parcel'` como fuente PRIMARIA. Servicio WFS INSPIRE de la Dirección General del Catastro: `https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx`, FeatureType `cp:CadastralParcel`.
+---
 
-- **Consulta por refcatastral (14):** `GetFeature` con filtro `cp:nationalCadastralReference = {rc14}`, output GML 3.2.1.
-- **Consulta por coordenadas (fallback INSPIRE):** `GetFeature` con `BBOX` 30 m alrededor del centroide, EPSG:4326; del FeatureCollection devuelto, escoger la parcela cuyo polígono contiene el punto.
-- Parsear `gml:Polygon` → `exterior_ring` + `interior_rings` (patios catastrados aparecen como `gml:interior`).
-- Cachear igual que los demás (`source='catastro_parcel'`, `confidence='alta'` cuando coincide rc14).
-- Retry 2 veces con backoff 800 ms / 2 s; timeout 20 s. Si falla → siguiente origen.
+### 1. Subdivisión Chamberí y Salamanca (motor de categorización)
 
-### 2. Orden de orígenes en `fetchParcelGeometry`
-```text
-1) catastro_parcel  (INSPIRE WFS-CP, por rc14)
-2) catastro_parcel  (INSPIRE WFS-CP, por bbox/coords)
-3) overpass_ref
-4) overpass_bbox
-5) wfs_inspire   (el WFS-INSPIRE Buildings actual, fallback histórico)
-6) fallback_geometrico (sqrt(area_catastro))
-```
-Cada origen pasa por la misma **validación de área contra catastro authority** definida en (3). Se devuelve el primer candidato que pase. Si ninguno pasa, se devuelve el menos malo con `confidence='baja'` y flag `polygon_no_fiable`.
+Hoy `madrid_barrio_clusters` mapea un cluster por barrio entero. Voy a:
 
-### 3. Validación de polígono contra catastro
-Tras cada candidato, comparar `area_m2` con `superficie_parcela_m2` del catastro authority (nuevo parámetro `expected_area_m2`):
-- Si `area < 0.5 * expected` o `|area - expected| / expected > 0.4` → descartar, flag `polygon_area_mismatch_catastro`, intentar siguiente origen.
-- Si todos fallan → devolver el de mayor área (más cercano) con `confidence='baja'` y `polygon_no_fiable`.
-- Cachear igualmente con `flags` para no martillear orígenes.
+- Añadir columna `sub_zona` (texto) y `cluster_override` por calle/tramo a una nueva tabla `madrid_calles_subzona` (calle normalizada + rango de números opcional + sub-zona).
+- Migración con heurística inicial:
+  - **Chamberí prime**: Almagro entero, eje Castellana, Génova-Sagasta, Fortuny, Fernando el Santo → `prime_value_add` puro.
+  - **Chamberí flex**: Gaztambide, Vallehermoso, Hilarión Eslava, Magallanes, Galileo, Donoso Cortés → `flex_living_core` con techo en prime_value_add si tamaño>1500 y ratio bueno.
+  - **Salamanca prime**: Serrano, Velázquez, Castelló, Lagasca, Goya entre Serrano y Velázquez, Recoletos → `ultra_prime` o `prime_value_add` según tamaño.
+  - **Salamanca flex (Guindalera/Fuente del Berro/Lista este)**: Porvenir, Cartagena, Francisco Silvela, Pilar de Zaragoza → `flex_living_core`.
+- En `compute_cluster_score` añadir consulta opcional a `madrid_calles_subzona` ANTES de aplicar el cluster del barrio: si hay match por calle (normalizada) gana sobre el barrio.
+- Recategoriza automáticamente Gaztambide 13 (→ flex), Porvenir 8 (→ flex) y deja Serrano 16 como ultra_prime.
 
-### 4. Detección geométrica de esquina (`_shared/parcel_geometry.ts`)
-Nueva función exportada `detectStreetEdges(ring, opts)` que devuelve `{ street_edges, is_corner, total_street_length_m, corner_angle_deg }`:
-1. Para cada arista del anillo exterior, lanzar 3 ray-casts cortos (8 m) hacia su normal exterior.
-2. Clasificar arista como "a calle" si Overpass devuelve un `way[highway~"^(primary|secondary|tertiary|residential|living_street|pedestrian|unclassified)$"]` a ≤8 m en al menos 2 de los 3 ray-casts, y no hay otro `building=*` interpuesto.
-3. Una sola query Overpass por edificio con bbox del polígono + 20 m, filtrar las vías cacheadas en memoria del request.
-4. `is_corner = true` ⇔ ≥2 aristas a calle con ángulo entre sus bearings en [60°, 120°].
-5. `total_street_length_m = Σ longitudes de aristas a calle`.
+### 2. Owners: dedup en UI + bonus proindiviso >5 (motor)
 
-Cachear en columna nueva `street_edges_jsonb` de `parcel_geometry_cache`.
+- **UI**: cambiar `BuildingDetail` / `EdificioDetalle` para mostrar `count_distinct_owners()` en vez de `building_owners.count`. Topete 33 pasará de "4" a "22".
+- **Motor**: nuevo tramo de puntuación en el componente `owners` de `compute_cluster_score`:
+  - 1 owner: 0
+  - 2-4: peso actual
+  - 5-9: +0.5 sobre el peso del cluster
+  - 10+: +1.0 sobre el peso del cluster + flag `proindiviso_grande` en avisos
+- Aplica a Topete 33 (22), Esparteros 13 (29), Amparo 92 (10), Manuela Malasaña, Gaztambide.
 
-### 5. Refactor `count-facade-windows/index.ts`
-- Llamar `fetchParcelGeometry` pasando `expected_area_m2` del catastro authority.
-- Si la geometría es fiable (`confidence != 'baja'` y sin `polygon_no_fiable`), invocar `detectStreetEdges`.
-- Ordenar street_edges por longitud descendente:
-  - `fachada_principal` = arista más larga.
-  - `fachada_secundaria` = siguiente arista a calle si `is_corner=true` y ángulo en [60°, 120°] respecto a la principal.
-- Calcular `heading` y 3 capturas Street View **por fachada** (principal + secundaria si existe). Hasta 6 imágenes.
-- VLM prompt modificado: pide ejes para `fachada_principal` y `fachada_secundaria` por separado; devuelve `{ejes_principal, ejes_secundaria, ...}`. Quitar `edificio_hace_esquina` del prompt.
-- Fórmula nueva:
-  ```text
-  ejes_total = ejes_principal + ejes_secundaria
-  vtt = ejes_total * plantas_tipo
-  vbp = hayPortal ? ejes_total - 1 : ejes_total
-  ven = has_entresuelo ? ejes_total - 1 : 0
-  total = vtt + vbp + ven
-  longitud_fachada_total_m = suma de aristas a calle
-  ```
-- Si geometría no fiable → fallback actual (1 arista, VLM cuenta lo que ve) + flag `esquina_no_detectable_por_geometria`.
+### 3. Protección histórica: cruce con catálogo PGOU Madrid
 
-### 6. Persistencia (`facade_window_counts`) — migración
-- `es_esquina BOOLEAN`
-- `esquina_source TEXT` (`geometria` | `vlm_fallback` | `desconocido`)
-- `fachadas_a_calle JSONB` (array `[{bearing, len, heading, street_name?}]`)
-- `longitud_fachada_total_m NUMERIC`
-- `longitud_fachada_m` se mantiene = longitud de la principal (compat UI).
-- Reusar `fachada_secundaria` (ya nullable) para los ejes de la secundaria.
+- Edge function nueva `sync-pgou-catalog-protegidos`: descarga el Catálogo de Bienes y Espacios Protegidos del Ayuntamiento de Madrid (datos abiertos: dataset "Catálogo Geográfico de Edificios Protegidos") y lo cachea en tabla nueva `madrid_edificios_protegidos` con `ref_catastral`, `nivel_proteccion`, `direccion_normalizada`.
+- Nueva función `check-proteccion-pgou` por edificio: cruza `catastro_data.refcat` y, si no hay match exacto, normaliza dirección + portal y hace fuzzy.
+- Si match → fuerza `building_analysis.protegido_historicamente = true` con `proteccion_source = 'pgou_catalogo'`.
+- Si la VLM había dicho true y el catálogo dice false, dejamos hint pero no sobrescribimos sin revisión.
+- Reproceso de la cartera (74) en lote.
+- Resuelve Juan Duque 14, Gaztambide 13, Sanz Raso 18.
 
-### 7. UI (`/comercial/edificios/:id`)
-- Campo "ESQUINA" lee `facade_window_counts.es_esquina` (no `vlm_parsed.edificio_hace_esquina`).
-- Mostrar `longitud_fachada_total_m` con tooltip "suma de fachadas a calle".
+### 4. Conteo de ventanas: prompt v2 + remuestreo
 
-### 8. Validación
-- **Topete 33** (rc14 `0382201VK4708C0001IZ`, 2369 m²): esperar que `catastro_parcel` por rc14 devuelva el polígono real (~2300-2400 m²) → pasa validación → `detectStreetEdges` detecta esquina (Topete × calle perpendicular) → `es_esquina=true`, `total_street_length_m` ≈ 30-40 m → VLM cuenta ejes en 2 fachadas → total realista.
-- **Díaz Porlier 47** (rc14 `2658209VK4725H0001UM`, ~933 m² en Overpass): catastro_parcel valida o, si discrepa, overpass_bbox pasa. `es_esquina=false`.
-- 5 edificios más de cartera para medir cobertura real de `catastro_parcel` y cuántos polígonos pasan validación.
+- Reforzar el prompt VLM en `count-facade-windows` y `count-patio-windows`:
+  - Definir explícitamente: ventana = hueco vidriado con marco; **no contar** como ventana de patio: respiraderos, celosías de tendedero, claraboyas, balcones cerrados ya contados en fachada.
+  - Pedir conteo por planta visible y validar `total = sum(plantas)` antes de devolver.
+  - Devolver `confidence` por imagen y descartar imágenes con confidence<0.4 antes de promediar.
+- Relanzo los 11 edificios del feedback con `force=true` y te enseño tabla comparativa antes/después.
+- Si la mejora se ve clara, segunda tanda con los 63 restantes.
 
-## Orden de implementación
-1. Migración SQL (`parcel_geometry_cache.street_edges_jsonb`, columnas nuevas en `facade_window_counts`).
-2. `_shared/parcel_geometry.ts`: fuente `catastro_parcel` (rc14 + bbox), validación de área, `detectStreetEdges`.
-3. `count-facade-windows/index.ts`: nuevo flujo principal+secundaria, prompt VLM, fórmula, persistencia.
-4. UI: campo ESQUINA y longitud total.
-5. Pruebas contra Topete 33 y Díaz Porlier 47.
+### 5. Reglas de cambio de uso + render del scoring summary (bug Topete)
 
-## Fuera de alcance
-- `count-patio-windows`: no se toca en este paso (aunque se beneficiará automáticamente del polígono catastral con patios reales).
-- Recompute masivo del scoring: tras validar 10-15 edificios manualmente.
-- Sub-zonificación Salamanca/Chamberí: pendiente, sin relación con este cambio.
+- En `compute_cluster_score` ya está la regla `cambio_uso_hospedaje` cuando protegido + ≥2 escaleras. Está fallando porque:
+  - Amparo 92: regla aplicada pero no aparece como aviso en UI → revisar render avisos.
+  - Plaza San Miguel 5: solo detecta 1 escalera (VLM mal) → al actualizar a 2 disparará.
+  - Serrano 16: ya marcado ultra_prime, pero terciario_pct está mal calculado porque le falta el dato de superficies; revisar fallback al campo del catastro authority.
+- **Bug Topete**: el resumen muestra "rango 500-1000 m²" cuando el edificio tiene 2369 m². Es el campo `rango_tamano` que se calcula con el cluster que tuviera **antes** del gate degradación. Hay que recalcularlo después de aplicar el gate.
+- HubSpot SL Serrano 16: en `building_owners` cargamos contactos pero no empresas. Añadir join también con `building_companies` en el resumen de propiedad.
+
+---
+
+### Orden de entrega
+
+1. Migración subdivisión barrios + edit motor + recategoriza ya (frente 1).
+2. Migración dedup owners + bonus + fix UI (frente 2).
+3. Bug render Topete + fix terciario Serrano + render avisos cambio_uso (frente 5).
+4. Function sync catálogo PGOU + reproceso protección (frente 3).
+5. Prompt VLM v2 + remuestreo 11 + decisión sobre los 63 (frente 4).
+
+Cada frente termina con tabla comparativa antes/después de los 11 edificios del feedback.
+
+### Lo que **no** voy a tocar
+
+- Lectura del catastro (DNPRC, planos).
+- Plantas levantables (Sanz Raso 18): requiere normativa por calle, lo dejamos para otra tanda.
+- Texto narrativo del `score_summary` (lo regenera `enhance-building-score` al final automáticamente).
+
+¿Lanzo el frente 1 ya o reordenamos?
