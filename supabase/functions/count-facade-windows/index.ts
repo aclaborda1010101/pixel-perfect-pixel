@@ -177,11 +177,20 @@ async function callVlm(imagesBase64: string[], ctx: {
   const prompt = `Eres un arquitecto técnico analizando UNA fachada concreta de un edificio residencial en Madrid. Te paso 3 fotos de Street View de la MISMA fachada (la "${ctx.fachada_label}") desde 3 puntos distintos.
 
 DEFINICIÓN VINCULANTE de "ventana":
-Hueco arquitectónico en una habitación con salida al exterior que permite segregar esa habitación como pieza habitable independiente.
-- Un mirador (bow window) = 1 ventana (no cuentes los paños individuales)
-- Una puerta-balcón = 1 ventana
-- Un balcón corrido con 2 puertas-balcón a habitaciones distintas = 2 ventanas
-- Ventanas de escalera = NO cuentan
+Hueco arquitectónico VIDRIADO con marco, en una habitación con salida al exterior, que permite
+segregar esa habitación como pieza habitable independiente.
+SÍ cuentan:
+- Un mirador (bow window) = 1 ventana (no cuentes los paños individuales).
+- Una puerta-balcón = 1 ventana.
+- Un balcón corrido con 2 puertas-balcón a habitaciones distintas = 2 ventanas.
+- Locales comerciales en planta baja = sí cuentan como ventanas de planta baja.
+NO cuentan (no los confundas con ventanas):
+- Ventanas de escalera.
+- Respiraderos / rejillas de ventilación.
+- Celosías o lamas de tendedero.
+- Claraboyas (van en cubierta, no en fachada).
+- Balcones cerrados ya contados como mirador/puerta-balcón (no los duplicaes).
+- Huecos ciegos, trampantojos o decoración.
 
 DATOS DE CATASTRO (vinculantes, no contradigas):
 - Plantas habitables sobre rasante: ${ctx.inferred_floor_count}
