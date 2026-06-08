@@ -263,6 +263,29 @@ async function callOverpass(query: string): Promise<any | null> {
   return null;
 }
 
+// Variante rápida: 1 intento por endpoint, timeout corto (8s), sin backoff.
+// Usada por detectStreetEdges para no encadenar timeouts de 20s × 3 endpoints.
+async function callOverpassFast(query: string, timeoutMs = 8_000): Promise<any | null> {
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const r = await fetchWithTimeout(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Accept": "application/json",
+          "User-Agent": "AffluxOS/1.0 (geometry-fetch; contact: ops@affluxos.com)",
+        },
+        body: query,
+      }, timeoutMs);
+      if (r.ok) return await r.json();
+      console.warn(`overpass-fast ${r.status} @ ${endpoint} → next`);
+    } catch (e) {
+      console.warn(`overpass-fast error @ ${endpoint}: ${(e as Error).message}`);
+    }
+  }
+  return null;
+}
+
 function parseOverpassElements(j: any): Array<{
   osm_id: number;
   osm_type: "way" | "relation";
