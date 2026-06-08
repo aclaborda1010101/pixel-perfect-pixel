@@ -5,6 +5,7 @@
 // Validado contra Díaz Porlier 47 → 47 ventanas (7 ejes × 5 + 6 + 6).
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
+import { fetchParcelGeometry } from "../_shared/parcel_geometry.ts";
 
 const TTL_CAPTURES_MS = 90 * 24 * 60 * 60 * 1000;
 const SV_SIZE = "640x640";
@@ -55,32 +56,6 @@ function angularDiff(a: number, b: number): number {
   let d = Math.abs(((a - b + 540) % 360) - 180);
   if (d > 90) d = 180 - d;
   return d;
-}
-
-// ---------- Catastro WMS-INSPIRE (polígono de parcela) ----------
-async function fetchParcelPolygon(rc14: string): Promise<[number, number][] | null> {
-  // WFS GetFeature en GeoJSON. nationalCadastralReference usa los 14 chars del rc.
-  const filter =
-    `<ogc:Filter xmlns:ogc="http://www.opengis.net/ogc"><ogc:PropertyIsEqualTo><ogc:PropertyName>cp:nationalCadastralReference</ogc:PropertyName><ogc:Literal>${rc14}</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter>`;
-  const url = `https://ovc.catastro.meh.es/INSPIRE/wfsParcel.aspx?service=WFS&version=2.0.0&request=GetFeature&typeNames=cp:CadastralParcel&srsName=EPSG:4326&outputFormat=application/json&Filter=${encodeURIComponent(filter)}`;
-  try {
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!r.ok) return null;
-    const ct = r.headers.get("content-type") ?? "";
-    if (!ct.includes("json")) return null;
-    const j = await r.json();
-    const f = j?.features?.[0];
-    const geom = f?.geometry;
-    if (!geom) return null;
-    // Toma primer anillo exterior
-    let ring: [number, number][] | null = null;
-    if (geom.type === "Polygon") ring = geom.coordinates?.[0] ?? null;
-    else if (geom.type === "MultiPolygon") ring = geom.coordinates?.[0]?.[0] ?? null;
-    if (!ring || ring.length < 4) return null;
-    return ring;
-  } catch (_e) {
-    return null;
-  }
 }
 
 function ringEdges(ring: [number, number][]): { a: [number, number]; b: [number, number]; len: number; bearing: number; midpoint: [number, number] }[] {
