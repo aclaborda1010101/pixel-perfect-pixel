@@ -750,10 +750,12 @@ export async function fetchParcelGeometry(opts: {
   lon?: number | null;
   force?: boolean;
   sbAdmin: any;
+  expected_area_m2?: number | null;
 }): Promise<ParcelGeometry> {
   const rc14 = opts.refcatastral_14;
   const sb = opts.sbAdmin;
   const flags: string[] = [];
+  const expected = opts.expected_area_m2 ?? null;
 
   // 1) Caché
   if (!opts.force) {
@@ -778,6 +780,9 @@ export async function fetchParcelGeometry(opts: {
         osm_id: hit.osm_id ?? undefined,
         osm_type: (hit.osm_type as "way" | "relation" | null) ?? undefined,
         cached: true,
+        street_edges: (hit.street_edges_jsonb as StreetEdge[] | null) ?? null,
+        is_corner: (hit.is_corner as boolean | null) ?? null,
+        total_street_length_m: hit.total_street_length_m != null ? Number(hit.total_street_length_m) : null,
       };
     }
   }
@@ -791,40 +796,87 @@ export async function fetchParcelGeometry(opts: {
     osm_type?: "way" | "relation";
     raw?: any;
   } | null = null;
+  // Mejor candidato si todos fallan la validación: el de mayor área (más cercano).
+  let bestRejected: { result: NonNullable<typeof result>; area: number } | null = null;
 
-  // 2) Overpass por rc14
+  const tryCandidate = (cand: NonNullable<typeof result>): boolean => {
+    const a = ringArea(cand.ring);
+    const v = validateAreaAgainstCatastro(a, expected);
+    if (v.ok) {
+      result = cand;
+      return true;
+    }
+    flags.push(v.reason ?? "polygon_area_mismatch_catastro");
+    if (!bestRejected || a > bestRejected.area) bestRejected = { result: cand, area: a };
+    console.warn(`geom candidate rejected (${cand.source}): area=${a.toFixed(0)} expected=${expected} → ${v.reason}`);
+    return false;
+  };
+
+  // 1) catastro_parcel por rc14 (INSPIRE Cadastral Parcels — autoritativo)
   try {
-    const r = await overpassByRef(rc14);
-    if (r) {
-      result = { ring: r.ring, inner: r.inner, source: "overpass_ref", confidence: "alta", osm_id: r.osm_id, osm_type: r.osm_type };
+    const r = await catastroParcelByRef(rc14);
+    if (r && r.ring.length >= 4) {
+      tryCandidate({ ring: r.ring, inner: r.inner, source: "catastro_parcel_ref", confidence: "alta" });
     }
   } catch (e) {
-    console.warn("overpass ref error", e);
+    console.warn("catastro_parcel ref error", (e as Error).message);
   }
 
-  // 3) Overpass por bbox alrededor del centroide
+  // 2) catastro_parcel por coordenadas
+  if (!result && typeof opts.lat === "number" && typeof opts.lon === "number") {
+    try {
+      const r = await catastroParcelByBbox(opts.lat, opts.lon);
+      if (r && r.ring.length >= 4) {
+        tryCandidate({ ring: r.ring, inner: r.inner, source: "catastro_parcel_bbox", confidence: "alta" });
+      }
+    } catch (e) {
+      console.warn("catastro_parcel bbox error", (e as Error).message);
+    }
+  }
+
+  // 3) Overpass por rc14
+  if (!result) {
+    try {
+      const r = await overpassByRef(rc14);
+      if (r) {
+        tryCandidate({ ring: r.ring, inner: r.inner, source: "overpass_ref", confidence: "alta", osm_id: r.osm_id, osm_type: r.osm_type });
+      }
+    } catch (e) {
+      console.warn("overpass ref error", e);
+    }
+  }
+
+  // 4) Overpass por bbox
   if (!result && typeof opts.lat === "number" && typeof opts.lon === "number") {
     try {
       const r = await overpassByBbox(opts.lat, opts.lon);
       if (r) {
-        result = { ring: r.ring, inner: r.inner, source: "overpass_bbox", confidence: "media", osm_id: r.osm_id, osm_type: r.osm_type };
-        flags.push("geometry_via_bbox");
+        if (tryCandidate({ ring: r.ring, inner: r.inner, source: "overpass_bbox", confidence: "media", osm_id: r.osm_id, osm_type: r.osm_type })) {
+          flags.push("geometry_via_bbox");
+        }
       }
     } catch (e) {
       console.warn("overpass bbox error", e);
     }
   }
 
-  // 4) WFS-INSPIRE
+  // 5) WFS-INSPIRE (legacy wfsParcel.aspx)
   if (!result) {
     try {
       const r = await wfsInspire(rc14);
       if (r) {
-        result = { ring: r.ring, inner: r.inner, source: "wfs_inspire", confidence: "media" };
+        tryCandidate({ ring: r.ring, inner: r.inner, source: "wfs_inspire", confidence: "media" });
       }
     } catch (e) {
       console.warn("wfs-inspire error", e);
     }
+  }
+
+  // Si ninguno pasó validación pero hay un candidato → usarlo con confianza baja.
+  if (!result && bestRejected) {
+    result = bestRejected.result;
+    result.confidence = "baja";
+    if (!flags.includes("polygon_no_fiable")) flags.push("polygon_no_fiable");
   }
 
   // 5) Fallback geométrico
@@ -867,6 +919,27 @@ export async function fetchParcelGeometry(opts: {
   const bbox = bboxOf(exterior);
   const centroid = centroidOf(exterior);
 
+  // Detección geométrica de aristas a calle (sólo si la geometría es razonable).
+  let street_edges: StreetEdge[] = [];
+  let is_corner = false;
+  let total_street_length_m = 0;
+  if (
+    exterior.length >= 4 &&
+    result.source !== "fallback" &&
+    !flags.includes("polygon_no_fiable")
+  ) {
+    try {
+      const det = await detectStreetEdges(exterior, { lat: centroid.lat, lon: centroid.lon });
+      street_edges = det.street_edges;
+      is_corner = det.is_corner;
+      total_street_length_m = det.total_street_length_m;
+      if (det.is_corner) flags.push("esquina_detectada_geometria");
+      if (det.street_edges.length === 0) flags.push("sin_aristas_a_calle_detectadas");
+    } catch (e) {
+      console.warn("detectStreetEdges error", (e as Error).message);
+    }
+  }
+
   // Persistir en caché (upsert por rc14)
   try {
     await sb.from("parcel_geometry_cache").upsert({
@@ -882,6 +955,9 @@ export async function fetchParcelGeometry(opts: {
       osm_id: result.osm_id ?? null,
       osm_type: result.osm_type ?? null,
       flags,
+      street_edges_jsonb: street_edges,
+      is_corner,
+      total_street_length_m,
       fetched_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString(),
     }, { onConflict: "refcatastral_14" });
@@ -903,5 +979,8 @@ export async function fetchParcelGeometry(opts: {
     osm_id: result.osm_id,
     osm_type: result.osm_type,
     cached: false,
+    street_edges,
+    is_corner,
+    total_street_length_m,
   };
 }
