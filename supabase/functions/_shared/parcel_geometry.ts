@@ -643,6 +643,45 @@ async function catastroParcelByBbox(lat: number, lon: number): Promise<{ ring: [
 }
 
 // ---------- Detección geométrica de aristas a calle + esquina ----------
+// Fusiona vértices "ruido" del polígono catastral (chaflanes rasterizados):
+// elimina v si el giro entre (prev->v) y (v->next) es <= angleThresholdDeg.
+// Devuelve un nuevo anillo cerrado.
+export function mergeCollinearRing(
+  ring: [number, number][],
+  angleThresholdDeg = 10,
+): [number, number][] {
+  if (ring.length < 4) return ring;
+  // trabajamos sobre puntos únicos (sin el cierre duplicado)
+  const closed = ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1];
+  const pts = closed ? ring.slice(0, -1) : ring.slice();
+  let changed = true;
+  let guard = 0;
+  while (changed && guard++ < 20) {
+    changed = false;
+    const out: [number, number][] = [];
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      const prev = pts[(i - 1 + n) % n];
+      const cur = pts[i];
+      const next = pts[(i + 1) % n];
+      const b1 = bearingDeg(prev, cur);
+      const b2 = bearingDeg(cur, next);
+      const diff = angularDiffDeg(b1, b2); // 0 = recto, 180 = U-turn
+      if (diff <= angleThresholdDeg) {
+        // colineal → soltamos cur
+        changed = true;
+        continue;
+      }
+      out.push(cur);
+    }
+    pts.length = 0;
+    pts.push(...out);
+    if (pts.length < 4) break;
+  }
+  pts.push(pts[0]);
+  return pts;
+}
+
 export async function detectStreetEdges(
   ring: [number, number][],
   opts: { lat: number; lon: number; padding_m?: number },
@@ -650,9 +689,15 @@ export async function detectStreetEdges(
   if (ring.length < 4) {
     return { street_edges: [], is_corner: false, total_street_length_m: 0, corner_angle_deg: null };
   }
+  // Fusiona aristas colineales (chaflanes rasterizados del Catastro) ANTES del
+  // probing, para que principal/secundaria reflejen las fachadas reales.
+  const mergedRing = mergeCollinearRing(ring, 10);
+  console.log("detectStreetEdges merge", JSON.stringify({
+    edges_in: ring.length - 1, edges_after_merge: mergedRing.length - 1,
+  }));
   const padding = opts.padding_m ?? 25;
   // Bounding box del polígono + padding (metros) → radio Overpass.
-  const bb = bboxOf(ring);
+  const bb = bboxOf(mergedRing);
   const cLat = (bb.minLat + bb.maxLat) / 2;
   const cLon = (bb.minLon + bb.maxLon) / 2;
   // Radio aproximado en metros desde el centro a la esquina + padding.
@@ -679,7 +724,7 @@ out geom;`;
     console.warn("overpass highways error", (e as Error).message);
   }
 
-  const polyCentroidLL = centroidOf(ring); // {lat, lon}
+  const polyCentroidLL = centroidOf(mergedRing); // {lat, lon}
   const polyCentroidPt: [number, number] = [polyCentroidLL.lon, polyCentroidLL.lat];
 
   // Distancia mínima de un punto a la red de carreteras (en metros) y nombre.
@@ -735,8 +780,8 @@ out geom;`;
   const MIN_HITS_REQUIRED = 1;
   const diag: any[] = [];
 
-  for (let i = 0; i < ring.length - 1; i++) {
-    const a = ring[i], b = ring[i + 1];
+  for (let i = 0; i < mergedRing.length - 1; i++) {
+    const a = mergedRing[i], b = mergedRing[i + 1];
     const len = haversine(a, b);
     if (len < 1.5) continue; // ignora micro-aristas (vértices ruido)
     const brg = bearingDeg(a, b);
@@ -803,7 +848,7 @@ out geom;`;
       });
     }
   }
-  console.log("detectStreetEdges diag", JSON.stringify({ radius, highways: highways.length, edges_total: ring.length - 1, edges_detected: street_edges.length, per_edge: diag }));
+  console.log("detectStreetEdges diag", JSON.stringify({ radius, highways: highways.length, edges_total: mergedRing.length - 1, edges_raw: ring.length - 1, edges_detected: street_edges.length, per_edge: diag }));
 
   // Orden por longitud descendente.
   street_edges.sort((x, y) => y.len_m - x.len_m);
