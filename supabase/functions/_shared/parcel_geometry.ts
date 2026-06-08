@@ -923,7 +923,12 @@ export async function fetchParcelGeometry(opts: {
   const rc14 = opts.refcatastral_14;
   const sb = opts.sbAdmin;
   const flags: string[] = [];
-  const expected = opts.expected_area_m2 ?? null;
+  // expected_area_m2 inicial: el del authority cache (superficie construida).
+  // Lo SUSTITUIMOS por el areaValue del propio servicio INSPIRE (superficie de suelo
+  // real de parcela) en cuanto lo tengamos, que es lo que debe validar el polígono.
+  let expected = opts.expected_area_m2 ?? null;
+  const expected_authority = expected;
+  let expected_inspire: number | null = null;
 
   // 1) Caché
   if (!opts.force) {
@@ -984,14 +989,19 @@ export async function fetchParcelGeometry(opts: {
   try {
     const r = await catastroParcelByRef(rc14);
     if (r && r.ring.length >= 4) {
-      // Match exacto por REFCAT vía stored query GetParcel: es la fuente autoritativa
-      // de Catastro (DG Catastro). No la sometemos a la validación de área contra el
-      // authority cache porque ese valor puede no ser el suelo de parcela.
+      // Match exacto por REFCAT (GetParcel): fuente autoritativa.
+      // Si el GML trae <cp:areaValue>, lo usamos como expected (superficie de suelo
+      // real INSPIRE) en lugar del authority cache (que suele ser construida).
+      if (r.areaValue && r.areaValue > 0) {
+        expected_inspire = r.areaValue;
+        expected = r.areaValue;
+        flags.push(`expected_area_from_inspire:${Math.round(r.areaValue)}`);
+      }
       const a = ringArea(r.ring);
       const v = validateAreaAgainstCatastro(a, expected);
       if (!v.ok) {
         flags.push("catastro_parcel_ref_area_diverge_authority");
-        console.warn(`catastro_parcel_ref area=${a.toFixed(0)} diverge del authority=${expected} (aceptado igualmente, fuente autoritativa)`);
+        console.warn(`catastro_parcel_ref area=${a.toFixed(0)} expected(inspire=${expected_inspire},auth=${expected_authority}) → ${v.reason} (aceptado igualmente, fuente autoritativa)`);
       }
       result = { ring: r.ring, inner: r.inner, source: "catastro_parcel_ref", confidence: "alta" };
     }
@@ -1004,6 +1014,11 @@ export async function fetchParcelGeometry(opts: {
     try {
       const r = await catastroParcelByBbox(opts.lat, opts.lon);
       if (r && r.ring.length >= 4) {
+        if (r.areaValue && r.areaValue > 0 && !expected_inspire) {
+          expected_inspire = r.areaValue;
+          expected = r.areaValue;
+          flags.push(`expected_area_from_inspire:${Math.round(r.areaValue)}`);
+        }
         tryCandidate({ ring: r.ring, inner: r.inner, source: "catastro_parcel_bbox", confidence: "alta" });
       }
     } catch (e) {
