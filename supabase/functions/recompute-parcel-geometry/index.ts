@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
       });
     }
     const { data: bldg } = await sb.from("buildings")
-      .select("refcatastral, metadatos, lat, lon").eq("id", building_id).maybeSingle();
+      .select("refcatastral, metadatos").eq("id", building_id).maybeSingle();
     const rc14 = String(bldg?.refcatastral ?? (bldg?.metadatos as any)?.referencia_catastral ?? "")
       .replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 14);
     if (!rc14 || rc14.length < 14) {
@@ -26,17 +26,15 @@ Deno.serve(async (req) => {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const lat = (bldg as any)?.lat ?? (bldg?.metadatos as any)?.lat ?? null;
-    const lon = (bldg as any)?.lon ?? (bldg?.metadatos as any)?.lon ?? null;
-    // Authority expected_area (puede ser construida → quedará overrideado por areaValue INSPIRE)
     const { data: auth } = await sb.from("catastro_authority_cache")
-      .select("superficie_parcela_m2").eq("refcatastral_14", rc14).maybeSingle();
+      .select("superficie_parcela_m2, lat, lon").eq("refcatastral_14", rc14).maybeSingle();
     const expected = auth?.superficie_parcela_m2 ? Number(auth.superficie_parcela_m2) : null;
+    const lat = auth?.lat != null ? Number(auth.lat) : null;
+    const lon = auth?.lon != null ? Number(auth.lon) : null;
     const t0 = Date.now();
     const geom = await fetchParcelGeometry({
       refcatastral_14: rc14,
-      lat: typeof lat === "number" ? lat : null,
-      lon: typeof lon === "number" ? lon : null,
+      lat, lon,
       force: !!force,
       sbAdmin: sb,
       expected_area_m2: expected,
