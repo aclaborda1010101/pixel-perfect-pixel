@@ -757,6 +757,7 @@ export type Database = {
           created_at: string
           direccion: string
           division_horizontal: boolean
+          es_esquina_manual: boolean | null
           estado: Database["public"]["Enums"]["building_status"]
           id: string
           last_synced_at: string | null
@@ -784,6 +785,7 @@ export type Database = {
           created_at?: string
           direccion: string
           division_horizontal?: boolean
+          es_esquina_manual?: boolean | null
           estado?: Database["public"]["Enums"]["building_status"]
           id?: string
           last_synced_at?: string | null
@@ -811,6 +813,7 @@ export type Database = {
           created_at?: string
           direccion?: string
           division_horizontal?: boolean
+          es_esquina_manual?: boolean | null
           estado?: Database["public"]["Enums"]["building_status"]
           id?: string
           last_synced_at?: string | null
