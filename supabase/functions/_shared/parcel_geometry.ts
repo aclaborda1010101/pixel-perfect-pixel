@@ -530,7 +530,20 @@ function extractGmlRingsFromXml(xml: string): { exterior: [number, number][]; in
   return polys;
 }
 
-async function callCatastroCP(params: Record<string, string>): Promise<{ polys: ReturnType<typeof extractGmlRingsFromXml> } | null> {
+// Extrae <cp:areaValue uom="m2">N</cp:areaValue> por cada feature CadastralParcel.
+// Devuelve la lista en orden de aparición. Si no encuentra ninguno, devuelve [].
+function extractAreaValuesFromXml(xml: string): number[] {
+  const out: number[] = [];
+  const re = /<(?:\w+:)?areaValue[^>]*>\s*([\d.]+)\s*<\/(?:\w+:)?areaValue>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const v = Number(m[1]);
+    if (isFinite(v) && v > 0) out.push(v);
+  }
+  return out;
+}
+
+async function callCatastroCP(params: Record<string, string>): Promise<{ polys: ReturnType<typeof extractGmlRingsFromXml>; areaValues: number[] } | null> {
   const u = new URL(CP_ENDPOINT);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -552,6 +565,7 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
         try {
           const j = JSON.parse(body);
           const out: ReturnType<typeof extractGmlRingsFromXml> = [];
+          const av: number[] = [];
           for (const f of (j?.features ?? [])) {
             const g = f?.geometry;
             if (!g) continue;
@@ -563,14 +577,18 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
               .filter((rr) => rr && rr.length >= 4)
               .map((rr) => ensureClosed(rr as [number, number][]));
             out.push({ exterior, interiors });
+            const props = f?.properties ?? {};
+            const a = Number(props.areaValue ?? props.area ?? props.AREA ?? 0);
+            av.push(isFinite(a) && a > 0 ? a : 0);
           }
-          if (out.length > 0) return { polys: out };
+          if (out.length > 0) return { polys: out, areaValues: av };
         } catch (_e) { /* caer a GML */ }
       }
       // Tratar como XML/GML.
       const polys = extractGmlRingsFromXml(body);
-      console.log(`catastro-CP parsed polys=${polys.length}`);
-      if (polys.length > 0) return { polys };
+      const areaValues = extractAreaValuesFromXml(body);
+      console.log(`catastro-CP parsed polys=${polys.length} areaValues=${areaValues.length}`);
+      if (polys.length > 0) return { polys, areaValues };
       return null;
     } catch (e) {
       console.warn(`catastro-CP error attempt ${attempt + 1}: ${(e as Error).message}`);
@@ -580,7 +598,7 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
   return null;
 }
 
-async function catastroParcelByRef(rc14: string): Promise<{ ring: [number, number][]; inner: [number, number][][] } | null> {
+async function catastroParcelByRef(rc14: string): Promise<{ ring: [number, number][]; inner: [number, number][][]; areaValue?: number | null } | null> {
   // StoredQuery oficial GetParcel (REFCAT 14). El parámetro Filter es ignorado por
   // este servicio (devuelve todas las parcelas). REFCAT debe ser de 14 chars.
   const refcat = rc14.slice(0, 14).toUpperCase();
@@ -593,12 +611,19 @@ async function catastroParcelByRef(rc14: string): Promise<{ ring: [number, numbe
     srsname: "EPSG:4326",
   });
   if (!res || res.polys.length === 0) return null;
-  const sorted = [...res.polys].sort((a, b) => ringArea(b.exterior) - ringArea(a.exterior));
-  const pick = sorted[0];
-  return { ring: pick.exterior, inner: pick.interiors };
+  // Mantenemos el orden de aparición para alinear con areaValues; escogemos el de mayor área (igual que antes).
+  let pickIdx = 0;
+  let bestA = -1;
+  for (let i = 0; i < res.polys.length; i++) {
+    const a = ringArea(res.polys[i].exterior);
+    if (a > bestA) { bestA = a; pickIdx = i; }
+  }
+  const pick = res.polys[pickIdx];
+  const areaValue = res.areaValues[pickIdx] ?? res.areaValues[0] ?? null;
+  return { ring: pick.exterior, inner: pick.interiors, areaValue };
 }
 
-async function catastroParcelByBbox(lat: number, lon: number): Promise<{ ring: [number, number][]; inner: [number, number][][] } | null> {
+async function catastroParcelByBbox(lat: number, lon: number): Promise<{ ring: [number, number][]; inner: [number, number][][]; areaValue?: number | null } | null> {
   // BBOX ~30m alrededor del punto. WFS 2.0 espera "minx,miny,maxx,maxy,crs".
   const half = 30; // metros
   const dLat = half / 111320;
@@ -629,17 +654,21 @@ async function catastroParcelByBbox(lat: number, lon: number): Promise<{ ring: [
   if (!res || res.polys.length === 0) return null;
   // Escoger el polígono que contiene el punto; si ninguno, el más cercano.
   const pt: [number, number] = [lon, lat];
-  const containing = res.polys.filter((p) => pointInRing(pt, p.exterior));
-  let pick = containing[0];
-  if (!pick) {
-    let bestDist = Infinity;
-    for (const p of res.polys) {
-      const d = distPointToRing(pt, p.exterior);
-      if (d < bestDist) { bestDist = d; pick = p; }
-    }
-    if (!pick) return null;
+  let pickIdx = -1;
+  for (let i = 0; i < res.polys.length; i++) {
+    if (pointInRing(pt, res.polys[i].exterior)) { pickIdx = i; break; }
   }
-  return { ring: pick.exterior, inner: pick.interiors };
+  if (pickIdx < 0) {
+    let bestDist = Infinity;
+    for (let i = 0; i < res.polys.length; i++) {
+      const d = distPointToRing(pt, res.polys[i].exterior);
+      if (d < bestDist) { bestDist = d; pickIdx = i; }
+    }
+  }
+  if (pickIdx < 0) return null;
+  const pick = res.polys[pickIdx];
+  const areaValue = res.areaValues[pickIdx] ?? null;
+  return { ring: pick.exterior, inner: pick.interiors, areaValue };
 }
 
 // ---------- Detección geométrica de aristas a calle + esquina ----------
@@ -894,7 +923,12 @@ export async function fetchParcelGeometry(opts: {
   const rc14 = opts.refcatastral_14;
   const sb = opts.sbAdmin;
   const flags: string[] = [];
-  const expected = opts.expected_area_m2 ?? null;
+  // expected_area_m2 inicial: el del authority cache (superficie construida).
+  // Lo SUSTITUIMOS por el areaValue del propio servicio INSPIRE (superficie de suelo
+  // real de parcela) en cuanto lo tengamos, que es lo que debe validar el polígono.
+  let expected = opts.expected_area_m2 ?? null;
+  const expected_authority = expected;
+  let expected_inspire: number | null = null;
 
   // 1) Caché
   if (!opts.force) {
@@ -955,14 +989,19 @@ export async function fetchParcelGeometry(opts: {
   try {
     const r = await catastroParcelByRef(rc14);
     if (r && r.ring.length >= 4) {
-      // Match exacto por REFCAT vía stored query GetParcel: es la fuente autoritativa
-      // de Catastro (DG Catastro). No la sometemos a la validación de área contra el
-      // authority cache porque ese valor puede no ser el suelo de parcela.
+      // Match exacto por REFCAT (GetParcel): fuente autoritativa.
+      // Si el GML trae <cp:areaValue>, lo usamos como expected (superficie de suelo
+      // real INSPIRE) en lugar del authority cache (que suele ser construida).
+      if (r.areaValue && r.areaValue > 0) {
+        expected_inspire = r.areaValue;
+        expected = r.areaValue;
+        flags.push(`expected_area_from_inspire:${Math.round(r.areaValue)}`);
+      }
       const a = ringArea(r.ring);
       const v = validateAreaAgainstCatastro(a, expected);
       if (!v.ok) {
         flags.push("catastro_parcel_ref_area_diverge_authority");
-        console.warn(`catastro_parcel_ref area=${a.toFixed(0)} diverge del authority=${expected} (aceptado igualmente, fuente autoritativa)`);
+        console.warn(`catastro_parcel_ref area=${a.toFixed(0)} expected(inspire=${expected_inspire},auth=${expected_authority}) → ${v.reason} (aceptado igualmente, fuente autoritativa)`);
       }
       result = { ring: r.ring, inner: r.inner, source: "catastro_parcel_ref", confidence: "alta" };
     }
@@ -975,6 +1014,11 @@ export async function fetchParcelGeometry(opts: {
     try {
       const r = await catastroParcelByBbox(opts.lat, opts.lon);
       if (r && r.ring.length >= 4) {
+        if (r.areaValue && r.areaValue > 0 && !expected_inspire) {
+          expected_inspire = r.areaValue;
+          expected = r.areaValue;
+          flags.push(`expected_area_from_inspire:${Math.round(r.areaValue)}`);
+        }
         tryCandidate({ ring: r.ring, inner: r.inner, source: "catastro_parcel_bbox", confidence: "alta" });
       }
     } catch (e) {
