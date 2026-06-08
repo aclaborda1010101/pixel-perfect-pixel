@@ -816,7 +816,16 @@ export async function fetchParcelGeometry(opts: {
   try {
     const r = await catastroParcelByRef(rc14);
     if (r && r.ring.length >= 4) {
-      tryCandidate({ ring: r.ring, inner: r.inner, source: "catastro_parcel_ref", confidence: "alta" });
+      // Match exacto por REFCAT vía stored query GetParcel: es la fuente autoritativa
+      // de Catastro (DG Catastro). No la sometemos a la validación de área contra el
+      // authority cache porque ese valor puede no ser el suelo de parcela.
+      const a = ringArea(r.ring);
+      const v = validateAreaAgainstCatastro(a, expected);
+      if (!v.ok) {
+        flags.push("catastro_parcel_ref_area_diverge_authority");
+        console.warn(`catastro_parcel_ref area=${a.toFixed(0)} diverge del authority=${expected} (aceptado igualmente, fuente autoritativa)`);
+      }
+      result = { ring: r.ring, inner: r.inner, source: "catastro_parcel_ref", confidence: "alta" };
     }
   } catch (e) {
     console.warn("catastro_parcel ref error", (e as Error).message);
