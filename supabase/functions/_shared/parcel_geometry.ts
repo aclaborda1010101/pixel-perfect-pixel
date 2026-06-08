@@ -48,6 +48,8 @@ export interface StreetEdge {
   heading: number;          // heading cámara→fachada
   role?: "principal" | "secundaria";
   probes_hit: number;
+  street_source?: "overpass" | "google_roads" | "mixed";
+  google_road_name?: string | null;
 }
 
 export interface StreetEdgesResult {
