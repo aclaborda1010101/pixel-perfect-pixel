@@ -543,7 +543,7 @@ function extractAreaValuesFromXml(xml: string): number[] {
   return out;
 }
 
-async function callCatastroCP(params: Record<string, string>): Promise<{ polys: ReturnType<typeof extractGmlRingsFromXml> } | null> {
+async function callCatastroCP(params: Record<string, string>): Promise<{ polys: ReturnType<typeof extractGmlRingsFromXml>; areaValues: number[] } | null> {
   const u = new URL(CP_ENDPOINT);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -565,6 +565,7 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
         try {
           const j = JSON.parse(body);
           const out: ReturnType<typeof extractGmlRingsFromXml> = [];
+          const av: number[] = [];
           for (const f of (j?.features ?? [])) {
             const g = f?.geometry;
             if (!g) continue;
@@ -576,14 +577,18 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
               .filter((rr) => rr && rr.length >= 4)
               .map((rr) => ensureClosed(rr as [number, number][]));
             out.push({ exterior, interiors });
+            const props = f?.properties ?? {};
+            const a = Number(props.areaValue ?? props.area ?? props.AREA ?? 0);
+            av.push(isFinite(a) && a > 0 ? a : 0);
           }
-          if (out.length > 0) return { polys: out };
+          if (out.length > 0) return { polys: out, areaValues: av };
         } catch (_e) { /* caer a GML */ }
       }
       // Tratar como XML/GML.
       const polys = extractGmlRingsFromXml(body);
-      console.log(`catastro-CP parsed polys=${polys.length}`);
-      if (polys.length > 0) return { polys };
+      const areaValues = extractAreaValuesFromXml(body);
+      console.log(`catastro-CP parsed polys=${polys.length} areaValues=${areaValues.length}`);
+      if (polys.length > 0) return { polys, areaValues };
       return null;
     } catch (e) {
       console.warn(`catastro-CP error attempt ${attempt + 1}: ${(e as Error).message}`);
