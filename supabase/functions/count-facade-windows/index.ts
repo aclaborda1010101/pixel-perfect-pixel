@@ -225,12 +225,18 @@ DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
   "balcones_corridos_detectados": número,
   "confianza": "alta" | "media" | "baja",
   "flags": [],
+  "exclusiones_aplicadas": ["respiraderos","celosias","escalera","trampantojos"],
   "ejes_por_imagen": [
-    { "image_index": 0, "ejes_visibles": N, "completos": boolean },
-    { "image_index": 1, "ejes_visibles": N, "completos": boolean },
-    { "image_index": 2, "ejes_visibles": N, "completos": boolean }
+    { "image_index": 0, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
+    { "image_index": 1, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
+    { "image_index": 2, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 }
   ]
-}`;
+}
+
+VALIDACIÓN OBLIGATORIA antes de devolver:
+1. Recalcula y verifica total == ventanas_planta_baja + ventanas_entresuelo + ejes_verticales_detectados * plantas_tipo. Si no cuadra, recuenta.
+2. Para reconciliar las 3 imágenes, ignora las que tengan confianza_imagen < 0.4 (mala visibilidad, oclusión, foto de otra fachada). Toma como referencia las imágenes con mayor confianza.
+3. Si solo queda 1 imagen utilizable, marca confianza global = "baja" y añade flag "imagenes_descartadas_baja_confianza".`;
 
   const content: any[] = [{ type: "text", text: prompt }];
   for (const b64 of imagesBase64) {
