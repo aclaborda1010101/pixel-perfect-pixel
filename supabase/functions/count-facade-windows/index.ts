@@ -298,11 +298,24 @@ Deno.serve(async (req) => {
 
     // (B) Geometría: WMS-INSPIRE → polígono parcela → arista de fachada
     let longitud_fachada_m: number | null = null;
-    let longitud_fachada_source: "wms_inspire" | "sqrt_area_fallback" = "sqrt_area_fallback";
+    let longitud_fachada_source:
+      | "overpass_ref"
+      | "overpass_bbox"
+      | "wms_inspire"
+      | "sqrt_area_fallback"
+      | "fallback" = "sqrt_area_fallback";
     let heading_fachada: number | null = null;
     let polyCentroid: [number, number] | null = null;
 
-    const ring = await fetchParcelPolygon(rc14);
+    const geom = await fetchParcelGeometry({
+      refcatastral_14: rc14,
+      lat: centroidLat,
+      lon: centroidLon,
+      force: !!force,
+      sbAdmin: sb,
+    });
+    for (const f of geom.flags) if (!flags.includes(f)) flags.push(f);
+    const ring = geom.exterior_ring.length >= 4 ? geom.exterior_ring : null;
     let edges: ReturnType<typeof ringEdges> = [];
     if (ring && ring.length >= 4) {
       edges = ringEdges(ring);
@@ -322,7 +335,10 @@ Deno.serve(async (req) => {
         if (score > bestScore) { bestScore = score; best = e; }
       }
       longitud_fachada_m = best.len;
-      longitud_fachada_source = "wms_inspire";
+      // Mapeo de fuente: la geometría puede venir de Overpass o WFS.
+      longitud_fachada_source = geom.source === "fallback"
+        ? "sqrt_area_fallback"
+        : (geom.source as typeof longitud_fachada_source);
       // Heading hacia la fachada: normal exterior a la arista, apuntando desde el lado-calle hacia la parcela.
       const normalLeft = (best.bearing - 90 + 360) % 360;
       const normalRight = (best.bearing + 90) % 360;
@@ -416,7 +432,11 @@ Deno.serve(async (req) => {
     const totalFormula = vtt + vbp + ven;
 
     if (ejes < 3 || ejes > 15) flags.push("ejes_fuera_de_rango");
-    if (longitud_fachada_source === "wms_inspire" && longitud_fachada_m && longitud_fachada_m > 0) {
+    // Validación de densidad sólo cuando la longitud viene de un polígono real
+    const longitudFiable = (longitud_fachada_source === "overpass_ref"
+      || longitud_fachada_source === "overpass_bbox"
+      || longitud_fachada_source === "wms_inspire");
+    if (longitudFiable && longitud_fachada_m && longitud_fachada_m > 0) {
       const dens = totalFormula / longitud_fachada_m;
       if (dens < 1.5 || dens > 4.5) flags.push("densidad_inusual");
     }
