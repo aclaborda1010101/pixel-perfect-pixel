@@ -573,18 +573,18 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
 }
 
 async function catastroParcelByRef(rc14: string): Promise<{ ring: [number, number][]; inner: [number, number][][] } | null> {
-  // GetFeature por referencia catastral (14). Probar SRS estándar.
-  const filter = `<ogc:Filter xmlns:ogc="http://www.opengis.net/ogc"><ogc:PropertyIsEqualTo><ogc:PropertyName>cp:nationalCadastralReference</ogc:PropertyName><ogc:Literal>${rc14}</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter>`;
+  // StoredQuery oficial GetParcel (REFCAT 14). El parámetro Filter es ignorado por
+  // este servicio (devuelve todas las parcelas). REFCAT debe ser de 14 chars.
+  const refcat = rc14.slice(0, 14).toUpperCase();
   const res = await callCatastroCP({
     service: "WFS",
     version: "2.0.0",
     request: "GetFeature",
-    typeNames: "cp:CadastralParcel",
-    srsName: "EPSG:4326",
-    Filter: filter,
+    STOREDQUERY_ID: "GetParcel",
+    REFCAT: refcat,
+    srsname: "EPSG:4326",
   });
   if (!res || res.polys.length === 0) return null;
-  // Si por algún motivo viene más de uno, escoge el de mayor área.
   const sorted = [...res.polys].sort((a, b) => ringArea(b.exterior) - ringArea(a.exterior));
   const pick = sorted[0];
   return { ring: pick.exterior, inner: pick.interiors };
