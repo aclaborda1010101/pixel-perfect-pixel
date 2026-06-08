@@ -154,6 +154,61 @@ function distPointToRing(pt: [number, number], ring: [number, number][]): number
   return best;
 }
 
+// ---------- Geo helpers para detección de aristas a calle ----------
+function toDeg(r: number) { return (r * 180) / Math.PI; }
+
+function bearingDeg(a: [number, number], b: [number, number]): number {
+  const φ1 = toRad(a[1]), φ2 = toRad(b[1]);
+  const Δλ = toRad(b[0] - a[0]);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+function offsetAlongBearing(lat: number, lon: number, dist_m: number, bearing_deg: number) {
+  const dx = dist_m * Math.sin(toRad(bearing_deg));
+  const dy = dist_m * Math.cos(toRad(bearing_deg));
+  const dLat = dy / 111320;
+  const dLon = dx / (111320 * Math.cos(toRad(lat)));
+  return { lat: lat + dLat, lon: lon + dLon };
+}
+
+function angularDiffDeg(a: number, b: number): number {
+  // 0..180 (sin signo)
+  let d = Math.abs(((a - b + 540) % 360) - 180);
+  return d;
+}
+
+function distPointToSegment(p: [number, number], a: [number, number], b: [number, number]): number {
+  // Aproximación equirectangular para distancias cortas (<200 m). Devuelve metros.
+  const lat0 = (a[1] + b[1]) / 2;
+  const mLat = 111320;
+  const mLon = 111320 * Math.cos(toRad(lat0));
+  const px = p[0] * mLon, py = p[1] * mLat;
+  const ax = a[0] * mLon, ay = a[1] * mLat;
+  const bx = b[0] * mLon, by = b[1] * mLat;
+  const dx = bx - ax, dy = by - ay;
+  const L2 = dx * dx + dy * dy;
+  let t = L2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+// ---------- Validación de área contra catastro ----------
+function validateAreaAgainstCatastro(
+  area_m2: number,
+  expected_m2: number | null | undefined,
+): { ok: boolean; reason: string | null } {
+  if (!expected_m2 || expected_m2 <= 0) return { ok: true, reason: null };
+  if (area_m2 <= 0) return { ok: false, reason: "area_cero" };
+  const ratio = area_m2 / expected_m2;
+  if (ratio < 0.5) return { ok: false, reason: `polygon_area_mismatch_catastro (ratio ${ratio.toFixed(2)} <0.5)` };
+  const diff = Math.abs(area_m2 - expected_m2) / expected_m2;
+  if (diff > 0.4) return { ok: false, reason: `polygon_area_mismatch_catastro (diff ${(diff * 100).toFixed(0)}%)` };
+  return { ok: true, reason: null };
+}
+
 // ---------- HTTP helper con timeout ----------
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = HTTP_TIMEOUT_MS): Promise<Response> {
   const ctrl = new AbortController();
