@@ -33,6 +33,8 @@ const OVERPASS_ENDPOINTS = [
 
 const HTTP_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPTS_PER_ENDPOINT = 3;
+const MAX_BACKOFF_MS = 4_000;
+const UA = "AffluxOS/1.0 (https://affluxos.com; geometry-fetcher)";
 
 // ---------- Helpers geométricos ----------
 const toRad = (d: number) => (d * Math.PI) / 180;
@@ -140,7 +142,11 @@ async function callOverpass(query: string): Promise<any | null> {
       try {
         const r = await fetchWithTimeout(endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": UA,
+          },
           body: `data=${encodeURIComponent(query)}`,
         });
         if (r.ok) {
@@ -151,15 +157,19 @@ async function callOverpass(query: string): Promise<any | null> {
           console.warn(`overpass non-retryable ${r.status} @ ${endpoint}`);
           break; // siguiente endpoint
         }
+        // No respetamos Retry-After grande: si el endpoint nos manda esperar mucho,
+        // pasamos directamente al siguiente. Sólo backoff corto.
         const retryAfter = Number(r.headers.get("retry-after")) || 0;
-        const wait = retryAfter > 0
-          ? retryAfter * 1000
-          : 500 * Math.pow(3, attempt);
+        if (retryAfter * 1000 > MAX_BACKOFF_MS) {
+          console.warn(`overpass ${r.status} @ ${endpoint} retry-after ${retryAfter}s → next endpoint`);
+          break;
+        }
+        const wait = Math.min(MAX_BACKOFF_MS, 500 * Math.pow(3, attempt));
         console.warn(`overpass ${r.status} @ ${endpoint} attempt ${attempt + 1}, waiting ${wait}ms`);
         await new Promise((res) => setTimeout(res, wait));
       } catch (e) {
         console.warn(`overpass error @ ${endpoint} attempt ${attempt + 1}: ${(e as Error).message}`);
-        await new Promise((res) => setTimeout(res, 500 * Math.pow(3, attempt)));
+        await new Promise((res) => setTimeout(res, Math.min(MAX_BACKOFF_MS, 500 * Math.pow(3, attempt))));
       }
     }
   }
