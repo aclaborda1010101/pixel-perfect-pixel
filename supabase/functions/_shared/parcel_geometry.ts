@@ -48,6 +48,8 @@ export interface StreetEdge {
   heading: number;          // heading cámara→fachada
   role?: "principal" | "secundaria";
   probes_hit: number;
+  street_source?: "overpass" | "google_roads" | "mixed";
+  google_road_name?: string | null;
 }
 
 export interface StreetEdgesResult {
@@ -502,8 +504,9 @@ function parsePosListToRing(posList: string): [number, number][] {
 function extractGmlRingsFromXml(xml: string): { exterior: [number, number][]; interiors: [number, number][][] }[] {
   // Devuelve TODOS los polígonos encontrados (puede haber varios features).
   const polys: { exterior: [number, number][]; interiors: [number, number][][] }[] = [];
-  // Capturar bloques <gml:Polygon>...</gml:Polygon> (cualquier prefijo).
-  const polyRe = /<(?:\w+:)?Polygon[^>]*>([\s\S]*?)<\/(?:\w+:)?Polygon>/g;
+  // Capturar bloques <gml:Polygon> o <gml:PolygonPatch> (Catastro INSPIRE usa
+  // PolygonPatch dentro de Surface/patches en lugar de Polygon clásico).
+  const polyRe = /<(?:\w+:)?(?:Polygon|PolygonPatch)[^>]*>([\s\S]*?)<\/(?:\w+:)?(?:Polygon|PolygonPatch)>/g;
   let m: RegExpExecArray | null;
   while ((m = polyRe.exec(xml)) !== null) {
     const body = m[1];
@@ -657,14 +660,14 @@ export async function detectStreetEdges(
   way["highway"~"${HIGHWAY_REGEX}"](around:${radius},${cLat},${cLon});
 );
 out geom;`;
-  let highways: [number, number][][] = [];
+  let highways: { line: [number, number][]; name?: string }[] = [];
   try {
     const j = await callOverpassFast(q, 8_000);
     if (j?.elements) {
       for (const el of j.elements) {
         if (el.type !== "way" || !Array.isArray(el.geometry) || el.geometry.length < 2) continue;
         const line = el.geometry.map((p: any) => [p.lon, p.lat] as [number, number]);
-        highways.push(line);
+        highways.push({ line, name: el.tags?.name });
       }
     }
   } catch (e) {
@@ -674,23 +677,58 @@ out geom;`;
   const polyCentroidLL = centroidOf(ring); // {lat, lon}
   const polyCentroidPt: [number, number] = [polyCentroidLL.lon, polyCentroidLL.lat];
 
-  // Distancia mínima de un punto a la red de carreteras (en metros).
-  const minDistToHighways = (pt: [number, number]): number => {
-    let best = Infinity;
-    for (const line of highways) {
-      for (let i = 0; i < line.length - 1; i++) {
-        const d = distPointToSegment(pt, line[i], line[i + 1]);
+  // Distancia mínima de un punto a la red de carreteras (en metros) y nombre.
+  const nearestHighway = (pt: [number, number]): { dist: number; name?: string } => {
+    let best = Infinity; let bestName: string | undefined;
+    for (const h of highways) {
+      for (let i = 0; i < h.line.length - 1; i++) {
+        const d = distPointToSegment(pt, h.line[i], h.line[i + 1]);
         if (d < best) best = d;
+        if (d < best + 0.01) bestName = h.name;
       }
     }
-    return best;
+    return { dist: best, name: bestName };
   };
 
-  // Para cada arista del anillo: calcular bearing, normal exterior, 3 probes.
+  // Google Roads fallback (nearestRoads) — usado solo si Overpass falla en una arista.
+  const googleKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  const googleRoadHit = async (lat: number, lon: number): Promise<{ hit: boolean; name?: string }> => {
+    if (!googleKey) return { hit: false };
+    try {
+      // nearestRoads acepta puntos; devuelve placeId si hay road dentro de ~50m.
+      const r = await fetchWithTimeout(
+        `https://roads.googleapis.com/v1/nearestRoads?points=${lat},${lon}&key=${googleKey}`,
+        { headers: { Accept: "application/json" } }, 5_000,
+      );
+      if (!r.ok) return { hit: false };
+      const j = await r.json();
+      const sn = j?.snappedPoints?.[0];
+      if (!sn?.location) return { hit: false };
+      const dist = haversine([lon, lat], [sn.location.longitude, sn.location.latitude]);
+      if (dist > 15) return { hit: false };
+      // Geocode reverse para nombre de calle (best effort, no bloqueante).
+      let name: string | undefined;
+      try {
+        const gr = await fetchWithTimeout(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${sn.location.latitude},${sn.location.longitude}&result_type=route&key=${googleKey}`,
+          { headers: { Accept: "application/json" } }, 4_000,
+        );
+        if (gr.ok) {
+          const gj = await gr.json();
+          name = gj?.results?.[0]?.address_components?.find((c: any) => c.types?.includes("route"))?.long_name;
+        }
+      } catch { /* noop */ }
+      return { hit: true, name };
+    } catch { return { hit: false }; }
+  };
+
+  // Para cada arista del anillo: 3 probes a 15 m hacia fuera; umbral 1/3; fallback Google.
   const street_edges: StreetEdge[] = [];
   const PROBE_OFFSETS = [0.25, 0.5, 0.75];
-  const PROBE_DIST_M = 5;
-  const HIT_THRESHOLD_M = 7;
+  const PROBE_DIST_M = 15;
+  const HIT_THRESHOLD_M = 12;
+  const MIN_HITS_REQUIRED = 1;
+  const diag: any[] = [];
 
   for (let i = 0; i < ring.length - 1; i++) {
     const a = ring[i], b = ring[i + 1];
@@ -707,20 +745,45 @@ out geom;`;
     const dR = haversine([pR.lon, pR.lat], polyCentroidPt);
     const outsideBearing = dL > dR ? normalLeft : normalRight;
 
-    // 3 probes a lo largo de la arista, desplazados hacia fuera.
+    // 3 probes a lo largo de la arista, desplazados hacia fuera (15 m).
     let hits = 0;
-    if (highways.length > 0) {
-      for (const t of PROBE_OFFSETS) {
-        const px = a[0] + (b[0] - a[0]) * t;
-        const py = a[1] + (b[1] - a[1]) * t;
-        const probe = offsetAlongBearing(py, px, PROBE_DIST_M, outsideBearing);
-        const d = minDistToHighways([probe.lon, probe.lat]);
-        if (d <= HIT_THRESHOLD_M) hits++;
+    let osmName: string | undefined;
+    const probes: { lat: number; lon: number }[] = [];
+    for (const t of PROBE_OFFSETS) {
+      const px = a[0] + (b[0] - a[0]) * t;
+      const py = a[1] + (b[1] - a[1]) * t;
+      const probe = offsetAlongBearing(py, px, PROBE_DIST_M, outsideBearing);
+      probes.push(probe);
+      if (highways.length > 0) {
+        const nh = nearestHighway([probe.lon, probe.lat]);
+        if (nh.dist <= HIT_THRESHOLD_M) { hits++; if (!osmName) osmName = nh.name; }
       }
     }
+    // Fallback Google Roads: si Overpass no marcó hits, probar el probe central.
+    let googleHit = false; let googleName: string | undefined;
+    let street_source: "overpass" | "google_roads" | "mixed" | undefined = hits > 0 ? "overpass" : undefined;
+    if (hits === 0 && googleKey) {
+      const center = probes[1];
+      const gr = await googleRoadHit(center.lat, center.lon);
+      if (gr.hit) { googleHit = true; googleName = gr.name; hits = 1; street_source = "google_roads"; }
+    } else if (hits > 0 && hits < 2 && googleKey) {
+      // Reforzar con Google para clasificar mixed.
+      const center = probes[1];
+      const gr = await googleRoadHit(center.lat, center.lon);
+      if (gr.hit) { googleName = gr.name; street_source = "mixed"; }
+    }
+
+    diag.push({
+      edge_index: i, len_m: Math.round(len * 10) / 10,
+      bearing: Math.round(brg), outside_bearing: Math.round(outsideBearing),
+      probes_hit_overpass: hits - (googleHit ? 1 : 0),
+      google_hit: googleHit,
+      street_name: osmName ?? googleName ?? null,
+    });
+
     // heading cámara→fachada: cámara está fuera, mira hacia la fachada → outside+180.
     const heading = (outsideBearing + 180) % 360;
-    if (hits >= 2) {
+    if (hits >= MIN_HITS_REQUIRED) {
       street_edges.push({
         index: i,
         a, b,
@@ -730,9 +793,12 @@ out geom;`;
         outside_bearing: outsideBearing,
         heading,
         probes_hit: hits,
+        street_source,
+        google_road_name: osmName ?? googleName ?? null,
       });
     }
   }
+  console.log("detectStreetEdges diag", JSON.stringify({ radius, highways: highways.length, edges_total: ring.length - 1, edges_detected: street_edges.length, per_edge: diag }));
 
   // Orden por longitud descendente.
   street_edges.sort((x, y) => y.len_m - x.len_m);
@@ -957,8 +1023,7 @@ export async function fetchParcelGeometry(opts: {
   let total_street_length_m = 0;
   if (
     exterior.length >= 4 &&
-    result.source !== "fallback" &&
-    !flags.includes("polygon_no_fiable")
+    result.source !== "fallback"
   ) {
     try {
       const det = await detectStreetEdges(exterior, { lat: centroid.lat, lon: centroid.lon });

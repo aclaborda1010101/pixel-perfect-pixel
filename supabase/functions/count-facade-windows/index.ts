@@ -271,10 +271,11 @@ Deno.serve(async (req) => {
     // (A) Autoridad Catastro
     const { data: bldg } = await sb
       .from("buildings")
-      .select("refcatastral, metadatos")
+      .select("refcatastral, metadatos, es_esquina_manual")
       .eq("id", building_id).maybeSingle();
     let rc14 = (bldg?.refcatastral ?? (bldg?.metadatos as any)?.referencia_catastral ?? "")
       .toString().replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 14);
+    const esEsquinaManual: boolean | null = (bldg?.es_esquina_manual ?? null) as boolean | null;
 
     let { data: auth } = await sb
       .from("catastro_authority_cache")
@@ -326,14 +327,70 @@ Deno.serve(async (req) => {
     const fachadas: Fachada[] = [];
     const street_edges = (geom.street_edges ?? []) as StreetEdge[];
     const es_esquina_geom = !!geom.is_corner;
+    // Override manual: prioridad máxima. Si es_esquina_manual no es null, manda.
+    const es_esquina_final = esEsquinaManual !== null ? esEsquinaManual : es_esquina_geom;
+    const esquina_source_final = esEsquinaManual !== null
+      ? "manual"
+      : (street_edges.length > 0 ? "geometria_parcela" : "no_detectable");
     const total_street_len = Number(geom.total_street_length_m ?? 0);
     let longitud_fachada_source: string = geom.source;
 
     if (street_edges.length > 0) {
       const principal = street_edges.find((e) => e.role === "principal") ?? street_edges[0];
-      const secundaria = es_esquina_geom
+      let secundaria = es_esquina_final
         ? street_edges.find((e) => e.role === "secundaria")
         : undefined;
+      // Si el override manual fuerza esquina pero la detección sólo encontró 1 arista
+      // a calle, escogemos como secundaria la arista más larga del polígono que no
+      // sea paralela a la principal (ángulo entre 60 y 120 grados).
+      if (es_esquina_final && !secundaria) {
+        const ring = (geom.exterior_ring ?? []) as [number, number][];
+        const candidates: StreetEdge[] = [];
+        for (let i = 0; i < ring.length - 1; i++) {
+          if (i === principal.index) continue;
+          const a = ring[i], b = ring[i + 1];
+          const dLat = (b[1] - a[1]) * Math.PI / 180;
+          const dLon = (b[0] - a[0]) * Math.PI / 180;
+          const lat1 = a[1] * Math.PI / 180; const lat2 = b[1] * Math.PI / 180;
+          const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+          const len = 2 * 6371000 * Math.asin(Math.sqrt(h));
+          if (len < 3) continue;
+          const y = Math.sin(dLon) * Math.cos(lat2);
+          const x = Math.cos(lat1)*Math.sin(lat2) - Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+          const brg = ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+          let diff = Math.abs(((principal.bearing - brg + 540) % 360) - 180);
+          const sep = diff > 90 ? 180 - diff : diff;
+          if (sep >= 50 && sep <= 130) {
+            // outside_bearing: el que aleja del centroide
+            const mid: [number, number] = [(a[0]+b[0])/2, (a[1]+b[1])/2];
+            const nL = (brg - 90 + 360) % 360;
+            const nR = (brg + 90) % 360;
+            const off = (lat: number, lon: number, d: number, brgDeg: number) => {
+              const dx = d * Math.sin(brgDeg*Math.PI/180);
+              const dy = d * Math.cos(brgDeg*Math.PI/180);
+              return { lat: lat + dy/111320, lon: lon + dx/(111320*Math.cos(lat*Math.PI/180)) };
+            };
+            const ctr = { lat: geom.centroid.lat, lon: geom.centroid.lon };
+            const pL = off(mid[1], mid[0], 5, nL);
+            const pR = off(mid[1], mid[0], 5, nR);
+            const distL = Math.hypot(pL.lon - ctr.lon, pL.lat - ctr.lat);
+            const distR = Math.hypot(pR.lon - ctr.lon, pR.lat - ctr.lat);
+            const outside_bearing = distL > distR ? nL : nR;
+            const heading = (outside_bearing + 180) % 360;
+            candidates.push({
+              index: i, a, b, len_m: len, bearing: brg, midpoint: mid,
+              outside_bearing, heading, probes_hit: 0,
+              role: "secundaria", street_source: undefined,
+            } as StreetEdge);
+          }
+        }
+        candidates.sort((x, y) => y.len_m - x.len_m);
+        if (candidates[0]) {
+          secundaria = candidates[0];
+          street_edges.push(secundaria);
+          flags.push("secundaria_inferida_por_override_manual");
+        }
+      }
       if (principal) fachadas.push({
         role: "principal", edge: principal, captures: [], vlm_raw: "", vlm_parsed: null,
         ejes: 0, hay_portal: true, vbp: 0, ven: 0, vtt: 0, total: 0,
@@ -414,7 +471,7 @@ Deno.serve(async (req) => {
         plantas_tipo: derived.plantas_tipo,
         longitud_principal_m: principalLen,
         longitud_secundaria_m: secundariaLen,
-        es_esquina: es_esquina_geom,
+        es_esquina: es_esquina_final,
         fachada_label: f.role,
       });
       f.vlm_raw = res.raw;
@@ -501,8 +558,8 @@ Deno.serve(async (req) => {
       ejes_verticales: ejes_total,
       confidence,
       flags,
-      es_esquina: es_esquina_geom,
-      esquina_source: street_edges.length > 0 ? "geometria_parcela" : "no_detectable",
+      es_esquina: es_esquina_final,
+      esquina_source: esquina_source_final,
       fachadas_a_calle,
       longitud_fachada_total_m,
     }).select("id").maybeSingle();
@@ -511,8 +568,10 @@ Deno.serve(async (req) => {
       source_geometria: geom.source,
       area_polygon_m2: geom.area_m2,
       polygon_confidence: geom.confidence,
-      es_esquina: es_esquina_geom,
-      esquina_source: street_edges.length > 0 ? "geometria_parcela" : "no_detectable",
+      es_esquina: es_esquina_final,
+      es_esquina_manual: esEsquinaManual,
+      es_esquina_geometria: es_esquina_geom,
+      esquina_source: esquina_source_final,
       longitud_fachada_total_m,
       longitud_fachada_principal_m,
       longitud_fachada_secundaria_m: secundariaLen,

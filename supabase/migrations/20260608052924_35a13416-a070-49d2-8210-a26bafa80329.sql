@@ -1,0 +1,2 @@
+ALTER TABLE public.buildings ADD COLUMN IF NOT EXISTS es_esquina_manual boolean;
+COMMENT ON COLUMN public.buildings.es_esquina_manual IS 'Override manual: si no es null, fuerza es_esquina al valor indicado y esquina_source=manual en count-facade-windows.';
