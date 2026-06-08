@@ -311,7 +311,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
@@ -340,13 +340,13 @@ export default function ComercialEdificios() {
           ciudad: b.ciudad,
           barrio: b.barrio ?? null,
           distrito: b.distrito ?? null,
-          score: Number(b.score ?? 0),
+          score: Number(extra.score ?? b.score ?? 0),
           num_viviendas: viv,
           m2_total: m2,
           owners_count: b.owners_count,
           division_horizontal: !!b.division_horizontal,
           ratio: m2 && viv ? m2 / viv : null,
-          raw: b,
+          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null },
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
           avisos,
@@ -385,7 +385,7 @@ export default function ComercialEdificios() {
           .range(from, from + PAGE - 1);
       const fetchBldgsPage = (from: number) =>
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown")
           // also need cluster_asignado for chips
           .range(from, from + PAGE - 1);
       const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
@@ -451,13 +451,13 @@ export default function ComercialEdificios() {
           ciudad: b.ciudad,
           barrio: b.barrio ?? null,
           distrito: b.distrito ?? null,
-          score: Number(b.score ?? 0),
+          score: Number(extra.score ?? b.score ?? 0),
           num_viviendas: viv,
           m2_total: m2,
           owners_count: b.owners_count,
           division_horizontal: !!b.division_horizontal,
           ratio: m2 && viv ? m2 / viv : null,
-          raw: b,
+          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null },
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
           avisos,
