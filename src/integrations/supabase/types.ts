@@ -2682,6 +2682,63 @@ export type Database = {
         }
         Relationships: []
       }
+      parcel_geometry_cache: {
+        Row: {
+          area_m2: number | null
+          bbox: Json
+          centroid: Json
+          confidence: string
+          expires_at: string
+          exterior_ring: Json
+          fetched_at: string
+          flags: string[]
+          id: string
+          interior_rings: Json
+          osm_id: number | null
+          osm_type: string | null
+          perimeter_m: number | null
+          raw_response: Json | null
+          refcatastral_14: string
+          source: string
+        }
+        Insert: {
+          area_m2?: number | null
+          bbox: Json
+          centroid: Json
+          confidence: string
+          expires_at?: string
+          exterior_ring: Json
+          fetched_at?: string
+          flags?: string[]
+          id?: string
+          interior_rings?: Json
+          osm_id?: number | null
+          osm_type?: string | null
+          perimeter_m?: number | null
+          raw_response?: Json | null
+          refcatastral_14: string
+          source: string
+        }
+        Update: {
+          area_m2?: number | null
+          bbox?: Json
+          centroid?: Json
+          confidence?: string
+          expires_at?: string
+          exterior_ring?: Json
+          fetched_at?: string
+          flags?: string[]
+          id?: string
+          interior_rings?: Json
+          osm_id?: number | null
+          osm_type?: string | null
+          perimeter_m?: number | null
+          raw_response?: Json | null
+          refcatastral_14?: string
+          source?: string
+        }
+        Relationships: []
+      }
       patio_window_counts: {
         Row: {
           building_id: string

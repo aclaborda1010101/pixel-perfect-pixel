@@ -1,137 +1,165 @@
-# Fase 5 — `count-facade-windows` (v2, revisada)
 
-Incorpora las 3 modificaciones críticas + ajustes menores del review.
+# Fase A1 — `fetch-parcel-geometry` (Overpass primario, WFS-INSPIRE fallback)
 
-## Cambios vs v1
+## Estrategia Overpass
 
-1. **Longitud y heading de fachada** se calculan desde el polígono real de Catastro (WMS-INSPIRE GetFeature GeoJSON), no `sqrt(area)` ni 4 headings con VLM.
-2. **`plantas_residenciales_visibles` ≠ `plantas_tipo`** con definiciones excluyentes.
-3. **Caché de Street View** + retries; `vlm_raw_response` como `text` + `parsed jsonb` opcional; `ejes_por_imagen[]` en la salida del VLM.
+OSM tagea edificios de España con `ref:catastral=<RC14>` sobre `way` o `relation` con `building=*`. Cobertura en Madrid centro ≈ 85-95% para edificios catastrados. Para los huecos usamos búsqueda geoespacial por bbox alrededor del centroide.
 
-## 1. Migración SQL
+**Query primaria — por referencia catastral (14 chars):**
+```overpassql
+[out:json][timeout:25];
+(
+  way["ref:catastral"="{rc14}"];
+  relation["ref:catastral"="{rc14}"];
+);
+out geom;
+```
+
+**Query fallback geoespacial — por lat/lng del centroide (radio 30 m):**
+```overpassql
+[out:json][timeout:25];
+(
+  way(around:30,{lat},{lon})["building"];
+  relation(around:30,{lat},{lon})["building"];
+);
+out geom;
+```
+Luego seleccionamos el polígono que **contiene el punto** (ray casting); si ninguno lo contiene, el más cercano dentro de 8 m.
+
+**Endpoint con failover** (round-robin con retry):
+1. `https://overpass-api.de/api/interpreter`
+2. `https://overpass.kumi.systems/api/interpreter`
+3. `https://overpass.private.coffee/api/interpreter`
+
+Backoff exponencial 500ms → 1.5s → 4s. Timeout HTTP 20 s. Si los 3 endpoints fallan o devuelven 429/504 → pasa a WFS-INSPIRE.
+
+## Plan técnico
+
+### 1. Migración SQL — `parcel_geometry_cache`
 
 ```sql
-create table public.facade_window_counts (
+create table public.parcel_geometry_cache (
   id uuid primary key default gen_random_uuid(),
-  building_id uuid not null references public.buildings(id) on delete cascade,
-  refcatastral_14 text not null,
-  vlm_raw_response text not null,              -- text, evita romper inserts si llega con ```json fences
-  vlm_parsed jsonb,                            -- parseo best-effort
-  street_view_panoramas jsonb not null,
-  fachada_principal jsonb not null,
-  fachada_secundaria jsonb,
-  longitud_fachada_m numeric,
-  longitud_fachada_source text,                -- 'wms_inspire' | 'sqrt_area_fallback'
-  final_count integer not null,
-  ejes_verticales integer not null,
-  confidence text not null,
+  refcatastral_14 text unique not null,
+  exterior_ring jsonb not null,           -- [[lon,lat], ...]
+  interior_rings jsonb not null default '[]'::jsonb, -- [[[lon,lat],...], ...] patios
+  bbox jsonb not null,                    -- {minLon,minLat,maxLon,maxLat}
+  centroid jsonb not null,                -- {lat, lon}
+  area_m2 numeric,
+  perimeter_m numeric,
+  source text not null,                   -- 'overpass_ref' | 'overpass_bbox' | 'wfs_inspire' | 'fallback'
+  confidence text not null,               -- 'alta' | 'media' | 'baja'
+  osm_id bigint,
+  osm_type text,                          -- 'way' | 'relation'
   flags text[] not null default '{}',
-  created_at timestamptz not null default now()
+  raw_response jsonb,
+  fetched_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '180 days')
 );
--- GRANT SELECT, INSERT, UPDATE, DELETE authenticated; GRANT ALL service_role
--- RLS: SELECT authenticated; INSERT/UPDATE/DELETE solo service_role
-create index on public.facade_window_counts(building_id, created_at desc);
-create index on public.facade_window_counts(refcatastral_14);
+-- GRANT SELECT authenticated; GRANT ALL service_role; RLS SELECT authenticated, escritura solo service_role.
+-- Index on (refcatastral_14), (expires_at).
 ```
 
-Bucket privado `street-view-captures` (idempotente).
+TTL: 180 días (los polígonos catastrales cambian raras veces). `force=true` ignora caché y refetch.
 
-## 2. Edge function `supabase/functions/count-facade-windows/index.ts`
+### 2. Módulo compartido `supabase/functions/_shared/parcel_geometry.ts`
 
-### Entrada
+API pública única:
 ```ts
-{ building_id: string; force?: boolean }
-```
-
-### Flujo
-
-**(A) Cargar autoridad Catastro**
-- Leer `catastro_authority_cache` por `refcatastral_14` (derivado de `buildings`). Si missing/stale → invocar `catastro-authority-layer` primero.
-- Derivar:
-  - `inferred_floor_count` = `plantas_residenciales_visibles.length` = plantas con uso residencial sobre rasante (BJ + EN + 01..N + BC), excluye CUB/TZA/sótanos.
-  - `has_entresuelo` = `plantas[].codigo` contiene `EN`.
-  - **`plantas_tipo`** = count(plantas con `/^\d{2}$/` y al menos 1 uso residencial). Estrictamente excluye BJ/EN/BC/TZA/CUB/sótanos. *(deuda: detección visual de entresuelo no catastrado → Fase 6)*.
-  - `centroid` = `{lat, lon}`.
-
-**(B) Geometría de fachada (WMS-INSPIRE)**
-- `GET https://ovc.catastro.meh.es/INSPIRE/wfsParcel.aspx?service=WFS&version=2.0.0&request=GetFeature&typeNames=cp:CadastralParcel&srsName=EPSG:4326&Filter=<ogc:Filter><ogc:PropertyIsEqualTo><ogc:PropertyName>cp:nationalCadastralReference</ogc:PropertyName><ogc:Literal>{rc14}</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter>&outputFormat=application/json`
-- Parsear polígono GeoJSON → lista de aristas con `[length_m, azimuth_deg]` (haversine + bearing).
-- Reverse geocode del centroide (Google) → nombre de calle + bearing de la calle (2 puntos consecutivos en la calle vía Roads/Directions o, fallback, usar `vector tangente` entre puntos cercanos del polígono de calle de OSM/Overpass; si no disponible, fallback a bearing entre centroide y el punto más cercano del polígono de la parcela hacia el exterior).
-- **Fachada principal** = arista cuyo azimut es más perpendicular al bearing de la calle Y que toca la línea de calle.
-- `longitud_fachada_m` = longitud de esa arista. `longitud_fachada_source = 'wms_inspire'`.
-- `heading_fachada` = azimut de la normal exterior a esa arista (matemático, no VLM).
-- **Fallback** si WMS o reverse geocode fallan: `sqrt(area)` + `longitud_fachada_source = 'sqrt_area_fallback'` + flag `longitud_fachada_estimada`; en este caso *desactivar* la validación de densidad (no flag falso).
-
-**(C) 3 capturas Street View**
-- Punto central: `centroid` + offset 8 m hacia `-heading_fachada` (alejarse de la fachada hacia la calle).
-- Laterales: ±6 m en vector tangente (perpendicular al heading).
-- Heading apuntando a la fachada, FOV=110, size=640×640, `GOOGLE_MAPS_API_KEY`.
-- **Retries**: 2 con backoff exponencial (300ms, 900ms) por captura antes de marcar fallida.
-- **Caché**: si `street-view-captures/{building_id}/{0,1,2}.jpg` existen y `< 90 días` y `!force` → reusar (no llamar Google, no subir).
-- Si <3 capturas válidas → flag `cobertura_streetview_insuficiente`, `confidence: "baja"`.
-
-**(D) VLM (Lovable AI Gateway, `google/gemini-2.5-pro`)**
-- Prompt vinculante del spec, inyectando `{inferred_floor_count, has_entresuelo, plantas_tipo, longitud_fachada_m}`.
-- Pedir además en el JSON:
-  ```json
-  "ejes_por_imagen": [
-    { "image_index": 0, "ejes_visibles": N, "completos": bool },
-    ...
-  ]
-  ```
-- Guardar respuesta cruda en `vlm_raw_response` (text). Intentar `JSON.parse` con limpieza de fences ```` ```json ```` → `vlm_parsed`.
-
-**(E) Validación dura**
-- `ejes ∈ [3,15]` sino → flag `ejes_fuera_de_rango`.
-- Si `longitud_fachada_source === 'wms_inspire'`: comprobar `total / longitud_fachada_m ∈ [1.5, 4.5]` → flag `densidad_inusual` si fuera. Si `sqrt_area_fallback`, skip.
-- Recompute fórmula determinista; si difiere del VLM → flag `formula_no_se_cumple` y devolver el valor de la fórmula (no el del VLM).
-- VLM contradice `inferred_floor_count` → sobrescribir, flag `vlm_contradice_catastro`.
-- `max(ejes_por_imagen) - min(ejes_por_imagen) > 2` → flag `divergencia_entre_capturas`, bajar a `media`.
-
-**(F) Segunda fachada**
-- Si `edificio_hace_esquina && se_ve_segunda_fachada`: repetir capturas con heading +90°, y nueva llamada VLM. Reutilizar geometría de aristas para detectar la otra fachada.
-
-**(G) Persistir** fila + 3 jpgs.
-
-### Salida
-```json
-{
-  "fachada_principal": { "ejes_verticales_detectados": 7, "plantas_tipo": 5,
-    "ventanas_planta_baja": 6, "ventanas_entresuelo": 6, "ventanas_plantas_tipo": 35,
-    "total": 47, "confidence": "alta", "flags": [] },
-  "fachada_secundaria": null,
-  "total_ventanas_fachada_exterior": 47,
-  "longitud_fachada_m": 17.4,
-  "longitud_fachada_source": "wms_inspire",
-  "notas_vlm": "...",
-  "audit_id": "uuid"
+export interface ParcelGeometry {
+  exterior_ring: [number, number][];       // [lon, lat]
+  interior_rings: [number, number][][];    // patios
+  bbox: { minLon: number; minLat: number; maxLon: number; maxLat: number };
+  centroid: { lat: number; lon: number };
+  area_m2: number;
+  perimeter_m: number;
+  source: 'overpass_ref' | 'overpass_bbox' | 'wfs_inspire' | 'fallback';
+  confidence: 'alta' | 'media' | 'baja';
+  flags: string[];
+  osm_id?: number;
+  osm_type?: 'way' | 'relation';
+  cached: boolean;
 }
+
+export async function fetchParcelGeometry(opts: {
+  refcatastral_14: string;
+  lat?: number;
+  lon?: number;
+  force?: boolean;
+  sbAdmin: SupabaseClient;
+}): Promise<ParcelGeometry>;
 ```
 
-## 3. Config / CORS
+**Flujo interno:**
+1. Si `!force` → lookup `parcel_geometry_cache` por rc14 y `expires_at > now()`. Si hit → devolver con `cached: true`.
+2. **Overpass por rc14** (con failover de endpoints + retry). Si hay match → confianza `alta`, source `overpass_ref`.
+3. Si no hay match y hay coords → **Overpass por bbox** alrededor del centroide. Pick polygon containing point (o más cercano ≤8 m). Confianza `media`, source `overpass_bbox`, flag `geometry_via_bbox`.
+4. Si Overpass falla → **WFS-INSPIRE** (la lógica existente que ya tiene `count-facade-windows`). Confianza `media`, source `wfs_inspire`.
+5. Si WFS también falla → **fallback geométrico**: cuadrado equivalente desde `area_construida / plantas`. Confianza `baja`, source `fallback`, flag `geometry_fallback_estimado`.
+6. Persistir en caché (upsert por rc14).
 
-- `_shared/scoring_v2_common.ts` para `corsHeaders`, `getServiceClient`, `json`, `err`.
-- `verify_jwt = false` (default Lovable Cloud).
-- Secrets requeridos (verificar con `fetch_secrets` antes de codificar): `GOOGLE_MAPS_API_KEY`, `LOVABLE_API_KEY`.
+**Cálculos geométricos compartidos:**
+- `polygonAreaM2(ring)` (shoelace + corrección esférica equirectangular para Madrid).
+- `polygonPerimeterM(ring)` (haversine por aristas).
+- `pointInPolygon(pt, ring)` (ray casting).
+- `polygonContainsHoles(outer, holes)` para identificar patios desde relations multipolygon.
+- `bboxOf(ring)`.
 
-## 4. Aislamiento
+**Detección de patios desde Overpass:** las relations multipolygon con `building=*` ya traen miembros con role `inner` → los mapeamos directamente a `interior_rings`. Esto es **bonus crítico** para `count-patio-windows`: deja de estimar patios y los lee de OSM cuando existen.
 
-No toca `process-building-full`, `analyze-building-vision`, scoring, ni UI. Pure-add.
+### 3. Refactor `count-facade-windows`
 
-## 5. Criterio de aceptación (Díaz Porlier 47)
+Reemplaza el bloque "Geometría de fachada (WMS-INSPIRE)" actual:
 
-`POST /count-facade-windows {building_id: "36147ab5-459e-4048-a112-bcdfaca43aec"}` →
-- `longitud_fachada_m ≈ 17–18`, `longitud_fachada_source: "wms_inspire"`
-- `ejes_verticales_detectados = 7 ± 1`
-- `total ∈ [45, 49]`
-- `confidence: "alta"`, `flags: []` o como mucho `divergencia_entre_capturas`
-- Fila persistida, 3 jpgs en Storage
+```ts
+// ANTES: fetch directo a WFS-INSPIRE
+// AHORA:
+const geom = await fetchParcelGeometry({
+  refcatastral_14, lat, lon, sbAdmin: sb, force: body.force,
+});
 
-## 6. Deuda técnica anotada (no bloquea Fase 5)
+// derivar aristas del exterior_ring → seleccionar fachada principal por
+// criterio existente (perpendicularidad al bearing de calle).
+// longitud_fachada_source = geom.source
+```
 
-- Detección visual de entresuelo no catastrado (Fase 6).
-- Ventanas a patios (Fase 5.5).
-- Polígono de calle real (Overpass/OSM) para bearing si Google no devuelve buen vector tangente.
-- Few-shot con mirador de Díaz Porlier 47 si Gemini cuenta paños.
+Si `geom.source === 'fallback'` → desactivar validación de densidad (igual que hoy).
+Añadir `geom.flags` al output y a la fila `facade_window_counts`.
 
-¿Apruebas esta v2 para pasar a build?
+### 4. Refactor `count-patio-windows`
+
+Igual, pero además:
+- Si `geom.interior_rings.length > 0` → calcular ventanas patio sobre el **perímetro real** de cada patio interior con la densidad calibrada por época (la lógica que ya existe). Confianza sube a `media` (antes capada en `media` por estimación; ahora media con base real).
+- Si `interior_rings.length === 0` y `area_solar - area_construida_planta > umbral` → seguir estimando, flag `patio_estimado_sin_geometria`.
+- Si `source === 'fallback'` → flag `patio_posiblemente_mancomunado` + confianza `baja`.
+
+### 5. Manejo de rate limits Overpass
+
+- Cola global en memoria por endpoint (1 req cada 1 s mínimo por endpoint).
+- Retry sólo en 429, 502, 503, 504, network errors. Máx 3 intentos por endpoint, 3 endpoints → 9 intentos máximos antes de ceder a WFS.
+- Log cada caída (`console.warn`) con endpoint, status, y rc14.
+- Respeto `Retry-After` si viene en headers.
+
+### 6. Aislamiento
+
+- **No tocamos `compute_cluster_score`, recompute, ni UI.** Pure refactor de fuente de datos.
+- `process-building-full` no cambia.
+- Las dos edge functions (`count-facade-windows`, `count-patio-windows`) mantienen su contrato de salida exacto, sólo cambia el campo `source` interno y desaparece el flag `longitud_fachada_estimada` en la mayoría de casos.
+
+## Criterio de aceptación
+
+1. `POST /count-facade-windows {building_id: "<Díaz Porlier 47>"}` → `longitud_fachada_source: "overpass_ref"`, `cached: false` la primera vez, `cached: true` la segunda.
+2. Repetir el POST → segunda llamada sin tocar Overpass.
+3. `POST /count-patio-windows {building_id: "<Topete 33>"}` → si OSM tiene el patio, `interior_rings.length ≥ 1` y la ventanas-patio se calculan con perímetro real, no estimado.
+4. Para 5-10 edificios de la cartera demo: ≥80% deben resolver vía `overpass_ref` u `overpass_bbox`, ninguno debería caer en `fallback` salvo casos extremos.
+5. Forzar Overpass caído (apuntando a un host inválido a mano) → las funciones siguen funcionando vía WFS-INSPIRE, sin romper la salida.
+
+## Orden de ejecución
+
+1. Migración `parcel_geometry_cache` (espera aprobación).
+2. Crear `_shared/parcel_geometry.ts` con todos los cálculos geométricos + Overpass + WFS fallback + caché.
+3. Refactor `count-facade-windows`.
+4. Refactor `count-patio-windows`.
+5. Probar contra Díaz Porlier 47 y Topete 33 vía `curl_edge_functions`.
+
+¿Apruebas el plan para pasar a build?

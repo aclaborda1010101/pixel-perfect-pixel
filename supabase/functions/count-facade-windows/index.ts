@@ -5,6 +5,7 @@
 // Validado contra Díaz Porlier 47 → 47 ventanas (7 ejes × 5 + 6 + 6).
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
+import { fetchParcelGeometry } from "../_shared/parcel_geometry.ts";
 
 const TTL_CAPTURES_MS = 90 * 24 * 60 * 60 * 1000;
 const SV_SIZE = "640x640";
@@ -55,32 +56,6 @@ function angularDiff(a: number, b: number): number {
   let d = Math.abs(((a - b + 540) % 360) - 180);
   if (d > 90) d = 180 - d;
   return d;
-}
-
-// ---------- Catastro WMS-INSPIRE (polígono de parcela) ----------
-async function fetchParcelPolygon(rc14: string): Promise<[number, number][] | null> {
-  // WFS GetFeature en GeoJSON. nationalCadastralReference usa los 14 chars del rc.
-  const filter =
-    `<ogc:Filter xmlns:ogc="http://www.opengis.net/ogc"><ogc:PropertyIsEqualTo><ogc:PropertyName>cp:nationalCadastralReference</ogc:PropertyName><ogc:Literal>${rc14}</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter>`;
-  const url = `https://ovc.catastro.meh.es/INSPIRE/wfsParcel.aspx?service=WFS&version=2.0.0&request=GetFeature&typeNames=cp:CadastralParcel&srsName=EPSG:4326&outputFormat=application/json&Filter=${encodeURIComponent(filter)}`;
-  try {
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!r.ok) return null;
-    const ct = r.headers.get("content-type") ?? "";
-    if (!ct.includes("json")) return null;
-    const j = await r.json();
-    const f = j?.features?.[0];
-    const geom = f?.geometry;
-    if (!geom) return null;
-    // Toma primer anillo exterior
-    let ring: [number, number][] | null = null;
-    if (geom.type === "Polygon") ring = geom.coordinates?.[0] ?? null;
-    else if (geom.type === "MultiPolygon") ring = geom.coordinates?.[0]?.[0] ?? null;
-    if (!ring || ring.length < 4) return null;
-    return ring;
-  } catch (_e) {
-    return null;
-  }
 }
 
 function ringEdges(ring: [number, number][]): { a: [number, number]; b: [number, number]; len: number; bearing: number; midpoint: [number, number] }[] {
@@ -323,11 +298,24 @@ Deno.serve(async (req) => {
 
     // (B) Geometría: WMS-INSPIRE → polígono parcela → arista de fachada
     let longitud_fachada_m: number | null = null;
-    let longitud_fachada_source: "wms_inspire" | "sqrt_area_fallback" = "sqrt_area_fallback";
+    let longitud_fachada_source:
+      | "overpass_ref"
+      | "overpass_bbox"
+      | "wms_inspire"
+      | "sqrt_area_fallback"
+      | "fallback" = "sqrt_area_fallback";
     let heading_fachada: number | null = null;
     let polyCentroid: [number, number] | null = null;
 
-    const ring = await fetchParcelPolygon(rc14);
+    const geom = await fetchParcelGeometry({
+      refcatastral_14: rc14,
+      lat: centroidLat,
+      lon: centroidLon,
+      force: !!force,
+      sbAdmin: sb,
+    });
+    for (const f of geom.flags) if (!flags.includes(f)) flags.push(f);
+    const ring = geom.exterior_ring.length >= 4 ? geom.exterior_ring : null;
     let edges: ReturnType<typeof ringEdges> = [];
     if (ring && ring.length >= 4) {
       edges = ringEdges(ring);
@@ -347,7 +335,10 @@ Deno.serve(async (req) => {
         if (score > bestScore) { bestScore = score; best = e; }
       }
       longitud_fachada_m = best.len;
-      longitud_fachada_source = "wms_inspire";
+      // Mapeo de fuente: la geometría puede venir de Overpass o WFS.
+      longitud_fachada_source = geom.source === "fallback"
+        ? "sqrt_area_fallback"
+        : (geom.source as typeof longitud_fachada_source);
       // Heading hacia la fachada: normal exterior a la arista, apuntando desde el lado-calle hacia la parcela.
       const normalLeft = (best.bearing - 90 + 360) % 360;
       const normalRight = (best.bearing + 90) % 360;
@@ -441,7 +432,11 @@ Deno.serve(async (req) => {
     const totalFormula = vtt + vbp + ven;
 
     if (ejes < 3 || ejes > 15) flags.push("ejes_fuera_de_rango");
-    if (longitud_fachada_source === "wms_inspire" && longitud_fachada_m && longitud_fachada_m > 0) {
+    // Validación de densidad sólo cuando la longitud viene de un polígono real
+    const longitudFiable = (longitud_fachada_source === "overpass_ref"
+      || longitud_fachada_source === "overpass_bbox"
+      || longitud_fachada_source === "wms_inspire");
+    if (longitudFiable && longitud_fachada_m && longitud_fachada_m > 0) {
       const dens = totalFormula / longitud_fachada_m;
       if (dens < 1.5 || dens > 4.5) flags.push("densidad_inusual");
     }
