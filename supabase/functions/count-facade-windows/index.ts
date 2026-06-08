@@ -471,7 +471,7 @@ Deno.serve(async (req) => {
         plantas_tipo: derived.plantas_tipo,
         longitud_principal_m: principalLen,
         longitud_secundaria_m: secundariaLen,
-        es_esquina: es_esquina_geom,
+        es_esquina: es_esquina_final,
         fachada_label: f.role,
       });
       f.vlm_raw = res.raw;
