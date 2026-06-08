@@ -218,8 +218,10 @@ Deno.serve(async (req) => {
       const area_m2 = Math.round(shoelaceArea(ring) * 10) / 10;
       const perimetro_m = Math.round(ringPerimeter(ring) * 10) / 10;
       const dimension_menor_m = Math.round(minBBoxShortSide(ring) * 10) / 10;
+      // Heurística v2 alineada con feedback: patinillo (sin ventanas) si área < ~4 m²
+      // o perímetro < ~8 m. El resto cuentan como patio real (con o sin lado menor pequeño).
       const tipo: "patio" | "patinillo" =
-        area_m2 >= 9 && dimension_menor_m >= 3 ? "patio" : "patinillo";
+        area_m2 < 4 || perimetro_m < 8 ? "patinillo" : "patio";
       return { area_m2, perimetro_m, dimension_menor_m, tipo };
     });
 
@@ -241,7 +243,7 @@ Deno.serve(async (req) => {
         notas.push("Polígono sin anillos interiores: o no hay patios o no figuran en la fuente.");
         flags.push("patio_estimado_sin_geometria");
       } else {
-        notas.push("No se detectaron patios reales (área ≥ 9 m² y lado menor ≥ 3 m).");
+        notas.push("Todos los anillos interiores son patinillos (área < 4 m² o perímetro < 8 m): 0 ventanas.");
       }
     } else {
       const perimetroTotalPatios = patiosReales.reduce((s, p) => s + p.perimetro_m, 0);

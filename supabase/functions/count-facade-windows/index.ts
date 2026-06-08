@@ -177,11 +177,20 @@ async function callVlm(imagesBase64: string[], ctx: {
   const prompt = `Eres un arquitecto técnico analizando UNA fachada concreta de un edificio residencial en Madrid. Te paso 3 fotos de Street View de la MISMA fachada (la "${ctx.fachada_label}") desde 3 puntos distintos.
 
 DEFINICIÓN VINCULANTE de "ventana":
-Hueco arquitectónico en una habitación con salida al exterior que permite segregar esa habitación como pieza habitable independiente.
-- Un mirador (bow window) = 1 ventana (no cuentes los paños individuales)
-- Una puerta-balcón = 1 ventana
-- Un balcón corrido con 2 puertas-balcón a habitaciones distintas = 2 ventanas
-- Ventanas de escalera = NO cuentan
+Hueco arquitectónico VIDRIADO con marco, en una habitación con salida al exterior, que permite
+segregar esa habitación como pieza habitable independiente.
+SÍ cuentan:
+- Un mirador (bow window) = 1 ventana (no cuentes los paños individuales).
+- Una puerta-balcón = 1 ventana.
+- Un balcón corrido con 2 puertas-balcón a habitaciones distintas = 2 ventanas.
+- Locales comerciales en planta baja = sí cuentan como ventanas de planta baja.
+NO cuentan (no los confundas con ventanas):
+- Ventanas de escalera.
+- Respiraderos / rejillas de ventilación.
+- Celosías o lamas de tendedero.
+- Claraboyas (van en cubierta, no en fachada).
+- Balcones cerrados ya contados como mirador/puerta-balcón (no los duplicaes).
+- Huecos ciegos, trampantojos o decoración.
 
 DATOS DE CATASTRO (vinculantes, no contradigas):
 - Plantas habitables sobre rasante: ${ctx.inferred_floor_count}
@@ -216,12 +225,18 @@ DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
   "balcones_corridos_detectados": número,
   "confianza": "alta" | "media" | "baja",
   "flags": [],
+  "exclusiones_aplicadas": ["respiraderos","celosias","escalera","trampantojos"],
   "ejes_por_imagen": [
-    { "image_index": 0, "ejes_visibles": N, "completos": boolean },
-    { "image_index": 1, "ejes_visibles": N, "completos": boolean },
-    { "image_index": 2, "ejes_visibles": N, "completos": boolean }
+    { "image_index": 0, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
+    { "image_index": 1, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
+    { "image_index": 2, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 }
   ]
-}`;
+}
+
+VALIDACIÓN OBLIGATORIA antes de devolver:
+1. Recalcula y verifica total == ventanas_planta_baja + ventanas_entresuelo + ejes_verticales_detectados * plantas_tipo. Si no cuadra, recuenta.
+2. Para reconciliar las 3 imágenes, ignora las que tengan confianza_imagen < 0.4 (mala visibilidad, oclusión, foto de otra fachada). Toma como referencia las imágenes con mayor confianza.
+3. Si solo queda 1 imagen utilizable, marca confianza global = "baja" y añade flag "imagenes_descartadas_baja_confianza".`;
 
   const content: any[] = [{ type: "text", text: prompt }];
   for (const b64 of imagesBase64) {
