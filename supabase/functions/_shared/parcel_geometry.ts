@@ -652,14 +652,14 @@ export async function detectStreetEdges(
   const radius = Math.max(40, Math.min(120, Math.round(cornerDist)));
 
   const HIGHWAY_REGEX = "^(primary|secondary|tertiary|residential|living_street|pedestrian|unclassified|service|trunk|motorway|tertiary_link|secondary_link|primary_link)$";
-  const q = `[out:json][timeout:25];
+  const q = `[out:json][timeout:8];
 (
   way["highway"~"${HIGHWAY_REGEX}"](around:${radius},${cLat},${cLon});
 );
 out geom;`;
   let highways: [number, number][][] = [];
   try {
-    const j = await callOverpass(q);
+    const j = await callOverpassFast(q, 8_000);
     if (j?.elements) {
       for (const el of j.elements) {
         if (el.type !== "way" || !Array.isArray(el.geometry) || el.geometry.length < 2) continue;
