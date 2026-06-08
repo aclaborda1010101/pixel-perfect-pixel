@@ -5,7 +5,7 @@
 // Validado contra Díaz Porlier 47 → 47 ventanas (7 ejes × 5 + 6 + 6).
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
-import { fetchParcelGeometry, type StreetEdge } from "../_shared/parcel_geometry.ts";
+import { fetchParcelGeometry, mergeCollinearRing, type StreetEdge } from "../_shared/parcel_geometry.ts";
 
 const TTL_CAPTURES_MS = 90 * 24 * 60 * 60 * 1000;
 const SV_SIZE = "640x640";
@@ -344,7 +344,9 @@ Deno.serve(async (req) => {
       // a calle, escogemos como secundaria la arista más larga del polígono que no
       // sea paralela a la principal (ángulo entre 60 y 120 grados).
       if (es_esquina_final && !secundaria) {
-        const ring = (geom.exterior_ring ?? []) as [number, number][];
+        const rawRing = (geom.exterior_ring ?? []) as [number, number][];
+        const ring = mergeCollinearRing(rawRing, 10);
+        flags.push(`secundaria_inferida_ring_merged_${rawRing.length - 1}→${ring.length - 1}`);
         const candidates: StreetEdge[] = [];
         for (let i = 0; i < ring.length - 1; i++) {
           if (i === principal.index) continue;
