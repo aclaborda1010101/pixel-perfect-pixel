@@ -598,7 +598,7 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
   return null;
 }
 
-async function catastroParcelByRef(rc14: string): Promise<{ ring: [number, number][]; inner: [number, number][][] } | null> {
+async function catastroParcelByRef(rc14: string): Promise<{ ring: [number, number][]; inner: [number, number][][]; areaValue?: number | null } | null> {
   // StoredQuery oficial GetParcel (REFCAT 14). El parámetro Filter es ignorado por
   // este servicio (devuelve todas las parcelas). REFCAT debe ser de 14 chars.
   const refcat = rc14.slice(0, 14).toUpperCase();
@@ -611,12 +611,19 @@ async function catastroParcelByRef(rc14: string): Promise<{ ring: [number, numbe
     srsname: "EPSG:4326",
   });
   if (!res || res.polys.length === 0) return null;
-  const sorted = [...res.polys].sort((a, b) => ringArea(b.exterior) - ringArea(a.exterior));
-  const pick = sorted[0];
-  return { ring: pick.exterior, inner: pick.interiors };
+  // Mantenemos el orden de aparición para alinear con areaValues; escogemos el de mayor área (igual que antes).
+  let pickIdx = 0;
+  let bestA = -1;
+  for (let i = 0; i < res.polys.length; i++) {
+    const a = ringArea(res.polys[i].exterior);
+    if (a > bestA) { bestA = a; pickIdx = i; }
+  }
+  const pick = res.polys[pickIdx];
+  const areaValue = res.areaValues[pickIdx] ?? res.areaValues[0] ?? null;
+  return { ring: pick.exterior, inner: pick.interiors, areaValue };
 }
 
-async function catastroParcelByBbox(lat: number, lon: number): Promise<{ ring: [number, number][]; inner: [number, number][][] } | null> {
+async function catastroParcelByBbox(lat: number, lon: number): Promise<{ ring: [number, number][]; inner: [number, number][][]; areaValue?: number | null } | null> {
   // BBOX ~30m alrededor del punto. WFS 2.0 espera "minx,miny,maxx,maxy,crs".
   const half = 30; // metros
   const dLat = half / 111320;
@@ -647,17 +654,21 @@ async function catastroParcelByBbox(lat: number, lon: number): Promise<{ ring: [
   if (!res || res.polys.length === 0) return null;
   // Escoger el polígono que contiene el punto; si ninguno, el más cercano.
   const pt: [number, number] = [lon, lat];
-  const containing = res.polys.filter((p) => pointInRing(pt, p.exterior));
-  let pick = containing[0];
-  if (!pick) {
-    let bestDist = Infinity;
-    for (const p of res.polys) {
-      const d = distPointToRing(pt, p.exterior);
-      if (d < bestDist) { bestDist = d; pick = p; }
-    }
-    if (!pick) return null;
+  let pickIdx = -1;
+  for (let i = 0; i < res.polys.length; i++) {
+    if (pointInRing(pt, res.polys[i].exterior)) { pickIdx = i; break; }
   }
-  return { ring: pick.exterior, inner: pick.interiors };
+  if (pickIdx < 0) {
+    let bestDist = Infinity;
+    for (let i = 0; i < res.polys.length; i++) {
+      const d = distPointToRing(pt, res.polys[i].exterior);
+      if (d < bestDist) { bestDist = d; pickIdx = i; }
+    }
+  }
+  if (pickIdx < 0) return null;
+  const pick = res.polys[pickIdx];
+  const areaValue = res.areaValues[pickIdx] ?? null;
+  return { ring: pick.exterior, inner: pick.interiors, areaValue };
 }
 
 // ---------- Detección geométrica de aristas a calle + esquina ----------
