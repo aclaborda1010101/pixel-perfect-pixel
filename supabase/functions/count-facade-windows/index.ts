@@ -370,10 +370,10 @@ Deno.serve(async (req) => {
     }
 
     // (C) Capturas Street View — 3 por fachada
-    for (const f of fachadas) {
+    await Promise.all(fachadas.map(async (f) => {
       const e = f.edge;
       const heading = e.heading;
-      const insideBearing = (heading + 180) % 360; // desde fachada → alejarse 8m
+      const insideBearing = (heading + 180) % 360;
       const tangent = (heading + 90) % 360;
       const midLat = e.midpoint[1], midLon = e.midpoint[0];
       const center = offsetAlongBearing(midLat, midLon, 8, insideBearing);
@@ -381,38 +381,33 @@ Deno.serve(async (req) => {
       const left = offsetAlongBearing(center.lat, center.lon, sideOff, tangent);
       const right = offsetAlongBearing(center.lat, center.lon, sideOff, (tangent + 180) % 360);
       const pts = [center, left, right];
-      for (let i = 0; i < 3; i++) {
-        const { lat, lon } = pts[i];
+      const results = await Promise.all(pts.map(async ({ lat, lon }, i) => {
         const storage_path = `${building_id}/${f.role}_${i}.jpg`;
         let buf: ArrayBuffer | null = null;
         if (!force) {
-          const { data: list } = await sb.storage.from(BUCKET).list(building_id, { limit: 20 });
-          const found = list?.find((o: any) => o.name === `${f.role}_${i}.jpg`);
-          const fresh = found && found.updated_at && (Date.now() - new Date(found.updated_at).getTime() < TTL_CAPTURES_MS);
-          if (fresh) {
-            const dl = await sb.storage.from(BUCKET).download(storage_path);
-            if (!dl.error && dl.data) buf = await dl.data.arrayBuffer();
-          }
+          const dl = await sb.storage.from(BUCKET).download(storage_path);
+          if (!dl.error && dl.data) buf = await dl.data.arrayBuffer();
         }
         if (!buf) {
           const exists = await checkPanoramaExists(lat, lon, apiKey);
-          if (!exists) continue;
+          if (!exists) return null;
           buf = await fetchStreetView(lat, lon, heading, apiKey);
-          if (!buf) continue;
+          if (!buf) return null;
           await sb.storage.from(BUCKET).upload(storage_path, new Uint8Array(buf), {
             contentType: "image/jpeg", upsert: true,
           });
         }
-        f.captures.push({ lat, lng: lon, heading, storage_path, b64: ab2b64(buf) });
-      }
+        return { lat, lng: lon, heading, storage_path, b64: ab2b64(buf) };
+      }));
+      f.captures = results.filter((x): x is NonNullable<typeof x> => !!x);
       if (f.captures.length < 3) flags.push(`cobertura_streetview_insuficiente_${f.role}`);
-    }
+    }));
 
-    // (D) VLM por fachada
+    // (D) VLM por fachada — paralelo
     const principalLen = fachadas.find((f) => f.role === "principal")?.edge.len_m ?? null;
     const secundariaLen = fachadas.find((f) => f.role === "secundaria")?.edge.len_m ?? null;
-    for (const f of fachadas) {
-      if (f.captures.length === 0) continue;
+    await Promise.all(fachadas.map(async (f) => {
+      if (f.captures.length === 0) return;
       const res = await callVlm(f.captures.map((c) => c.b64!), {
         inferred_floor_count: derived.inferred_floor_count,
         has_entresuelo: derived.has_entresuelo,
@@ -433,7 +428,7 @@ Deno.serve(async (req) => {
       f.vtt = ejes * derived.plantas_tipo;
       f.total = f.vtt + f.vbp + f.ven;
       if (ejes < 2 || ejes > 15) flags.push(`ejes_fuera_de_rango_${f.role}`);
-    }
+    }));
 
     // (E) Suma de fachadas
     const fachada_principal_obj = fachadas.find((f) => f.role === "principal");

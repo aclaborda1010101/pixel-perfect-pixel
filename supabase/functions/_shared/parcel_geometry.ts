@@ -263,6 +263,29 @@ async function callOverpass(query: string): Promise<any | null> {
   return null;
 }
 
+// Variante rápida: 1 intento por endpoint, timeout corto (8s), sin backoff.
+// Usada por detectStreetEdges para no encadenar timeouts de 20s × 3 endpoints.
+async function callOverpassFast(query: string, timeoutMs = 8_000): Promise<any | null> {
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const r = await fetchWithTimeout(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Accept": "application/json",
+          "User-Agent": "AffluxOS/1.0 (geometry-fetch; contact: ops@affluxos.com)",
+        },
+        body: query,
+      }, timeoutMs);
+      if (r.ok) return await r.json();
+      console.warn(`overpass-fast ${r.status} @ ${endpoint} → next`);
+    } catch (e) {
+      console.warn(`overpass-fast error @ ${endpoint}: ${(e as Error).message}`);
+    }
+  }
+  return null;
+}
+
 function parseOverpassElements(j: any): Array<{
   osm_id: number;
   osm_type: "way" | "relation";
@@ -550,18 +573,18 @@ async function callCatastroCP(params: Record<string, string>): Promise<{ polys: 
 }
 
 async function catastroParcelByRef(rc14: string): Promise<{ ring: [number, number][]; inner: [number, number][][] } | null> {
-  // GetFeature por referencia catastral (14). Probar SRS estándar.
-  const filter = `<ogc:Filter xmlns:ogc="http://www.opengis.net/ogc"><ogc:PropertyIsEqualTo><ogc:PropertyName>cp:nationalCadastralReference</ogc:PropertyName><ogc:Literal>${rc14}</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter>`;
+  // StoredQuery oficial GetParcel (REFCAT 14). El parámetro Filter es ignorado por
+  // este servicio (devuelve todas las parcelas). REFCAT debe ser de 14 chars.
+  const refcat = rc14.slice(0, 14).toUpperCase();
   const res = await callCatastroCP({
     service: "WFS",
     version: "2.0.0",
     request: "GetFeature",
-    typeNames: "cp:CadastralParcel",
-    srsName: "EPSG:4326",
-    Filter: filter,
+    STOREDQUERY_ID: "GetParcel",
+    REFCAT: refcat,
+    srsname: "EPSG:4326",
   });
   if (!res || res.polys.length === 0) return null;
-  // Si por algún motivo viene más de uno, escoge el de mayor área.
   const sorted = [...res.polys].sort((a, b) => ringArea(b.exterior) - ringArea(a.exterior));
   const pick = sorted[0];
   return { ring: pick.exterior, inner: pick.interiors };
@@ -629,14 +652,14 @@ export async function detectStreetEdges(
   const radius = Math.max(40, Math.min(120, Math.round(cornerDist)));
 
   const HIGHWAY_REGEX = "^(primary|secondary|tertiary|residential|living_street|pedestrian|unclassified|service|trunk|motorway|tertiary_link|secondary_link|primary_link)$";
-  const q = `[out:json][timeout:25];
+  const q = `[out:json][timeout:8];
 (
   way["highway"~"${HIGHWAY_REGEX}"](around:${radius},${cLat},${cLon});
 );
 out geom;`;
   let highways: [number, number][][] = [];
   try {
-    const j = await callOverpass(q);
+    const j = await callOverpassFast(q, 8_000);
     if (j?.elements) {
       for (const el of j.elements) {
         if (el.type !== "way" || !Array.isArray(el.geometry) || el.geometry.length < 2) continue;
