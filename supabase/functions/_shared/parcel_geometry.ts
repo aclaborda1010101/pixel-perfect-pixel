@@ -1023,8 +1023,7 @@ export async function fetchParcelGeometry(opts: {
   let total_street_length_m = 0;
   if (
     exterior.length >= 4 &&
-    result.source !== "fallback" &&
-    !flags.includes("polygon_no_fiable")
+    result.source !== "fallback"
   ) {
     try {
       const det = await detectStreetEdges(exterior, { lat: centroid.lat, lon: centroid.lon });
