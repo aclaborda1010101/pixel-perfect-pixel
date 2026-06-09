@@ -221,6 +221,7 @@ export type Database = {
           plantas_visibles: number | null
           proteccion_source: string | null
           protegido_historicamente: boolean | null
+          protegido_raw: Json | null
           segundas_escaleras: boolean | null
           sources_used: Json | null
           tiene_azotea_transitable: boolean | null
@@ -277,6 +278,7 @@ export type Database = {
           plantas_visibles?: number | null
           proteccion_source?: string | null
           protegido_historicamente?: boolean | null
+          protegido_raw?: Json | null
           segundas_escaleras?: boolean | null
           sources_used?: Json | null
           tiene_azotea_transitable?: boolean | null
@@ -333,6 +335,7 @@ export type Database = {
           plantas_visibles?: number | null
           proteccion_source?: string | null
           protegido_historicamente?: boolean | null
+          protegido_raw?: Json | null
           segundas_escaleras?: boolean | null
           sources_used?: Json | null
           tiene_azotea_transitable?: boolean | null
@@ -1033,6 +1036,7 @@ export type Database = {
           lat: number | null
           locales_total: number | null
           lon: number | null
+          n_subparcelas_residenciales: number | null
           numero_plantas: number | null
           payload: Json
           plantas: Json
@@ -1056,6 +1060,7 @@ export type Database = {
           lat?: number | null
           locales_total?: number | null
           lon?: number | null
+          n_subparcelas_residenciales?: number | null
           numero_plantas?: number | null
           payload?: Json
           plantas?: Json
@@ -1079,6 +1084,7 @@ export type Database = {
           lat?: number | null
           locales_total?: number | null
           lon?: number | null
+          n_subparcelas_residenciales?: number | null
           numero_plantas?: number | null
           payload?: Json
           plantas?: Json
