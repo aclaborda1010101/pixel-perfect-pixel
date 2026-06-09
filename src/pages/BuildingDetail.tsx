@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
+import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -638,6 +639,7 @@ export default function BuildingDetail() {
           />
         </TabsContent>
       </Tabs>
+      {id && <div className="mt-6"><TeamFeedbackCard buildingId={id} /></div>}
     </div>
   );
 }
