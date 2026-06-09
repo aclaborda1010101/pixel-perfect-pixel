@@ -43,6 +43,7 @@ const ComercialEdificio = lazy(() => import("./pages/comercial/EdificioDetalle")
 const ComercialPreparar = lazy(() => import("./pages/comercial/PrepararLlamada"));
 const ComercialTareas = lazy(() => import("./pages/comercial/Tareas"));
 const ComercialCuenta = lazy(() => import("./pages/comercial/Cuenta"));
+const AdminRankingComercial = lazy(() => import("./pages/admin/RankingComercial"));
 
 // React Query: cachea datos entre navegaciones. Volver a una vista ya cargada es instantáneo.
 const queryClient = new QueryClient({
