@@ -13,6 +13,8 @@ import { Sparkles, Phone, CheckCircle2, Clock, XCircle, PhoneOff, Copy, AlertTri
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VossCoachCard } from "@/components/comercial/VossCoachCard";
+import { CallWizardStepper } from "@/components/comercial/CallWizardStepper";
+import { Checkbox } from "@/components/ui/checkbox";
 
 type Outcome = "interesado" | "no_interesa" | "volver" | "no_contesta";
 const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "success" | "outline" | "info" | "destructive" }> = [
@@ -29,6 +31,20 @@ export default function ComercialPrepararLlamada() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [notas, setNotas] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [paso, setPaso] = useState<1 | 2 | 3>(1);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [objetivo, setObjetivo] = useState<string>("reunion");
+  const DEFAULT_CHECKLIST = [
+    { k: "saludo", label: "Saludo + identificación de Afflux" },
+    { k: "interes", label: "Preguntar por interés en venta/asesoría" },
+    { k: "situacion", label: "Indagar situación (herencia, propiedad, %)" },
+    { k: "dolor", label: "Detectar dolor / motivo de inacción" },
+    { k: "valor", label: "Anclar valor estimado de su parte" },
+    { k: "cierre", label: "Pedir compromiso (reunión / WhatsApp / pixel)" },
+  ];
+  const [checklist, setChecklist] = useState<Array<{ k: string; label: string; done: boolean }>>(
+    DEFAULT_CHECKLIST.map((c) => ({ ...c, done: false })),
+  );
 
   const { data } = useQuery({
     queryKey: ["comercial:preparar", ownerId],
@@ -73,6 +89,51 @@ export default function ComercialPrepararLlamada() {
 
   useEffect(() => { setBrief(null); }, [ownerId]);
 
+  // Crear/cargar session al entrar
+  useEffect(() => {
+    if (!ownerId) return;
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      const uid = u?.user?.id;
+      if (!uid) return;
+      const { data: existing } = await (supabase.from("call_sessions" as any) as any)
+        .select("*").eq("comercial_id", uid).eq("owner_id", ownerId).is("cerrada_at", null)
+        .order("iniciada_at", { ascending: false }).limit(1).maybeSingle();
+      if (existing) {
+        setSessionId(existing.id);
+        setPaso((existing.paso ?? 1) as 1|2|3);
+        if (existing.objetivo) setObjetivo(existing.objetivo);
+        if (Array.isArray(existing.checklist) && existing.checklist.length) setChecklist(existing.checklist);
+        if (existing.notas) setNotas(existing.notas);
+      } else {
+        const { data: ins } = await (supabase.from("call_sessions" as any) as any)
+          .insert({ comercial_id: uid, owner_id: ownerId, paso: 1, objetivo: "reunion", checklist: DEFAULT_CHECKLIST.map((c)=>({...c,done:false})) })
+          .select("id").maybeSingle();
+        if (ins) setSessionId((ins as any).id);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId]);
+
+  async function persistSession(patch: Record<string, any>) {
+    if (!sessionId) return;
+    await (supabase.from("call_sessions" as any) as any).update(patch).eq("id", sessionId);
+  }
+
+  function toggleCheck(k: string) {
+    setChecklist((curr) => {
+      const next = curr.map((c) => (c.k === k ? { ...c, done: !c.done } : c));
+      persistSession({ checklist: next });
+      return next;
+    });
+  }
+
+  function jumpTo(n: number) {
+    if (n < 1 || n > 3) return;
+    setPaso(n as 1|2|3);
+    persistSession({ paso: n });
+  }
+
   // Normaliza esquema viejo y nuevo a un mismo shape
   const normalizedBrief = (() => {
     if (!brief) return null;
@@ -109,6 +170,11 @@ export default function ComercialPrepararLlamada() {
         notas_post_llamada: notas,
       }).select("id").maybeSingle();
       if (callErr) throw callErr;
+      if (sessionId) {
+        await persistSession({
+          resultado: outcome, notas, call_id: callRow?.id ?? null, paso: 3, cerrada_at: new Date().toISOString(),
+        });
+      }
 
       // 2. Auto-seguimiento según outcome
       const nextDate = new Date();
@@ -157,6 +223,10 @@ export default function ComercialPrepararLlamada() {
         }
       />
 
+      <CallWizardStepper paso={paso} onJump={jumpTo} />
+
+      {paso === 1 && (
+      <>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Resumen edificio */}
         <Card>
@@ -212,7 +282,45 @@ export default function ComercialPrepararLlamada() {
           mode="brief"
         />
       )}
+        <div className="flex justify-end">
+          <Button variant="gold" onClick={() => jumpTo(2)}>Continuar a la llamada <ArrowRight className="h-4 w-4" /></Button>
+        </div>
+      </>
+      )}
 
+      {paso === 2 && (
+        <Card>
+          <CardHeader>
+            <Eyebrow>Durante la llamada</Eyebrow>
+            <CardTitle>Guía táctica · Checklist</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-mono uppercase tracking-eyebrow text-muted-foreground">Objetivo:</span>
+              {[{ k: "reunion", label: "Reunión" }, { k: "whatsapp", label: "Enviar WhatsApp" }, { k: "pixel", label: "Enviar pixel" }].map((o) => (
+                <Button key={o.k} size="sm" variant={objetivo === o.k ? "gold" : "outline"} onClick={() => { setObjetivo(o.k); persistSession({ objetivo: o.k }); }}>
+                  {o.label}
+                </Button>
+              ))}
+            </div>
+            <ul className="space-y-2">
+              {checklist.map((c) => (
+                <li key={c.k} className="flex items-center gap-3 rounded-[4px] border border-border-faint bg-surface-1/30 p-3">
+                  <Checkbox checked={c.done} onCheckedChange={() => toggleCheck(c.k)} />
+                  <span className={c.done ? "text-muted-foreground line-through" : "text-foreground"}>{c.label}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => jumpTo(1)}>Volver al brief</Button>
+              <Button variant="gold" onClick={() => jumpTo(3)}>Llamada terminada <ArrowRight className="h-4 w-4" /></Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {paso === 3 && (
+      <>
       {/* Post-call */}
       <Card>
         <CardHeader><Eyebrow>Post-llamada</Eyebrow><CardTitle>Registrar resultado</CardTitle></CardHeader>
@@ -237,6 +345,16 @@ export default function ComercialPrepararLlamada() {
           </div>
         </CardContent>
       </Card>
+      {ownerId && (
+        <VossCoachCard
+          ownerId={ownerId}
+          buildingId={data?.ownerScore?.building_id}
+          mode="post"
+          transcript={notas}
+        />
+      )}
+      </>
+      )}
     </div>
   );
 }
