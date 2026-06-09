@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
       if (!assignee) continue;
 
       const taskKey = `call_queue:${new Date().toISOString().slice(0,10)}:${row.owner_id}`;
-      const { data: ins } = await sb.from('building_tasks').upsert({
+      const { data: ins, error: insErr } = await sb.from('building_tasks').insert({
         building_id: row.building_id,
         user_id: assignee,
         task_type: 'call_queue',
@@ -59,8 +59,9 @@ Deno.serve(async (req) => {
         description: `Prioridad ${row.prioridad} · score edificio ${row.score_edificio} · cuota ${row.cuota ?? '—'}`,
         priority: row.temperatura === 'hot' ? 'high' : 'medium',
         status: 'pending',
-      }, { onConflict: 'building_id,user_id,task_key' }).select('id, building_id').maybeSingle();
+      }).select('id, building_id').maybeSingle();
       if (ins) inserted.push({ ...ins, owner_id: row.owner_id, temperatura: row.temperatura });
+      else if (insErr && !String(insErr.message || '').includes('duplicate')) console.error('insert err', insErr);
     }
 
     return new Response(JSON.stringify({ ok: true, inserted: inserted.length, items: inserted }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
