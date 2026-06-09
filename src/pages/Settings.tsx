@@ -10,6 +10,7 @@ import { HubspotPanel } from "@/components/settings/HubspotPanel";
 import { RolesPanel } from "@/components/settings/RolesPanel";
 import { BuildingAssignmentsPanel } from "@/components/settings/BuildingAssignmentsPanel";
 import { AnalisisIAPanel } from "@/components/settings/AnalisisIAPanel";
+import { SubZonasPanel } from "@/components/settings/SubZonasPanel";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 
 export default function Settings() {
@@ -28,6 +29,7 @@ export default function Settings() {
         {isAdmin && <RolesPanel />}
         {isAdmin && <BuildingAssignmentsPanel />}
         <AnalisisIAPanel />
+        {isAdmin && <SubZonasPanel />}
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>
