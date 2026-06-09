@@ -479,6 +479,76 @@ export type Database = {
           },
         ]
       }
+      building_feedback: {
+        Row: {
+          analisis_ia: Json | null
+          audio_url: string | null
+          autor_email: string | null
+          autor_id: string | null
+          building_id: string
+          canal: string
+          created_at: string
+          dimension: string | null
+          estado: string
+          id: string
+          override_aplicado: Json | null
+          texto: string | null
+          updated_at: string
+        }
+        Insert: {
+          analisis_ia?: Json | null
+          audio_url?: string | null
+          autor_email?: string | null
+          autor_id?: string | null
+          building_id: string
+          canal: string
+          created_at?: string
+          dimension?: string | null
+          estado?: string
+          id?: string
+          override_aplicado?: Json | null
+          texto?: string | null
+          updated_at?: string
+        }
+        Update: {
+          analisis_ia?: Json | null
+          audio_url?: string | null
+          autor_email?: string | null
+          autor_id?: string | null
+          building_id?: string
+          canal?: string
+          created_at?: string
+          dimension?: string | null
+          estado?: string
+          id?: string
+          override_aplicado?: Json | null
+          texto?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       building_imagery: {
         Row: {
           building_id: string
