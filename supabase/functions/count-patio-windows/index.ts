@@ -75,8 +75,19 @@ function minBBoxShortSide(ring: [number, number][]): number {
 }
 
 // ---------- Densidad por año de construcción ----------
-function densidadPorAno(ano: number | null, override: number | null): number {
+// F1-D: densidad calibrable desde app_settings.key='patio_constants'.
+function densidadPorAno(ano: number | null, override: number | null, cfg: any | null): number {
   if (override && override > 0) return override;
+  const map = cfg?.densidad_ventanas_por_m_perimetro ?? null;
+  if (map && ano) {
+    let key: string;
+    if (ano < 1900) key = "pre_1900";
+    else if (ano < 1940) key = "1900_1939";
+    else if (ano < 1970) key = "1940_1969";
+    else key = "post_1970";
+    const dens = Number(map[key]);
+    if (Number.isFinite(dens) && dens > 0) return 1 / dens; // ventanas/m → m/hueco
+  }
   if (!ano) return 3.0;
   if (ano < 1940) return 2.5;
   if (ano < 1970) return 3.0;
@@ -230,7 +241,10 @@ Deno.serve(async (req) => {
     // 5) Densidad calibrable
     const overrideRaw = Deno.env.get("DENSIDAD_PATIO_M");
     const overrideDensidad = overrideRaw ? Number(overrideRaw) : null;
-    const densidad = densidadPorAno(anoConstruccion, overrideDensidad);
+    const { data: cfgRow } = await supabase.from("app_settings").select("value").eq("key", "patio_constants").maybeSingle();
+    const cfg = (cfgRow?.value as any) ?? null;
+    const densidad = densidadPorAno(anoConstruccion, overrideDensidad, cfg);
+    const hardCapPerViv = Number(cfg?.hard_cap_por_vivienda ?? 4);
 
     // 6) Estimación
     let estimacionTotal = 0;
@@ -253,6 +267,16 @@ Deno.serve(async (req) => {
       notas.push(
         `Estimación geométrica (${geom.source}): ${patiosReales.length} patio(s) reales, perímetro total ${perimetroTotalPatios.toFixed(1)} m, densidad ${densidad} m/hueco × ${plantasResidenciales} plantas residenciales.`,
       );
+    }
+
+    // F1-D: hard-cap por viviendas × N (configurable en app_settings)
+    if (numViviendas && numViviendas > 0) {
+      const cap = numViviendas * hardCapPerViv;
+      if (estimacionTotal > cap) {
+        notas.push(`Hard-cap aplicado: ${estimacionTotal} → ${cap} (= ${numViviendas} viv × ${hardCapPerViv}).`);
+        flags.push("hard_cap_aplicado");
+        estimacionTotal = cap;
+      }
     }
 
     const min = Math.round(estimacionTotal * 0.85);
