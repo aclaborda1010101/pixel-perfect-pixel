@@ -1,75 +1,168 @@
-## Plan: arreglo global tras feedback de 11 edificios
+## BLOQUE F1-A — Fixes scoring + UI
 
-Trabajo dividido en **5 frentes** que se pueden ir cerrando en este orden. Algunos toques entran en el motor de scoring; los acoto.
-
----
-
-### 1. Subdivisión Chamberí y Salamanca (motor de categorización)
-
-Hoy `madrid_barrio_clusters` mapea un cluster por barrio entero. Voy a:
-
-- Añadir columna `sub_zona` (texto) y `cluster_override` por calle/tramo a una nueva tabla `madrid_calles_subzona` (calle normalizada + rango de números opcional + sub-zona).
-- Migración con heurística inicial:
-  - **Chamberí prime**: Almagro entero, eje Castellana, Génova-Sagasta, Fortuny, Fernando el Santo → `prime_value_add` puro.
-  - **Chamberí flex**: Gaztambide, Vallehermoso, Hilarión Eslava, Magallanes, Galileo, Donoso Cortés → `flex_living_core` con techo en prime_value_add si tamaño>1500 y ratio bueno.
-  - **Salamanca prime**: Serrano, Velázquez, Castelló, Lagasca, Goya entre Serrano y Velázquez, Recoletos → `ultra_prime` o `prime_value_add` según tamaño.
-  - **Salamanca flex (Guindalera/Fuente del Berro/Lista este)**: Porvenir, Cartagena, Francisco Silvela, Pilar de Zaragoza → `flex_living_core`.
-- En `compute_cluster_score` añadir consulta opcional a `madrid_calles_subzona` ANTES de aplicar el cluster del barrio: si hay match por calle (normalizada) gana sobre el barrio.
-- Recategoriza automáticamente Gaztambide 13 (→ flex), Porvenir 8 (→ flex) y deja Serrano 16 como ultra_prime.
-
-### 2. Owners: dedup en UI + bonus proindiviso >5 (motor)
-
-- **UI**: cambiar `BuildingDetail` / `EdificioDetalle` para mostrar `count_distinct_owners()` en vez de `building_owners.count`. Topete 33 pasará de "4" a "22".
-- **Motor**: nuevo tramo de puntuación en el componente `owners` de `compute_cluster_score`:
-  - 1 owner: 0
-  - 2-4: peso actual
-  - 5-9: +0.5 sobre el peso del cluster
-  - 10+: +1.0 sobre el peso del cluster + flag `proindiviso_grande` en avisos
-- Aplica a Topete 33 (22), Esparteros 13 (29), Amparo 92 (10), Manuela Malasaña, Gaztambide.
-
-### 3. Protección histórica: cruce con catálogo PGOU Madrid
-
-- Edge function nueva `sync-pgou-catalog-protegidos`: descarga el Catálogo de Bienes y Espacios Protegidos del Ayuntamiento de Madrid (datos abiertos: dataset "Catálogo Geográfico de Edificios Protegidos") y lo cachea en tabla nueva `madrid_edificios_protegidos` con `ref_catastral`, `nivel_proteccion`, `direccion_normalizada`.
-- Nueva función `check-proteccion-pgou` por edificio: cruza `catastro_data.refcat` y, si no hay match exacto, normaliza dirección + portal y hace fuzzy.
-- Si match → fuerza `building_analysis.protegido_historicamente = true` con `proteccion_source = 'pgou_catalogo'`.
-- Si la VLM había dicho true y el catálogo dice false, dejamos hint pero no sobrescribimos sin revisión.
-- Reproceso de la cartera (74) en lote.
-- Resuelve Juan Duque 14, Gaztambide 13, Sanz Raso 18.
-
-### 4. Conteo de ventanas: prompt v2 + remuestreo
-
-- Reforzar el prompt VLM en `count-facade-windows` y `count-patio-windows`:
-  - Definir explícitamente: ventana = hueco vidriado con marco; **no contar** como ventana de patio: respiraderos, celosías de tendedero, claraboyas, balcones cerrados ya contados en fachada.
-  - Pedir conteo por planta visible y validar `total = sum(plantas)` antes de devolver.
-  - Devolver `confidence` por imagen y descartar imágenes con confidence<0.4 antes de promediar.
-- Relanzo los 11 edificios del feedback con `force=true` y te enseño tabla comparativa antes/después.
-- Si la mejora se ve clara, segunda tanda con los 63 restantes.
-
-### 5. Reglas de cambio de uso + render del scoring summary (bug Topete)
-
-- En `compute_cluster_score` ya está la regla `cambio_uso_hospedaje` cuando protegido + ≥2 escaleras. Está fallando porque:
-  - Amparo 92: regla aplicada pero no aparece como aviso en UI → revisar render avisos.
-  - Plaza San Miguel 5: solo detecta 1 escalera (VLM mal) → al actualizar a 2 disparará.
-  - Serrano 16: ya marcado ultra_prime, pero terciario_pct está mal calculado porque le falta el dato de superficies; revisar fallback al campo del catastro authority.
-- **Bug Topete**: el resumen muestra "rango 500-1000 m²" cuando el edificio tiene 2369 m². Es el campo `rango_tamano` que se calcula con el cluster que tuviera **antes** del gate degradación. Hay que recalcularlo después de aplicar el gate.
-- HubSpot SL Serrano 16: en `building_owners` cargamos contactos pero no empresas. Añadir join también con `building_companies` en el resumen de propiedad.
+Cinco cambios atómicos. No tocamos RLS. No tocamos VLM/ventanas. Sólo lo listado.
 
 ---
 
-### Orden de entrega
+### 1. Conteo único de propietarios (§2.5)
 
-1. Migración subdivisión barrios + edit motor + recategoriza ya (frente 1).
-2. Migración dedup owners + bonus + fix UI (frente 2).
-3. Bug render Topete + fix terciario Serrano + render avisos cambio_uso (frente 5).
-4. Function sync catálogo PGOU + reproceso protección (frente 3).
-5. Prompt VLM v2 + remuestreo 11 + decisión sobre los 63 (frente 4).
+**Migración SQL:**
+- `count_distinct_owners(uuid)` ya existe — la dejo tal cual.
+- Añadir índice único parcial:
+  ```sql
+  CREATE UNIQUE INDEX IF NOT EXISTS uniq_building_owner_normalized
+    ON public.building_owners (building_id, (public.normalize_person_name(
+      (SELECT o.nombre FROM public.owners o WHERE o.id = owner_id)
+    )));
+  ```
+  Como el normalize requiere subselect, en realidad lo implementaremos como **constraint vía trigger BEFORE INSERT** que haga lookup y RAISE unique_violation, porque los índices funcionales no pueden hacer subselects. Alternativa más simple: dedupe previa + UNIQUE `(building_id, owner_id)` ya existe → reforzamos con dedupe por `normalize_person_name` en el sync.
 
-Cada frente termina con tabla comparativa antes/después de los 11 edificios del feedback.
+**Edge function `hubspot_sync_associations`:**
+- Antes del upsert de `rows`, agrupar por `(building_id, normalize_person_name(owner.nombre))` y descartar duplicados consultando `owners.nombre` previamente cargado.
+- Mantener `onConflict: 'building_id,owner_id', ignoreDuplicates: true`.
 
-### Lo que **no** voy a tocar
+**Frontend — nuevo hook `src/hooks/useOwnersCount.ts`:**
+```ts
+export function useOwnersCount(buildingId?: string) {
+  return useQuery({
+    queryKey: ['owners-count', buildingId],
+    enabled: !!buildingId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('count_distinct_owners', { p_building_id: buildingId });
+      if (error) throw error;
+      return Number(data ?? 0);
+    },
+  });
+}
+```
 
-- Lectura del catastro (DNPRC, planos).
-- Plantas levantables (Sanz Raso 18): requiere normativa por calle, lo dejamos para otra tanda.
-- Texto narrativo del `score_summary` (lo regenera `enhance-building-score` al final automáticamente).
+**Sustituciones:**
+- `BuildingDetail.tsx` línea 80 area + render `Propietarios · {owners.length}` (línea 279) → usar `useOwnersCount` para el contador (la lista sigue siendo `owners`, pero el badge usa el count distinto).
+- `EdificioDetalle.tsx` línea 196 (`s.owners_count`) → usar `useOwnersCount`.
+- `Buildings.tsx` líneas 83 y 97 (count `building_owners` por edificio) → ya muestra duplicados; reemplazar por RPC batch nueva `count_distinct_owners_batch(uuid[])` (la añado en la misma migración, retorna `setof (building_id uuid, n int)`).
 
-¿Lanzo el frente 1 ya o reordenamos?
+---
+
+### 2. `compute_cluster_score`: gates antes de pesos (§2.6)
+
+Reescritura de la función (mantengo firma y output):
+
+Orden actual: cálculo `v_m2/v_viv/v_owners` → degradación cluster → cálculo `rango_tamano`, pesos, `s_*`, breakdown.
+
+Orden nuevo:
+1. Cargar `b`, `ba`, lookups barrio/calle → `v_cluster` inicial.
+2. Cargar métricas crudas (`v_m2`, `v_viv`, `v_owners`, `v_terciario_pct`, `v_n_escaleras`, `v_protegido`).
+3. **Bloque de gates** (todos antes de cualquier peso):
+   - Degradación ultra_prime → prime_value_add si `m2 < 1000`.
+   - Upgrade a ultra_prime si protegido + ≥2 escaleras + terciario ≥66%.
+   - Avisos `cambio_uso_hospedaje` se emiten aquí.
+4. **Después** del cluster definitivo: calcular `rango_tamano`, `rango_ratio`, asignar pesos `w_*` según cluster, calcular `s_*`, breakdown y score final.
+
+Esto arregla Topete 33 (2369 m², degradado de ultra_prime → prime_value_add: hoy mantiene el rango ultra_prime; con el fix tomará el rango de prime_value_add) y Esparteros 13.
+
+---
+
+### 3. Cambio de uso a hospedaje (§2.3)
+
+**3a. `v_terciario_pct` con COALESCE en `compute_cluster_score`:**
+```sql
+v_terciario_m2 := COALESCE(
+  -- Vía 1: catastro_authority_cache.usos_detalle (jsonb por planta)
+  (SELECT SUM((u->>'superficie')::numeric)
+     FROM public.catastro_authority_cache cac,
+          jsonb_array_elements(cac.usos_detalle) u
+    WHERE cac.building_id = p_building_id
+      AND lower(u->>'uso') ~ '(oficina|comercio|hostel|industrial|terciario)'),
+  -- Vía 2: metadatos HubSpot (legacy)
+  (COALESCE(NULLIF(md->>'metros_cuadrado_oficina','')::numeric,0)
+   + COALESCE(NULLIF(md->>'metros_cuadrados_comercio','')::numeric,0)
+   + COALESCE(NULLIF(md->>'metros_cuadrados_ocio_hostel','')::numeric,0)
+   + COALESCE(NULLIF(md->>'metros_cuadrados_industrial','')::numeric,0)),
+  0
+);
+-- Vía 3 (booleana): si ba.uso_predominante_planta_baja IN ('comercial','terciario') y aún 0%,
+--   marcar v_terciario_pct := GREATEST(v_terciario_pct, 0.34) para que dispare el aviso si hay escaleras+protección.
+```
+
+**3b. `n_escaleras` reforzado:**
+```sql
+v_n_escaleras := GREATEST(
+  COALESCE(ba.n_escaleras_en_piso01, 0),
+  COALESCE((SELECT count(DISTINCT subparcela) FROM public.catastro_authority_cache cac,
+            jsonb_array_elements(cac.subparcelas) sp
+            WHERE cac.building_id = p_building_id), 0)
+);
+```
+(verificaré el nombre real de la columna; si la lista de subparcelas vive en otra columna, ajusto en build mode).
+
+**3c. Avisos inteligentes en UI:**
+- En `ScoringResumen.tsx` ya hay `highAvisos` renderizándose como Badges en la cabecera (líneas 372-384). Añadir, debajo de la narrativa, un nuevo bloque `<AvisosInteligentes>` con Card destacada (icon `AlertTriangle`) listando avisos `high` y `medium` con `label` + `detail`.
+
+---
+
+### 4. Curva proindiviso (§2.4)
+
+Dentro del nuevo bloque de pesos en `compute_cluster_score`, sustituir el cálculo de `s_own` por:
+```sql
+IF v_owners <= 1 THEN s_own := 0;
+ELSIF v_owners <= 4 THEN s_own := 0.4;
+ELSIF v_owners <= 9 THEN s_own := 0.8;
+  v_avisos := v_avisos || jsonb_build_object('key','proindiviso_grande','label','Proindiviso grande','severity','medium','detail', v_owners||' propietarios');
+ELSIF v_owners <= 19 THEN s_own := 1.0;
+  v_avisos := v_avisos || jsonb_build_object('key','proindiviso_grande',...);
+ELSE s_own := 1.0; v_bonus := v_bonus + 5;
+  v_avisos := v_avisos || jsonb_build_object('key','proindiviso_critico','severity','high', ...);
+END IF;
+```
+Cluster weights:
+- `flex_living_core.w_own = 25` (subir desde el valor actual).
+- `prime_value_add.w_own = 25` (idem).
+
+Renormalizar los pesos del cluster para que sigan sumando 100.
+
+---
+
+### 5. Unificar trigger (§4.1)
+
+```sql
+CREATE OR REPLACE FUNCTION public.trg_recompute_score() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+BEGIN
+  PERFORM public.compute_cluster_score(NEW.building_id);
+  RETURN NEW;
+END $$;
+
+COMMENT ON FUNCTION public.compute_score(uuid) IS
+  'DEPRECATED 2026-06: use compute_cluster_score. Kept for v_building_score back-compat.';
+```
+
+No borro `compute_score` (lo usan vistas). Sólo marca + redirección del trigger.
+
+---
+
+### Validación
+
+Tras aplicar la migración, en la misma sesión de build mode:
+```sql
+SELECT b.direccion, b.score AS antes; -- snapshot
+SELECT public.compute_cluster_score(id) FROM buildings
+  WHERE direccion ILIKE ANY (ARRAY['%Topete%33%','%Serrano%16%','%Amparo%92%','%Plaza San Miguel%5%','%Gaztambide%13%','%Manuela Malasaña%11%']);
+SELECT direccion, score, cluster_asignado, avisos_inteligentes FROM buildings WHERE ...; -- después
+```
+Devuelvo tabla markdown antes/después con: score, cluster, rango_tamano, s_own, avisos clave.
+
+### Riesgos / mitigación
+
+- **Renormalizar pesos** puede mover scores agregados en el resto de la cartera. Sólo recomputo los 6 edificios; el resto se recalculará cuando el trigger se dispare normalmente.
+- **Trigger redirect**: si `compute_cluster_score` falla en un edificio sin cluster mapeado, devuelve `baja_prioridad` y no rompe el insert (ya tiene NOT FOUND guard).
+- **Índice único normalizado**: implementado vía dedupe en el sync, no como UNIQUE INDEX (limitación funcional Postgres). Documentado en el código.
+
+### Archivos a modificar
+
+1. Migración SQL (un solo archivo): `compute_cluster_score` reescrita + `trg_recompute_score` redirigido + COMMENT en `compute_score` + `count_distinct_owners_batch`.
+2. `supabase/functions/hubspot_sync_associations/index.ts` — dedupe por nombre normalizado.
+3. `src/hooks/useOwnersCount.ts` — nuevo.
+4. `src/pages/BuildingDetail.tsx` — usar hook para el badge.
+5. `src/pages/comercial/EdificioDetalle.tsx` — usar hook.
+6. `src/pages/Buildings.tsx` — usar RPC batch.
+7. `src/components/comercial/ScoringResumen.tsx` — bloque avisos inteligentes ampliado.
