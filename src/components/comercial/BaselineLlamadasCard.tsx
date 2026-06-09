@@ -13,7 +13,7 @@ export function BaselineLlamadasCard({ weeks = 12 }: { weeks?: number }) {
     const since = new Date(); since.setDate(since.getDate() - weeks * 7);
     supabase
       .from("calls")
-      .select("comercial_hs_id, comercial_nombre, duracion")
+      .select("comercial_hs_id, comercial_nombre, duracion_seg")
       .gte("fecha", since.toISOString())
       .limit(5000)
       .then(({ data }) => {
@@ -22,7 +22,7 @@ export function BaselineLlamadasCard({ weeks = 12 }: { weeks?: number }) {
         for (const c of (data as any[]) || []) {
           const oid = c.comercial_hs_id || "—";
           if (c.comercial_nombre) names.set(oid, c.comercial_nombre);
-          const d = Number(c.duracion ?? 0);
+          const d = Number(c.duracion_seg ?? 0);
           const r = map.get(oid) || { hs_owner_id: oid, b0_15: 0, b15_45: 0, b45_90: 0, b90: 0, total: 0, pct_over_60: 0 };
           r.total += 1;
           if (d < 15) r.b0_15 += 1;
