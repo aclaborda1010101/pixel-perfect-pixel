@@ -107,6 +107,7 @@ export default function ComercialEdificioDetalle() {
   const s = data.score ?? {};
   const assigned = data.assigned;
   const analysis = data.analysis;
+  const { data: ownersCount } = useOwnersCount(b?.id);
   const ratio =
     s?.m2_total && s?.num_viviendas ? Number(s.m2_total) / Number(s.num_viviendas) : null;
   const anioConstr =
@@ -194,7 +195,7 @@ export default function ComercialEdificioDetalle() {
               <CatastroItem icon={Ruler} label="m² (rango)" value={s.m2_rango ?? "—"} />
               <CatastroItem icon={Home} label="Nº viviendas" value={s.num_viviendas ?? "—"} />
               <CatastroItem icon={Layers} label="Ratio m²/vivienda" value={ratio != null ? `${ratio.toFixed(1)} m²` : "—"} />
-              <CatastroItem icon={Users} label="Nº propietarios" value={s.owners_count ?? 0} />
+              <CatastroItem icon={Users} label="Nº propietarios" value={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} />
               <CatastroItem icon={Tag} label="Tipo oportunidad" value={s.tipo_oportunidad ?? "—"} />
               <CatastroItem
                 icon={b.division_horizontal ? X : Check}

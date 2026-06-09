@@ -20,6 +20,7 @@ import { AddOwnerToBuildingDialog, SUBROLE_LABEL } from "@/components/forms/NewE
 import { RelationshipGraph } from "@/components/graph/RelationshipGraph";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useOwnersCount } from "@/hooks/useOwnersCount";
 
 const PAGE_SIZE = 50;
 
@@ -54,6 +55,7 @@ export default function BuildingDetail() {
   const { id = "" } = useParams();
   const { t } = useI18n();
   const [building, setBuilding] = useState<any>(null);
+  const { data: ownersCount } = useOwnersCount(id);
   const [bos, setBos] = useState<any[]>([]);
   const [bcs, setBcs] = useState<any[]>([]);
   const [notas, setNotas] = useState<any[]>([]);
@@ -225,7 +227,9 @@ export default function BuildingDetail() {
       <div className="flex flex-wrap items-center gap-2">
         <Chip>{building.estado}</Chip>
         {building.division_horizontal && <Chip tone="gold">División horizontal</Chip>}
-        {building.numero_propietarios != null && <Chip>{building.numero_propietarios} propietarios</Chip>}
+        {(ownersCount ?? building.numero_propietarios) != null && (
+          <Chip>{ownersCount ?? building.numero_propietarios} propietarios</Chip>
+        )}
         {hipotecasActivas.count > 0 && <Chip tone="warning">{hipotecasActivas.count} hipoteca{hipotecasActivas.count > 1 ? "s" : ""}</Chip>}
         {notas.some((n) => n.riesgo === "alto") && <Chip tone="danger">Riesgo alto</Chip>}
       </div>
