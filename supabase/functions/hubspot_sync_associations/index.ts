@@ -215,18 +215,38 @@ Deno.serve(async (req) => {
       if (rows.length > 0) {
         // Filtrar pares ya existentes para contar inserts reales
         const buildingIds = Array.from(new Set(rows.map((r) => r.building_id)));
+        // Dedupe por nombre normalizado: si dos owner_id distintos mapean a la misma persona, sólo entra el primero
+        const ownerIdsAll = Array.from(new Set(rows.map((r) => r.owner_id)));
+        const { data: ownersMeta } = await supabase
+          .from('owners')
+          .select('id, nombre, email, metadatos')
+          .in('id', ownerIdsAll);
+        const ownerKey = new Map<string, string>();
+        const norm = (s: string) => (s || '')
+          .toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9 ]+/g, ' ')
+          .split(/\s+/).filter((t) => t.length > 1).sort().join(' ');
+        for (const o of (ownersMeta || [])) {
+          const m: any = o.metadatos || {};
+          const k = norm(o.nombre || '') || String(m.nif || m.dni || '').toUpperCase() || (o.email || '').toLowerCase() || o.id;
+          ownerKey.set(o.id, k);
+        }
         const { data: existing } = await supabase
           .from('building_owners')
           .select('building_id, owner_id')
           .in('building_id', buildingIds);
         const exSet = new Set((existing || []).map((e) => `${e.building_id}|${e.owner_id}`));
         const fresh = rows.filter((r) => !exSet.has(`${r.building_id}|${r.owner_id}`));
-        // Dedupe within fresh
+        // Dedupe within fresh por owner_id Y por nombre normalizado
         const seen = new Set<string>();
+        const seenNorm = new Set<string>();
         const dedup = fresh.filter((r) => {
           const k = `${r.building_id}|${r.owner_id}`;
           if (seen.has(k)) return false;
-          seen.add(k); return true;
+          const nk = `${r.building_id}|${ownerKey.get(r.owner_id) || r.owner_id}`;
+          if (seenNorm.has(nk)) return false;
+          seen.add(k); seenNorm.add(nk); return true;
         });
         if (dedup.length > 0) {
           const { error: upErr } = await supabase

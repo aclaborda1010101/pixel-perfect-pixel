@@ -3416,6 +3416,13 @@ export type Database = {
         Args: { p_building_id: string }
         Returns: number
       }
+      count_distinct_owners_batch: {
+        Args: { p_building_ids: string[] }
+        Returns: {
+          building_id: string
+          n: number
+        }[]
+      }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
