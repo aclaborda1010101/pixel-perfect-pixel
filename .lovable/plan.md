@@ -1,147 +1,95 @@
-# Plan F1-D — Pasos diferidos F1-B/F1-C
+# Plan F2 — Correcciones del equipo con aprendizaje
 
-Seis frentes en orden de ejecución. Sin tocar RLS. Cada paso termina con su QA contra la matriz de edificios.
+## Pre-paso (background)
+Disparar `hubspot_sync_associations` para los 77 edificios pendientes (deals→companies, companies→contacts) en modo background antes de empezar el bloque F2. Sin bloquear el resto del plan.
 
----
+## 1. Esquema BD
 
-## Paso 1 — PGOU por polígono (PRIORITARIO)
-
-**Edge function** `check-proteccion-pgou` (refactor):
-
-1. Leer `parcel_geometry_cache.exterior_ring` (lista de `[lon,lat]`) del `refcatastral_14` del edificio.
-2. POST a ArcGIS layer 5 (`EDIFICIOS_PROTEGIDOS/MapServer/5/query`) con:
-   - `geometry={"rings":[[...]],"spatialReference":{"wkid":4326}}`
-   - `geometryType=esriGeometryPolygon`
-   - `spatialRel=esriSpatialRelIntersects`
-   - `outFields=N_CATALOGO,NOMBRE,PROTECCION_ACTUAL,PROTECCION_97`
-3. Si HIT → `protegido_historicamente=true`, `proteccion_source='pgou_poligono'`.
-4. Si MISS o error → fallback **RC14**: query layer por atributo `REFCAT LIKE rc14%`.
-5. Si MISS → fallback **fuzzy dirección** contra `madrid_edificios_protegidos.direccion_norm` (trgm similarity ≥ 0.85).
-6. Cada intento se acumula en `building_analysis.protegido_raw jsonb` (array de `{intento, payload, hit, ts}`).
-7. Si PSM5 detecta PROTECCION_ACTUAL en categoría hospedaje incompatible → emitir aviso `cambio_uso_hospedaje` en `compute_cluster_score`.
-
-**Migración**: añadir `building_analysis.protegido_raw jsonb` si falta; añadir índice trgm sobre `madrid_edificios_protegidos.direccion_norm`.
-
-**Job**: ejecutar para los 77 edificios.
-
-**QA**: Topete 33 → `protegido=true` (pgou_poligono). PSM5 → aviso `cambio_uso_hospedaje`.
-
----
-
-## Paso 2 — Patios FXCC calibrados
-
-**Constantes en `app_settings`** key=`patio_constants`:
-```json
-{
-  "densidad_ventanas_por_m2_perimetro": {
-    "pre_1900": 0.18, "1900_1939": 0.22, "1940_1969": 0.20, "post_1970": 0.18
-  },
-  "hard_cap_por_vivienda": 4,
-  "patio_ingles_area_m2": [4, 9],
-  "patio_ingles_perimetro_max": 12
-}
-```
-
-**Edge function** `count-patio-windows` (refactor):
-1. Leer FXCC del PDF parseado (ya existe pipeline).
-2. Cruzar polígonos de patio con `interior_ring` de `parcel_geometry_cache` (intersección, no solo bbox).
-3. Conteo bruto = perímetro_patio × densidad(época).
-4. Clasificar **patio inglés** si área ∈ [4,9] m² y perímetro < 12 m → cuenta como 0 ventanas habitables.
-5. Hard-cap: `min(conteo, num_viviendas × 4)`.
-6. Persistir en `patio_window_counts` con campos `metodo='fxcc_calibrado_v2'`, `cap_aplicado`, `epoca`.
-
-**QA**: comparar contra muestra del equipo si está disponible; si no, dejar log para recalibración futura.
-
----
-
-## Paso 3 — HubSpot SL (deals→companies→contacts)
-
-**Edge function** `hubspot_sync_associations` (extender):
-1. Tipo asociación `deals→companies` (type 5): poblar `companies` desde el snapshot ya sincronizado.
-2. Tipo asociación `companies→contacts` (type 2): insertar/actualizar `owner_companies` con `rol='representante_sociedad'`.
-3. Materializar `building_companies` desde `building_owners` + `owner_companies` (un INSERT ... ON CONFLICT por edificio).
-
-**UI**: en `EdificioDetalle.tsx`, nueva tarjeta **"Sociedades propietarias"** debajo de propietarios:
-- Lista `building_companies` con nombre, CIF, % agregado, representante (de `owner_companies.rol='representante_sociedad'`).
-- La SL cuenta como **1 entidad** en el conteo de proindiviso (ajustar `compute_cluster_score` para no doble-contar contactos asociados a una company ya contada).
-
-**Job**: ejecutar para los 77.
-
-**QA**: Serrano 16 muestra al menos 1 SL con representante.
-
----
-
-## Paso 4 — Escaleras desde XML DNPRC
-
-**Edge function** nueva `parse-catastro-subparcelas`:
-1. GET `OVCCallejero.asmx/Consulta_DNPRC?RC=<rc14>`.
-2. Parsear XML, contar `<subparc>` con `<dest>='V'` (residencial) distintas.
-3. Persistir `catastro_authority_cache.n_subparcelas_residenciales` (nueva columna).
-
-**Migración**: `ALTER TABLE catastro_authority_cache ADD COLUMN n_subparcelas_residenciales int`.
-
-**`compute_cluster_score`**: `escaleras := GREATEST(n_subparcelas_residenciales, max_vlm, 1)`.
-
-**Job**: ejecutar para los 77.
-
-**QA**: PSM5 → escaleras = 2 (subió de 1).
-
----
-
-## Paso 5 — Viviendas robustas (Serrano 16)
-
-En `compute_cluster_score` (migración SQL):
-```sql
-v_viv := CASE
-  WHEN v_viv_md IS NULL THEN v_viv_auth
-  WHEN v_viv_auth IS NOT NULL
-       AND v_m2 / NULLIF(v_viv_md, 0) > 500 THEN v_viv_auth
-  ELSE v_viv_md
-END;
-```
-Emitir aviso `viviendas_corregidas` cuando se aplica el fallback.
-
-**QA**: Serrano 16 viv pasa de valor erróneo a 2; score recalculado.
-
----
-
-## Paso 6 — Sub-zonas (seed + admin)
-
-**Seed inicial** (insert tool, ~30 tramos) en `madrid_calles_subzona` con la heurística del equipo:
-- Calles numeradas → `especificidad=10`.
-- Calles completas → `especificidad=5`.
-- Columnas: `calle, numero_desde, numero_hasta, zona, subzona, especificidad`.
-
-**UI nueva** `/settings/sub-zonas` (admin):
-- Tabla CRUD con columnas anteriores.
-- Botón "Recomputar afectados" que llama a `recompute-all-scores` filtrado por calle.
-- Validación: rangos no se solapan para misma calle.
-- Componente `SubZonasPanel.tsx` integrado en `Settings.tsx` solo si `isAdmin`.
-
-**QA**: editar un tramo y verificar que el recompute actualiza score de edificios en ese tramo.
-
----
-
-## Paso 7 — Recompute global + tabla de validación
-
-1. Ejecutar `recompute-all-scores`.
-2. Tabla QA final con los 10 edificios (Topete 33, Serrano 16, Amparo 92, PSM5, Gaztambide 13, Manuela Malasaña 11, + 4 de control), columnas:
-   `direccion | score | cluster | rango_tamano | viv | escaleras | protegido | sociedades | avisos`.
-
----
-
-## Orden de ejecución
+Nueva tabla `building_feedback`:
 
 ```text
-Migraciones (protegido_raw, n_subparcelas_residenciales, viviendas fix, app_settings seed)
-  → edge functions (check-proteccion-pgou, count-patio-windows, hubspot_sync_associations, parse-catastro-subparcelas)
-  → UI (tarjeta Sociedades, SubZonasPanel)
-  → jobs (subparcelas×77, hubspot×77, pgou×77, patios×77, recompute global)
-  → QA matrix
+id uuid pk
+building_id uuid fk -> buildings
+autor_id uuid (auth.uid)
+autor_email text
+canal text check in ('voz','texto')
+texto text                       -- transcrito si voz
+audio_url text                   -- storage://feedback-audio/...
+dimension text                   -- escaleras|ventanas|proteccion|cluster|propietarios|m2|viviendas|otro
+estado text default 'nueva'      -- nueva|analizada|aplicada|descartada|requiere_codigo
+analisis_ia jsonb                -- {diagnostico, origen_dato_actual, accion_propuesta, override_payload, constante_sugerida}
+override_aplicado jsonb          -- {campo, valor_anterior, valor_nuevo, aplicado_en, aplicado_por}
+created_at, updated_at
 ```
 
-## Fuera de scope
+Grants + RLS: SELECT/INSERT/UPDATE para `authenticated`; ALL para `service_role`. Sin cambios en RLS de otras tablas.
 
-- RLS sin cambios.
-- Recalibración fina de constantes de patios (queda pendiente de los conteos reales del equipo).
-- Auto-confirm email / OAuth changes.
+Bucket privado `feedback-audio` (Storage).
+
+Reutilizar `scoring_v2_feedback` (ya existe) como matriz QA: añadir trigger que, al pasar `building_feedback.estado='aplicada'`, inserta una fila en `scoring_v2_feedback` con el override y el building_id como caso de regresión.
+
+## 2. UI — card "Correcciones del equipo"
+
+En `src/pages/comercial/EdificioDetalle.tsx` y `src/pages/BuildingDetail.tsx`: nuevo componente `<TeamFeedbackCard buildingId={...} />` con:
+
+- Botón grabar (MediaRecorder, mismo flujo que `transcribe_call`): graba → sube a `feedback-audio` → invoca `transcribe_call` → crea row `canal='voz'` con texto transcrito.
+- Textarea + botón "Enviar observación" → crea row `canal='texto'`.
+- Lista de feedbacks del edificio (desc) mostrando: autor, fecha, texto, badge de dimensión, badge de estado, panel expandible con `analisis_ia` (diagnóstico + acción propuesta).
+- Si `accion_propuesta.tipo === 'override'`: botón "Aplicar override" (1-click) que llama edge function `apply_feedback_override` → actualiza el campo correspondiente en `building_analysis` / `buildings` / `catastro_authority_cache`, marca estado `aplicada`, dispara `recompute-cluster-scoring` para ese edificio.
+- Si `tipo === 'constante'`: botón "Ajustar constante" (sólo admins) que edita `app_settings`.
+- Si `tipo === 'requiere_codigo'`: badge rojo "Requiere cambio de código".
+
+## 3. Edge function `agent_analyze_feedback`
+
+Trigger: al INSERT en `building_feedback` (vía trigger DB → `pg_net.http_post`, o invocación directa desde el cliente tras insertar — usar invocación cliente para simplicidad).
+
+Lógica:
+
+1. Cargar feedback + snapshot completo del edificio (`building_analysis`, `catastro_authority_cache`, `facade_window_counts`, `building_owners`, score actual, banderas).
+2. Llamar a Lovable AI (`google/gemini-3-flash-preview` con `Output.object`) con prompt:
+   - Clasifica `dimension` (enum cerrado).
+   - Identifica el campo concreto afectado y su valor actual y origen (VLM/catastro/heurística/HubSpot).
+   - Diagnostica por qué el sistema falló (compara texto del usuario con datos).
+   - Propone una de tres acciones:
+     - `override`: `{ tabla, campo, valor_nuevo, justificación }`
+     - `constante`: `{ key en app_settings, valor_nuevo, justificación }`
+     - `requiere_codigo`: `{ descripción técnica, módulo afectado }`
+3. Guarda en `analisis_ia`, marca `estado='analizada'`.
+
+## 4. Edge function `apply_feedback_override`
+
+Aplica el override del payload, escribe `override_aplicado`, marca `estado='aplicada'`, llama `recompute-cluster-scoring` con el `building_id`. El trigger de regresión copia a `scoring_v2_feedback`.
+
+## 5. Aprendizaje — pantalla admin
+
+Ruta `/settings/aprendizaje` (`AprendizajePanel.tsx`):
+
+- KPIs: nº feedbacks por dimensión, % aplicados vs descartados, tiempo medio de análisis.
+- Tabla "Patrones detectados": agrupa por `dimension` + `analisis_ia.causa_raiz`; muestra ej. "VLM falla escaleras en planos B/N (12 casos)".
+- Cola "Requiere cambio de código": destacada para revisión por ingeniería.
+- Botón "Resumen IA semanal": llama edge function que genera sugerencias de mejora agregadas.
+
+## 6. Notificaciones dashboard
+
+En `Dashboard.tsx` admin: badge rojo con contador de feedbacks `estado='requiere_codigo'` no atendidos, link directo a la cola.
+
+## 7. Validación
+
+Crear feedback de prueba por texto en Topete 33: "la protección existe, está en el APE de Bellas Vistas". Mostrar el `analisis_ia` resultante:
+- dimensión: `proteccion`
+- diagnóstico esperado: ArcGIS layer 5 no cubre APE distritales; fallback fuzzy no encontró match
+- acción: `override` con `building_analysis.protegido=true` + `protegido_raw.manual_ape='Bellas Vistas'`, o `requiere_codigo` si se decide integrar la capa APE.
+
+## Detalles técnicos
+
+- Migración SQL: `building_feedback` + grants + RLS + trigger de regresión.
+- Storage: bucket `feedback-audio` privado con políticas (insert authenticated, select autor o admin).
+- Edge functions nuevas: `agent_analyze_feedback`, `apply_feedback_override`, `learning_weekly_summary`.
+- Reutiliza `transcribe_call` existente para STT.
+- UI: nuevo componente `TeamFeedbackCard` + página `AprendizajePanel`.
+- Sin cambios a RLS existente; sin tocar `auth`/`storage` schemas más allá del bucket nuevo.
+
+## Fuera de alcance
+- Reentreno automático de modelos (sólo recolectamos matriz QA).
+- Capa APE distrital de PGOU (queda como `requiere_codigo` si surge).
+- Edición colaborativa en tiempo real de feedbacks.
