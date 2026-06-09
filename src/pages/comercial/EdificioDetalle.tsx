@@ -120,8 +120,9 @@ export default function ComercialEdificioDetalle() {
     if (sort === "score") return Number(b.score ?? 0) - Number(a.score ?? 0);
     if (sort === "pct") {
       // ASC: menor % primero (más fáciles de comprar / mayor palanca)
-      const av = a.pct_propiedad == null ? 999 : Number(a.pct_propiedad);
-      const bv = b.pct_propiedad == null ? 999 : Number(b.pct_propiedad);
+      // NULL al final (NULLS LAST)
+      const av = a.pct_propiedad == null ? Number.POSITIVE_INFINITY : Number(a.pct_propiedad);
+      const bv = b.pct_propiedad == null ? Number.POSITIVE_INFINITY : Number(b.pct_propiedad);
       return av - bv;
     }
     if (sort === "last") {
@@ -131,6 +132,13 @@ export default function ComercialEdificioDetalle() {
     }
     return Number((a.contactos_previos ?? 0) === 0 ? 0 : 1) - Number((b.contactos_previos ?? 0) === 0 ? 0 : 1);
   });
+
+  // Building-level pct validation (only meaningful when all owners have known pct)
+  const pctKnown = (data.owners ?? []).filter((o: any) => o.pct_propiedad != null);
+  const pctUnknownCount = (data.owners ?? []).length - pctKnown.length;
+  const sumPct = pctKnown.reduce((s: number, o: any) => s + Number(o.pct_propiedad), 0);
+  const pctInconsistente =
+    pctKnown.length > 0 && pctUnknownCount === 0 && (sumPct < 95 || sumPct > 105);
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
