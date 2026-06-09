@@ -99,15 +99,15 @@ export default function ComercialEdificioDetalle() {
     },
   });
 
+  const b = data?.b;
+  const s = data?.score ?? {};
+  const assigned = data?.assigned;
+  const analysis = data?.analysis;
+  const { data: ownersCount } = useOwnersCount(b?.id);
+
   if (!data?.b) {
     return <div className="p-8 text-sm text-muted-foreground">Cargando edificio…</div>;
   }
-
-  const b = data.b;
-  const s = data.score ?? {};
-  const assigned = data.assigned;
-  const analysis = data.analysis;
-  const { data: ownersCount } = useOwnersCount(b?.id);
   const ratio =
     s?.m2_total && s?.num_viviendas ? Number(s.m2_total) / Number(s.num_viviendas) : null;
   const anioConstr =
