@@ -60,7 +60,7 @@ function ownerEstado(o: any): {
 export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
-  const [sort, setSort] = useState<SortKey>("score");
+  const [sort, setSort] = useState<SortKey>("pct");
 
   useEffect(() => {
     if (id && user?.id) {
@@ -118,7 +118,12 @@ export default function ComercialEdificioDetalle() {
 
   const owners = [...(data.owners ?? [])].sort((a, b) => {
     if (sort === "score") return Number(b.score ?? 0) - Number(a.score ?? 0);
-    if (sort === "pct") return Number(b.pct_propiedad ?? 0) - Number(a.pct_propiedad ?? 0);
+    if (sort === "pct") {
+      // ASC: menor % primero (más fáciles de comprar / mayor palanca)
+      const av = a.pct_propiedad == null ? 999 : Number(a.pct_propiedad);
+      const bv = b.pct_propiedad == null ? 999 : Number(b.pct_propiedad);
+      return av - bv;
+    }
     if (sort === "last") {
       const la = a.last_call_at ? new Date(a.last_call_at).getTime() : 0;
       const lb = b.last_call_at ? new Date(b.last_call_at).getTime() : 0;
