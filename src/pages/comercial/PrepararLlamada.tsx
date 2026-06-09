@@ -282,7 +282,45 @@ export default function ComercialPrepararLlamada() {
           mode="brief"
         />
       )}
+        <div className="flex justify-end">
+          <Button variant="gold" onClick={() => jumpTo(2)}>Continuar a la llamada <ArrowRight className="h-4 w-4" /></Button>
+        </div>
+      </>
+      )}
 
+      {paso === 2 && (
+        <Card>
+          <CardHeader>
+            <Eyebrow>Durante la llamada</Eyebrow>
+            <CardTitle>Guía táctica · Checklist</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-mono uppercase tracking-eyebrow text-muted-foreground">Objetivo:</span>
+              {[{ k: "reunion", label: "Reunión" }, { k: "whatsapp", label: "Enviar WhatsApp" }, { k: "pixel", label: "Enviar pixel" }].map((o) => (
+                <Button key={o.k} size="sm" variant={objetivo === o.k ? "gold" : "outline"} onClick={() => { setObjetivo(o.k); persistSession({ objetivo: o.k }); }}>
+                  {o.label}
+                </Button>
+              ))}
+            </div>
+            <ul className="space-y-2">
+              {checklist.map((c) => (
+                <li key={c.k} className="flex items-center gap-3 rounded-[4px] border border-border-faint bg-surface-1/30 p-3">
+                  <Checkbox checked={c.done} onCheckedChange={() => toggleCheck(c.k)} />
+                  <span className={c.done ? "text-muted-foreground line-through" : "text-foreground"}>{c.label}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => jumpTo(1)}>Volver al brief</Button>
+              <Button variant="gold" onClick={() => jumpTo(3)}>Llamada terminada <ArrowRight className="h-4 w-4" /></Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {paso === 3 && (
+      <>
       {/* Post-call */}
       <Card>
         <CardHeader><Eyebrow>Post-llamada</Eyebrow><CardTitle>Registrar resultado</CardTitle></CardHeader>
@@ -307,6 +345,16 @@ export default function ComercialPrepararLlamada() {
           </div>
         </CardContent>
       </Card>
+      {ownerId && (
+        <VossCoachCard
+          ownerId={ownerId}
+          buildingId={data?.ownerScore?.building_id}
+          mode="post"
+          transcript={notas}
+        />
+      )}
+      </>
+      )}
     </div>
   );
 }
