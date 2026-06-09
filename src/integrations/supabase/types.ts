@@ -3411,6 +3411,7 @@ export type Database = {
       }
     }
     Functions: {
+      _safe_int_from_dir: { Args: { p: string }; Returns: number }
       calls_stats: {
         Args: never
         Returns: {
