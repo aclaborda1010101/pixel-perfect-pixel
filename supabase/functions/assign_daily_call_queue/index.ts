@@ -60,8 +60,13 @@ Deno.serve(async (req) => {
         priority: row.temperatura === 'hot' ? 'high' : 'medium',
         status: 'pending',
       }).select('id, building_id').maybeSingle();
-      if (ins) inserted.push({ ...ins, owner_id: row.owner_id, temperatura: row.temperatura });
-      else if (insErr && !String(insErr.message || '').includes('duplicate')) console.error('insert err', insErr);
+      if (ins) {
+        inserted.push({ ...ins, owner_id: row.owner_id, temperatura: row.temperatura });
+      } else if (insErr) {
+        console.error('insert err', row.owner_id, row.building_id, JSON.stringify(insErr));
+      } else {
+        console.warn('insert returned no row', row.owner_id, row.building_id);
+      }
     }
 
     return new Response(JSON.stringify({ ok: true, inserted: inserted.length, items: inserted }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
