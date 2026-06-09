@@ -172,7 +172,7 @@ export default function ComercialPrepararLlamada() {
         <Card>
           <CardHeader><Eyebrow>Propietario</Eyebrow><CardTitle>Ficha</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">% propiedad</span><span className="font-mono text-gold">{Number(data?.ownerScore?.pct_propiedad ?? 0).toFixed(1)}%</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">% propiedad</span><span className="font-mono text-gold">{data?.ownerScore?.pct_propiedad != null ? `${Number(data.ownerScore.pct_propiedad).toFixed(1)}%` : "—"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Teléfono</span><span className="font-mono">{owner?.telefono ?? "—"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Contactos previos</span><span className="font-mono">{data?.ownerScore?.contactos_previos ?? 0}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Cargas / embargos</span><span className="font-mono">{(data?.cargas ?? []).length}</span></div>
