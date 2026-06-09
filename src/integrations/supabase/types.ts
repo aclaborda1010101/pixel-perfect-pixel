@@ -3363,8 +3363,11 @@ export type Database = {
           metadatos: Json | null
           nombre: string | null
           owner_id: string | null
+          pct_invalido: boolean | null
+          pct_normalizado: boolean | null
           pct_origen: string | null
           pct_propiedad: number | null
+          pct_raw: string | null
           rol: Database["public"]["Enums"]["owner_role"] | null
           rol_notas: string | null
           score: number | null
@@ -3472,6 +3475,15 @@ export type Database = {
       }
       normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
+      normalize_pct_propiedad: {
+        Args: { raw: string }
+        Returns: {
+          invalido: boolean
+          normalizado: boolean
+          pct: number
+          raw_value: string
+        }[]
+      }
       normalize_person_name: { Args: { p: string }; Returns: string }
       notas_simples_kpis: {
         Args: {

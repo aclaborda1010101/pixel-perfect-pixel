@@ -120,8 +120,9 @@ export default function ComercialEdificioDetalle() {
     if (sort === "score") return Number(b.score ?? 0) - Number(a.score ?? 0);
     if (sort === "pct") {
       // ASC: menor % primero (más fáciles de comprar / mayor palanca)
-      const av = a.pct_propiedad == null ? 999 : Number(a.pct_propiedad);
-      const bv = b.pct_propiedad == null ? 999 : Number(b.pct_propiedad);
+      // NULL al final (NULLS LAST)
+      const av = a.pct_propiedad == null ? Number.POSITIVE_INFINITY : Number(a.pct_propiedad);
+      const bv = b.pct_propiedad == null ? Number.POSITIVE_INFINITY : Number(b.pct_propiedad);
       return av - bv;
     }
     if (sort === "last") {
@@ -131,6 +132,13 @@ export default function ComercialEdificioDetalle() {
     }
     return Number((a.contactos_previos ?? 0) === 0 ? 0 : 1) - Number((b.contactos_previos ?? 0) === 0 ? 0 : 1);
   });
+
+  // Building-level pct validation (only meaningful when all owners have known pct)
+  const pctKnown = (data.owners ?? []).filter((o: any) => o.pct_propiedad != null);
+  const pctUnknownCount = (data.owners ?? []).length - pctKnown.length;
+  const sumPct = pctKnown.reduce((s: number, o: any) => s + Number(o.pct_propiedad), 0);
+  const pctInconsistente =
+    pctKnown.length > 0 && pctUnknownCount === 0 && (sumPct < 95 || sumPct > 105);
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
@@ -307,11 +315,22 @@ export default function ComercialEdificioDetalle() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {pctInconsistente && (
+            <div className="mx-5 mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              Datos inconsistentes: la suma de % conocidos es {sumPct.toFixed(1)}% (fuera de 95–105%). Revisar nota simple.
+            </div>
+          )}
+          {pctUnknownCount > 0 && (
+            <div className="mx-5 mt-4 rounded-md border border-border-faint bg-surface-1 px-3 py-2 text-xs text-muted-foreground">
+              {pctUnknownCount} de {(data.owners ?? []).length} propietarios sin % de propiedad conocido.
+            </div>
+          )}
           <ul className="divide-y divide-border-faint">
             {owners.map((o) => {
               const e = ownerEstado(o);
               const sinContacto = (o.contactos_previos ?? 0) === 0;
-              const pct = Number(o.pct_propiedad ?? 0);
+              const pctKnown = o.pct_propiedad != null;
+              const pct = pctKnown ? Number(o.pct_propiedad) : 0;
               const sub = Number(o.score ?? 0);
               const subTier = scoreTier(sub);
               const cargas =
@@ -338,14 +357,39 @@ export default function ComercialEdificioDetalle() {
                         </span>
                         <div className="h-1.5 overflow-hidden rounded-full bg-surface-1">
                           <div
-                            className={cn("h-full", tierBarClass[scoreTier(Math.min(100, pct))])}
-                            style={{ width: `${Math.max(2, Math.min(100, pct))}%` }}
+                            className={cn(
+                              "h-full",
+                              pctKnown ? tierBarClass[scoreTier(Math.min(100, pct))] : "bg-muted",
+                            )}
+                            style={{ width: pctKnown ? `${Math.max(2, Math.min(100, pct))}%` : "0%" }}
                           />
                         </div>
-                        <span className="font-mono text-xs tabular-nums text-gold">
-                          {pct.toFixed(1)}%
+                        <span
+                          className={cn(
+                            "font-mono text-xs tabular-nums",
+                            pctKnown ? "text-gold" : "text-muted-foreground",
+                          )}
+                          title={o.pct_invalido ? `Valor inválido: ${o.pct_raw ?? ""}` : undefined}
+                        >
+                          {pctKnown ? `${pct.toFixed(1)}%` : "—"}
                         </span>
-                        {o.pct_origen && o.pct_origen !== 'desconocido' && (
+                        {pctKnown && o.pct_normalizado && (
+                          <span
+                            className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-amber-500"
+                            title={`Normalizado desde "${o.pct_raw ?? ""}"`}
+                          >
+                            norm
+                          </span>
+                        )}
+                        {!pctKnown && o.pct_invalido && (
+                          <span
+                            className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-destructive"
+                            title={`% inválido: "${o.pct_raw ?? ""}"`}
+                          >
+                            inválido
+                          </span>
+                        )}
+                        {pctKnown && o.pct_origen && o.pct_origen !== 'desconocido' && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground"
                             title={`Origen del %: ${o.pct_origen}`}
