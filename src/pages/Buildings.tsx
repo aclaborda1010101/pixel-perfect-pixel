@@ -152,12 +152,10 @@ export default function Buildings() {
     setTotal(count ?? 0);
 
     if (data && data.length) {
-      const { data: bo } = await supabase
-        .from("building_owners")
-        .select("building_id")
-        .in("building_id", data.map((b: any) => b.id));
+      const ids = data.map((b: any) => b.id);
+      const { data: batch } = await (supabase.rpc as any)("count_distinct_owners_batch", { p_building_ids: ids });
       const c: Record<string, number> = {};
-      (bo ?? []).forEach((r: any) => { c[r.building_id] = (c[r.building_id] ?? 0) + 1; });
+      (batch ?? []).forEach((r: any) => { c[r.building_id] = Number(r.n ?? 0); });
       setCounts(c);
     } else {
       setCounts({});

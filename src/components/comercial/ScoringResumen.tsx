@@ -340,6 +340,7 @@ export function ScoringResumen({
 
   const avisos: any[] = Array.isArray(b?.avisos_inteligentes) ? b.avisos_inteligentes : [];
   const highAvisos = avisos.filter((a) => a?.severity === "high" || a?.severity === "medium");
+  const avisosConDetalle = highAvisos.filter((a) => a?.detail);
 
   return (
     <Card className="overflow-hidden border-border-faint">
