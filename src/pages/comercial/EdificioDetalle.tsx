@@ -345,6 +345,14 @@ export default function ComercialEdificioDetalle() {
                         <span className="font-mono text-xs tabular-nums text-gold">
                           {pct.toFixed(1)}%
                         </span>
+                        {o.pct_origen && o.pct_origen !== 'desconocido' && (
+                          <span
+                            className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground"
+                            title={`Origen del %: ${o.pct_origen}`}
+                          >
+                            {o.pct_origen === 'nota_simple' ? 'NS' : o.pct_origen === 'hubspot' ? 'HS' : 'meta'}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
