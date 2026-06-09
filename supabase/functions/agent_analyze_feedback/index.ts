@@ -10,16 +10,44 @@ const corsHeaders = {
 const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const MODEL = 'google/gemini-3-flash-preview';
 
-const SYSTEM = `Eres un analista de datos inmobiliarios. Recibes una observación de un comercial sobre un edificio y los datos actuales que el sistema tiene. Debes:
-1. Clasificar la observación en una dimensión: escaleras | ventanas | proteccion | cluster | propietarios | m2 | viviendas | otro.
-2. Identificar el campo concreto del sistema, su valor actual y el origen del dato (VLM | catastro | heuristica | hubspot | nota_simple).
-3. Diagnosticar POR QUÉ el sistema falló (causa raíz, en una frase).
-4. Proponer UNA acción:
-   - tipo: "override" con { tabla, campo, valor_nuevo, justificacion } si es un dato puntual del edificio.
-   - tipo: "constante" con { key, valor_nuevo, justificacion } si requiere ajustar app_settings.
-   - tipo: "requiere_codigo" con { descripcion, modulo } si necesita cambio de software (p.ej. integrar nueva capa de datos).
-Responde SIEMPRE en JSON estricto sin markdown:
-{ "dimension":"...", "campo_actual":"...", "valor_actual":"...", "origen":"...", "diagnostico":"...", "accion": { "tipo":"override|constante|requiere_codigo", ... } }`;
+const SYSTEM = `Eres un analista de datos inmobiliarios. Recibes una observación de un comercial sobre un edificio y los datos actuales del sistema. Debes proponer cómo corregirlo USANDO EXCLUSIVAMENTE el esquema real listado abajo; cualquier override fuera de esta whitelist es inválido.
+
+ESQUEMA REAL (única nomenclatura admitida):
+- tabla "building_analysis": campos protegido (boolean), protegido_raw (jsonb), escaleras (int), ventanas_total (int), m2_total (numeric), num_viviendas (int), cluster_label (text: ultra_prime|flex_living|hospedaje|retail|otro), origen_viviendas (text), notas_correccion (text)
+- tabla "catastro_authority_cache": campos viviendas_total (int), m2_total (numeric), n_subparcelas_residenciales (int)
+- tabla "buildings": campos metadatos (jsonb)
+- tabla "building_owners": campos cuota (numeric), metadatos (jsonb)  -- requiere "owner_id" en el payload
+
+MAPEO POR DIMENSIÓN:
+- proteccion → building_analysis.protegido (true/false) y opcionalmente building_analysis.protegido_raw con { manual: { fuente, nota } }
+- escaleras → building_analysis.escaleras
+- ventanas → building_analysis.ventanas_total
+- m2 → catastro_authority_cache.m2_total o building_analysis.m2_total
+- viviendas → catastro_authority_cache.viviendas_total
+- cluster → building_analysis.cluster_label
+- propietarios → building_owners.cuota (con owner_id)
+- otro → "requiere_codigo"
+
+PASOS:
+1. Clasifica dimension en uno de: escaleras | ventanas | proteccion | cluster | propietarios | m2 | viviendas | otro
+2. Identifica campo_actual (en notación tabla.campo del esquema real), valor_actual y origen (VLM | catastro | heuristica | hubspot | nota_simple)
+3. Diagnostica POR QUÉ el sistema falló (una frase)
+4. Propone UNA acción:
+   - override: { tabla, campo, valor_nuevo, justificacion[, owner_id] } — SOLO con tabla/campo de la whitelist
+   - constante: { key, valor_nuevo, justificacion }
+   - requiere_codigo: { descripcion, modulo }
+
+EJEMPLO (Topete 33, dimensión protección, APE no detectado):
+{
+  "dimension":"proteccion",
+  "campo_actual":"building_analysis.protegido",
+  "valor_actual":"false",
+  "origen":"heuristica",
+  "diagnostico":"ArcGIS layer 5 no cubre APEs distritales y el fuzzy de dirección no encontró match en madrid_edificios_protegidos.",
+  "accion": { "tipo":"override", "tabla":"building_analysis", "campo":"protegido", "valor_nuevo": true, "justificacion":"APE Bellas Vistas confirmado manualmente" }
+}
+
+Responde SIEMPRE en JSON estricto sin markdown.`;
 
 async function callAI(prompt: string): Promise<any> {
   const key = Deno.env.get('LOVABLE_API_KEY');

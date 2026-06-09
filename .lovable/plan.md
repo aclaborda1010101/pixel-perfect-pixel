@@ -1,95 +1,143 @@
-# Plan F2 — Correcciones del equipo con aprendizaje
+# Plan F3 — Sistema comercial "llamadas de zona"
 
-## Pre-paso (background)
-Disparar `hubspot_sync_associations` para los 77 edificios pendientes (deals→companies, companies→contacts) en modo background antes de empezar el bloque F2. Sin bloquear el resto del plan.
+## 0. Cierre de flecos F2
 
-## 1. Esquema BD
+### 0.1 Prompt de `agent_analyze_feedback`
+Reescribir el system prompt para fijar la nomenclatura real:
+- Tabla destino válida sólo entre: `building_analysis`, `buildings`, `catastro_authority_cache`, `building_owners`.
+- Lista cerrada de campos por tabla (la misma whitelist que `apply_feedback_override`).
+- Mapping explícito por dimensión:
+  - `proteccion` → `building_analysis.protegido` (bool) y opcionalmente `protegido_raw` jsonb con `{manual:{fuente,nota}}`.
+  - `escaleras` → `building_analysis.escaleras` (int).
+  - `ventanas` → `building_analysis.ventanas_total` (int).
+  - `m2` → `catastro_authority_cache.m2_total` o `building_analysis.m2_total`.
+  - `viviendas` → `catastro_authority_cache.viviendas_total`.
+  - `cluster` → `building_analysis.cluster_label` (enum).
+  - `propietarios` → `building_owners.pct_propiedad` (con `owner_id` en payload).
+- Few-shot con caso Topete 33 (devuelve override sobre `building_analysis.protegido=true` + `protegido_raw.manual.fuente='APE Bellas Vistas'`).
+- Ampliar whitelist de `apply_feedback_override` para incluir esos campos.
+- Re-test con el feedback de Topete 33: aplicar override de 1 clic.
 
-Nueva tabla `building_feedback`:
+### 0.2 Panel `/settings/aprendizaje`
+- Nueva ruta + componente `AprendizajePanel.tsx`. KPIs: total feedbacks, % aplicados/descartados/requiere_código, tiempo medio análisis. Tabla "Feedbacks por dimensión" (count). Tabla "Patrones detectados" (group by `dimension` + `analisis_ia->>'origen'`). Cola "Requiere cambio de código" con link al edificio. Botón "Resumen IA semanal" → llamada simple a Lovable AI con los últimos 50 feedbacks y devuelve sugerencias agregadas.
 
-```text
-id uuid pk
-building_id uuid fk -> buildings
-autor_id uuid (auth.uid)
-autor_email text
-canal text check in ('voz','texto')
-texto text                       -- transcrito si voz
-audio_url text                   -- storage://feedback-audio/...
-dimension text                   -- escaleras|ventanas|proteccion|cluster|propietarios|m2|viviendas|otro
-estado text default 'nueva'      -- nueva|analizada|aplicada|descartada|requiere_codigo
-analisis_ia jsonb                -- {diagnostico, origen_dato_actual, accion_propuesta, override_payload, constante_sugerida}
-override_aplicado jsonb          -- {campo, valor_anterior, valor_nuevo, aplicado_en, aplicado_por}
-created_at, updated_at
-```
+### 0.3 Badge en Dashboard admin
+- En `Dashboard.tsx`: contador de `building_feedback` con `estado='requiere_codigo'`, badge destructivo y link a `/settings/aprendizaje?filter=requiere_codigo`.
 
-Grants + RLS: SELECT/INSERT/UPDATE para `authenticated`; ALL para `service_role`. Sin cambios en RLS de otras tablas.
+---
 
-Bucket privado `feedback-audio` (Storage).
+## 1. Baseline métricas de llamadas
 
-Reutilizar `scoring_v2_feedback` (ya existe) como matriz QA: añadir trigger que, al pasar `building_feedback.estado='aplicada'`, inserta una fila en `scoring_v2_feedback` con el override y el building_id como caso de regresión.
+Vista SQL `v_calls_baseline` materializada o consulta directa: por comercial (`hs_owner_id`) y semana (`date_trunc('week', created_at)`):
+- buckets de duración (0-15, 15-45, 45-90, >90 s)
+- total llamadas, % >60s, duración media/mediana
 
-## 2. UI — card "Correcciones del equipo"
+Nuevo bloque "Baseline llamadas" en `Productividad.tsx`:
+- Histograma stacked por comercial (Recharts, ya en el stack).
+- Tabla semanal con % >1min y nº llamadas.
+- Selector de rango (últimas 4/12/26 semanas).
+- Banner: "Punto de comparación pre-sistema F3".
 
-En `src/pages/comercial/EdificioDetalle.tsx` y `src/pages/BuildingDetail.tsx`: nuevo componente `<TeamFeedbackCard buildingId={...} />` con:
+---
 
-- Botón grabar (MediaRecorder, mismo flujo que `transcribe_call`): graba → sube a `feedback-audio` → invoca `transcribe_call` → crea row `canal='voz'` con texto transcrito.
-- Textarea + botón "Enviar observación" → crea row `canal='texto'`.
-- Lista de feedbacks del edificio (desc) mostrando: autor, fecha, texto, badge de dimensión, badge de estado, panel expandible con `analisis_ia` (diagnóstico + acción propuesta).
-- Si `accion_propuesta.tipo === 'override'`: botón "Aplicar override" (1-click) que llama edge function `apply_feedback_override` → actualiza el campo correspondiente en `building_analysis` / `buildings` / `catastro_authority_cache`, marca estado `aplicada`, dispara `recompute-cluster-scoring` para ese edificio.
-- Si `tipo === 'constante'`: botón "Ajustar constante" (sólo admins) que edita `app_settings`.
-- Si `tipo === 'requiere_codigo'`: badge rojo "Requiere cambio de código".
+## 2. Wizard de llamada paso-a-paso
 
-## 3. Edge function `agent_analyze_feedback`
+Refactor de `src/pages/wizards/PrepareCallWizard.tsx` en flujo de 3 pasos (componente `<Wizard>` con `Stepper`).
 
-Trigger: al INSERT en `building_feedback` (vía trigger DB → `pg_net.http_post`, o invocación directa desde el cliente tras insertar — usar invocación cliente para simplicidad).
+**Paso 1 — Brief**
+- Lee propietario + edificio + `building_analysis` + `building_owners`.
+- 4 variables mínimas: edad (`owners.metadatos->>'edad'` o derivada de DNI/año nacimiento), influenciadores (`owner_relations`/notas IA), zona socioeconómica (de `madrid_barrio_clusters` por dirección particular del propietario), `pct_propiedad`.
+- Historial (`hubspot_communications` + `calls` últimos 12 meses).
+- Tipología actual (`owners.tipologia`) + gancho sugerido (de `building_analysis.banderas` + heurística).
+- Card "Consejo Voss" → llama `agent_voss_coach` modo `brief`.
 
-Lógica:
+**Paso 2 — Guía en llamada**
+- Checklist editable de info a extraer (tipología, motivación, datos del edificio, alquileres actuales). Estado persistido en `calls.metadatos->>'checklist'` o tabla nueva `call_session` (preferido: tabla `call_sessions` con estado en curso).
+- Objetivo de cierre: radio (WhatsApp, link pixel, reunión).
+- Cronómetro visible (no graba; sólo orientativo).
 
-1. Cargar feedback + snapshot completo del edificio (`building_analysis`, `catastro_authority_cache`, `facade_window_counts`, `building_owners`, score actual, banderas).
-2. Llamar a Lovable AI (`google/gemini-3-flash-preview` con `Output.object`) con prompt:
-   - Clasifica `dimension` (enum cerrado).
-   - Identifica el campo concreto afectado y su valor actual y origen (VLM/catastro/heurística/HubSpot).
-   - Diagnostica por qué el sistema falló (compara texto del usuario con datos).
-   - Propone una de tres acciones:
-     - `override`: `{ tabla, campo, valor_nuevo, justificación }`
-     - `constante`: `{ key en app_settings, valor_nuevo, justificación }`
-     - `requiere_codigo`: `{ descripción técnica, módulo afectado }`
-3. Guarda en `analisis_ia`, marca `estado='analizada'`.
+**Paso 3 — Post-llamada**
+- Resultado: enum (`interesado`, `seguir`, `descartar`, `no_contesta`).
+- Próxima acción sugerida con cadencia automática:
+  - `interesado` → +1 semana
+  - `seguir` → +1 mes
+  - `descartar` → archivar; sin tarea
+  - `no_contesta` → +3 días, max 3 reintentos antes de pasar a +1 mes
+- Crea fila en `building_tasks` con `due_at` calculado y tipo `siguiente_llamada`.
+- Llama `agent_voss_coach` modo `post` con la transcripción si ya existe; si no, sólo guarda el resultado.
 
-## 4. Edge function `apply_feedback_override`
+Tabla nueva `call_sessions`:
+`id, owner_id, building_id, comercial_id, paso int, checklist jsonb, objetivo text, resultado text, voss_brief jsonb, voss_post jsonb, started_at, closed_at`.
+Grants `authenticated` + RLS por `comercial_id = auth.uid()` (con bypass de service_role).
 
-Aplica el override del payload, escribe `override_aplicado`, marca `estado='aplicada'`, llama `recompute-cluster-scoring` con el `building_id`. El trigger de regresión copia a `scoring_v2_feedback`.
+---
 
-## 5. Aprendizaje — pantalla admin
+## 3. KPIs automáticos por comercial
 
-Ruta `/settings/aprendizaje` (`AprendizajePanel.tsx`):
+Vista `v_kpis_comercial_semana`:
+- A partir de `calls` (ya tienen `analisis_ia` y `duracion`), `building_tasks`, `whatsapp_messages`, `next_actions`, `building_owners`.
+- Por comercial × semana:
+  - n_llamadas, pct_mas_60s
+  - calidad_media (de `calls.analisis_ia->>'calidad'`)
+  - tipologia_extraida (% con `owners.tipologia not null` tras llamada)
+  - info_extraida (% checklists completos en `call_sessions`)
+  - whatsapp_o_pixel (% llamadas con envío posterior)
+  - seguimientos_al_dia (`building_tasks` no vencidas / total asignadas)
+  - cobertura (`building_owners` contactados ÷ total por edificio asignado)
+  - hs_poblado (% deals con campos clave rellenos)
+  - reuniones, oportunidades (de `next_actions.tipo`)
 
-- KPIs: nº feedbacks por dimensión, % aplicados vs descartados, tiempo medio de análisis.
-- Tabla "Patrones detectados": agrupa por `dimension` + `analisis_ia.causa_raiz`; muestra ej. "VLM falla escaleras en planos B/N (12 casos)".
-- Cola "Requiere cambio de código": destacada para revisión por ingeniería.
-- Botón "Resumen IA semanal": llama edge function que genera sugerencias de mejora agregadas.
+Página nueva `/admin/ranking` (admin role) con tabla ordenable por cada KPI, semana actual y trend chip vs semana anterior. Panel propio del comercial en `Productividad.tsx` ("Mis KPIs").
 
-## 6. Notificaciones dashboard
+---
 
-En `Dashboard.tsx` admin: badge rojo con contador de feedbacks `estado='requiere_codigo'` no atendidos, link directo a la cola.
+## 4. Asignación automática de tareas
 
-## 7. Validación
+Edge function `assign_daily_call_queue` (programada con `pg_cron` 06:00 hora Madrid):
+- Para cada `profile` con rol `comercial`:
+  - Selecciona N=20 propietarios candidatos (de `building_owners` JOIN `building_assignments`) ordenados por `score_edificio × score_owner × (1 + dias_cadencia_vencida)`.
+  - Alterna 60/40 calientes/fríos (score > 70 vs ≤ 70) para anti-burnout.
+  - Inserta en `building_tasks` (tipo=`llamada_diaria`, `due_at=today`, `payload={owner_id,building_id,prioridad}`).
 
-Crear feedback de prueba por texto en Topete 33: "la protección existe, está en el APE de Bellas Vistas". Mostrar el `analisis_ia` resultante:
-- dimensión: `proteccion`
-- diagnóstico esperado: ArcGIS layer 5 no cubre APE distritales; fallback fuzzy no encontró match
-- acción: `override` con `building_analysis.protegido=true` + `protegido_raw.manual_ape='Bellas Vistas'`, o `requiere_codigo` si se decide integrar la capa APE.
+UI: en Dashboard del comercial, card "Cola de hoy" con botón **"Siguiente llamada"** que abre `/wizards/preparar/{owner_id}` directamente al paso 1.
+
+---
+
+## 5. Coach Voss
+
+Edge function `agent_voss_coach`:
+- Body: `{ mode:'brief'|'post', owner_id, building_id, call_transcript? }`.
+- RAG: usa `generate_embeddings` ya existente sobre el texto query; busca top-6 en `knowledge_chunks` WHERE `source IN ('correo_chris_voss','libro_voss')` por similitud coseno (pgvector).
+- Prompt Voss: `system` con principios (mirroring, label, calibrated questions, no/that's right, etc.).
+- Salida estricta JSON: `{ tecnica_principal, sugerencia, por_que, fragmentos_usados:[{source,chunk_id,snippet}] }`.
+- Modo `brief` usa snapshot del propietario; modo `post` usa transcripción + brief previo.
+
+Integración UI:
+- Paso 1 wizard: card "Consejo Voss" (brief).
+- Paso 3 wizard: card "Análisis Voss post-llamada".
+- Ficha de propietario (`/owners/:id`): botón "Coach Voss" que invoca modo `brief`.
+
+NO toca scoring ni clustering.
+
+---
+
+## 6. Validación
+
+Con un propietario de Topete 33:
+1. Abrir `/wizards/preparar/{owner_id}`.
+2. Mostrar brief con las 4 variables + gancho.
+3. Mostrar respuesta de `agent_voss_coach`: técnica + sugerencia textual + 2 fragmentos del libro/correo.
+
+---
 
 ## Detalles técnicos
 
-- Migración SQL: `building_feedback` + grants + RLS + trigger de regresión.
-- Storage: bucket `feedback-audio` privado con políticas (insert authenticated, select autor o admin).
-- Edge functions nuevas: `agent_analyze_feedback`, `apply_feedback_override`, `learning_weekly_summary`.
-- Reutiliza `transcribe_call` existente para STT.
-- UI: nuevo componente `TeamFeedbackCard` + página `AprendizajePanel`.
-- Sin cambios a RLS existente; sin tocar `auth`/`storage` schemas más allá del bucket nuevo.
+- Migraciones nuevas: `call_sessions`, vistas `v_calls_baseline` y `v_kpis_comercial_semana`. Sin cambios RLS existentes; sólo políticas para las tablas nuevas.
+- Edge functions nuevas: `agent_voss_coach`, `assign_daily_call_queue`. Cron en `pg_cron` con anon key (no datos sensibles en migración — usar `supabase--insert`).
+- Reescritura prompt `agent_analyze_feedback` + ampliación whitelist `apply_feedback_override`.
+- Nuevos componentes: `AprendizajePanel`, `BaselineLlamadas`, `RankingComercial`, `WizardPaso1/2/3`, `ColaHoy`, `VossCoachCard`.
 
 ## Fuera de alcance
-- Reentreno automático de modelos (sólo recolectamos matriz QA).
-- Capa APE distrital de PGOU (queda como `requiere_codigo` si surge).
-- Edición colaborativa en tiempo real de feedbacks.
+- Coach Voss en tiempo real (durante la llamada).
+- Reentreno automático sobre patrones de feedback.
+- Asignación de territorio (sigue el `building_assignments` actual).

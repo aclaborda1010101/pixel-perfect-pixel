@@ -7,11 +7,12 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
-const ALLOWED_TABLES = new Set(['building_analysis', 'buildings', 'catastro_authority_cache']);
+const ALLOWED_TABLES = new Set(['building_analysis', 'buildings', 'catastro_authority_cache', 'building_owners']);
 const ALLOWED_FIELDS: Record<string, Set<string>> = {
   building_analysis: new Set(['protegido','protegido_raw','escaleras','ventanas_total','m2_total','num_viviendas','cluster_label','origen_viviendas','notas_correccion']),
-  buildings: new Set(['direccion','metadatos']),
+  buildings: new Set(['metadatos']),
   catastro_authority_cache: new Set(['viviendas_total','m2_total','n_subparcelas_residenciales']),
+  building_owners: new Set(['cuota','metadatos']),
 };
 
 Deno.serve(async (req) => {
@@ -32,13 +33,19 @@ Deno.serve(async (req) => {
     if (!ALLOWED_FIELDS[tabla]?.has(campo)) throw new Error(`Campo no permitido: ${tabla}.${campo}`);
 
     // Capturar valor anterior
-    const idCol = tabla === 'buildings' ? 'id' : 'building_id';
-    const idVal = fb.building_id;
-    const { data: prev } = await sb.from(tabla).select(campo).eq(idCol, idVal).maybeSingle();
-    const valor_anterior = prev?.[campo] ?? null;
+    let q = sb.from(tabla).select(campo);
+    if (tabla === 'buildings') q = q.eq('id', fb.building_id);
+    else if (tabla === 'building_owners') q = q.eq('building_id', fb.building_id).eq('owner_id', accion.owner_id);
+    else q = q.eq('building_id', fb.building_id);
+    const { data: prev } = await q.maybeSingle();
+    const valor_anterior = (prev as any)?.[campo] ?? null;
 
     const updatePayload: any = { [campo]: valor_nuevo };
-    const { error: upErr } = await sb.from(tabla).update(updatePayload).eq(idCol, idVal);
+    let u = sb.from(tabla).update(updatePayload);
+    if (tabla === 'buildings') u = u.eq('id', fb.building_id);
+    else if (tabla === 'building_owners') u = u.eq('building_id', fb.building_id).eq('owner_id', accion.owner_id);
+    else u = u.eq('building_id', fb.building_id);
+    const { error: upErr } = await u;
     if (upErr) throw new Error(`update ${tabla}: ${upErr.message}`);
 
     const override = { tabla, campo, valor_anterior, valor_nuevo, aplicado_en: new Date().toISOString(), aplicado_por: user_email || null };

@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Sparkles, Phone, CheckCircle2, Clock, XCircle, PhoneOff, Copy, AlertTriangle, Target, Users, Lightbulb, TrendingUp, Quote, MessageSquareWarning, ArrowRight, Clock4 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
+import { VossCoachCard } from "@/components/comercial/VossCoachCard";
 
 type Outcome = "interesado" | "no_interesa" | "volver" | "no_contesta";
 const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "success" | "outline" | "info" | "destructive" }> = [
@@ -202,6 +203,15 @@ export default function ComercialPrepararLlamada() {
       {/* Briefing IA */}
       {loadingBrief && !brief && <BriefSkeleton />}
       {normalizedBrief && <BriefView brief={normalizedBrief} />}
+
+      {/* Coach Voss · pre-llamada */}
+      {ownerId && (
+        <VossCoachCard
+          ownerId={ownerId}
+          buildingId={data?.ownerScore?.building_id}
+          mode="brief"
+        />
+      )}
 
       {/* Post-call */}
       <Card>
