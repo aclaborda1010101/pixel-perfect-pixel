@@ -394,6 +394,33 @@ export function ScoringResumen({
           ))}
         </div>
 
+        {/* Avisos inteligentes con detalle */}
+        {avisosConDetalle.length > 0 && (
+          <div className="space-y-2 px-6">
+            <Eyebrow>
+              <AlertTriangle className="mr-1 inline h-3 w-3 text-amber-400" /> Avisos inteligentes
+            </Eyebrow>
+            <div className="space-y-2">
+              {avisosConDetalle.map((a, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "rounded-md border p-3 text-xs",
+                    a.severity === "high"
+                      ? "border-amber-500/40 bg-amber-500/5"
+                      : "border-border-faint bg-surface-1/40",
+                  )}
+                >
+                  <div className="font-semibold text-foreground">{a.label}</div>
+                  {a.detail && (
+                    <div className="mt-1 text-muted-foreground">{a.detail}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Por qué este score: factores ordenados */}
         <div className="grid grid-cols-1 gap-6 px-6 pb-6 md:grid-cols-2">
           <div className="space-y-3">
