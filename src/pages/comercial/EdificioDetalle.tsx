@@ -315,6 +315,16 @@ export default function ComercialEdificioDetalle() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {pctInconsistente && (
+            <div className="mx-5 mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              Datos inconsistentes: la suma de % conocidos es {sumPct.toFixed(1)}% (fuera de 95–105%). Revisar nota simple.
+            </div>
+          )}
+          {pctUnknownCount > 0 && (
+            <div className="mx-5 mt-4 rounded-md border border-border-faint bg-surface-1 px-3 py-2 text-xs text-muted-foreground">
+              {pctUnknownCount} de {(data.owners ?? []).length} propietarios sin % de propiedad conocido.
+            </div>
+          )}
           <ul className="divide-y divide-border-faint">
             {owners.map((o) => {
               const e = ownerEstado(o);
