@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/sonner";
 import { PageHeader } from "@/components/common/PageHeader";
+import { BaselineLlamadasCard } from "@/components/comercial/BaselineLlamadasCard";
 import { Loader2, RefreshCcw, Sparkles } from "lucide-react";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { useAuth } from "@/hooks/useAuth";
@@ -362,6 +363,8 @@ export default function Productividad() {
         title="Productividad comercial"
         subtitle="Análisis de llamadas grabadas con IA: outcome, sentiment, objeciones, técnica y coaching semanal."
       />
+
+      <BaselineLlamadasCard weeks={12} />
 
       <div className="flex flex-wrap items-center gap-3">
         {!isComercial && (
