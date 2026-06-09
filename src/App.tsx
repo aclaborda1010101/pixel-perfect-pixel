@@ -10,6 +10,7 @@ import { I18nProvider } from "@/i18n/I18nProvider";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AuthProvider } from "@/hooks/useAuth";
+import { RuntimeErrorBoundary } from "@/components/RuntimeErrorBoundary";
 
 // Code-splitting: cada ruta carga sólo cuando se visita.
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -83,7 +84,14 @@ const App = () => (
                 <Route path="/propietarios" element={<Owners />} />
                 <Route path="/propietarios/:id" element={<OwnerDetail />} />
                 <Route path="/edificios" element={<Buildings />} />
-                <Route path="/edificios/:id" element={<BuildingDetail />} />
+                <Route
+                  path="/edificios/:id"
+                  element={
+                    <RuntimeErrorBoundary>
+                      <BuildingDetail />
+                    </RuntimeErrorBoundary>
+                  }
+                />
                 <Route path="/activos" element={<Assets />} />
                 <Route path="/activos/:id" element={<AssetDetail />} />
                 <Route path="/llamadas" element={<Calls />} />
@@ -105,7 +113,14 @@ const App = () => (
                 <Route path="/ajustes" element={<Settings />} />
                 <Route path="/comercial" element={<ComercialDashboard />} />
                 <Route path="/comercial/edificios" element={<ComercialEdificios />} />
-                <Route path="/comercial/edificios/:id" element={<ComercialEdificio />} />
+                <Route
+                  path="/comercial/edificios/:id"
+                  element={
+                    <RuntimeErrorBoundary>
+                      <ComercialEdificio />
+                    </RuntimeErrorBoundary>
+                  }
+                />
                 <Route path="/comercial/tareas" element={<ComercialTareas />} />
                 <Route path="/comercial/preparar/:ownerId" element={<ComercialPreparar />} />
                 <Route path="/comercial/cuenta" element={<ComercialCuenta />} />
