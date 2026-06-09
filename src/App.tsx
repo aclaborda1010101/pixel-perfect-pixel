@@ -125,6 +125,7 @@ const App = () => (
                 <Route path="/comercial/tareas" element={<ComercialTareas />} />
                 <Route path="/comercial/preparar/:ownerId" element={<ComercialPreparar />} />
                 <Route path="/comercial/cuenta" element={<ComercialCuenta />} />
+                <Route path="/admin/ranking" element={<AdminRankingComercial />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
