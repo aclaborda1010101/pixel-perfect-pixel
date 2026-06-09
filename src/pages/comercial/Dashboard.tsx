@@ -17,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { scoreTier } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
+import { ColaHoyCard } from "@/components/comercial/ColaHoyCard";
 
 function greet() {
   const h = new Date().getHours();
@@ -88,6 +89,11 @@ export default function ComercialDashboard() {
         .order("created_at", { ascending: false });
       const tasks = (tasksData ?? []) as any[];
 
+      // 7b. Feedback que requiere código (solo admin)
+      const { count: requiereCodigoCount } = await (supabase.from("building_feedback" as any) as any)
+        .select("id", { count: "exact", head: true })
+        .eq("estado", "requiere_codigo");
+
       // Agregaciones por edificio
       const ownersByBuilding = new Map<string, any[]>();
       (owners ?? []).forEach((o: any) => {
@@ -137,6 +143,7 @@ export default function ComercialDashboard() {
         buildings: buildingsRich,
         agenda,
         tasks,
+        requiereCodigoCount: requiereCodigoCount ?? 0,
       };
     },
   });
@@ -176,6 +183,15 @@ export default function ComercialDashboard() {
           ? `${k.assigned} edificios activos · ${k.noContact} propietarios pendientes de primer contacto`
           : "Aún no tienes edificios asignados. Pide al administrador que te asigne tu cartera."}
       />
+
+      {role === "admin" && (k as any).requiereCodigoCount > 0 && (
+        <div className="rounded-[6px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+          <Badge variant="destructive" className="mr-2"><AlertCircle className="mr-1 h-3 w-3" /> Requiere código</Badge>
+          Hay <span className="font-mono text-destructive">{(k as any).requiereCodigoCount}</span> feedbacks marcados que necesitan cambios de código. Revísalos en <Link to="/ajustes" className="underline">Ajustes · Aprendizaje</Link>.
+        </div>
+      )}
+
+      {userId && <ColaHoyCard userId={userId} />}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
