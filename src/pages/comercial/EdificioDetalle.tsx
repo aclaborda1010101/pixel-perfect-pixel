@@ -292,6 +292,47 @@ export default function ComercialEdificioDetalle() {
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
 
+      {/* Sociedades propietarias */}
+      {companies.length > 0 && (
+        <Card>
+          <CardHeader>
+            <Eyebrow>Sociedades propietarias · {companies.length}</Eyebrow>
+            <CardTitle>Estructura societaria del edificio</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y divide-border-faint">
+              {companies.map((bc: any) => {
+                const c = bc.companies || {};
+                const rep = bc.metadatos?.representante || c.metadatos?.representante || null;
+                const pct = bc.percentage ?? bc.metadatos?.pct_propiedad ?? null;
+                return (
+                  <li key={bc.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
+                        {c.nombre || "(sin nombre)"}
+                        {c.cif && <span className="font-mono text-[11px] text-muted-foreground">{c.cif}</span>}
+                      </div>
+                      {rep && (
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          Representante: <span className="text-foreground">{rep}</span>
+                        </div>
+                      )}
+                      {bc.role && (
+                        <Badge variant="outline" className="mt-1">{String(bc.role)}</Badge>
+                      )}
+                    </div>
+                    <div className="text-right text-xs text-muted-foreground">
+                      {pct != null ? <span className="font-mono text-foreground">{Number(pct).toFixed(1)}%</span> : "—"}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Propietarios */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
