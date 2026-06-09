@@ -42,6 +42,7 @@ import { AnalisisIASection } from "@/components/comercial/AnalisisIASection";
 import { CatastroDetalladoCard } from "@/components/comercial/CatastroDetalladoCard";
 import { AnalisisPlanoCatastralCard } from "@/components/comercial/AnalisisPlanoCatastralCard";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
+import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -291,6 +292,9 @@ export default function ComercialEdificioDetalle() {
 
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
+
+      {/* Correcciones del equipo */}
+      {id && <TeamFeedbackCard buildingId={id} />}
 
       {/* Sociedades propietarias */}
       {companies.length > 0 && (
