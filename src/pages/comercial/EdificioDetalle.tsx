@@ -89,12 +89,16 @@ export default function ComercialEdificioDetalle() {
           .eq("building_id", id!)
           .maybeSingle(),
       ]);
+      const { data: companies } = await (supabase.from("building_companies" as any) as any)
+        .select("*, companies:company_id(id, nombre, cif, metadatos)")
+        .eq("building_id", id!);
       return {
         b: b as any,
         score: score as any,
         owners: (owners ?? []) as any[],
         assigned: !!assign,
         analysis: (analysis ?? null) as any,
+        companies: (companies ?? []) as any[],
       };
     },
   });
@@ -103,6 +107,7 @@ export default function ComercialEdificioDetalle() {
   const s = data?.score ?? {};
   const assigned = data?.assigned;
   const analysis = data?.analysis;
+  const companies = data?.companies ?? [];
   const { data: ownersCount } = useOwnersCount(b?.id);
 
   if (!data?.b) {
