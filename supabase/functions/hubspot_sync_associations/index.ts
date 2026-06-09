@@ -312,7 +312,7 @@ Deno.serve(async (req) => {
               bcRows.push({
                 building_id: buildingId,
                 company_id: companyId,
-                role: 'proindiviso',
+                role: 'titular',
                 source: 'hubspot_assoc',
                 metadatos: { hs_deal_id: dealHs, hs_company_id: coHs },
               });
@@ -345,8 +345,8 @@ Deno.serve(async (req) => {
                   if (!ownerId) continue;
                   repRows.push({
                     owner_id: ownerId, company_id: companyId,
-                    role: 'representante_sociedad', source: 'hubspot_assoc',
-                    metadatos: { hs_company_id: coHs, hs_contact_id: cId },
+                    role: 'administrador', source: 'hubspot_assoc',
+                    metadatos: { hs_company_id: coHs, hs_contact_id: cId, rol_logico: 'representante_sociedad' },
                   });
                 }
               }
