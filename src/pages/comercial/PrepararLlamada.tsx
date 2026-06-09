@@ -223,6 +223,10 @@ export default function ComercialPrepararLlamada() {
         }
       />
 
+      <CallWizardStepper paso={paso} onJump={jumpTo} />
+
+      {paso === 1 && (
+      <>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Resumen edificio */}
         <Card>
