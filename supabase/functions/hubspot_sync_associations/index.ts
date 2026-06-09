@@ -38,6 +38,9 @@ Deno.serve(async (req) => {
   let pairsSeen = 0;
   let failed = 0;
   let ownersCreated = 0;
+  let companiesLinked = 0;
+  let companiesRepLinked = 0;
+  let buildingCompaniesUpserted = 0;
 
   try {
     let reset = false;
@@ -266,6 +269,100 @@ Deno.serve(async (req) => {
       await supabase.from('hubspot_sync_state').update({
         cursor: lastProviderId,
       }).eq('entity', 'associations');
+
+      // ============================================================
+      // F1-D · SL: deals→companies, companies→contacts (representante)
+      // ============================================================
+      try {
+        const inputsCo = slice.map((d) => ({ id: d.provider_id }));
+        const dealCoResp = await hubspotFetch('/crm/v4/associations/deals/companies/batch/read', {
+          method: 'POST', body: JSON.stringify({ inputs: inputsCo }),
+        });
+        const dealCoRes = (dealCoResp?.results || []) as any[];
+        // Map deal→companyIds
+        const dealToCompanies = new Map<string, string[]>();
+        const allCompanyIds = new Set<string>();
+        for (const r of dealCoRes) {
+          const did = String(r?.from?.id || '');
+          const cos = (r?.to || []).map((t: any) => String(t.toObjectId)).filter(Boolean);
+          if (did && cos.length) {
+            dealToCompanies.set(did, cos);
+            cos.forEach((c) => allCompanyIds.add(c));
+          }
+        }
+        if (allCompanyIds.size > 0) {
+          // Resolve companies in our DB via external_ids
+          const ids = Array.from(allCompanyIds);
+          const companyMap = new Map<string, string>(); // hs_id → companies.id
+          for (let k = 0; k < ids.length; k += 500) {
+            const chunk = ids.slice(k, k + 500);
+            const { data: cs } = await supabase
+              .from('external_ids').select('entity_id, provider_id')
+              .eq('provider', 'hubspot').eq('provider_object_type', 'company').in('provider_id', chunk);
+            (cs || []).forEach((c) => companyMap.set(c.provider_id, c.entity_id));
+          }
+          // Materializar building_companies
+          const bcRows: any[] = [];
+          for (const [dealHs, coHsList] of dealToCompanies.entries()) {
+            const buildingId = dealHsToBuildingId.get(dealHs);
+            if (!buildingId) continue;
+            for (const coHs of coHsList) {
+              const companyId = companyMap.get(coHs);
+              if (!companyId) continue;
+              bcRows.push({
+                building_id: buildingId,
+                company_id: companyId,
+                role: 'titular',
+                source: 'hubspot_assoc',
+                metadatos: { hs_deal_id: dealHs, hs_company_id: coHs },
+              });
+            }
+          }
+          if (bcRows.length > 0) {
+            const { error: bcErr } = await supabase.from('building_companies')
+              .upsert(bcRows, { onConflict: 'building_id,company_id,role', ignoreDuplicates: true });
+            if (!bcErr) buildingCompaniesUpserted += bcRows.length;
+            companiesLinked += bcRows.length;
+          }
+
+          // companies→contacts (representante_sociedad)
+          const inputsCC = Array.from(allCompanyIds).map((id) => ({ id }));
+          for (let k = 0; k < inputsCC.length; k += 100) {
+            const chunk = inputsCC.slice(k, k + 100);
+            try {
+              const ccResp = await hubspotFetch('/crm/v4/associations/companies/contacts/batch/read', {
+                method: 'POST', body: JSON.stringify({ inputs: chunk }),
+              });
+              const ccRes = (ccResp?.results || []) as any[];
+              const repRows: any[] = [];
+              for (const r of ccRes) {
+                const coHs = String(r?.from?.id || '');
+                const companyId = companyMap.get(coHs);
+                if (!companyId) continue;
+                for (const t of (r.to || [])) {
+                  const cId = String(t.toObjectId);
+                  const ownerId = contactMap.get(cId);
+                  if (!ownerId) continue;
+                  repRows.push({
+                    owner_id: ownerId, company_id: companyId,
+                    role: 'administrador', source: 'hubspot_assoc',
+                    metadatos: { hs_company_id: coHs, hs_contact_id: cId, rol_logico: 'representante_sociedad' },
+                  });
+                }
+              }
+              if (repRows.length > 0) {
+                const { error: ocErr } = await supabase.from('owner_companies')
+                  .upsert(repRows, { onConflict: 'owner_id,company_id,role', ignoreDuplicates: true });
+                if (!ocErr) companiesRepLinked += repRows.length;
+              }
+            } catch (e) {
+              console.error('[assoc][SL] cc fail:', e);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[assoc][SL] deal→co fail:', e);
+      }
     }
 
     const hasMore = deals.length >= TARGET;
@@ -307,6 +404,9 @@ Deno.serve(async (req) => {
       pairs_seen: pairsSeen,
       inserted,
       owners_created: ownersCreated,
+      companies_linked: companiesLinked,
+      companies_rep_linked: companiesRepLinked,
+      building_companies_upserted: buildingCompaniesUpserted,
       failed,
       has_more: hasMore,
       chained: autoChain && hasMore,
