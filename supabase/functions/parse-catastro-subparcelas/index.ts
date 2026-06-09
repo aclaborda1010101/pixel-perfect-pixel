@@ -8,48 +8,37 @@ import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_
 const DNPRC_URL = "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC";
 
 async function fetchSubparcelas(rc14: string): Promise<{ n: number; raw: any }> {
-  // El servicio JSON acepta RC de 14 dígitos
+  // RC de 14 dígitos
   const url = `${DNPRC_URL}?RefCat=${rc14}`;
   const r = await fetch(url, { headers: { Accept: "application/json" } });
   if (!r.ok) throw new Error(`DNPRC ${r.status}`);
   const j = await r.json();
 
-  // Estructura: { consulta_dnprcResult: { bico:{...}, lrcdnp:{ rcdnp:[{...}] }, ... } }
-  const root = j?.consulta_dnprcResult ?? j?.Consulta_DNPRC ?? j;
-  // Lista de subparcelas urbanas: vienen como ldnp/rcdnp en finca multiplica; cada "rc" distinto =
-  // un cargo o subparcela. Para residencial filtramos por destino V (VIVIENDA).
-  const candidates: any[] = [];
-  const lrcdnp = root?.lrcdnp?.rcdnp ?? root?.bico?.lcons?.cons ?? [];
-  const arr = Array.isArray(lrcdnp) ? lrcdnp : [lrcdnp];
-  for (const it of arr) {
-    if (!it) continue;
-    candidates.push(it);
-  }
-  // Heurística: contar entradas con uso/destino residencial
-  let nRes = 0;
-  const seen = new Set<string>();
-  for (const c of candidates) {
-    const uso = String(c?.dfcons?.lcuso?.cuso ?? c?.debi?.luso ?? c?.dest ?? "").toUpperCase();
-    const isRes = uso === "V" || uso.includes("VIVIENDA") || uso.includes("RESIDENCIAL");
-    if (!isRes) continue;
-    const escalera = c?.loint?.es ?? c?.dt?.locs?.lous?.lourb?.loint?.es ?? c?.es ?? "";
-    const key = String(escalera || c?.loint?.pt || Math.random());
-    if (seen.has(key)) continue;
-    seen.add(key);
-    nRes++;
-  }
-  // Si todo lo anterior falla, fallback: contar escaleras distintas en localizaciones
-  if (nRes === 0) {
-    const lcons = root?.bico?.lcons?.cons ?? [];
-    const arr2 = Array.isArray(lcons) ? lcons : [lcons];
-    const esc = new Set<string>();
-    for (const c of arr2) {
-      const escalera = c?.loint?.es ?? "";
-      if (escalera) esc.add(String(escalera));
+  // Detectar todas las escaleras distintas mencionadas en cualquier loint.es del payload
+  const escaleras = new Set<string>();
+  let nResUnidades = 0;
+  function walk(node: any) {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    // Detectar localizador interior
+    if (node.loint && typeof node.loint === "object") {
+      const es = String(node.loint.es ?? "").trim();
+      if (es) escaleras.add(es);
     }
-    if (esc.size > 0) nRes = esc.size;
+    // Detectar uso residencial
+    const uso = String(
+      node?.dfcons?.lcuso?.cuso ?? node?.debi?.luso ?? node?.luso ?? node?.dest ?? "",
+    ).toUpperCase();
+    if (uso === "V" || uso.startsWith("VIVIENDA") || uso.includes("RESIDENCIAL")) {
+      nResUnidades++;
+    }
+    for (const k of Object.keys(node)) walk((node as any)[k]);
   }
-  return { n: nRes, raw: { candidates_n: candidates.length, sample: candidates[0] ?? null } };
+  walk(j);
+
+  // n = nº de escaleras distintas si hay >=1 unidad residencial; si no, 0
+  const n = nResUnidades > 0 ? Math.max(escaleras.size, 1) : escaleras.size;
+  return { n, raw: { escaleras: Array.from(escaleras), n_res_unidades: nResUnidades, status: r.status } };
 }
 
 async function processOne(supabase: any, buildingId: string) {
@@ -63,7 +52,7 @@ async function processOne(supabase: any, buildingId: string) {
     await supabase.from("catastro_authority_cache")
       .update({ n_subparcelas_residenciales: n })
       .eq("refcatastral_14", rc14);
-    return { building_id: buildingId, direccion: b.direccion, rc14, n_subparcelas_residenciales: n, sample_uso: raw?.sample?.dfcons?.lcuso?.cuso ?? null };
+    return { building_id: buildingId, direccion: b.direccion, rc14, n_subparcelas_residenciales: n, escaleras: raw.escaleras, n_res_unidades: raw.n_res_unidades };
   } catch (e) {
     return { building_id: buildingId, direccion: b.direccion, rc14, error: (e as Error).message };
   }

@@ -64,14 +64,6 @@ async function queryByFuzzyDireccion(supabase: any, direccion: string): Promise<
   const dirNorm = (direccion || "").toUpperCase().trim();
   if (!dirNorm) return { hit: null, raw: { reason: "no_dir" } };
   // similaridad pg_trgm
-  const { data, error } = await supabase.rpc("pgou_fuzzy_match" as any, { p_dir: dirNorm }).catch(() => ({ data: null, error: "no_rpc" }));
-  if (data && data.length > 0) {
-    const row = data[0];
-    return {
-      hit: { n_catalogo: row.refcat ?? null, nombre: null, proteccion_actual: row.nivel_proteccion ?? null, proteccion_97: null },
-      raw: { source: "rpc", row },
-    };
-  }
   // fallback: select directo con similarity()
   const { data: rows } = await supabase
     .from("madrid_edificios_protegidos")
