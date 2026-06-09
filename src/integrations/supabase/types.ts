@@ -967,6 +967,120 @@ export type Database = {
           },
         ]
       }
+      call_sessions: {
+        Row: {
+          building_id: string | null
+          call_id: string | null
+          cerrada_at: string | null
+          checklist: Json
+          comercial_id: string
+          created_at: string
+          id: string
+          iniciada_at: string
+          notas: string | null
+          objetivo: string | null
+          owner_id: string | null
+          paso: number
+          resultado: string | null
+          updated_at: string
+          voss_brief: Json | null
+          voss_post: Json | null
+        }
+        Insert: {
+          building_id?: string | null
+          call_id?: string | null
+          cerrada_at?: string | null
+          checklist?: Json
+          comercial_id: string
+          created_at?: string
+          id?: string
+          iniciada_at?: string
+          notas?: string | null
+          objetivo?: string | null
+          owner_id?: string | null
+          paso?: number
+          resultado?: string | null
+          updated_at?: string
+          voss_brief?: Json | null
+          voss_post?: Json | null
+        }
+        Update: {
+          building_id?: string | null
+          call_id?: string | null
+          cerrada_at?: string | null
+          checklist?: Json
+          comercial_id?: string
+          created_at?: string
+          id?: string
+          iniciada_at?: string
+          notas?: string | null
+          objetivo?: string | null
+          owner_id?: string | null
+          paso?: number
+          resultado?: string | null
+          updated_at?: string
+          voss_brief?: Json | null
+          voss_post?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_sessions_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_sessions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_sessions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "call_sessions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "call_sessions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       calls: {
         Row: {
           analisis_confianza: number | null
@@ -3357,6 +3471,73 @@ export type Database = {
         }
         Relationships: []
       }
+      v_call_queue_daily: {
+        Row: {
+          building_id: string | null
+          contactos_previos: number | null
+          cuota: number | null
+          dias_cadencia_vencida: number | null
+          last_call_at: string | null
+          nombre: string | null
+          owner_id: string | null
+          prioridad: number | null
+          score_edificio: number | null
+          score_owner: number | null
+          telefono: string | null
+          temperatura: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       v_company_graph: {
         Row: {
           buildings_count: number | null
@@ -3390,6 +3571,24 @@ export type Database = {
           ciudad: string | null
           total: number | null
           trabajados: number | null
+        }
+        Relationships: []
+      }
+      v_kpis_comercial_semana: {
+        Row: {
+          calidad_media: number | null
+          comercial_key: string | null
+          comercial_nombre: string | null
+          duracion_media_seg: number | null
+          interesados: number | null
+          llamadas_mayor_1min: number | null
+          llamadas_total: number | null
+          pct_mayor_1min: number | null
+          pixels_enviados: number | null
+          reuniones_cerradas: number | null
+          seguimientos: number | null
+          semana: string | null
+          whatsapp_enviados: number | null
         }
         Relationships: []
       }
