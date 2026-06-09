@@ -320,7 +320,7 @@ Deno.serve(async (req) => {
           }
           if (bcRows.length > 0) {
             const { error: bcErr } = await supabase.from('building_companies')
-              .upsert(bcRows, { onConflict: 'building_id,company_id', ignoreDuplicates: true });
+              .upsert(bcRows, { onConflict: 'building_id,company_id,role', ignoreDuplicates: true });
             if (!bcErr) buildingCompaniesUpserted += bcRows.length;
             companiesLinked += bcRows.length;
           }
@@ -352,7 +352,7 @@ Deno.serve(async (req) => {
               }
               if (repRows.length > 0) {
                 const { error: ocErr } = await supabase.from('owner_companies')
-                  .upsert(repRows, { onConflict: 'owner_id,company_id', ignoreDuplicates: true });
+                  .upsert(repRows, { onConflict: 'owner_id,company_id,role', ignoreDuplicates: true });
                 if (!ocErr) companiesRepLinked += repRows.length;
               }
             } catch (e) {
