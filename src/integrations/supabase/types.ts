@@ -544,6 +544,7 @@ export type Database = {
           influencer_score: number | null
           metadatos: Json
           owner_id: string
+          owner_name_norm: string | null
           rol_notas: string | null
           subrole: Database["public"]["Enums"]["owner_subrole"]
         }
@@ -556,6 +557,7 @@ export type Database = {
           influencer_score?: number | null
           metadatos?: Json
           owner_id: string
+          owner_name_norm?: string | null
           rol_notas?: string | null
           subrole?: Database["public"]["Enums"]["owner_subrole"]
         }
@@ -568,6 +570,7 @@ export type Database = {
           influencer_score?: number | null
           metadatos?: Json
           owner_id?: string
+          owner_name_norm?: string | null
           rol_notas?: string | null
           subrole?: Database["public"]["Enums"]["owner_subrole"]
         }
@@ -2086,6 +2089,7 @@ export type Database = {
           calle_norm: string
           cluster_override: string
           created_at: string
+          especificidad: number
           id: string
           notas: string | null
           numero_desde: number | null
@@ -2097,6 +2101,7 @@ export type Database = {
           calle_norm: string
           cluster_override: string
           created_at?: string
+          especificidad?: number
           id?: string
           notas?: string | null
           numero_desde?: number | null
@@ -2108,6 +2113,7 @@ export type Database = {
           calle_norm?: string
           cluster_override?: string
           created_at?: string
+          especificidad?: number
           id?: string
           notas?: string | null
           numero_desde?: number | null
@@ -3350,12 +3356,19 @@ export type Database = {
           building_id: string | null
           contactos_previos: number | null
           email: string | null
+          es_influencer: boolean | null
+          influencer_reason: string | null
+          influencer_score: number | null
           last_call_at: string | null
+          metadatos: Json | null
           nombre: string | null
           owner_id: string | null
+          pct_origen: string | null
           pct_propiedad: number | null
           rol: Database["public"]["Enums"]["owner_role"] | null
+          rol_notas: string | null
           score: number | null
+          subrole: Database["public"]["Enums"]["owner_subrole"] | null
           telefono: string | null
         }
         Relationships: [
