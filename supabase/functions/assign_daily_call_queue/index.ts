@@ -32,8 +32,17 @@ Deno.serve(async (req) => {
     const { data: queue, error } = await q;
     if (error) throw error;
 
-    const hot = (queue ?? []).filter((r: any) => r.temperatura === 'hot');
-    const cold = (queue ?? []).filter((r: any) => r.temperatura === 'cold');
+    // Dedupe por (building, owner) — la vista puede multiplicar filas si hay
+    // duplicados aguas arriba en building_owners o joins en v_owner_score.
+    const seen = new Set<string>();
+    const uniq = (queue ?? []).filter((r: any) => {
+      const k = `${r.building_id}:${r.owner_id}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    const hot = uniq.filter((r: any) => r.temperatura === 'hot');
+    const cold = uniq.filter((r: any) => r.temperatura === 'cold');
     const nHot = Math.round(N * 0.6);
     const nCold = N - nHot;
     const picked = [...hot.slice(0, nHot), ...cold.slice(0, nCold)];
@@ -60,8 +69,13 @@ Deno.serve(async (req) => {
         priority: row.temperatura === 'hot' ? 'high' : 'medium',
         status: 'pending',
       }).select('id, building_id').maybeSingle();
-      if (ins) inserted.push({ ...ins, owner_id: row.owner_id, temperatura: row.temperatura });
-      else if (insErr && !String(insErr.message || '').includes('duplicate')) console.error('insert err', insErr);
+      if (ins) {
+        inserted.push({ ...ins, owner_id: row.owner_id, temperatura: row.temperatura });
+      } else if (insErr) {
+        console.error('insert err', row.owner_id, row.building_id, JSON.stringify(insErr));
+      } else {
+        console.warn('insert returned no row', row.owner_id, row.building_id);
+      }
     }
 
     return new Response(JSON.stringify({ ok: true, inserted: inserted.length, items: inserted }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
