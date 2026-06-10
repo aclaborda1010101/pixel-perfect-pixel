@@ -1,151 +1,94 @@
+# Plan — Ampliación del sistema de feedback por edificio
 
-# BLOQUE F5 (rev) · Pipeline autónomo de enriquecimiento de titulares
+Extiendo lo que ya existe (`TeamFeedbackCard`, tabla `building_feedback`, `agent_analyze_feedback`, panel Aprendizaje). No duplico componentes ni rehago la captura voz/texto.
 
-Cambio clave: agente cron drena la cola sin operador externo. Navegador headless remoto (Browserless/Browserbase) vía `puppeteer-core` + WebSocket. Endpoint REST queda como fallback secundario, no principal.
+## 1. Controles de validación inline en `BuildingDetail` / `EdificioDetalle`
 
----
+Nuevo componente reutilizable `src/components/comercial/InlineVerify.tsx` con dos variantes:
 
-## 1. Esquema de datos (migración nueva, RLS intacta)
+- `<InlineVerifyBool>` — para esquina: `[Correcto] [No, es esquina] [No, no es esquina]`.
+- `<InlineVerifyNumber>` — para ventanas fachada/patio, escaleras, nº propietarios: `[Sí, correcto] [No, ajustar → input numérico → Guardar]`.
+- `<InlineVerifyEnum>` — para cluster/clasificación y protección: `[Correcto] [Otra: select/free text]`.
 
-### `enrichment_jobs`
-- `id uuid pk`, `building_id uuid → buildings`, `nota_simple_id uuid → notas_simples`
-- `titular_nombre text`, `titular_apellido1 text`, `titular_apellido2 text`
-- `titular_tipo text check ('persona','empresa')`, `titular_nif text`, `titular_pct numeric`
-- `fase text check ('datoscif','inglobaly','tecnofind','verificacion','hubspot')`
-- `estado text check ('pendiente','en_curso','esperando_navegador','requiere_revision','requiere_humano','ok','error','descartado')`
-- `datos jsonb default '{}'` — payload acumulado (NIF, fecha_nacimiento ISO, domicilio, co_domicilios[], cargo, fuente, timeline[], screenshots[])
-- `intentos int default 0`, `max_intentos int default 3`, `next_attempt_at timestamptz`, `error text`
-- `lease_token uuid`, `lease_until timestamptz` (para fallback REST)
-- `created_at`, `updated_at`
-- Indexes: `(estado, fase, next_attempt_at)`, `(building_id)`
-- GRANTs: SELECT/INSERT/UPDATE a `authenticated`, ALL a `service_role`
-- RLS: `authenticated` ve/edita según rol comercial/admin; agente entra como `service_role`
+Props: `buildingId`, `dimension`, `campo` (tabla.campo), `valor_actual`, `detector` (string que identifica el método: `corner-detector`, `stair-detector`, `facade-window`, `patio-window`, `cluster`, `proteccion`), `opciones?`.
 
-### `enrichment_config` (k/v jsonb, 1 fila)
-Reglas tipologías editables (defaults: `co_domicilio→T8`, `apoderado_con_control→T3`, `default→T9`, `fallecido→T10`), timeouts por fase, max_intentos, backoff.
+Al pulsar:
+1. Inserta en `building_feedback` con `canal='verificacion_inline'`, `texto` autogenerado (ej. `"Verificación humana: esquina=true (sistema decía false)"`), y un nuevo campo `metadatos jsonb` con `{ detector, campo, valor_actual, valor_humano, accion: 'confirma' | 'corrige' }`.
+2. Upsert en `qa_ground_truth` para ese `building_id` + campo (verdad humana).
+3. Llama `agent_analyze_feedback` automáticamente solo si `accion='corrige'` (para sacar diagnóstico de método).
+4. Si `accion='confirma'`, no se invoca el LLM (solo se guarda fixture y feedback corto en estado `aplicada`).
 
-### `enrichment_verifications`
-`id`, `job_id`, `propuesta jsonb`, `decision ('aprobada','rechazada','pendiente')`, `aprobado_por`, `aprobado_at`, `motivo`.
+Inserción de los controles en `BuildingDetail.tsx` y `EdificioDetalle.tsx` junto a:
+- Ventanas fachada / patio (en `AnalisisIASection` o card de ventanas).
+- Esquina (en `AnalisisPlanoCatastralCard` / chip de esquina).
+- Cluster (en `ScoringResumen`).
+- Escaleras, protección, nº propietarios (en `CatastroDetalladoCard` y sección protección).
 
-### Bucket `enrichment-evidence` (privado)
-Screenshots por paso: `evidence/{job_id}/{fase}/{step}.png`. Política: solo `authenticated` con rol admin/comercial lee; `service_role` escribe.
+## 2. Cuadro libre texto+audio
 
----
+Ya existe en `TeamFeedbackCard`. Solo amplío el `placeholder` del `Textarea` con ejemplos rotatorios y añado un bloque de "ejemplos rápidos" clicables que rellenan el textarea (chips: *"es esquina y no lo dice"*, *"clasificación coliving es incorrecta, viviendas demasiado grandes"*, *"las escaleras son 2"*, *"no es protegido"*). No duplico la grabación.
 
-## 2. Edge functions
+## 3. Reescritura de `agent_analyze_feedback` — diagnóstico de MÉTODO
 
-### `enrichment-agent` (cron pg_cron cada 15 min)
-Drena cola por orden `next_attempt_at`. Para cada job:
+Reescribo el `SYSTEM` prompt y el `snapshot` que recibe el LLM para que devuelva un JSON con esta forma estricta:
 
-1. Lease (UPDATE WHERE estado='pendiente' RETURNING) → `en_curso`.
-2. Despacha por fase:
-   - **datoscif**: fetch HTML `https://www.datoscif.es/empresa/<slug>`. Parse regex/DOMParser. Si client-rendered sin datos → fallback navegador headless. Si OK → guarda CIF/admin/apoderados, avanza a `inglobaly`.
-   - **inglobaly** (persona): requiere navegador headless. Si no hay `BROWSER_WSS_URL` → `esperando_navegador` con `datos.razon='browser_no_configurado'`. Si hay → flujo selectores (ver §5).
-   - **tecnofind**: si falta teléfono crea `building_tasks` "Buscar teléfono en Tecnofind" y avanza a `verificacion` (no automatizamos Tecnofind por fragilidad).
-   - **verificacion**: STOP humano (no toca HubSpot).
-3. Robustez en cada paso navegador:
-   - Timeout duro 90s/paso.
-   - Screenshot `await page.screenshot()` → sube a `enrichment-evidence` → push a `datos.screenshots[]`.
-   - Si selector no aparece → `requiere_revision` con screenshot y `datos.razon='selector_no_encontrado'`. **Nunca inventa datos.**
-   - Errores: `intentos++`, `next_attempt_at = now() + backoff(intentos)` (1m, 5m, 30m), tras `max_intentos` → `error`.
-4. Cierra browser y libera lease.
-
-### `enrichment-pipeline-start` (manual / botón UI)
-POST `{building_id}` → genera jobs desde nota simple más reciente, fase inicial según `titular_tipo`. Invoca `enrichment-agent` inmediatamente (no espera al cron).
-
-### `enrichment_jobs_api` (REST fallback secundario, autenticado con service key)
-Documentado en panel. Solo se usa si el cron está desactivado o el navegador caído más de 1h:
-- `GET /pending?fase=&limit=` con `claim_token`.
-- `POST /result` con payload validado.
-
-### `enrichment-apply-verification`
-POST `{job_id, decision, overrides}`:
-- Aprobar → upsert `owners` + `building_owners` (pct, NIF, fecha_nacimiento, domicilio), co-domicilios como contactos `subrole='co_domicilio_sin_confirmar'` con metadatos T8, tarea Tecnofind si falta tel, regla tipología por defecto T9.
-- Solo entonces avanza a fase `hubspot` (usa funciones HubSpot existentes).
-
-### Cron (insertar vía `supabase--insert`, no migración)
-```sql
-select cron.schedule('enrichment-agent-15min','*/15 * * * *',
-  $$ select net.http_post(
-    url:='https://vsbrupwznqaaoiflvliu.supabase.co/functions/v1/enrichment-agent',
-    headers:='{"Content-Type":"application/json","apikey":"<ANON>"}'::jsonb,
-    body:='{}'::jsonb) $$);
+```json
+{
+  "dimension": "esquina|escaleras|ventanas|cluster|proteccion|propietarios|m2|viviendas|otro",
+  "detector": { "nombre": "corner-detector", "ubicacion": "supabase/functions/_shared/parcel_geometry.ts" },
+  "entrada": { "fuente": "FXCC pdf p.1 + cadastral polygon", "regla_usada": "ángulo 60-120° entre 2 fachadas" },
+  "causa_raiz": "edificio en chaflán: paño único, no hay 2 segmentos con ángulo en rango",
+  "que_cambiar": {
+    "tipo": "regla|prompt|constante|umbral|dato_sucio|requiere_codigo",
+    "detalle": "Cambiar criterio principal a 'nº de viales distintos con frente' y mantener ángulo como señal secundaria",
+    "donde": "parcel_geometry.ts::detectCorner / app_settings.corner_detection"
+  },
+  "override_puntual": { "aplicable": true, "tabla": "building_analysis", "campo": "es_esquina", "valor_nuevo": true, "justificacion": "..." },
+  "diagnostico": "frase humana corta"
+}
 ```
 
----
+Cambios concretos en `supabase/functions/agent_analyze_feedback/index.ts`:
+- Enriquecer el `snapshot` con: qué detector produjo cada campo (mapeo dimensión→detector→archivo), `metadatos` del feedback (si viene de InlineVerify ya trae el detector), y trazas existentes (`protegido_raw`, `origen_viviendas`, `notas_correccion`).
+- Nuevo SYSTEM que obliga al LLM a centrarse en el **método**, no en el dato. Incluyo catálogo de detectores conocidos para que el modelo escoja:
+  - `stair-detector` (`recount-escaleras`, `analyze-building-vision` planta 1)
+  - `corner-detector` (`recompute-corner-detection`, `_shared/parcel_geometry.ts`)
+  - `facade-window` (`count-facade-windows`)
+  - `patio-window` (`count-patio-windows`)
+  - `cluster` (`recompute-cluster-scoring`)
+  - `proteccion` (`check-proteccion-pgou` + `madrid_edificios_protegidos`)
+- El campo `accion` legacy se mantiene por compatibilidad con `TeamFeedbackCard` y `apply_feedback_override` (mapeo desde `override_puntual`).
+- `estado` final:
+  - `analizada` si hay `override_puntual.aplicable=true`.
+  - `requiere_codigo` si `que_cambiar.tipo='requiere_codigo'` o cambio de regla/constante.
+  - Nuevo: si `que_cambiar.tipo='constante'` y la constante existe en `app_settings`, dejarlo en `requiere_codigo` con sugerencia del nuevo valor (no auto-aplicar).
 
-## 3. Secrets requeridos (pedir vía add_secret)
-- `BROWSER_WSS_URL` — wss://... de Browserless/Browserbase
-- `INGLOBALY_USER`, `INGLOBALY_PASS`
-- (existente) `LOVABLE_API_KEY`, HubSpot connector
+## 4. Fixtures en `qa_ground_truth`
 
-Hasta que el usuario los configure, los jobs `inglobaly` quedan `esperando_navegador`; el panel muestra aviso con instrucciones (crear cuenta Browserless gratuita, copiar Browser WSS, pegar en Settings).
+- Tras cada validación inline (confirma o corrige) y tras cada `apply_feedback_override`, upsert en `qa_ground_truth` con `{ building_id, campo, valor_humano, fuente='verificacion_inline'|'feedback_libre', verificado_por, verificado_at }`.
+- Helper compartido `src/lib/qaGroundTruth.ts` con `upsertGroundTruth(buildingId, campo, valor, fuente)`.
 
----
+## 5. Migración
 
-## 4. Flujo selectores Inglobaly (documento técnico)
+Una migración añade a `building_feedback`:
+- `metadatos jsonb default '{}'::jsonb` (detector, valor_actual, valor_humano, accion).
+- check ampliado de `canal` para incluir `'verificacion_inline'`.
 
-```text
-1. goto https://www.inglobaly.com → click "Acceso"
-2. fill #usuario / #password con INGLOBALY_USER/PASS → submit, esperar dashboard
-3. Si titular_nif:
-     ir a búsqueda NIF, fill input NIF → enviar
-   Else:
-     búsqueda por nombre modo EXACT (NO Advanced):
-     fill Nombre, Apellido1, Apellido2 → enviar
-4. Esperar tabla resultados; si 0 → requiere_revision
-5. Click primera ficha
-6. Extraer cabecera: NIF, fecha nacimiento DD/MM/AAAA → convertir a YYYY-MM-DD
-7. Extraer "Domicilio actual" + "Domicilio anterior":
-   - Por cada domicilio, lista de convivientes
-   - Dedupe por NIF en co_domicilios[]
-8. Screenshot final → datos.screenshots[]
-9. Avanzar a fase tecnofind
-```
-Cada `waitForSelector` con timeout 15s; si falla → screenshot + `requiere_revision`.
+No toco RLS (las policies existentes ya cubren insert/select por usuario autenticado).
 
----
+## 6. Render del diagnóstico de método en `TeamFeedbackCard`
 
-## 5. UI
+Amplío el `<details>Análisis IA</details>` para mostrar las nuevas secciones: **Detector**, **Entrada usada**, **Causa raíz**, **Qué cambiar** (con badge según `tipo`), y solo entonces el botón **Aplicar override** si `override_puntual.aplicable`.
 
-### Página `/comercial/enriquecimiento` (nueva)
-- KPIs: jobs por estado.
-- Banner amarillo si `BROWSER_WSS_URL` no configurado, con CTA "Configurar Browserless" → Settings.
-- Tabla agrupada por edificio (uso de `useTableQuery`):
-  - Columnas: titular, fase, estado (badge), intentos, último error, próx. reintento.
-  - Acciones: Ver datos (drawer con JSON + galería de screenshots firmados), Reintentar, Forzar revisión humana, Cancelar.
-- Botón "Procesar edificio" en `BuildingDetail` → `enrichment-pipeline-start`.
-- Sección colapsable "Contrato API operador externo (fallback)" con ejemplos curl.
+## 7. Validación end-to-end
 
-### Modal Verificación T1-T10 (fase `verificacion`)
-- Editable: nombre, NIF, fecha_nacimiento, domicilio, cargo, tipología (select T1-T10, default T9), co-domicilios (toggle "crear T8 sin confirmar").
-- Botones Aprobar / Rechazar (con motivo). Solo Aprobar dispara HubSpot.
+- Crear un feedback de prueba en Cava Baja 42: *"es esquina y el sistema dice que no"* → llamar `agent_analyze_feedback` → mostrar el JSON devuelto (espero `detector=corner-detector`, `causa_raiz` chaflán, `que_cambiar.tipo='regla'` apuntando a `parcel_geometry.ts`, `override_puntual.aplicable=true`).
+- Reportar el resultado al usuario.
 
-### Panel Settings → "Reglas tipologías enriquecimiento"
-Tabla editable persistida en `enrichment_config.reglas`.
+## Detalles técnicos
 
----
+- Archivos nuevos: `src/components/comercial/InlineVerify.tsx`, `src/lib/qaGroundTruth.ts`, una migración SQL.
+- Archivos modificados: `supabase/functions/agent_analyze_feedback/index.ts`, `src/components/comercial/TeamFeedbackCard.tsx` (render + chips de ejemplos), `src/pages/BuildingDetail.tsx`, `src/pages/comercial/EdificioDetalle.tsx`, y las cards donde se muestran ventanas/esquina/cluster/escaleras/protección/propietarios.
+- Sin cambios en RLS.
+- Modelo LLM: mismo `google/gemini-3-flash-preview` con `response_format: json_object`.
 
-## 6. Validación
-
-1. Pedir secrets `BROWSER_WSS_URL`, `INGLOBALY_USER`, `INGLOBALY_PASS` (sin valores aún → quedan vacíos, OK).
-2. Crear job ficticio:
-   - Empresa "INMOBILIARIA FICTICIA SL" fase `datoscif` → agente intenta, datoscif devuelve no-encontrado → `requiere_revision` con screenshot.
-   - Persona "Juan Pérez Pérez" fase `inglobaly` → si no hay `BROWSER_WSS_URL` → `esperando_navegador`. Si está → flujo selectores (probable `requiere_revision` por persona ficticia).
-3. Insertar manualmente datos en `enrichment_verifications` y aprobar → owner upsert + tarea creada + fase `hubspot`.
-4. Mostrar timeline de estados.
-
----
-
-## 7. Detalles técnicos
-
-- `puppeteer-core` vía `npm:puppeteer-core@22` en Deno. Conexión `puppeteer.connect({ browserWSEndpoint: BROWSER_WSS_URL })`. Cerrar en `finally`.
-- Screenshots → `supabase.storage.from('enrichment-evidence').upload(...)`, signed URL para UI.
-- `datos.timeline`: `[{ts, fase, estado, nota, screenshot?}]`.
-- Cron usa `pg_cron`+`pg_net` (habilitar si no lo están).
-- Sin tocar RLS existente; nuevas tablas tienen RLS propio coherente con `user_roles`.
-
-## Fuera de scope
-- Scraping Tecnofind automatizado (queda como tarea humana).
-- Validación NIF AEAT.
-- Push HubSpot sin aprobación humana.
