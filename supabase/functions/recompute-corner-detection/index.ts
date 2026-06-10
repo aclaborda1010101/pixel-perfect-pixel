@@ -14,11 +14,13 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { /* GET */ }
   const dryRun: boolean = body.dry_run === true;
   const onlyRefs: string[] | null = Array.isArray(body.refcatastrales) ? body.refcatastrales : null;
+  const limit: number = Number.isFinite(body.limit) ? Math.max(1, Math.min(200, Number(body.limit))) : 200;
+  const offset: number = Number.isFinite(body.offset) ? Math.max(0, Number(body.offset)) : 0;
 
   // Carga todas las parcelas cacheadas (74 en cartera actual).
   let q = sb.from("parcel_geometry_cache").select(
     "refcatastral_14, exterior_ring, centroid, is_corner, corner_type, source",
-  );
+  ).order("refcatastral_14").range(offset, offset + limit - 1);
   if (onlyRefs) q = q.in("refcatastral_14", onlyRefs);
   const { data: parcels, error: pErr } = await q;
   if (pErr) {
