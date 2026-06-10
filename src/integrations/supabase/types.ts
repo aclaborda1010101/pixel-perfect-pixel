@@ -500,6 +500,7 @@ export type Database = {
           dimension: string | null
           estado: string
           id: string
+          metadatos: Json
           override_aplicado: Json | null
           texto: string | null
           updated_at: string
@@ -515,6 +516,7 @@ export type Database = {
           dimension?: string | null
           estado?: string
           id?: string
+          metadatos?: Json
           override_aplicado?: Json | null
           texto?: string | null
           updated_at?: string
@@ -530,6 +532,7 @@ export type Database = {
           dimension?: string | null
           estado?: string
           id?: string
+          metadatos?: Json
           override_aplicado?: Json | null
           texto?: string | null
           updated_at?: string
@@ -3378,12 +3381,15 @@ export type Database = {
         Row: {
           ano: number | null
           building_id: string | null
+          cluster_label: string | null
           created_at: string
           deal_id: string | null
           dh: boolean | null
           direccion_norm: string
           direccion_raw: string
+          es_esquina: boolean | null
           escaleras: number | null
+          fuente_verificacion: string | null
           id: string
           lista: string
           m2_per_viv: number | null
@@ -3394,19 +3400,27 @@ export type Database = {
           n_viv: number | null
           pct_viv: number | null
           propietarios: number | null
+          protegido: boolean | null
           tipo: string | null
           updated_at: string
+          ventanas_fachada: number | null
+          ventanas_patio: number | null
+          verificado_at: string | null
+          verificado_por: string | null
           zona: string | null
         }
         Insert: {
           ano?: number | null
           building_id?: string | null
+          cluster_label?: string | null
           created_at?: string
           deal_id?: string | null
           dh?: boolean | null
           direccion_norm: string
           direccion_raw: string
+          es_esquina?: boolean | null
           escaleras?: number | null
+          fuente_verificacion?: string | null
           id?: string
           lista: string
           m2_per_viv?: number | null
@@ -3417,19 +3431,27 @@ export type Database = {
           n_viv?: number | null
           pct_viv?: number | null
           propietarios?: number | null
+          protegido?: boolean | null
           tipo?: string | null
           updated_at?: string
+          ventanas_fachada?: number | null
+          ventanas_patio?: number | null
+          verificado_at?: string | null
+          verificado_por?: string | null
           zona?: string | null
         }
         Update: {
           ano?: number | null
           building_id?: string | null
+          cluster_label?: string | null
           created_at?: string
           deal_id?: string | null
           dh?: boolean | null
           direccion_norm?: string
           direccion_raw?: string
+          es_esquina?: boolean | null
           escaleras?: number | null
+          fuente_verificacion?: string | null
           id?: string
           lista?: string
           m2_per_viv?: number | null
@@ -3440,8 +3462,13 @@ export type Database = {
           n_viv?: number | null
           pct_viv?: number | null
           propietarios?: number | null
+          protegido?: boolean | null
           tipo?: string | null
           updated_at?: string
+          ventanas_fachada?: number | null
+          ventanas_patio?: number | null
+          verificado_at?: string | null
+          verificado_por?: string | null
           zona?: string | null
         }
         Relationships: [
