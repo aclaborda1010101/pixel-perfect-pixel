@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Mic, Square, Send, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Mic, Square, Send, Loader2, CheckCircle2, AlertTriangle, Wrench, FileSearch, Bug } from "lucide-react";
 import { toast } from "sonner";
 import { Eyebrow } from "@/components/common/Eyebrow";
 
@@ -22,6 +22,14 @@ type Feedback = {
   override_aplicado: any;
   created_at: string;
 };
+
+const PLACEHOLDER_EJEMPLOS = [
+  "es esquina y el sistema dice que no",
+  "las escaleras son 2 (no 1)",
+  "lo pone coliving y no lo es porque las viviendas son muy grandes",
+  "no es protegido, no está en APE",
+  "ventanas fachada son 24 (no 18)",
+];
 
 const estadoVariant: Record<string, any> = {
   nueva: "outline",
@@ -160,10 +168,17 @@ export function TeamFeedbackCard({ buildingId }: { buildingId: string }) {
           <Textarea
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
-            placeholder="Ej: las escaleras son 2 (no 1) o este edificio no encaja en flex living porque las viviendas son muy grandes"
+            placeholder={`Cualquier observación sobre este edificio. Ej:\n• ${PLACEHOLDER_EJEMPLOS.join("\n• ")}`}
             rows={3}
             disabled={busy}
           />
+          <div className="flex flex-wrap gap-1">
+            {PLACEHOLDER_EJEMPLOS.map((ej) => (
+              <Badge key={ej} variant="outline" className="cursor-pointer hover:bg-muted" onClick={() => setTexto(ej)}>
+                {ej}
+              </Badge>
+            ))}
+          </div>
           <div className="flex gap-2">
             <Button onClick={submitTexto} disabled={busy || !texto.trim()} size="sm">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -209,11 +224,38 @@ export function TeamFeedbackCard({ buildingId }: { buildingId: string }) {
                         {fb.analisis_ia.diagnostico && (
                           <p><span className="font-medium">Diagnóstico:</span> {fb.analisis_ia.diagnostico}</p>
                         )}
+                        {fb.analisis_ia.detector && (
+                          <p className="flex items-start gap-1"><Bug className="h-3 w-3 mt-0.5 shrink-0" /><span><span className="font-medium">Detector:</span> {fb.analisis_ia.detector.nombre} <span className="text-muted-foreground">({fb.analisis_ia.detector.ubicacion})</span></span></p>
+                        )}
+                        {fb.analisis_ia.entrada && (
+                          <p className="flex items-start gap-1"><FileSearch className="h-3 w-3 mt-0.5 shrink-0" /><span><span className="font-medium">Entrada usada:</span> {fb.analisis_ia.entrada.fuente} · <span className="font-mono text-[10px]">{fb.analisis_ia.entrada.regla_usada}</span></span></p>
+                        )}
+                        {fb.analisis_ia.causa_raiz && (
+                          <p><span className="font-medium">Causa raíz:</span> {fb.analisis_ia.causa_raiz}</p>
+                        )}
+                        {fb.analisis_ia.que_cambiar && (
+                          <div className="rounded border border-amber-500/40 bg-amber-500/5 p-2 flex items-start gap-2">
+                            <Wrench className="h-3 w-3 mt-0.5 shrink-0 text-amber-500" />
+                            <div>
+                              <div className="flex items-center gap-1">
+                                <Badge variant="outline" className="text-[10px]">{fb.analisis_ia.que_cambiar.tipo}</Badge>
+                                <span className="font-medium">Qué cambiar en el método</span>
+                              </div>
+                              <p className="mt-1">{fb.analisis_ia.que_cambiar.detalle}</p>
+                              {fb.analisis_ia.que_cambiar.donde && (
+                                <p className="font-mono text-[10px] text-muted-foreground">→ {fb.analisis_ia.que_cambiar.donde}</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         {fb.analisis_ia.campo_actual && (
                           <p><span className="font-medium">Campo:</span> {fb.analisis_ia.campo_actual} = {String(fb.analisis_ia.valor_actual)} (origen: {fb.analisis_ia.origen})</p>
                         )}
                         {accion && (
                           <p><span className="font-medium">Acción propuesta:</span> {accion.tipo} — {JSON.stringify({ ...accion, tipo: undefined })}</p>
+                        )}
+                        {fb.analisis_ia.override_puntual?.aplicable && (
+                          <p className="text-success"><span className="font-medium">Override puntual:</span> {fb.analisis_ia.override_puntual.tabla}.{fb.analisis_ia.override_puntual.campo} = {String(fb.analisis_ia.override_puntual.valor_nuevo)}</p>
                         )}
                       </div>
                     </details>
