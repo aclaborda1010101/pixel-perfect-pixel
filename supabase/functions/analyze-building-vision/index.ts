@@ -471,7 +471,11 @@ REGLA: usa numero_plantas como ancla para plantas_desglose. Si lo que ves en Str
       ventanas_patios_por_planta: ventanasPatiosPorPlanta,
       ventanas_patios_por_patio: ventanasPatiosPorPatio,
       patios_detectados: parsed.patios_detectados ?? null,
-      segundas_escaleras: segundasEscalerasFinal ?? parsed.segundas_escaleras ?? null,
+      // A/B confirmó que MAX(VLM, DNPRC) destruye precisión (24/47 FP en gt=1).
+      // Mantenemos segundas_escaleras desde VLM; n_escaleras_final queda como auditoría.
+      segundas_escaleras: parsed.segundas_escaleras ?? (
+        typeof parsed.n_escaleras_en_piso01 === "number" ? parsed.n_escaleras_en_piso01 >= 2 : null
+      ),
       n_escaleras_final: nEscFinal,
       n_escaleras_fuente: nEscFuente,
       n_escaleras_evidencia: nEscFinal != null ? {
