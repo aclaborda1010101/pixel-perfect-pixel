@@ -12,6 +12,7 @@ import { BuildingAssignmentsPanel } from "@/components/settings/BuildingAssignme
 import { AnalisisIAPanel } from "@/components/settings/AnalisisIAPanel";
 import { SubZonasPanel } from "@/components/settings/SubZonasPanel";
 import { AprendizajePanel } from "@/components/settings/AprendizajePanel";
+import { KnowledgeBasePanel } from "@/components/settings/KnowledgeBasePanel";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 
 export default function Settings() {
@@ -32,6 +33,7 @@ export default function Settings() {
         <AnalisisIAPanel />
         {isAdmin && <SubZonasPanel />}
         {isAdmin && <AprendizajePanel />}
+        {isAdmin && <KnowledgeBasePanel />}
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>
