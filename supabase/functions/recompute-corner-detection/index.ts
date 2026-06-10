@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
       if (!Array.isArray(p.exterior_ring) || p.exterior_ring.length < 4) continue;
       const cen = p.centroid as { lat: number; lon: number } | null;
       if (!cen?.lat || !cen?.lon) continue;
-      const det = await detectStreetEdges(p.exterior_ring as [number, number][], { lat: cen.lat, lon: cen.lon });
+      const det = await detectStreetEdges(p.exterior_ring as [number, number][], { lat: cen.lat, lon: cen.lon, skipGoogle: true });
       const newType = det.corner_type ?? "linea";
       if (newType === "esquina_chaflan") counts.chaflan++;
       else if (newType === "multifachada") counts.multifachada++;
