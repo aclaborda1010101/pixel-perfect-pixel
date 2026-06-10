@@ -139,7 +139,10 @@ async function recountOne(sb: any, apiKey: string, building_id: string) {
     ? "plano_piso01"
     : (nSub != null && nSub > nVlm ? "subparcelas_catastro" : "max");
 
-  const segundas = nFinal >= 2;
+  // Auditoría: n_final = MAX(VLM, DNPRC). Pero NO se escribe segundas_escaleras
+  // desde DNPRC porque el A/B mostró 24/47 falsos positivos en gt=1.
+  // segundas_escaleras se mantiene desde el VLM (señal con baja recall pero alta precisión).
+  const segundas = nVlm >= 2;
   const evidencia = {
     n_vlm_piso01: nVlm,
     n_subparcelas_residenciales: nSub,
