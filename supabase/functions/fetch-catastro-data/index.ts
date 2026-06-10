@@ -362,7 +362,7 @@ Deno.serve(async (req) => {
     }
 
     const { error: updErr } = await sb.from("catastro_data").update({
-      plano_url,
+      plano_url: plano_url ?? (plantas_pages_urls[0] ?? null),
       dnprc_json,
       plantas_pdf_url,
       plantas_pages_urls,

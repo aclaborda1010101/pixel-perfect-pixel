@@ -11,7 +11,7 @@ const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const EMB_URL = 'https://ai.gateway.lovable.dev/v1/embeddings';
 const MODEL = 'google/gemini-3-flash-preview';
 const EMB_MODEL = 'google/gemini-embedding-001';
-const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss'];
+const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss', 'tipologias_qa'];
 
 const SYSTEM_BRIEF = `Eres el coach Chris Voss de un closer inmobiliario que hace LLAMADAS EN FRÍO a proindivisarios en Madrid. Objetivo de la llamada (NO es vender ni cerrar reunión): (1) que no cuelgue en los primeros 20s, (2) sacar 1 dato de catalogación nuevo, (3) abrir canal (opt-in WhatsApp o identificar influenciador). Personaliza TODO al snapshot: edad/perfil del propietario, % de propiedad (cuota), banderas del edificio (protegido, ITE, conflicto, herencia, baja gestión), cluster. Cita los fragmentos del corpus libro_voss que usaste (chunk_id real, no inventes).
 

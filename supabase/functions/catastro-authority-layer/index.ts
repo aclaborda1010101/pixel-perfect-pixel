@@ -104,6 +104,30 @@ function parsePlantasFromDnprc(xml: string): { plantas: Planta[]; usos: Record<s
       plantaMap.set(codigo, { codigo, codigo_raw: pt, computa_alturas });
     }
   }
+  // Fallback: si no hay <lcons>/<cons>, agrega desde <rcdnp> (lista de bienes inmuebles)
+  // cada bloque <bi> dentro de <rcdnp> tiene <dt><lourb><loint><pt> con la planta
+  // y <ldt> con etiqueta de uso (por ejemplo "VIVIENDA  PL:01  PT:A").
+  if (plantaMap.size === 0) {
+    const biBlocks = pickAll(xml, "bi");
+    for (const block of biBlocks) {
+      const pt = pick(block, "pt") || "";
+      const ldt = (pick(block, "ldt") || "").toUpperCase();
+      // ldt suele empezar por uso: VIVIENDA, LOCAL, GARAJE, ALMACEN, OFICINA
+      const usoMatch = ldt.match(/^(VIVIENDA|LOCAL|GARAJE|APARCAMIENTO|ALMACEN|TRASTERO|OFICINA|COMERCIO|HOSTELER\w*)/);
+      if (usoMatch) usos[usoMatch[1]] = (usos[usoMatch[1]] ?? 0) + 1;
+      // si pt no viene, intenta sacarlo de "PL:XX"
+      let raw = pt;
+      if (!raw) {
+        const plm = ldt.match(/PL[: ]\s*([A-Z0-9-]+)/);
+        if (plm) raw = plm[1];
+      }
+      if (!raw) continue;
+      const { codigo, computa_alturas } = normalizePlantaCodigo(raw);
+      if (!plantaMap.has(codigo)) {
+        plantaMap.set(codigo, { codigo, codigo_raw: raw, computa_alturas });
+      }
+    }
+  }
   // Orden lógico: sótanos primero, luego BJ, EN, 01..N, BC, TZA, CUB
   const order = (p: Planta) => {
     if (p.codigo.startsWith("-") || /^S/.test(p.codigo)) return -100 + p.codigo.length;

@@ -2196,6 +2196,7 @@ export type Database = {
         Row: {
           contenido: string
           created_at: string
+          document_id: string | null
           embedding: string | null
           id: string
           metadatos: Json
@@ -2207,6 +2208,7 @@ export type Database = {
         Insert: {
           contenido: string
           created_at?: string
+          document_id?: string | null
           embedding?: string | null
           id?: string
           metadatos?: Json
@@ -2218,6 +2220,7 @@ export type Database = {
         Update: {
           contenido?: string
           created_at?: string
+          document_id?: string | null
           embedding?: string | null
           id?: string
           metadatos?: Json
@@ -2225,6 +2228,62 @@ export type Database = {
           referencia_id?: string | null
           scope_id?: string | null
           scope_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_documents: {
+        Row: {
+          created_at: string
+          error: string | null
+          id: string
+          metadatos: Json
+          mime_type: string | null
+          nombre: string
+          num_chunks: number
+          origen: string
+          size_bytes: number | null
+          status: string
+          storage_path: string
+          updated_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          id?: string
+          metadatos?: Json
+          mime_type?: string | null
+          nombre: string
+          num_chunks?: number
+          origen: string
+          size_bytes?: number | null
+          status?: string
+          storage_path: string
+          updated_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          id?: string
+          metadatos?: Json
+          mime_type?: string | null
+          nombre?: string
+          num_chunks?: number
+          origen?: string
+          size_bytes?: number | null
+          status?: string
+          storage_path?: string
+          updated_at?: string
+          uploaded_by?: string | null
         }
         Relationships: []
       }
