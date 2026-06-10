@@ -3199,6 +3199,7 @@ export type Database = {
           bbox: Json
           centroid: Json
           confidence: string
+          corner_type: string | null
           expires_at: string
           exterior_ring: Json
           fetched_at: string
@@ -3213,6 +3214,7 @@ export type Database = {
           refcatastral_14: string
           source: string
           street_edges_jsonb: Json | null
+          street_names_distinct: string[] | null
           total_street_length_m: number | null
         }
         Insert: {
@@ -3220,6 +3222,7 @@ export type Database = {
           bbox: Json
           centroid: Json
           confidence: string
+          corner_type?: string | null
           expires_at?: string
           exterior_ring: Json
           fetched_at?: string
@@ -3234,6 +3237,7 @@ export type Database = {
           refcatastral_14: string
           source: string
           street_edges_jsonb?: Json | null
+          street_names_distinct?: string[] | null
           total_street_length_m?: number | null
         }
         Update: {
@@ -3241,6 +3245,7 @@ export type Database = {
           bbox?: Json
           centroid?: Json
           confidence?: string
+          corner_type?: string | null
           expires_at?: string
           exterior_ring?: Json
           fetched_at?: string
@@ -3255,6 +3260,7 @@ export type Database = {
           refcatastral_14?: string
           source?: string
           street_edges_jsonb?: Json | null
+          street_names_distinct?: string[] | null
           total_street_length_m?: number | null
         }
         Relationships: []

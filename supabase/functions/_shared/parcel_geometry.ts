@@ -50,6 +50,8 @@ export interface StreetEdge {
   probes_hit: number;
   street_source?: "overpass" | "google_roads" | "mixed";
   google_road_name?: string | null;
+  street_names?: string[];      // todos los nombres de vía detectados cerca de la arista
+  is_chaflan_panel?: boolean;   // paño único entre dos vías distintas (esquina achaflanada)
 }
 
 export interface StreetEdgesResult {
@@ -57,6 +59,8 @@ export interface StreetEdgesResult {
   is_corner: boolean;
   total_street_length_m: number;
   corner_angle_deg: number | null;
+  corner_type?: "multifachada" | "esquina_chaflan" | "esquina_angulo" | "linea";
+  street_names_distinct?: string[];
 }
 
 const OVERPASS_ENDPOINTS = [
@@ -713,7 +717,7 @@ export function mergeCollinearRing(
 
 export async function detectStreetEdges(
   ring: [number, number][],
-  opts: { lat: number; lon: number; padding_m?: number },
+  opts: { lat: number; lon: number; padding_m?: number; skipGoogle?: boolean },
 ): Promise<StreetEdgesResult> {
   if (ring.length < 4) {
     return { street_edges: [], is_corner: false, total_street_length_m: 0, corner_angle_deg: null };
@@ -769,8 +773,23 @@ out geom;`;
     return { dist: best, name: bestName };
   };
 
+  // TODOS los nombres de vía dentro de un umbral (para detectar chaflanes
+  // donde un mismo paño está cerca de dos calles distintas).
+  const namesWithin = (pt: [number, number], maxDist: number): Set<string> => {
+    const set = new Set<string>();
+    for (const h of highways) {
+      if (!h.name) continue;
+      for (let i = 0; i < h.line.length - 1; i++) {
+        if (distPointToSegment(pt, h.line[i], h.line[i + 1]) <= maxDist) {
+          set.add(h.name); break;
+        }
+      }
+    }
+    return set;
+  };
+
   // Google Roads fallback (nearestRoads) — usado solo si Overpass falla en una arista.
-  const googleKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  const googleKey = opts.skipGoogle ? null : Deno.env.get("GOOGLE_MAPS_API_KEY");
   const googleRoadHit = async (lat: number, lon: number): Promise<{ hit: boolean; name?: string }> => {
     if (!googleKey) return { hit: false };
     try {
@@ -828,6 +847,7 @@ out geom;`;
     let hits = 0;
     let osmName: string | undefined;
     const probes: { lat: number; lon: number }[] = [];
+    const edgeNames = new Set<string>();
     for (const t of PROBE_OFFSETS) {
       const px = a[0] + (b[0] - a[0]) * t;
       const py = a[1] + (b[1] - a[1]) * t;
@@ -836,6 +856,8 @@ out geom;`;
       if (highways.length > 0) {
         const nh = nearestHighway([probe.lon, probe.lat]);
         if (nh.dist <= HIT_THRESHOLD_M) { hits++; if (!osmName) osmName = nh.name; }
+        // recolecta TODOS los nombres dentro del umbral para detectar chaflanes
+        for (const n of namesWithin([probe.lon, probe.lat], HIT_THRESHOLD_M)) edgeNames.add(n);
       }
     }
     // Fallback Google Roads: si Overpass no marcó hits, probar el probe central.
@@ -874,6 +896,8 @@ out geom;`;
         probes_hit: hits,
         street_source,
         google_road_name: osmName ?? googleName ?? null,
+        street_names: Array.from(edgeNames),
+        is_chaflan_panel: edgeNames.size >= 2,
       });
     }
   }
@@ -882,33 +906,104 @@ out geom;`;
   // Orden por longitud descendente.
   street_edges.sort((x, y) => y.len_m - x.len_m);
 
+  // ---- Decisión de esquina ----
+  // Criterio PRINCIPAL: número de viales DISTINTOS con frente al edificio.
+  // Criterio SECUNDARIO (señal adicional, no requerido): ángulo entre fachadas.
   let is_corner = false;
   let corner_angle_deg: number | null = null;
-  if (street_edges.length >= 2) {
+  let corner_type: "multifachada" | "esquina_chaflan" | "esquina_angulo" | "linea" = "linea";
+
+  const distinctNames = new Set<string>();
+  for (const e of street_edges) for (const n of (e.street_names ?? [])) distinctNames.add(n);
+
+  // Asigna principal por longitud.
+  if (street_edges.length >= 1) street_edges[0].role = "principal";
+
+  // 1) Multifachada: 2+ viales distintos detectados en el conjunto de aristas.
+  if (distinctNames.size >= 2) {
+    is_corner = true;
+    corner_type = "multifachada";
+    // Marca como secundaria la primera arista cuyo nombre dominante difiera del principal.
+    const principalName = street_edges[0]?.street_names?.[0];
+    for (let k = 1; k < street_edges.length; k++) {
+      const names = street_edges[k].street_names ?? [];
+      if (names.length > 0 && (!principalName || !names.includes(principalName))) {
+        street_edges[k].role = "secundaria";
+        const diff = angularDiffDeg(street_edges[0].bearing, street_edges[k].bearing);
+        corner_angle_deg = Math.round(diff > 90 ? 180 - diff : diff);
+        break;
+      }
+    }
+  }
+
+  // 2) Chaflán: algún paño está cerca de 2 viales distintos.
+  const chaflanEdge = street_edges.find((e) => e.is_chaflan_panel);
+  if (chaflanEdge) {
+    is_corner = true;
+    if (corner_type === "linea") corner_type = "esquina_chaflan";
+    // Si ya era multifachada lo mantenemos como tal (más informativo);
+    // si era línea, lo elevamos a esquina_chaflan.
+    chaflanEdge.role = chaflanEdge.role ?? "secundaria";
+  }
+
+  // 3) Chaflán geométrico: paño corto (<10m, <0.6 * neighbor) entre dos aristas
+  // con viales distintos detectados. Lo marcamos aunque ese paño no haya pasado
+  // el umbral de hits (sucede cuando el chaflán mira a un cruce vacío de OSM).
+  if (!is_corner || corner_type === "linea") {
+    for (let i = 0; i < mergedRing.length - 1; i++) {
+      const a = mergedRing[i], b = mergedRing[i + 1];
+      const len = haversine(a, b);
+      if (len <= 1.5 || len > 10) continue;
+      // localiza las aristas vecinas detectadas en ring (por índice de mergedRing)
+      const prevIdx = (i - 1 + (mergedRing.length - 1)) % (mergedRing.length - 1);
+      const nextIdx = (i + 1) % (mergedRing.length - 1);
+      const prev = street_edges.find((e) => e.index === prevIdx);
+      const next = street_edges.find((e) => e.index === nextIdx);
+      if (!prev || !next) continue;
+      const lenMax = Math.max(prev.len_m, next.len_m);
+      if (len > 0.6 * lenMax) continue;
+      const namesPrev = new Set(prev.street_names ?? []);
+      const namesNext = new Set(next.street_names ?? []);
+      let differ = false;
+      for (const n of namesNext) if (n && !namesPrev.has(n)) { differ = true; break; }
+      if (!differ) {
+        for (const n of namesPrev) if (n && !namesNext.has(n)) { differ = true; break; }
+      }
+      if (differ) {
+        is_corner = true;
+        corner_type = "esquina_chaflan";
+        break;
+      }
+    }
+  }
+
+  // 4) Señal adicional por ángulo (legacy): si seguimos sin esquina pero
+  // hay 2 aristas detectadas con ángulo 60-120° → marca esquina_angulo (baja confianza).
+  if (!is_corner && street_edges.length >= 2) {
     const principal = street_edges[0];
-    principal.role = "principal";
-    // Buscar la primera arista cuyo ángulo con la principal esté en [60°, 120°].
     for (let k = 1; k < street_edges.length; k++) {
       const e = street_edges[k];
       const diff = angularDiffDeg(principal.bearing, e.bearing);
-      // Normalizamos a 0..90 también (paralelas dan ~0 o ~180; perpendiculares ~90).
-      const norm = Math.min(diff, 180 - diff);
-      const sep = diff > 90 ? 180 - diff : diff; // ángulo entre rectas
+      const sep = diff > 90 ? 180 - diff : diff;
       if (sep >= 60 && sep <= 120) {
         e.role = "secundaria";
         is_corner = true;
+        corner_type = "esquina_angulo";
         corner_angle_deg = Math.round(sep);
         break;
       }
-      // Evita warnings TS de variable no usada.
-      void norm;
     }
-  } else if (street_edges.length === 1) {
-    street_edges[0].role = "principal";
   }
 
   const total_street_length_m = street_edges.reduce((s, e) => s + e.len_m, 0);
-  return { street_edges, is_corner, total_street_length_m, corner_angle_deg };
+  return {
+    street_edges,
+    is_corner,
+    total_street_length_m,
+    corner_angle_deg,
+    corner_type,
+    street_names_distinct: Array.from(distinctNames),
+  };
 }
 
 // ---------- API pública ----------
@@ -1115,6 +1210,8 @@ export async function fetchParcelGeometry(opts: {
   let street_edges: StreetEdge[] = [];
   let is_corner = false;
   let total_street_length_m = 0;
+  let corner_type: string | null = null;
+  let street_names_distinct: string[] = [];
   if (
     exterior.length >= 4 &&
     result.source !== "fallback"
@@ -1124,7 +1221,10 @@ export async function fetchParcelGeometry(opts: {
       street_edges = det.street_edges;
       is_corner = det.is_corner;
       total_street_length_m = det.total_street_length_m;
+      corner_type = det.corner_type ?? null;
+      street_names_distinct = det.street_names_distinct ?? [];
       if (det.is_corner) flags.push("esquina_detectada_geometria");
+      if (det.corner_type) flags.push(`corner_type:${det.corner_type}`);
       if (det.street_edges.length === 0) flags.push("sin_aristas_a_calle_detectadas");
     } catch (e) {
       console.warn("detectStreetEdges error", (e as Error).message);
@@ -1149,6 +1249,8 @@ export async function fetchParcelGeometry(opts: {
       street_edges_jsonb: street_edges,
       is_corner,
       total_street_length_m,
+      corner_type,
+      street_names_distinct,
       fetched_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString(),
     }, { onConflict: "refcatastral_14" });
