@@ -92,6 +92,79 @@ const VARIANTS_ESCALERAS: Record<string, (c: Ctx) => Promise<number | null>> = {
   },
 };
 
+  // V9 ROUTER ARQUITECTÓNICO: si n_subparcelas_residenciales>=2 O esquina=true,
+  // INVIERTE la pregunta al VLM ("justifica por qué NO hay 2 cajas") con prior
+  // fuerte hacia n=2. Si no, prompt normal de v6. DNPRC sigue como desempate
+  // cuando confidence<0.6 (no MAX puro). needs_human_review si baja confianza.
+VARIANTS_ESCALERAS.v9_vlm_router_arquitectura = async (c) => {
+  const sub = c.cac?.n_subparcelas_residenciales ?? null;
+  const esquina = c.ba?.esquina === true;
+  const prior2 = (typeof sub === "number" && sub >= 2) || esquina;
+  const r = prior2 ? await callVlmRouterInverso(c, { sub, esquina }) : await callVlmFocusedFull(c, true);
+  if (!r) return null;
+  if (r.confidence != null && r.confidence < 0.6) {
+    try {
+      await c.sb.from("building_feedback").insert({
+        building_id: c.building.id,
+        canal: "eval_detector_v9",
+        dimension: "n_escaleras",
+        estado: "pendiente",
+        texto: `v9 baja confianza (${r.confidence}). n=${r.n}. prior2=${prior2}`.slice(0, 1000),
+        metadatos: { variant: "v9_vlm_router_arquitectura", n: r.n, confidence: r.confidence, prior2 } as any,
+      });
+    } catch (_) {}
+    const s = await VARIANTS_ESCALERAS.v1_subparcelas_only(c);
+    if (typeof s === "number" && s >= 1) return Math.max(r.n, s);
+  }
+  return r.n;
+};
+
+async function callVlmRouterInverso(c: Ctx, ctx: { sub: number | null; esquina: boolean }): Promise<{ n: number; confidence: number | null } | null> {
+  const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
+    ? c.cat.fxcc_pages_urls
+    : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
+  if (!pages.length) return null;
+  const PROMPT = `Eres un experto en planos FXCC del Catastro de Madrid.
+CONTEXTO ARQUITECTÓNICO (señales fiables del Catastro):
+- n_subparcelas_residenciales (loint.es distintos) = ${ctx.sub ?? "?"}
+- esquina/chaflán/multifachada = ${ctx.esquina}
+Con estas dos señales, el PRIOR del sistema es que hay 2 ESCALERAS (cajas ESC en PISO 01).
+
+TAREA INVERTIDA: localiza el PISO 01 y JUSTIFICA POR QUÉ NO HAY 2 CAJAS si crees
+que sólo hay 1. Si encuentras evidencia clara de 2 (dos núcleos, V.A.* y V.B.*,
+dos portales en PB), confirma n=2. Por defecto, si las cajas se ven pegadas o el
+plano es pequeño, hay 2 (no las colapses en 1).
+
+Reglas estrictas:
+- Sólo devuelve n=1 si TODAS las viviendas son del mismo bloque (sólo V.A.* sin V.B.*)
+  y sólo hay 1 portal en planta baja. En cualquier otro caso, n>=2.
+- Si dudas, n=2 con confidence<0.6 (se enviará a revisión humana).
+- NUNCA cuentes escaleras sobre planta baja.
+
+Responde SOLO JSON: {"n_escaleras_piso01": number, "razon_para_no_2": string, "confidence": number}`;
+  try {
+    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3.1-pro-preview",
+        messages: [{ role: "user", content: [
+          { type: "text", text: PROMPT },
+          ...pages.map((url) => ({ type: "image_url", image_url: { url } })),
+        ]}],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const txt = j?.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(txt);
+    const n = Math.max(1, Math.min(8, Math.round(Number(parsed?.n_escaleras_piso01 ?? 2))));
+    const conf = parsed?.confidence != null ? Number(parsed.confidence) : null;
+    return isFinite(n) ? { n, confidence: conf } : null;
+  } catch { return null; }
+}
+
 // --- Image cropping helpers (Deno + imagescript) ---
 async function fetchImage(url: string): Promise<Image | null> {
   try {
