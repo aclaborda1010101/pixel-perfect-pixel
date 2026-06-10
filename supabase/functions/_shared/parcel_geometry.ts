@@ -50,6 +50,8 @@ export interface StreetEdge {
   probes_hit: number;
   street_source?: "overpass" | "google_roads" | "mixed";
   google_road_name?: string | null;
+  street_names?: string[];      // todos los nombres de vía detectados cerca de la arista
+  is_chaflan_panel?: boolean;   // paño único entre dos vías distintas (esquina achaflanada)
 }
 
 export interface StreetEdgesResult {
@@ -57,6 +59,8 @@ export interface StreetEdgesResult {
   is_corner: boolean;
   total_street_length_m: number;
   corner_angle_deg: number | null;
+  corner_type?: "multifachada" | "esquina_chaflan" | "esquina_angulo" | "linea";
+  street_names_distinct?: string[];
 }
 
 const OVERPASS_ENDPOINTS = [
