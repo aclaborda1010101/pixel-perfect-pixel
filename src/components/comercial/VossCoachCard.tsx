@@ -44,7 +44,50 @@ export function VossCoachCard({ ownerId, buildingId, mode = "brief" as "brief" |
             <div className="flex items-center gap-2">
               <Badge variant="gold">{voss.tecnica_principal}</Badge>
             </div>
-            <blockquote className="border-l-2 border-gold pl-3 italic text-foreground">"{voss.sugerencia}"</blockquote>
+            {voss.apertura_exacta && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Apertura exacta</div>
+                <blockquote className="border-l-2 border-gold pl-3 italic text-foreground">"{voss.apertura_exacta}"</blockquote>
+              </div>
+            )}
+            {voss.sugerencia && !voss.apertura_exacta && (
+              <blockquote className="border-l-2 border-gold pl-3 italic text-foreground">"{voss.sugerencia}"</blockquote>
+            )}
+            {Array.isArray(voss.etiquetas) && voss.etiquetas.length > 0 && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Etiquetas preparadas</div>
+                <ul className="space-y-1">
+                  {voss.etiquetas.map((e: string, i: number) => <li key={i} className="text-foreground">• {e}</li>)}
+                </ul>
+              </div>
+            )}
+            {Array.isArray(voss.preguntas_calibradas) && voss.preguntas_calibradas.length > 0 && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Preguntas calibradas</div>
+                <ul className="space-y-1">
+                  {voss.preguntas_calibradas.map((q: string, i: number) => <li key={i} className="text-foreground">• {q}</li>)}
+                </ul>
+              </div>
+            )}
+            {voss.cierre_micro_compromiso && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Cierre · micro-compromiso</div>
+                <blockquote className="border-l-2 border-emerald-500 pl-3 italic text-foreground">"{voss.cierre_micro_compromiso}"</blockquote>
+              </div>
+            )}
+            {Array.isArray(voss.objeciones_probables) && voss.objeciones_probables.length > 0 && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Objeciones probables</div>
+                <ul className="space-y-2">
+                  {voss.objeciones_probables.map((o: any, i: number) => (
+                    <li key={i} className="rounded border border-border-faint p-2">
+                      <div className="font-medium text-foreground">{o.objecion}</div>
+                      <div className="text-muted-foreground italic">→ "{o.respuesta_voss}"</div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {voss.por_que && <p className="text-muted-foreground"><span className="font-medium text-foreground">Por qué:</span> {voss.por_que}</p>}
             {voss.siguiente_paso && <p className="text-muted-foreground"><span className="font-medium text-foreground">Siguiente paso:</span> {voss.siguiente_paso}</p>}
             {Array.isArray(voss.fragmentos_usados) && voss.fragmentos_usados.length > 0 && (
@@ -52,7 +95,7 @@ export function VossCoachCard({ ownerId, buildingId, mode = "brief" as "brief" |
                 <summary className="cursor-pointer">Fragmentos del corpus Voss</summary>
                 <ul className="mt-2 space-y-1">
                   {voss.fragmentos_usados.map((f: any, i: number) => (
-                    <li key={i}><Badge variant="outline" className="mr-1">{f.source}</Badge>{(f.snippet || "").slice(0, 240)}</li>
+                    <li key={i}><Badge variant="outline" className="mr-1">{f.source}</Badge>{f.tecnica ? <span className="text-muted-foreground mr-1">[{f.tecnica}]</span> : null}{(f.snippet || "").slice(0, 240)}</li>
                   ))}
                 </ul>
               </details>
