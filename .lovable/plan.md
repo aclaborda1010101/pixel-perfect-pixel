@@ -1,94 +1,84 @@
-# Plan — Ampliación del sistema de feedback por edificio
+# PUNTO 1 — Detector de esquina por viales (determinista)
 
-Extiendo lo que ya existe (`TeamFeedbackCard`, tabla `building_feedback`, `agent_analyze_feedback`, panel Aprendizaje). No duplico componentes ni rehago la captura voz/texto.
+## Diagnóstico actual
 
-## 1. Controles de validación inline en `BuildingDetail` / `EdificioDetalle`
+`detectStreetEdges` fusiona aristas colineales (`mergeCollinearRing`) **antes** de asignar nombre de vial → un chaflán cuyo paño corto separa dos calles desaparece, y con él la prueba "2 viales distintos".
 
-Nuevo componente reutilizable `src/components/comercial/InlineVerify.tsx` con dos variantes:
+Estado verificado:
+- **Cava Baja 42**: `is_corner=true` ya, pero `street_names_distinct` vacío y `corner_type` NULL → es un falso positivo por suerte (regla angular legacy). Cuando se borre la regla angular se rompería.
+- **Topete 33**: `is_corner=false`, `street_names_distinct={}` → Overpass no encontró highways o el merge fundió el chaflán antes de probar nombres.
 
-- `<InlineVerifyBool>` — para esquina: `[Correcto] [No, es esquina] [No, no es esquina]`.
-- `<InlineVerifyNumber>` — para ventanas fachada/patio, escaleras, nº propietarios: `[Sí, correcto] [No, ajustar → input numérico → Guardar]`.
-- `<InlineVerifyEnum>` — para cluster/clasificación y protección: `[Correcto] [Otra: select/free text]`.
+## Cambios
 
-Props: `buildingId`, `dimension`, `campo` (tabla.campo), `valor_actual`, `detector` (string que identifica el método: `corner-detector`, `stair-detector`, `facade-window`, `patio-window`, `cluster`, `proteccion`), `opciones?`.
+### 1. `supabase/functions/_shared/parcel_geometry.ts` — `detectStreetEdges`
 
-Al pulsar:
-1. Inserta en `building_feedback` con `canal='verificacion_inline'`, `texto` autogenerado (ej. `"Verificación humana: esquina=true (sistema decía false)"`), y un nuevo campo `metadatos jsonb` con `{ detector, campo, valor_actual, valor_humano, accion: 'confirma' | 'corrige' }`.
-2. Upsert en `qa_ground_truth` para ese `building_id` + campo (verdad humana).
-3. Llama `agent_analyze_feedback` automáticamente solo si `accion='corrige'` (para sacar diagnóstico de método).
-4. Si `accion='confirma'`, no se invoca el LLM (solo se guarda fixture y feedback corto en estado `aplicada`).
+Orden NUEVO:
 
-Inserción de los controles en `BuildingDetail.tsx` y `EdificioDetalle.tsx` junto a:
-- Ventanas fachada / patio (en `AnalisisIASection` o card de ventanas).
-- Esquina (en `AnalisisPlanoCatastralCard` / chip de esquina).
-- Cluster (en `ScoringResumen`).
-- Escaleras, protección, nº propietarios (en `CatastroDetalladoCard` y sección protección).
-
-## 2. Cuadro libre texto+audio
-
-Ya existe en `TeamFeedbackCard`. Solo amplío el `placeholder` del `Textarea` con ejemplos rotatorios y añado un bloque de "ejemplos rápidos" clicables que rellenan el textarea (chips: *"es esquina y no lo dice"*, *"clasificación coliving es incorrecta, viviendas demasiado grandes"*, *"las escaleras son 2"*, *"no es protegido"*). No duplico la grabación.
-
-## 3. Reescritura de `agent_analyze_feedback` — diagnóstico de MÉTODO
-
-Reescribo el `SYSTEM` prompt y el `snapshot` que recibe el LLM para que devuelva un JSON con esta forma estricta:
-
-```json
-{
-  "dimension": "esquina|escaleras|ventanas|cluster|proteccion|propietarios|m2|viviendas|otro",
-  "detector": { "nombre": "corner-detector", "ubicacion": "supabase/functions/_shared/parcel_geometry.ts" },
-  "entrada": { "fuente": "FXCC pdf p.1 + cadastral polygon", "regla_usada": "ángulo 60-120° entre 2 fachadas" },
-  "causa_raiz": "edificio en chaflán: paño único, no hay 2 segmentos con ángulo en rango",
-  "que_cambiar": {
-    "tipo": "regla|prompt|constante|umbral|dato_sucio|requiere_codigo",
-    "detalle": "Cambiar criterio principal a 'nº de viales distintos con frente' y mantener ángulo como señal secundaria",
-    "donde": "parcel_geometry.ts::detectCorner / app_settings.corner_detection"
-  },
-  "override_puntual": { "aplicable": true, "tabla": "building_analysis", "campo": "es_esquina", "valor_nuevo": true, "justificacion": "..." },
-  "diagnostico": "frase humana corta"
-}
+```text
+ring INSPIRE → asignar street_names POR ARISTA RAW
+            → fusionar aristas colineales preservando UNIÓN de nombres
+            → decisión de esquina sobre el ring fusionado con nombres heredados
 ```
 
-Cambios concretos en `supabase/functions/agent_analyze_feedback/index.ts`:
-- Enriquecer el `snapshot` con: qué detector produjo cada campo (mapeo dimensión→detector→archivo), `metadatos` del feedback (si viene de InlineVerify ya trae el detector), y trazas existentes (`protegido_raw`, `origen_viviendas`, `notas_correccion`).
-- Nuevo SYSTEM que obliga al LLM a centrarse en el **método**, no en el dato. Incluyo catálogo de detectores conocidos para que el modelo escoja:
-  - `stair-detector` (`recount-escaleras`, `analyze-building-vision` planta 1)
-  - `corner-detector` (`recompute-corner-detection`, `_shared/parcel_geometry.ts`)
-  - `facade-window` (`count-facade-windows`)
-  - `patio-window` (`count-patio-windows`)
-  - `cluster` (`recompute-cluster-scoring`)
-  - `proteccion` (`check-proteccion-pgou` + `madrid_edificios_protegidos`)
-- El campo `accion` legacy se mantiene por compatibilidad con `TeamFeedbackCard` y `apply_feedback_override` (mapeo desde `override_puntual`).
-- `estado` final:
-  - `analizada` si hay `override_puntual.aplicable=true`.
-  - `requiere_codigo` si `que_cambiar.tipo='requiere_codigo'` o cambio de regla/constante.
-  - Nuevo: si `que_cambiar.tipo='constante'` y la constante existe en `app_settings`, dejarlo en `requiere_codigo` con sugerencia del nuevo valor (no auto-aplicar).
+Pasos concretos:
 
-## 4. Fixtures en `qa_ground_truth`
+- **a)** Calcular `outsideBearing`, hacer 3 probes y recoger `street_names` para **cada arista del `ring` raw** (no del merged). Edges <1,5 m siguen ignoradas.
+- **b)** Nuevo `mergeCollinearRingWithNames(ring, perEdgeNames, 10°)`: fusiona vértices colineales y **acumula la unión de nombres** de las aristas fundidas en una `Set<string>` por arista resultante. Devuelve `{mergedRing, mergedEdgeNames: Set<string>[]}`.
+- **c)** Construir `street_edges[]` sobre el merged ring, asignando `street_names = Array.from(mergedEdgeNames[i])` y recomputando `is_chaflan_panel = street_names.length >= 2`.
+- **d)** **Eliminar** la rama "esquina_angulo" (regla 60-120°) como condición de `is_corner`. Se mantiene `corner_angle_deg` como señal informativa.
+- **e)** Decisión:
+  ```text
+  frentes = group street_edges by primary street_name (ignore null/empty),
+            requiring edges of a same name to be non-contiguous along the ring
+            (si todas son contiguas → cuenta como UN solo frente)
+  is_corner = frentes.length >= 2
+  corner_type =
+    - "esquina_chaflan"   si algún edge tiene >=2 names (paño chaflán)
+    - "multifachada"      si frentes >=2 sin paño chaflán
+    - "linea"             en otro caso
+  ```
+- **f)** Nuevo campo en `StreetEdgesResult`:
+  ```ts
+  frentes: { vial: string; longitud_m: number; aristas: number[] }[]
+  ```
+  Se persistirá para reusar en el detector de fachada/ventanas.
 
-- Tras cada validación inline (confirma o corrige) y tras cada `apply_feedback_override`, upsert en `qa_ground_truth` con `{ building_id, campo, valor_humano, fuente='verificacion_inline'|'feedback_libre', verificado_por, verificado_at }`.
-- Helper compartido `src/lib/qaGroundTruth.ts` con `upsertGroundTruth(buildingId, campo, valor, fuente)`.
+### 2. Migración DB
 
-## 5. Migración
+Añadir columna a `parcel_geometry_cache`:
 
-Una migración añade a `building_feedback`:
-- `metadatos jsonb default '{}'::jsonb` (detector, valor_actual, valor_humano, accion).
-- check ampliado de `canal` para incluir `'verificacion_inline'`.
+```sql
+ALTER TABLE public.parcel_geometry_cache
+  ADD COLUMN IF NOT EXISTS frentes_jsonb jsonb;
+```
 
-No toco RLS (las policies existentes ya cubren insert/select por usuario autenticado).
+### 3. `recompute-corner-detection/index.ts`
 
-## 6. Render del diagnóstico de método en `TeamFeedbackCard`
+- Persistir también `frentes_jsonb`.
+- Para cada cambio de `is_corner`, además del `building_feedback` ya generado, **upsert en `qa_ground_truth`** la columna `es_esquina = new_is_corner` con `fuente_verificacion='corner_detector_v3'` SOLO si no existe ya `verificado_por` humano (no piso ground-truth humano).
+- Añadir al response un bloque `verifications` con Cava Baja 42 + Topete 33 explícitamente (lookup por dirección).
 
-Amplío el `<details>Análisis IA</details>` para mostrar las nuevas secciones: **Detector**, **Entrada usada**, **Causa raíz**, **Qué cambiar** (con badge según `tipo`), y solo entonces el botón **Aplicar override** si `override_puntual.aplicable`.
+### 4. Ejecución y aceptación
 
-## 7. Validación end-to-end
+1. Deploy de `recompute-corner-detection`.
+2. Forzar recompute de los 74 con `force=true` (la caché actual tiene names vacíos).
+3. Llamar `recompute-corner-detection` para regenerar `is_corner/corner_type/frentes/street_names_distinct` y emitir feedbacks/qa.
+4. Verificar en SQL:
+   - Cava Baja 42 → `is_corner=true`, `corner_type='esquina_chaflan'`, `street_names_distinct` contiene al menos "Cava Baja" + "Plaza del Humilladero" (o vial perpendicular real).
+   - Topete 33 → re-evaluado con nombres asignados pre-merge.
+   - Total esquinas antes vs después.
+5. Calcular precision/recall sobre `qa_ground_truth.es_esquina IS NOT NULL` (las verificadas por humanos). Si <95% → no se promociona, se devuelve la tabla con los discrepantes.
 
-- Crear un feedback de prueba en Cava Baja 42: *"es esquina y el sistema dice que no"* → llamar `agent_analyze_feedback` → mostrar el JSON devuelto (espero `detector=corner-detector`, `causa_raiz` chaflán, `que_cambiar.tipo='regla'` apuntando a `parcel_geometry.ts`, `override_puntual.aplicable=true`).
-- Reportar el resultado al usuario.
+## Notas técnicas
 
-## Detalles técnicos
+- No se toca RLS.
+- La fuente de nombres sigue siendo Overpass highways (`name` tag) dentro del radio bbox + padding 25 m. Google Roads se mantiene como fallback puntual.
+- `qa_ground_truth.es_esquina` solo se rellena para los cambios; el set verificable son los edificios marcados por el equipo (los que tengan `verificado_por` no-null) — la métrica precision/recall se calcula sobre ese subconjunto.
 
-- Archivos nuevos: `src/components/comercial/InlineVerify.tsx`, `src/lib/qaGroundTruth.ts`, una migración SQL.
-- Archivos modificados: `supabase/functions/agent_analyze_feedback/index.ts`, `src/components/comercial/TeamFeedbackCard.tsx` (render + chips de ejemplos), `src/pages/BuildingDetail.tsx`, `src/pages/comercial/EdificioDetalle.tsx`, y las cards donde se muestran ventanas/esquina/cluster/escaleras/protección/propietarios.
-- Sin cambios en RLS.
-- Modelo LLM: mismo `google/gemini-3-flash-preview` con `response_format: json_object`.
+## Archivos tocados
 
+- `supabase/functions/_shared/parcel_geometry.ts` (refactor `detectStreetEdges` + nuevo `mergeCollinearRingWithNames`)
+- `supabase/functions/recompute-corner-detection/index.ts` (persistir `frentes`, upsert qa, verificaciones explícitas)
+- Migración SQL: `parcel_geometry_cache.frentes_jsonb`
+
+No se toca producción de scoring ni de fachada en esta fase.

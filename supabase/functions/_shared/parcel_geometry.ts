@@ -61,6 +61,13 @@ export interface StreetEdgesResult {
   corner_angle_deg: number | null;
   corner_type?: "multifachada" | "esquina_chaflan" | "esquina_angulo" | "linea";
   street_names_distinct?: string[];
+  frentes?: Frente[];
+}
+
+export interface Frente {
+  vial: string;
+  longitud_m: number;
+  aristas: number[];        // índices de aristas (sobre el merged ring) que componen el frente
 }
 
 const OVERPASS_ENDPOINTS = [
@@ -715,22 +722,64 @@ export function mergeCollinearRing(
   return pts;
 }
 
+// Variante que devuelve, además del ring fusionado, la trazabilidad de qué
+// índices de arista RAW componen cada arista del ring fusionado.
+// edgeOriginIndices[i] = lista de índices de aristas raw que fueron fundidas en
+// la arista i del merged ring (de mergedRing[i] a mergedRing[i+1]).
+export function mergeCollinearRingWithIndex(
+  ring: [number, number][],
+  angleThresholdDeg = 10,
+): { mergedRing: [number, number][]; mergedFromRawIdx: number[][] } {
+  if (ring.length < 4) {
+    const idxs = ring.slice(0, -1).map((_, i) => [i]);
+    return { mergedRing: ring, mergedFromRawIdx: idxs };
+  }
+  const closed = ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1];
+  const pts: [number, number][] = closed ? ring.slice(0, -1) : ring.slice();
+  // edgeOrigin[i] = lista de raw-edge indices que componen la arista actual i (pts[i] -> pts[i+1 mod n])
+  let edgeOrigin: number[][] = pts.map((_, i) => [i]);
+
+  let changed = true;
+  let guard = 0;
+  while (changed && guard++ < 20 && pts.length > 3) {
+    changed = false;
+    for (let i = 0; i < pts.length; i++) {
+      const n = pts.length;
+      const prev = pts[(i - 1 + n) % n];
+      const cur = pts[i];
+      const next = pts[(i + 1) % n];
+      const b1 = bearingDeg(prev, cur);
+      const b2 = bearingDeg(cur, next);
+      const diff = angularDiffDeg(b1, b2);
+      if (diff <= angleThresholdDeg) {
+        // quitar vértice i: la arista entrante (i-1) y la saliente (i) se funden.
+        const prevEdgeIdx = (i - 1 + n) % n;
+        edgeOrigin[prevEdgeIdx] = [...edgeOrigin[prevEdgeIdx], ...edgeOrigin[i]];
+        pts.splice(i, 1);
+        edgeOrigin.splice(i, 1);
+        changed = true;
+        i--;
+        if (pts.length <= 3) break;
+      }
+    }
+  }
+  const closedPts: [number, number][] = [...pts, pts[0]];
+  return { mergedRing: closedPts, mergedFromRawIdx: edgeOrigin };
+}
+
 export async function detectStreetEdges(
   ring: [number, number][],
   opts: { lat: number; lon: number; padding_m?: number; skipGoogle?: boolean },
 ): Promise<StreetEdgesResult> {
   if (ring.length < 4) {
-    return { street_edges: [], is_corner: false, total_street_length_m: 0, corner_angle_deg: null };
+    return { street_edges: [], is_corner: false, total_street_length_m: 0, corner_angle_deg: null, frentes: [] };
   }
-  // Fusiona aristas colineales (chaflanes rasterizados del Catastro) ANTES del
-  // probing, para que principal/secundaria reflejen las fachadas reales.
-  const mergedRing = mergeCollinearRing(ring, 10);
-  console.log("detectStreetEdges merge", JSON.stringify({
-    edges_in: ring.length - 1, edges_after_merge: mergedRing.length - 1,
-  }));
+  // ORDEN CRÍTICO (v3): primero asignamos nombre de vial a cada arista RAW
+  // (3 probes), DESPUÉS fusionamos colineales preservando la unión de nombres.
+  // Si se fusiona antes, los chaflanes pierden el segundo frente.
   const padding = opts.padding_m ?? 25;
   // Bounding box del polígono + padding (metros) → radio Overpass.
-  const bb = bboxOf(mergedRing);
+  const bb = bboxOf(ring);
   const cLat = (bb.minLat + bb.maxLat) / 2;
   const cLon = (bb.minLon + bb.maxLon) / 2;
   // Radio aproximado en metros desde el centro a la esquina + padding.
@@ -757,7 +806,7 @@ out geom;`;
     console.warn("overpass highways error", (e as Error).message);
   }
 
-  const polyCentroidLL = centroidOf(mergedRing); // {lat, lon}
+  const polyCentroidLL = centroidOf(ring); // {lat, lon}
   const polyCentroidPt: [number, number] = [polyCentroidLL.lon, polyCentroidLL.lat];
 
   // Distancia mínima de un punto a la red de carreteras (en metros) y nombre.
@@ -820,34 +869,40 @@ out geom;`;
     } catch { return { hit: false }; }
   };
 
-  // Para cada arista del anillo: 3 probes a 15 m hacia fuera; umbral 1/3; fallback Google.
-  const street_edges: StreetEdge[] = [];
+  // -------- STEP 1: probar cada arista RAW (antes de fusionar) --------
   const PROBE_OFFSETS = [0.25, 0.5, 0.75];
   const PROBE_DIST_M = 15;
   const HIT_THRESHOLD_M = 12;
-  const MIN_HITS_REQUIRED = 1;
-  const diag: any[] = [];
-
-  for (let i = 0; i < mergedRing.length - 1; i++) {
-    const a = mergedRing[i], b = mergedRing[i + 1];
+  type RawProbe = {
+    raw_index: number;
+    hits: number;
+    names: Set<string>;
+    osm_name?: string;
+    google_hit: boolean;
+    google_name?: string;
+    street_source?: "overpass" | "google_roads" | "mixed";
+    outside_bearing: number;
+    len_m: number;
+  };
+  const rawProbes: (RawProbe | null)[] = [];
+  for (let i = 0; i < ring.length - 1; i++) {
+    const a = ring[i], b = ring[i + 1];
     const len = haversine(a, b);
-    if (len < 1.5) continue; // ignora micro-aristas (vértices ruido)
+    if (len < 1.0) { rawProbes.push(null); continue; }
     const brg = bearingDeg(a, b);
     const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     const normalLeft = (brg - 90 + 360) % 360;
     const normalRight = (brg + 90) % 360;
-    // ¿Cuál es "fuera"? Aquella cuya proyección desde el midpoint se aleja del centroide del polígono.
     const pL = offsetAlongBearing(mid[1], mid[0], 5, normalLeft);
     const pR = offsetAlongBearing(mid[1], mid[0], 5, normalRight);
     const dL = haversine([pL.lon, pL.lat], polyCentroidPt);
     const dR = haversine([pR.lon, pR.lat], polyCentroidPt);
     const outsideBearing = dL > dR ? normalLeft : normalRight;
 
-    // 3 probes a lo largo de la arista, desplazados hacia fuera (15 m).
     let hits = 0;
     let osmName: string | undefined;
-    const probes: { lat: number; lon: number }[] = [];
     const edgeNames = new Set<string>();
+    const probes: { lat: number; lon: number }[] = [];
     for (const t of PROBE_OFFSETS) {
       const px = a[0] + (b[0] - a[0]) * t;
       const py = a[1] + (b[1] - a[1]) * t;
@@ -856,144 +911,162 @@ out geom;`;
       if (highways.length > 0) {
         const nh = nearestHighway([probe.lon, probe.lat]);
         if (nh.dist <= HIT_THRESHOLD_M) { hits++; if (!osmName) osmName = nh.name; }
-        // recolecta TODOS los nombres dentro del umbral para detectar chaflanes
         for (const n of namesWithin([probe.lon, probe.lat], HIT_THRESHOLD_M)) edgeNames.add(n);
       }
     }
-    // Fallback Google Roads: si Overpass no marcó hits, probar el probe central.
     let googleHit = false; let googleName: string | undefined;
     let street_source: "overpass" | "google_roads" | "mixed" | undefined = hits > 0 ? "overpass" : undefined;
     if (hits === 0 && googleKey) {
       const center = probes[1];
       const gr = await googleRoadHit(center.lat, center.lon);
-      if (gr.hit) { googleHit = true; googleName = gr.name; hits = 1; street_source = "google_roads"; }
+      if (gr.hit) { googleHit = true; googleName = gr.name; hits = 1; street_source = "google_roads"; if (gr.name) edgeNames.add(gr.name); }
     } else if (hits > 0 && hits < 2 && googleKey) {
-      // Reforzar con Google para clasificar mixed.
       const center = probes[1];
       const gr = await googleRoadHit(center.lat, center.lon);
-      if (gr.hit) { googleName = gr.name; street_source = "mixed"; }
+      if (gr.hit) { googleName = gr.name; street_source = "mixed"; if (gr.name) edgeNames.add(gr.name); }
     }
+    rawProbes.push({
+      raw_index: i,
+      hits,
+      names: edgeNames,
+      osm_name: osmName,
+      google_hit: googleHit,
+      google_name: googleName,
+      street_source,
+      outside_bearing: outsideBearing,
+      len_m: len,
+    });
+  }
 
+  // -------- STEP 2: fusionar colineales preservando trazabilidad --------
+  const { mergedRing, mergedFromRawIdx } = mergeCollinearRingWithIndex(ring, 10);
+  const M = mergedRing.length - 1;
+
+  // -------- STEP 3: construir aristas finales heredando UNIÓN de nombres --------
+  const street_edges: StreetEdge[] = [];
+  const namesPerMerged: Set<string>[] = Array.from({ length: M }, () => new Set<string>());
+  const diag: any[] = [];
+  for (let i = 0; i < M; i++) {
+    const a = mergedRing[i], b = mergedRing[i + 1];
+    const len = haversine(a, b);
+    if (len < 1.5) continue;
+    const brg = bearingDeg(a, b);
+    const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const normalLeft = (brg - 90 + 360) % 360;
+    const normalRight = (brg + 90) % 360;
+    const pL = offsetAlongBearing(mid[1], mid[0], 5, normalLeft);
+    const pR = offsetAlongBearing(mid[1], mid[0], 5, normalRight);
+    const dL = haversine([pL.lon, pL.lat], polyCentroidPt);
+    const dR = haversine([pR.lon, pR.lat], polyCentroidPt);
+    const outsideBearing = dL > dR ? normalLeft : normalRight;
+    const heading = (outsideBearing + 180) % 360;
+
+    const rawIdxs = mergedFromRawIdx[i] ?? [];
+    let hitsMax = 0;
+    let osmName: string | undefined;
+    let googleName: string | undefined;
+    let street_source: "overpass" | "google_roads" | "mixed" | undefined;
+    for (const ri of rawIdxs) {
+      const rp = rawProbes[ri];
+      if (!rp) continue;
+      for (const n of rp.names) namesPerMerged[i].add(n);
+      if (rp.hits > hitsMax) hitsMax = rp.hits;
+      if (!osmName) osmName = rp.osm_name;
+      if (!googleName) googleName = rp.google_name;
+      if (!street_source) street_source = rp.street_source;
+      else if (rp.street_source && rp.street_source !== street_source) street_source = "mixed";
+    }
+    const namesArr = Array.from(namesPerMerged[i]);
     diag.push({
       edge_index: i, len_m: Math.round(len * 10) / 10,
       bearing: Math.round(brg), outside_bearing: Math.round(outsideBearing),
-      probes_hit_overpass: hits - (googleHit ? 1 : 0),
-      google_hit: googleHit,
-      street_name: osmName ?? googleName ?? null,
+      probes_hit: hitsMax, names: namesArr, raw_idxs: rawIdxs,
     });
-
-    // heading cámara→fachada: cámara está fuera, mira hacia la fachada → outside+180.
-    const heading = (outsideBearing + 180) % 360;
-    if (hits >= MIN_HITS_REQUIRED) {
+    if (hitsMax >= 1 || namesArr.length >= 1) {
       street_edges.push({
-        index: i,
-        a, b,
-        len_m: len,
-        bearing: brg,
-        midpoint: mid,
-        outside_bearing: outsideBearing,
-        heading,
-        probes_hit: hits,
+        index: i, a, b, len_m: len, bearing: brg, midpoint: mid,
+        outside_bearing: outsideBearing, heading,
+        probes_hit: hitsMax,
         street_source,
         google_road_name: osmName ?? googleName ?? null,
-        street_names: Array.from(edgeNames),
-        is_chaflan_panel: edgeNames.size >= 2,
+        street_names: namesArr,
+        is_chaflan_panel: namesArr.length >= 2,
       });
     }
   }
-  console.log("detectStreetEdges diag", JSON.stringify({ radius, highways: highways.length, edges_total: mergedRing.length - 1, edges_raw: ring.length - 1, edges_detected: street_edges.length, per_edge: diag }));
+  console.log("detectStreetEdges v3", JSON.stringify({
+    radius, highways: highways.length,
+    edges_raw: ring.length - 1, edges_merged: M,
+    edges_with_street: street_edges.length, per_edge: diag,
+  }));
 
-  // Orden por longitud descendente.
-  street_edges.sort((x, y) => y.len_m - x.len_m);
+  // -------- STEP 4: frentes (un mismo nombre puede ser >1 frente si los runs no son contiguos) --------
+  const allNames = new Set<string>();
+  for (let i = 0; i < M; i++) for (const n of namesPerMerged[i]) if (n) allNames.add(n);
 
-  // ---- Decisión de esquina ----
-  // Criterio PRINCIPAL: número de viales DISTINTOS con frente al edificio.
-  // Criterio SECUNDARIO (señal adicional, no requerido): ángulo entre fachadas.
+  const lenMerged = (i: number) => haversine(mergedRing[i], mergedRing[i + 1]);
+  const frentes: Frente[] = [];
+  for (const name of allNames) {
+    const has = Array.from({ length: M }, (_, i) => namesPerMerged[i].has(name));
+    if (has.every(Boolean)) {
+      const aristas: number[] = []; let total = 0;
+      for (let i = 0; i < M; i++) { aristas.push(i); total += lenMerged(i); }
+      frentes.push({ vial: name, longitud_m: Math.round(total * 10) / 10, aristas });
+      continue;
+    }
+    // rota para empezar en una arista 'false' (necesario para detectar runs cíclicos correctamente)
+    let start = 0;
+    for (let i = 0; i < M; i++) if (!has[i]) { start = i; break; }
+    let cur: { aristas: number[]; longitud_m: number } | null = null;
+    for (let k = 0; k < M; k++) {
+      const i = (start + k) % M;
+      if (has[i]) {
+        if (!cur) cur = { aristas: [], longitud_m: 0 };
+        cur.aristas.push(i);
+        cur.longitud_m += lenMerged(i);
+      } else if (cur) {
+        frentes.push({ vial: name, longitud_m: Math.round(cur.longitud_m * 10) / 10, aristas: cur.aristas });
+        cur = null;
+      }
+    }
+    if (cur) frentes.push({ vial: name, longitud_m: Math.round(cur.longitud_m * 10) / 10, aristas: cur.aristas });
+  }
+
+  // -------- Decisión de esquina (determinista, sin regla angular) --------
   let is_corner = false;
   let corner_angle_deg: number | null = null;
   let corner_type: "multifachada" | "esquina_chaflan" | "esquina_angulo" | "linea" = "linea";
 
-  const distinctNames = new Set<string>();
-  for (const e of street_edges) for (const n of (e.street_names ?? [])) distinctNames.add(n);
+  const distinctVials = new Set(frentes.map((f) => f.vial));
+  const hasChaflanPanel = street_edges.some((e) => (e.street_names?.length ?? 0) >= 2);
 
-  // Asigna principal por longitud.
-  if (street_edges.length >= 1) street_edges[0].role = "principal";
-
-  // 1) Multifachada: 2+ viales distintos detectados en el conjunto de aristas.
-  if (distinctNames.size >= 2) {
+  if (distinctVials.size >= 2 || (hasChaflanPanel && distinctVials.size >= 2)) {
     is_corner = true;
-    corner_type = "multifachada";
-    // Marca como secundaria la primera arista cuyo nombre dominante difiera del principal.
-    const principalName = street_edges[0]?.street_names?.[0];
-    for (let k = 1; k < street_edges.length; k++) {
-      const names = street_edges[k].street_names ?? [];
+    corner_type = hasChaflanPanel ? "esquina_chaflan" : "multifachada";
+  } else if (distinctVials.size === 1 && frentes.length >= 2) {
+    // Mismo nombre con runs no contiguos (calle curva que toca dos veces) → NO cuenta como esquina por requisito.
+    // Lo dejamos como línea pero marcamos en diag.
+    console.log("detectStreetEdges curve_same_name", JSON.stringify({ vial: frentes[0].vial, runs: frentes.length }));
+  }
+
+  // Roles principal/secundaria por longitud (compat con resto del sistema)
+  const sortedByLen = [...street_edges].sort((a, b) => b.len_m - a.len_m);
+  if (sortedByLen[0]) sortedByLen[0].role = "principal";
+  if (is_corner) {
+    const principalName = sortedByLen[0]?.street_names?.[0];
+    for (let k = 1; k < sortedByLen.length; k++) {
+      const names = sortedByLen[k].street_names ?? [];
       if (names.length > 0 && (!principalName || !names.includes(principalName))) {
-        street_edges[k].role = "secundaria";
-        const diff = angularDiffDeg(street_edges[0].bearing, street_edges[k].bearing);
+        sortedByLen[k].role = "secundaria";
+        const diff = angularDiffDeg(sortedByLen[0].bearing, sortedByLen[k].bearing);
         corner_angle_deg = Math.round(diff > 90 ? 180 - diff : diff);
         break;
       }
     }
   }
 
-  // 2) Chaflán: algún paño está cerca de 2 viales distintos.
-  const chaflanEdge = street_edges.find((e) => e.is_chaflan_panel);
-  if (chaflanEdge) {
-    is_corner = true;
-    if (corner_type === "linea") corner_type = "esquina_chaflan";
-    // Si ya era multifachada lo mantenemos como tal (más informativo);
-    // si era línea, lo elevamos a esquina_chaflan.
-    chaflanEdge.role = chaflanEdge.role ?? "secundaria";
-  }
-
-  // 3) Chaflán geométrico: paño corto (<10m, <0.6 * neighbor) entre dos aristas
-  // con viales distintos detectados. Lo marcamos aunque ese paño no haya pasado
-  // el umbral de hits (sucede cuando el chaflán mira a un cruce vacío de OSM).
-  if (!is_corner || corner_type === "linea") {
-    for (let i = 0; i < mergedRing.length - 1; i++) {
-      const a = mergedRing[i], b = mergedRing[i + 1];
-      const len = haversine(a, b);
-      if (len <= 1.5 || len > 10) continue;
-      // localiza las aristas vecinas detectadas en ring (por índice de mergedRing)
-      const prevIdx = (i - 1 + (mergedRing.length - 1)) % (mergedRing.length - 1);
-      const nextIdx = (i + 1) % (mergedRing.length - 1);
-      const prev = street_edges.find((e) => e.index === prevIdx);
-      const next = street_edges.find((e) => e.index === nextIdx);
-      if (!prev || !next) continue;
-      const lenMax = Math.max(prev.len_m, next.len_m);
-      if (len > 0.6 * lenMax) continue;
-      const namesPrev = new Set(prev.street_names ?? []);
-      const namesNext = new Set(next.street_names ?? []);
-      let differ = false;
-      for (const n of namesNext) if (n && !namesPrev.has(n)) { differ = true; break; }
-      if (!differ) {
-        for (const n of namesPrev) if (n && !namesNext.has(n)) { differ = true; break; }
-      }
-      if (differ) {
-        is_corner = true;
-        corner_type = "esquina_chaflan";
-        break;
-      }
-    }
-  }
-
-  // 4) Señal adicional por ángulo (legacy): si seguimos sin esquina pero
-  // hay 2 aristas detectadas con ángulo 60-120° → marca esquina_angulo (baja confianza).
-  if (!is_corner && street_edges.length >= 2) {
-    const principal = street_edges[0];
-    for (let k = 1; k < street_edges.length; k++) {
-      const e = street_edges[k];
-      const diff = angularDiffDeg(principal.bearing, e.bearing);
-      const sep = diff > 90 ? 180 - diff : diff;
-      if (sep >= 60 && sep <= 120) {
-        e.role = "secundaria";
-        is_corner = true;
-        corner_type = "esquina_angulo";
-        corner_angle_deg = Math.round(sep);
-        break;
-      }
-    }
-  }
+  // Orden por longitud descendente para el output (compat).
+  street_edges.sort((x, y) => y.len_m - x.len_m);
 
   const total_street_length_m = street_edges.reduce((s, e) => s + e.len_m, 0);
   return {
@@ -1002,7 +1075,8 @@ out geom;`;
     total_street_length_m,
     corner_angle_deg,
     corner_type,
-    street_names_distinct: Array.from(distinctNames),
+    street_names_distinct: Array.from(distinctVials),
+    frentes,
   };
 }
 
@@ -1212,6 +1286,7 @@ export async function fetchParcelGeometry(opts: {
   let total_street_length_m = 0;
   let corner_type: string | null = null;
   let street_names_distinct: string[] = [];
+  let frentes: Frente[] = [];
   if (
     exterior.length >= 4 &&
     result.source !== "fallback"
@@ -1223,6 +1298,7 @@ export async function fetchParcelGeometry(opts: {
       total_street_length_m = det.total_street_length_m;
       corner_type = det.corner_type ?? null;
       street_names_distinct = det.street_names_distinct ?? [];
+      frentes = det.frentes ?? [];
       if (det.is_corner) flags.push("esquina_detectada_geometria");
       if (det.corner_type) flags.push(`corner_type:${det.corner_type}`);
       if (det.street_edges.length === 0) flags.push("sin_aristas_a_calle_detectadas");
@@ -1251,6 +1327,7 @@ export async function fetchParcelGeometry(opts: {
       total_street_length_m,
       corner_type,
       street_names_distinct,
+      frentes_jsonb: frentes,
       fetched_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString(),
     }, { onConflict: "refcatastral_14" });

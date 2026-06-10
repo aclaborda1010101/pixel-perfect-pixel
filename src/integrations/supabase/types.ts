@@ -3216,6 +3216,7 @@ export type Database = {
           exterior_ring: Json
           fetched_at: string
           flags: string[]
+          frentes_jsonb: Json | null
           id: string
           interior_rings: Json
           is_corner: boolean | null
@@ -3239,6 +3240,7 @@ export type Database = {
           exterior_ring: Json
           fetched_at?: string
           flags?: string[]
+          frentes_jsonb?: Json | null
           id?: string
           interior_rings?: Json
           is_corner?: boolean | null
@@ -3262,6 +3264,7 @@ export type Database = {
           exterior_ring?: Json
           fetched_at?: string
           flags?: string[]
+          frentes_jsonb?: Json | null
           id?: string
           interior_rings?: Json
           is_corner?: boolean | null

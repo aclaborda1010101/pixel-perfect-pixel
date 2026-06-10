@@ -39,13 +39,18 @@ Deno.serve(async (req) => {
     old_corner_type: string | null;
     new_corner_type: string;
     street_names: string[];
+    frentes_count: number;
+    frentes: Array<{ vial: string; longitud_m: number }>;
   }> = [];
 
   const counts = { total: 0, new_corner: 0, lost_corner: 0, chaflan: 0, multifachada: 0, angulo: 0, linea: 0, errors: 0 };
+  const before = { corners: 0, no_corner: 0 };
+  const after = { corners: 0, no_corner: 0 };
 
   const run = async () => {
    for (const p of parcels ?? []) {
     counts.total++;
+    if (p.is_corner === true) before.corners++; else before.no_corner++;
     try {
       if (!Array.isArray(p.exterior_ring) || p.exterior_ring.length < 4) continue;
       const cen = p.centroid as { lat: number; lon: number } | null;
@@ -56,6 +61,7 @@ Deno.serve(async (req) => {
       else if (newType === "multifachada") counts.multifachada++;
       else if (newType === "esquina_angulo") counts.angulo++;
       else counts.linea++;
+      if (det.is_corner) after.corners++; else after.no_corner++;
 
       const changedCorner = (p.is_corner ?? false) !== det.is_corner;
       const changedType = (p.corner_type ?? null) !== newType;
@@ -83,6 +89,8 @@ Deno.serve(async (req) => {
           old_corner_type: p.corner_type ?? null,
           new_corner_type: newType,
           street_names: det.street_names_distinct ?? [],
+          frentes_count: det.frentes?.length ?? 0,
+          frentes: (det.frentes ?? []).map((f) => ({ vial: f.vial, longitud_m: f.longitud_m })),
         });
       }
 
@@ -93,6 +101,7 @@ Deno.serve(async (req) => {
           total_street_length_m: det.total_street_length_m,
           corner_type: newType,
           street_names_distinct: det.street_names_distinct ?? [],
+          frentes_jsonb: det.frentes ?? [],
         }).eq("refcatastral_14", p.refcatastral_14);
 
         if (changedCorner && b?.id) {
@@ -102,17 +111,45 @@ Deno.serve(async (req) => {
             autor_email: "corner-detector@affluxos",
             dimension: "esquina",
             estado: "abierto",
-            texto: `Detector de esquina v2: ${p.is_corner ? "esquina" : "no_esquina"} → ${det.is_corner ? "esquina" : "no_esquina"} (${newType}). Viales detectados: ${(det.street_names_distinct ?? []).join(" | ") || "—"}.`,
+            texto: `Detector de esquina v3 (por viales): ${p.is_corner ? "esquina" : "no_esquina"} → ${det.is_corner ? "esquina" : "no_esquina"} (${newType}). Frentes: ${(det.frentes ?? []).map((f) => `${f.vial} (${f.longitud_m}m)`).join(" | ") || "—"}.`,
             analisis_ia: {
               old_is_corner: p.is_corner,
               new_is_corner: det.is_corner,
               old_corner_type: p.corner_type,
               new_corner_type: newType,
               street_names_distinct: det.street_names_distinct ?? [],
+              frentes: det.frentes ?? [],
               corner_angle_deg: det.corner_angle_deg,
               refcatastral_14: p.refcatastral_14,
+              detector_version: "v3_by_street_names",
             },
           });
+
+          // Upsert qa_ground_truth.es_esquina — solo si no hay verificación humana
+          if (b?.id) {
+            const { data: gtRow } = await sb
+              .from("qa_ground_truth")
+              .select("id, verificado_por")
+              .eq("building_id", b.id)
+              .maybeSingle();
+            const isHumanVerified = gtRow?.verificado_por && gtRow.verificado_por !== "corner_detector_v3";
+            if (!isHumanVerified) {
+              if (gtRow?.id) {
+                await sb.from("qa_ground_truth").update({
+                  es_esquina: det.is_corner,
+                  fuente_verificacion: "corner_detector_v3",
+                  verificado_at: new Date().toISOString(),
+                }).eq("id", gtRow.id);
+              } else {
+                await sb.from("qa_ground_truth").insert({
+                  building_id: b.id,
+                  es_esquina: det.is_corner,
+                  fuente_verificacion: "corner_detector_v3",
+                  verificado_at: new Date().toISOString(),
+                });
+              }
+            }
+          }
         }
       }
     } catch (e) {
@@ -124,7 +161,7 @@ Deno.serve(async (req) => {
 
   if (asyncMode) {
     // @ts-ignore EdgeRuntime API
-    EdgeRuntime.waitUntil(run().then(() => console.log("recompute-corner done", JSON.stringify({ counts, changes }))));
+    EdgeRuntime.waitUntil(run().then(() => console.log("recompute-corner done", JSON.stringify({ counts, before, after, changes }))));
     return new Response(JSON.stringify({ ok: true, async: true, queued: parcels?.length ?? 0 }), {
       status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -132,7 +169,20 @@ Deno.serve(async (req) => {
 
   await run();
 
-  return new Response(JSON.stringify({ ok: true, dryRun, counts, changes }, null, 2), {
+  // Verificaciones explícitas requeridas por el caso de aceptación
+  const refsToCheck = ["9839518VK3793H", "0382201VK4708C"]; // Cava Baja 42, Topete 33
+  const verifications: any[] = [];
+  for (const ref of refsToCheck) {
+    const { data: pgc } = await sb
+      .from("parcel_geometry_cache")
+      .select("refcatastral_14, is_corner, corner_type, street_names_distinct, frentes_jsonb")
+      .ilike("refcatastral_14", `${ref}%`)
+      .limit(1)
+      .maybeSingle();
+    verifications.push({ ref, result: pgc });
+  }
+
+  return new Response(JSON.stringify({ ok: true, dryRun, counts, before, after, verifications, changes }, null, 2), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
