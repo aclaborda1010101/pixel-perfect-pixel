@@ -394,20 +394,15 @@ TAREA ÚNICA: cuenta las cajas de escalera (ESC) en la PLANTA 1 (PISO 01).
 Responde SOLO con JSON: {"n_escaleras_piso01": number, "razonamiento": string, "confidence": number}`;
 
   try {
-    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: [
-          { type: "text", text: PROMPT },
-          ...pages.map((url) => ({ type: "image_url", image_url: { url } })),
-        ]}],
-        response_format: { type: "json_object" },
-      }),
+    const j = await gatewayChat(c.apiKey, {
+      model,
+      messages: [{ role: "user", content: [
+        { type: "text", text: PROMPT },
+        ...pages.map((url) => ({ type: "image_url", image_url: { url } })),
+      ]}],
+      response_format: { type: "json_object" },
     });
-    if (!r.ok) return null;
-    const j = await r.json();
+    if (!j) return null;
     const txt = j?.choices?.[0]?.message?.content ?? "";
     const parsed = JSON.parse(txt);
     const n = Math.max(1, Math.min(8, Math.round(Number(parsed?.n_escaleras_piso01 ?? 1))));
