@@ -60,7 +60,8 @@ Deno.serve(async (req) => {
         if (!Array.isArray(p.exterior_ring) || p.exterior_ring.length < 4) { doneSet.add(p.refcatastral_14); continue; }
         const cen = p.centroid as { lat: number; lon: number } | null;
         if (!cen?.lat || !cen?.lon) { doneSet.add(p.refcatastral_14); continue; }
-        const det = await detectStreetEdges(p.exterior_ring as [number, number][], { lat: cen.lat, lon: cen.lon, skipGoogle: true });
+        // skipGoogle: false → si Overpass falla en una arista, intenta Google Roads (nearestRoads + reverse geocode) como fallback de callejero.
+        const det = await detectStreetEdges(p.exterior_ring as [number, number][], { lat: cen.lat, lon: cen.lon, skipGoogle: false });
         const newType = det.corner_type ?? "linea";
         if (newType === "esquina_chaflan") counts.chaflan++;
         else if (newType === "multifachada") counts.multifachada++;
@@ -136,8 +137,8 @@ Deno.serve(async (req) => {
           }
         }
         doneSet.add(p.refcatastral_14);
-        // Pequeño espaciado para no martillear Overpass
-        await new Promise((r) => setTimeout(r, 400));
+        // Espaciado entre edificios para no martillear Overpass
+        await new Promise((r) => setTimeout(r, 1500));
       } catch (e) {
         counts.errors++;
         console.warn(`recompute error ${p.refcatastral_14}: ${(e as Error).message}`);
