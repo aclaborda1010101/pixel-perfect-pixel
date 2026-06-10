@@ -1,0 +1,1 @@
+ALTER TABLE public.parcel_geometry_cache ADD COLUMN IF NOT EXISTS frentes_jsonb jsonb;
