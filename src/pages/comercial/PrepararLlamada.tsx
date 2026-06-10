@@ -50,11 +50,17 @@ export default function ComercialPrepararLlamada() {
     queryKey: ["comercial:preparar", ownerId],
     enabled: !!ownerId,
     queryFn: async () => {
-      const [{ data: owner }, { data: history }, { data: ownerScore }] = await Promise.all([
+      const [{ data: owner }, { data: history }, { data: ownerScoreRows }] = await Promise.all([
         supabase.from("owners").select("*").eq("id", ownerId!).maybeSingle(),
         supabase.from("calls").select("id,fecha,resumen,direccion").eq("owner_id", ownerId!).order("fecha", { ascending: false }).limit(5),
-        (supabase.from("v_owner_score" as any) as any).select("*").eq("owner_id", ownerId!).maybeSingle(),
+        (supabase.from("v_owner_score" as any) as any)
+          .select("*")
+          .eq("owner_id", ownerId!)
+          .order("score", { ascending: false, nullsFirst: false }),
       ]);
+      // El propietario puede aparecer en varios edificios (p. ej. pleno + nuda propiedad);
+      // nos quedamos con el de mayor score para mostrar la mejor oportunidad.
+      const ownerScore = Array.isArray(ownerScoreRows) && ownerScoreRows.length > 0 ? ownerScoreRows[0] : null;
       const buildingId = (ownerScore as any)?.building_id;
       let building = null;
       if (buildingId) {
