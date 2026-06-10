@@ -1,143 +1,151 @@
-# Plan F3 — Sistema comercial "llamadas de zona"
 
-## 0. Cierre de flecos F2
+# BLOQUE F5 (rev) · Pipeline autónomo de enriquecimiento de titulares
 
-### 0.1 Prompt de `agent_analyze_feedback`
-Reescribir el system prompt para fijar la nomenclatura real:
-- Tabla destino válida sólo entre: `building_analysis`, `buildings`, `catastro_authority_cache`, `building_owners`.
-- Lista cerrada de campos por tabla (la misma whitelist que `apply_feedback_override`).
-- Mapping explícito por dimensión:
-  - `proteccion` → `building_analysis.protegido` (bool) y opcionalmente `protegido_raw` jsonb con `{manual:{fuente,nota}}`.
-  - `escaleras` → `building_analysis.escaleras` (int).
-  - `ventanas` → `building_analysis.ventanas_total` (int).
-  - `m2` → `catastro_authority_cache.m2_total` o `building_analysis.m2_total`.
-  - `viviendas` → `catastro_authority_cache.viviendas_total`.
-  - `cluster` → `building_analysis.cluster_label` (enum).
-  - `propietarios` → `building_owners.pct_propiedad` (con `owner_id` en payload).
-- Few-shot con caso Topete 33 (devuelve override sobre `building_analysis.protegido=true` + `protegido_raw.manual.fuente='APE Bellas Vistas'`).
-- Ampliar whitelist de `apply_feedback_override` para incluir esos campos.
-- Re-test con el feedback de Topete 33: aplicar override de 1 clic.
-
-### 0.2 Panel `/settings/aprendizaje`
-- Nueva ruta + componente `AprendizajePanel.tsx`. KPIs: total feedbacks, % aplicados/descartados/requiere_código, tiempo medio análisis. Tabla "Feedbacks por dimensión" (count). Tabla "Patrones detectados" (group by `dimension` + `analisis_ia->>'origen'`). Cola "Requiere cambio de código" con link al edificio. Botón "Resumen IA semanal" → llamada simple a Lovable AI con los últimos 50 feedbacks y devuelve sugerencias agregadas.
-
-### 0.3 Badge en Dashboard admin
-- En `Dashboard.tsx`: contador de `building_feedback` con `estado='requiere_codigo'`, badge destructivo y link a `/settings/aprendizaje?filter=requiere_codigo`.
+Cambio clave: agente cron drena la cola sin operador externo. Navegador headless remoto (Browserless/Browserbase) vía `puppeteer-core` + WebSocket. Endpoint REST queda como fallback secundario, no principal.
 
 ---
 
-## 1. Baseline métricas de llamadas
+## 1. Esquema de datos (migración nueva, RLS intacta)
 
-Vista SQL `v_calls_baseline` materializada o consulta directa: por comercial (`hs_owner_id`) y semana (`date_trunc('week', created_at)`):
-- buckets de duración (0-15, 15-45, 45-90, >90 s)
-- total llamadas, % >60s, duración media/mediana
+### `enrichment_jobs`
+- `id uuid pk`, `building_id uuid → buildings`, `nota_simple_id uuid → notas_simples`
+- `titular_nombre text`, `titular_apellido1 text`, `titular_apellido2 text`
+- `titular_tipo text check ('persona','empresa')`, `titular_nif text`, `titular_pct numeric`
+- `fase text check ('datoscif','inglobaly','tecnofind','verificacion','hubspot')`
+- `estado text check ('pendiente','en_curso','esperando_navegador','requiere_revision','requiere_humano','ok','error','descartado')`
+- `datos jsonb default '{}'` — payload acumulado (NIF, fecha_nacimiento ISO, domicilio, co_domicilios[], cargo, fuente, timeline[], screenshots[])
+- `intentos int default 0`, `max_intentos int default 3`, `next_attempt_at timestamptz`, `error text`
+- `lease_token uuid`, `lease_until timestamptz` (para fallback REST)
+- `created_at`, `updated_at`
+- Indexes: `(estado, fase, next_attempt_at)`, `(building_id)`
+- GRANTs: SELECT/INSERT/UPDATE a `authenticated`, ALL a `service_role`
+- RLS: `authenticated` ve/edita según rol comercial/admin; agente entra como `service_role`
 
-Nuevo bloque "Baseline llamadas" en `Productividad.tsx`:
-- Histograma stacked por comercial (Recharts, ya en el stack).
-- Tabla semanal con % >1min y nº llamadas.
-- Selector de rango (últimas 4/12/26 semanas).
-- Banner: "Punto de comparación pre-sistema F3".
+### `enrichment_config` (k/v jsonb, 1 fila)
+Reglas tipologías editables (defaults: `co_domicilio→T8`, `apoderado_con_control→T3`, `default→T9`, `fallecido→T10`), timeouts por fase, max_intentos, backoff.
 
----
+### `enrichment_verifications`
+`id`, `job_id`, `propuesta jsonb`, `decision ('aprobada','rechazada','pendiente')`, `aprobado_por`, `aprobado_at`, `motivo`.
 
-## 2. Wizard de llamada paso-a-paso
-
-Refactor de `src/pages/wizards/PrepareCallWizard.tsx` en flujo de 3 pasos (componente `<Wizard>` con `Stepper`).
-
-**Paso 1 — Brief**
-- Lee propietario + edificio + `building_analysis` + `building_owners`.
-- 4 variables mínimas: edad (`owners.metadatos->>'edad'` o derivada de DNI/año nacimiento), influenciadores (`owner_relations`/notas IA), zona socioeconómica (de `madrid_barrio_clusters` por dirección particular del propietario), `pct_propiedad`.
-- Historial (`hubspot_communications` + `calls` últimos 12 meses).
-- Tipología actual (`owners.tipologia`) + gancho sugerido (de `building_analysis.banderas` + heurística).
-- Card "Consejo Voss" → llama `agent_voss_coach` modo `brief`.
-
-**Paso 2 — Guía en llamada**
-- Checklist editable de info a extraer (tipología, motivación, datos del edificio, alquileres actuales). Estado persistido en `calls.metadatos->>'checklist'` o tabla nueva `call_session` (preferido: tabla `call_sessions` con estado en curso).
-- Objetivo de cierre: radio (WhatsApp, link pixel, reunión).
-- Cronómetro visible (no graba; sólo orientativo).
-
-**Paso 3 — Post-llamada**
-- Resultado: enum (`interesado`, `seguir`, `descartar`, `no_contesta`).
-- Próxima acción sugerida con cadencia automática:
-  - `interesado` → +1 semana
-  - `seguir` → +1 mes
-  - `descartar` → archivar; sin tarea
-  - `no_contesta` → +3 días, max 3 reintentos antes de pasar a +1 mes
-- Crea fila en `building_tasks` con `due_at` calculado y tipo `siguiente_llamada`.
-- Llama `agent_voss_coach` modo `post` con la transcripción si ya existe; si no, sólo guarda el resultado.
-
-Tabla nueva `call_sessions`:
-`id, owner_id, building_id, comercial_id, paso int, checklist jsonb, objetivo text, resultado text, voss_brief jsonb, voss_post jsonb, started_at, closed_at`.
-Grants `authenticated` + RLS por `comercial_id = auth.uid()` (con bypass de service_role).
+### Bucket `enrichment-evidence` (privado)
+Screenshots por paso: `evidence/{job_id}/{fase}/{step}.png`. Política: solo `authenticated` con rol admin/comercial lee; `service_role` escribe.
 
 ---
 
-## 3. KPIs automáticos por comercial
+## 2. Edge functions
 
-Vista `v_kpis_comercial_semana`:
-- A partir de `calls` (ya tienen `analisis_ia` y `duracion`), `building_tasks`, `whatsapp_messages`, `next_actions`, `building_owners`.
-- Por comercial × semana:
-  - n_llamadas, pct_mas_60s
-  - calidad_media (de `calls.analisis_ia->>'calidad'`)
-  - tipologia_extraida (% con `owners.tipologia not null` tras llamada)
-  - info_extraida (% checklists completos en `call_sessions`)
-  - whatsapp_o_pixel (% llamadas con envío posterior)
-  - seguimientos_al_dia (`building_tasks` no vencidas / total asignadas)
-  - cobertura (`building_owners` contactados ÷ total por edificio asignado)
-  - hs_poblado (% deals con campos clave rellenos)
-  - reuniones, oportunidades (de `next_actions.tipo`)
+### `enrichment-agent` (cron pg_cron cada 15 min)
+Drena cola por orden `next_attempt_at`. Para cada job:
 
-Página nueva `/admin/ranking` (admin role) con tabla ordenable por cada KPI, semana actual y trend chip vs semana anterior. Panel propio del comercial en `Productividad.tsx` ("Mis KPIs").
+1. Lease (UPDATE WHERE estado='pendiente' RETURNING) → `en_curso`.
+2. Despacha por fase:
+   - **datoscif**: fetch HTML `https://www.datoscif.es/empresa/<slug>`. Parse regex/DOMParser. Si client-rendered sin datos → fallback navegador headless. Si OK → guarda CIF/admin/apoderados, avanza a `inglobaly`.
+   - **inglobaly** (persona): requiere navegador headless. Si no hay `BROWSER_WSS_URL` → `esperando_navegador` con `datos.razon='browser_no_configurado'`. Si hay → flujo selectores (ver §5).
+   - **tecnofind**: si falta teléfono crea `building_tasks` "Buscar teléfono en Tecnofind" y avanza a `verificacion` (no automatizamos Tecnofind por fragilidad).
+   - **verificacion**: STOP humano (no toca HubSpot).
+3. Robustez en cada paso navegador:
+   - Timeout duro 90s/paso.
+   - Screenshot `await page.screenshot()` → sube a `enrichment-evidence` → push a `datos.screenshots[]`.
+   - Si selector no aparece → `requiere_revision` con screenshot y `datos.razon='selector_no_encontrado'`. **Nunca inventa datos.**
+   - Errores: `intentos++`, `next_attempt_at = now() + backoff(intentos)` (1m, 5m, 30m), tras `max_intentos` → `error`.
+4. Cierra browser y libera lease.
+
+### `enrichment-pipeline-start` (manual / botón UI)
+POST `{building_id}` → genera jobs desde nota simple más reciente, fase inicial según `titular_tipo`. Invoca `enrichment-agent` inmediatamente (no espera al cron).
+
+### `enrichment_jobs_api` (REST fallback secundario, autenticado con service key)
+Documentado en panel. Solo se usa si el cron está desactivado o el navegador caído más de 1h:
+- `GET /pending?fase=&limit=` con `claim_token`.
+- `POST /result` con payload validado.
+
+### `enrichment-apply-verification`
+POST `{job_id, decision, overrides}`:
+- Aprobar → upsert `owners` + `building_owners` (pct, NIF, fecha_nacimiento, domicilio), co-domicilios como contactos `subrole='co_domicilio_sin_confirmar'` con metadatos T8, tarea Tecnofind si falta tel, regla tipología por defecto T9.
+- Solo entonces avanza a fase `hubspot` (usa funciones HubSpot existentes).
+
+### Cron (insertar vía `supabase--insert`, no migración)
+```sql
+select cron.schedule('enrichment-agent-15min','*/15 * * * *',
+  $$ select net.http_post(
+    url:='https://vsbrupwznqaaoiflvliu.supabase.co/functions/v1/enrichment-agent',
+    headers:='{"Content-Type":"application/json","apikey":"<ANON>"}'::jsonb,
+    body:='{}'::jsonb) $$);
+```
 
 ---
 
-## 4. Asignación automática de tareas
+## 3. Secrets requeridos (pedir vía add_secret)
+- `BROWSER_WSS_URL` — wss://... de Browserless/Browserbase
+- `INGLOBALY_USER`, `INGLOBALY_PASS`
+- (existente) `LOVABLE_API_KEY`, HubSpot connector
 
-Edge function `assign_daily_call_queue` (programada con `pg_cron` 06:00 hora Madrid):
-- Para cada `profile` con rol `comercial`:
-  - Selecciona N=20 propietarios candidatos (de `building_owners` JOIN `building_assignments`) ordenados por `score_edificio × score_owner × (1 + dias_cadencia_vencida)`.
-  - Alterna 60/40 calientes/fríos (score > 70 vs ≤ 70) para anti-burnout.
-  - Inserta en `building_tasks` (tipo=`llamada_diaria`, `due_at=today`, `payload={owner_id,building_id,prioridad}`).
-
-UI: en Dashboard del comercial, card "Cola de hoy" con botón **"Siguiente llamada"** que abre `/wizards/preparar/{owner_id}` directamente al paso 1.
+Hasta que el usuario los configure, los jobs `inglobaly` quedan `esperando_navegador`; el panel muestra aviso con instrucciones (crear cuenta Browserless gratuita, copiar Browser WSS, pegar en Settings).
 
 ---
 
-## 5. Coach Voss
+## 4. Flujo selectores Inglobaly (documento técnico)
 
-Edge function `agent_voss_coach`:
-- Body: `{ mode:'brief'|'post', owner_id, building_id, call_transcript? }`.
-- RAG: usa `generate_embeddings` ya existente sobre el texto query; busca top-6 en `knowledge_chunks` WHERE `source IN ('correo_chris_voss','libro_voss')` por similitud coseno (pgvector).
-- Prompt Voss: `system` con principios (mirroring, label, calibrated questions, no/that's right, etc.).
-- Salida estricta JSON: `{ tecnica_principal, sugerencia, por_que, fragmentos_usados:[{source,chunk_id,snippet}] }`.
-- Modo `brief` usa snapshot del propietario; modo `post` usa transcripción + brief previo.
+```text
+1. goto https://www.inglobaly.com → click "Acceso"
+2. fill #usuario / #password con INGLOBALY_USER/PASS → submit, esperar dashboard
+3. Si titular_nif:
+     ir a búsqueda NIF, fill input NIF → enviar
+   Else:
+     búsqueda por nombre modo EXACT (NO Advanced):
+     fill Nombre, Apellido1, Apellido2 → enviar
+4. Esperar tabla resultados; si 0 → requiere_revision
+5. Click primera ficha
+6. Extraer cabecera: NIF, fecha nacimiento DD/MM/AAAA → convertir a YYYY-MM-DD
+7. Extraer "Domicilio actual" + "Domicilio anterior":
+   - Por cada domicilio, lista de convivientes
+   - Dedupe por NIF en co_domicilios[]
+8. Screenshot final → datos.screenshots[]
+9. Avanzar a fase tecnofind
+```
+Cada `waitForSelector` con timeout 15s; si falla → screenshot + `requiere_revision`.
 
-Integración UI:
-- Paso 1 wizard: card "Consejo Voss" (brief).
-- Paso 3 wizard: card "Análisis Voss post-llamada".
-- Ficha de propietario (`/owners/:id`): botón "Coach Voss" que invoca modo `brief`.
+---
 
-NO toca scoring ni clustering.
+## 5. UI
+
+### Página `/comercial/enriquecimiento` (nueva)
+- KPIs: jobs por estado.
+- Banner amarillo si `BROWSER_WSS_URL` no configurado, con CTA "Configurar Browserless" → Settings.
+- Tabla agrupada por edificio (uso de `useTableQuery`):
+  - Columnas: titular, fase, estado (badge), intentos, último error, próx. reintento.
+  - Acciones: Ver datos (drawer con JSON + galería de screenshots firmados), Reintentar, Forzar revisión humana, Cancelar.
+- Botón "Procesar edificio" en `BuildingDetail` → `enrichment-pipeline-start`.
+- Sección colapsable "Contrato API operador externo (fallback)" con ejemplos curl.
+
+### Modal Verificación T1-T10 (fase `verificacion`)
+- Editable: nombre, NIF, fecha_nacimiento, domicilio, cargo, tipología (select T1-T10, default T9), co-domicilios (toggle "crear T8 sin confirmar").
+- Botones Aprobar / Rechazar (con motivo). Solo Aprobar dispara HubSpot.
+
+### Panel Settings → "Reglas tipologías enriquecimiento"
+Tabla editable persistida en `enrichment_config.reglas`.
 
 ---
 
 ## 6. Validación
 
-Con un propietario de Topete 33:
-1. Abrir `/wizards/preparar/{owner_id}`.
-2. Mostrar brief con las 4 variables + gancho.
-3. Mostrar respuesta de `agent_voss_coach`: técnica + sugerencia textual + 2 fragmentos del libro/correo.
+1. Pedir secrets `BROWSER_WSS_URL`, `INGLOBALY_USER`, `INGLOBALY_PASS` (sin valores aún → quedan vacíos, OK).
+2. Crear job ficticio:
+   - Empresa "INMOBILIARIA FICTICIA SL" fase `datoscif` → agente intenta, datoscif devuelve no-encontrado → `requiere_revision` con screenshot.
+   - Persona "Juan Pérez Pérez" fase `inglobaly` → si no hay `BROWSER_WSS_URL` → `esperando_navegador`. Si está → flujo selectores (probable `requiere_revision` por persona ficticia).
+3. Insertar manualmente datos en `enrichment_verifications` y aprobar → owner upsert + tarea creada + fase `hubspot`.
+4. Mostrar timeline de estados.
 
 ---
 
-## Detalles técnicos
+## 7. Detalles técnicos
 
-- Migraciones nuevas: `call_sessions`, vistas `v_calls_baseline` y `v_kpis_comercial_semana`. Sin cambios RLS existentes; sólo políticas para las tablas nuevas.
-- Edge functions nuevas: `agent_voss_coach`, `assign_daily_call_queue`. Cron en `pg_cron` con anon key (no datos sensibles en migración — usar `supabase--insert`).
-- Reescritura prompt `agent_analyze_feedback` + ampliación whitelist `apply_feedback_override`.
-- Nuevos componentes: `AprendizajePanel`, `BaselineLlamadas`, `RankingComercial`, `WizardPaso1/2/3`, `ColaHoy`, `VossCoachCard`.
+- `puppeteer-core` vía `npm:puppeteer-core@22` en Deno. Conexión `puppeteer.connect({ browserWSEndpoint: BROWSER_WSS_URL })`. Cerrar en `finally`.
+- Screenshots → `supabase.storage.from('enrichment-evidence').upload(...)`, signed URL para UI.
+- `datos.timeline`: `[{ts, fase, estado, nota, screenshot?}]`.
+- Cron usa `pg_cron`+`pg_net` (habilitar si no lo están).
+- Sin tocar RLS existente; nuevas tablas tienen RLS propio coherente con `user_roles`.
 
-## Fuera de alcance
-- Coach Voss en tiempo real (durante la llamada).
-- Reentreno automático sobre patrones de feedback.
-- Asignación de territorio (sigue el `building_assignments` actual).
+## Fuera de scope
+- Scraping Tecnofind automatizado (queda como tarea humana).
+- Validación NIF AEAT.
+- Push HubSpot sin aprobación humana.
