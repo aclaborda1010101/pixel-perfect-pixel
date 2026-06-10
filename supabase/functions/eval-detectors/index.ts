@@ -119,6 +119,29 @@ VARIANTS_ESCALERAS.v9_vlm_router_arquitectura = async (c) => {
   return r.n;
 };
 
+// V10 A/B con gemini-2.5-pro como backbone de visión, MISMO prompt que v6
+// (few-shot focused) y MISMO desempate DNPRC con confidence<0.6 (no MAX).
+// needs_human_review si baja confianza.
+VARIANTS_ESCALERAS.v10_gemini25pro_v6prompt = async (c) => {
+  const r = await callVlmFocusedFullModel(c, true, "google/gemini-2.5-pro");
+  if (!r) return null;
+  if (r.confidence != null && r.confidence < 0.6) {
+    try {
+      await c.sb.from("building_feedback").insert({
+        building_id: c.building.id,
+        canal: "eval_detector_v10",
+        dimension: "n_escaleras",
+        estado: "pendiente",
+        texto: `v10 (gemini-2.5-pro) baja confianza (${r.confidence}). n=${r.n}`.slice(0, 1000),
+        metadatos: { variant: "v10_gemini25pro_v6prompt", n: r.n, confidence: r.confidence } as any,
+      });
+    } catch (_) {}
+    const s = await VARIANTS_ESCALERAS.v1_subparcelas_only(c);
+    if (typeof s === "number" && s >= 1) return Math.max(r.n, s);
+  }
+  return r.n;
+};
+
 async function callVlmRouterInverso(c: Ctx, ctx: { sub: number | null; esquina: boolean }): Promise<{ n: number; confidence: number | null } | null> {
   const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
     ? c.cat.fxcc_pages_urls
