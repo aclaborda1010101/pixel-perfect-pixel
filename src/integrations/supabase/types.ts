@@ -212,6 +212,9 @@ export type Database = {
           n_almacenes_sotano: number | null
           n_escaleras_en_piso01: number | null
           n_escaleras_en_planta_baja: number | null
+          n_escaleras_evidencia: Json | null
+          n_escaleras_final: number | null
+          n_escaleras_fuente: string | null
           n_locales_planta_baja: number | null
           patios_codigos: Json | null
           patios_detectados: number | null
@@ -269,6 +272,9 @@ export type Database = {
           n_almacenes_sotano?: number | null
           n_escaleras_en_piso01?: number | null
           n_escaleras_en_planta_baja?: number | null
+          n_escaleras_evidencia?: Json | null
+          n_escaleras_final?: number | null
+          n_escaleras_fuente?: string | null
           n_locales_planta_baja?: number | null
           patios_codigos?: Json | null
           patios_detectados?: number | null
@@ -326,6 +332,9 @@ export type Database = {
           n_almacenes_sotano?: number | null
           n_escaleras_en_piso01?: number | null
           n_escaleras_en_planta_baja?: number | null
+          n_escaleras_evidencia?: Json | null
+          n_escaleras_final?: number | null
+          n_escaleras_fuente?: string | null
           n_locales_planta_baja?: number | null
           patios_codigos?: Json | null
           patios_detectados?: number | null

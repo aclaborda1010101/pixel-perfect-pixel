@@ -5,6 +5,7 @@ function buildPrompt(numPlantasPages: number, planoSource: "fxcc" | "descriptivo
     ? `Te paso las imágenes en este ORDEN (importante):
 - Página 1: PLANTA GENERAL del FXCC (huella completa del edificio con códigos de planta -I, P, I, II, III, IV, V… y superficies en m²).
 - Páginas 2-${Math.max(2, numPlantasPages)}: UNA página por PLANTA del edificio (sótano, planta baja, plantas tipo I, II, III…), cada una con sus subparcelas etiquetadas por uso (V.A.1, V.B.2, COM.TA, COM.VA, PTO…) y superficies m². ESTOS planos son la fuente PRIMARIA para contar viviendas, locales, almacenes, accesos y patios.
+- REGLA CRÍTICA DE ESCALERAS (no la contradigas): el conteo de cajas de escalera (ESC) se hace SIEMPRE sobre la página etiquetada "PISO 01" / "PLANTA 01" / "PLANTA 1ª" / "PRIMERA PLANTA" (la primera planta encima de la baja). NUNCA cuentes escaleras en "PB", "PLANTA BAJA" o "BAJA" — en planta baja la escalera se confunde con portal, zaguán o pasillo. Si en planta 1 hay 2 ó más cajas ESC distintas (no conectadas entre sí, separando bloques V.A.* y V.B.*) → n_escaleras_en_piso01 = 2 (o el número que sean) y segundas_escaleras = true. Si no hay página claramente etiquetada PISO 01, usa la primera planta tipo residencial con códigos V.A/V.B.
 - Después: 4 fotos de Street View de la fachada.
 - Después: foto satélite cenital y satélite oblicua.`
     : `Te paso las imágenes en este ORDEN (importante):
@@ -323,6 +324,22 @@ REGLA: usa numero_plantas como ancla para plantas_desglose. Si lo que ves en Str
     const levantables = plantas_max ? Math.max(plantas_max - plantasVis, 0) : null;
 
     const ventFachada = clampInt(parsed.ventanas_fachada_total, 0, 200);
+    // ---- MAX(plano PISO 01, subparcelas residenciales) para escaleras ----
+    const nVlmPiso1: number | null = typeof parsed.n_escaleras_en_piso01 === "number"
+      ? Math.max(1, Math.min(8, Math.round(parsed.n_escaleras_en_piso01))) : null;
+    let nSubResid: number | null = null;
+    if (cat?.refcatastral) {
+      const rc14 = String(cat.refcatastral).slice(0, 14);
+      const { data: cac } = await sb.from("catastro_authority_cache")
+        .select("n_subparcelas_residenciales").eq("refcatastral_14", rc14).maybeSingle();
+      nSubResid = cac?.n_subparcelas_residenciales ?? null;
+    }
+    const nEscFinal: number | null = nVlmPiso1 != null || nSubResid != null
+      ? Math.max(nVlmPiso1 ?? 1, nSubResid ?? 1)
+      : null;
+    const nEscFuente: string | null = nEscFinal == null ? null
+      : (nSubResid != null && nSubResid > (nVlmPiso1 ?? 0) ? "subparcelas_catastro" : "plano_piso01");
+    const segundasEscalerasFinal: boolean | null = nEscFinal != null ? nEscFinal >= 2 : null;
     const fachadaLineal = Number(parsed.fachada_lineal_total_m ?? 0);
     const patiosCods: string[] = Array.isArray(parsed.patios_codigos) ? parsed.patios_codigos : [];
     const patiosAreas: Record<string, number> = (parsed.patios_areas_m2 && typeof parsed.patios_areas_m2 === "object") ? parsed.patios_areas_m2 : {};
@@ -454,9 +471,15 @@ REGLA: usa numero_plantas como ancla para plantas_desglose. Si lo que ves en Str
       ventanas_patios_por_planta: ventanasPatiosPorPlanta,
       ventanas_patios_por_patio: ventanasPatiosPorPatio,
       patios_detectados: parsed.patios_detectados ?? null,
-      segundas_escaleras: parsed.segundas_escaleras ?? (
-        typeof parsed.n_escaleras_en_piso01 === "number" ? parsed.n_escaleras_en_piso01 >= 2 : null
-      ),
+      segundas_escaleras: segundasEscalerasFinal ?? parsed.segundas_escaleras ?? null,
+      n_escaleras_final: nEscFinal,
+      n_escaleras_fuente: nEscFuente,
+      n_escaleras_evidencia: nEscFinal != null ? {
+        n_vlm_piso01: nVlmPiso1,
+        n_subparcelas_residenciales: nSubResid,
+        n_final: nEscFinal,
+        fuente: nEscFuente,
+      } : null,
       esquina: parsed.esquina ?? null,
       protegido_historicamente: parsed.protegido_historicamente ?? null,
       plantas_visibles: plantasVis,
