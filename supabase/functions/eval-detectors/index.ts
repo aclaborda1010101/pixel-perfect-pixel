@@ -157,6 +157,14 @@ Deno.serve(async (req) => {
         catch (e) { out[v] = null; out[`${v}_error`] = (e as Error).message; }
       }
       rows.push(out);
+      // Persistencia incremental para no perder progreso.
+      if (rows.length % 5 === 0) {
+        await sb.from("app_settings").upsert({
+          key: `eval_detectors_${detector}_partial`,
+          value: { detector, progress: `${rows.length}/${gt.length}`, rows } as any,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "key" });
+      }
     }
     // Métricas por variante: acierto = (predicho == gt) o (predicho >= 2 y gt >= 2) para señal binaria.
     const metrics: Record<string, any> = {};
@@ -164,16 +172,27 @@ Deno.serve(async (req) => {
       const total = rows.filter(r => r[v] != null).length;
       const exactos = rows.filter(r => r[v] === r.gt).length;
       const seg_correct = rows.filter(r => (r[v] >= 2) === (r.gt >= 2)).length;
-      const seg2_recall = rows.filter(r => r.gt >= 2 && r[v] >= 2).length;
-      const seg2_gt = rows.filter(r => r.gt >= 2).length;
+      const tp = rows.filter(r => r.gt >= 2 && r[v] >= 2).length;
+      const fn = rows.filter(r => r.gt >= 2 && (r[v] ?? 1) < 2).length;
+      const fp = rows.filter(r => r.gt < 2 && r[v] >= 2).length;
+      const tn = rows.filter(r => r.gt < 2 && (r[v] ?? 1) < 2).length;
+      const seg2_gt = tp + fn;
+      const recall = seg2_gt ? tp / seg2_gt : null;
+      const precision = (tp + fp) ? tp / (tp + fp) : null;
+      const f1 = recall != null && precision != null && (recall + precision) > 0
+        ? +(2 * recall * precision / (recall + precision)).toFixed(3) : null;
       metrics[v] = {
         total_con_dato: total,
         exactos,
         pct_exacto: total ? +(exactos / total * 100).toFixed(1) : null,
         seg_correct,
         pct_segundas_correctas: rows.length ? +(seg_correct / rows.length * 100).toFixed(1) : null,
-        recall_2esc: seg2_gt ? +(seg2_recall / seg2_gt * 100).toFixed(1) : null,
-        recall_2esc_n: `${seg2_recall}/${seg2_gt}`,
+        tp, fn, fp, tn,
+        recall_2esc: recall != null ? +(recall * 100).toFixed(1) : null,
+        precision_2esc: precision != null ? +(precision * 100).toFixed(1) : null,
+        f1_2esc: f1,
+        recall_2esc_n: `${tp}/${seg2_gt}`,
+        fp_n: `${fp}/${tn + fp}`,
       };
     }
     const out = { detector, total_gt: rows.length, metrics, rows };
