@@ -12,8 +12,9 @@ export async function embed(text: string): Promise<number[] | null> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/text-embedding-004",
+        model: "google/gemini-embedding-001",
         input: text,
+        dimensions: 768,
       }),
     });
     if (!res.ok) {
