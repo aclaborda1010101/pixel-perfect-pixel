@@ -14,6 +14,7 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { /* GET */ }
   const dryRun: boolean = body.dry_run === true;
   const onlyRefs: string[] | null = Array.isArray(body.refcatastrales) ? body.refcatastrales : null;
+  const asyncMode: boolean = body.async === true;
   const limit: number = Number.isFinite(body.limit) ? Math.max(1, Math.min(200, Number(body.limit))) : 200;
   const offset: number = Number.isFinite(body.offset) ? Math.max(0, Number(body.offset)) : 0;
 
@@ -42,7 +43,8 @@ Deno.serve(async (req) => {
 
   const counts = { total: 0, new_corner: 0, lost_corner: 0, chaflan: 0, multifachada: 0, angulo: 0, linea: 0, errors: 0 };
 
-  for (const p of parcels ?? []) {
+  const run = async () => {
+   for (const p of parcels ?? []) {
     counts.total++;
     try {
       if (!Array.isArray(p.exterior_ring) || p.exterior_ring.length < 4) continue;
@@ -117,7 +119,18 @@ Deno.serve(async (req) => {
       counts.errors++;
       console.warn(`recompute error ${p.refcatastral_14}: ${(e as Error).message}`);
     }
+   }
+  };
+
+  if (asyncMode) {
+    // @ts-ignore EdgeRuntime API
+    EdgeRuntime.waitUntil(run().then(() => console.log("recompute-corner done", JSON.stringify({ counts, changes }))));
+    return new Response(JSON.stringify({ ok: true, async: true, queued: parcels?.length ?? 0 }), {
+      status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
+
+  await run();
 
   return new Response(JSON.stringify({ ok: true, dryRun, counts, changes }, null, 2), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
