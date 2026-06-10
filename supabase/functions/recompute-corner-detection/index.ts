@@ -56,11 +56,12 @@ Deno.serve(async (req) => {
       const changedCorner = (p.is_corner ?? false) !== det.is_corner;
       const changedType = (p.corner_type ?? null) !== newType;
 
-      // Resolver building (por refcatastral o refcatastral_14)
+      // Resolver building por prefijo rc14 (en la BD el ref tiene 20 chars).
+      const rcLike = `${p.refcatastral_14}%`;
       const { data: bs } = await sb
         .from("buildings")
         .select("id, direccion")
-        .or(`refcatastral.eq.${p.refcatastral_14},catastro_ref.eq.${p.refcatastral_14}`)
+        .or(`refcatastral.ilike.${rcLike},catastro_ref.ilike.${rcLike}`)
         .limit(1);
       const b = bs?.[0];
 
