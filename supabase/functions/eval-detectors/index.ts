@@ -321,6 +321,10 @@ async function callVlmFocused(c: Ctx, fewshot: boolean): Promise<number | null> 
 }
 
 async function callVlmFocusedFull(c: Ctx, fewshot: boolean): Promise<{ n: number; confidence: number | null } | null> {
+  return callVlmFocusedFullModel(c, fewshot, "google/gemini-3.1-pro-preview");
+}
+
+async function callVlmFocusedFullModel(c: Ctx, fewshot: boolean, model: string): Promise<{ n: number; confidence: number | null } | null> {
   const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
     ? c.cat.fxcc_pages_urls
     : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
@@ -354,7 +358,7 @@ Responde SOLO con JSON: {"n_escaleras_piso01": number, "razonamiento": string, "
       method: "POST",
       headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-3.1-pro-preview",
+        model,
         messages: [{ role: "user", content: [
           { type: "text", text: PROMPT },
           ...pages.map((url) => ({ type: "image_url", image_url: { url } })),
