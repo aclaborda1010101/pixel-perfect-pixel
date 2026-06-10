@@ -1210,6 +1210,8 @@ export async function fetchParcelGeometry(opts: {
   let street_edges: StreetEdge[] = [];
   let is_corner = false;
   let total_street_length_m = 0;
+  let corner_type: string | null = null;
+  let street_names_distinct: string[] = [];
   if (
     exterior.length >= 4 &&
     result.source !== "fallback"
@@ -1219,7 +1221,10 @@ export async function fetchParcelGeometry(opts: {
       street_edges = det.street_edges;
       is_corner = det.is_corner;
       total_street_length_m = det.total_street_length_m;
+      corner_type = det.corner_type ?? null;
+      street_names_distinct = det.street_names_distinct ?? [];
       if (det.is_corner) flags.push("esquina_detectada_geometria");
+      if (det.corner_type) flags.push(`corner_type:${det.corner_type}`);
       if (det.street_edges.length === 0) flags.push("sin_aristas_a_calle_detectadas");
     } catch (e) {
       console.warn("detectStreetEdges error", (e as Error).message);
@@ -1244,6 +1249,8 @@ export async function fetchParcelGeometry(opts: {
       street_edges_jsonb: street_edges,
       is_corner,
       total_street_length_m,
+      corner_type,
+      street_names_distinct,
       fetched_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString(),
     }, { onConflict: "refcatastral_14" });
