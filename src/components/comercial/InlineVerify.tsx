@@ -26,7 +26,7 @@ async function registrarVerificacion(opts: BaseProps & { valorHumano: unknown; a
 
   const { data: fb, error } = await supabase
     .from("building_feedback")
-    .insert({
+    .insert([{
       building_id: opts.buildingId,
       canal: "verificacion_inline",
       texto,
@@ -41,7 +41,7 @@ async function registrarVerificacion(opts: BaseProps & { valorHumano: unknown; a
         valor_humano: opts.valorHumano,
         accion: opts.accion,
       },
-    })
+    } as any])
     .select("id")
     .single();
   if (error) throw error;

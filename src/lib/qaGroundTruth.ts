@@ -44,14 +44,14 @@ export async function upsertGroundTruth({ buildingId, dimension, valorHumano, fu
     .maybeSingle();
 
   if (existing?.id) {
-    const { error } = await supabase.from("qa_ground_truth").update(patch).eq("id", existing.id);
+    const { error } = await supabase.from("qa_ground_truth").update(patch as any).eq("id", existing.id);
     if (error) return { skipped: false as const, error: error.message };
     return { skipped: false as const, id: existing.id };
   }
 
   const { data: ins, error } = await supabase
     .from("qa_ground_truth")
-    .insert({ building_id: buildingId, lista: "verificacion_humana", ...patch })
+    .insert([{ building_id: buildingId, lista: "verificacion_humana", direccion_raw: "", direccion_norm: "", ...patch } as any])
     .select("id")
     .single();
   if (error) return { skipped: false as const, error: error.message };
