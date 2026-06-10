@@ -128,50 +128,45 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => ({}));
   const detector = body.detector ?? "escaleras";
-  const variants: string[] = body.variants ?? ["v0_baseline_db", "v1_subparcelas_only", "v2_vlm_piso01", "v3_max_vlm_dnprc"];
+  const variants: string[] = body.variants ?? [
+    "v0_baseline_db", "v1_subparcelas_only", "v2_vlm_piso01",
+    "v4_vlm_fewshot", "v5_max_fewshot_dnprc", "v6_vlm_primary_dnprc_tiebreak",
+  ];
   const asyncMode = body.async === true;
+  const batchSize: number = Math.max(1, Math.min(10, body.batch_size ?? 3));
+  const reset: boolean = body.reset === true;
+  const chainMode: boolean = body.chain === true; // self-reinvoke next batch
 
   if (detector !== "escaleras") return err("solo 'escaleras' implementado por ahora", 400);
 
   const sb = getServiceClient();
 
   // Set de control: qa_ground_truth con escaleras NOT NULL.
+  // ORDENAMOS gt=2 PRIMERO (interés alto), después gt=1.
   const { data: gtRows } = await sb.from("qa_ground_truth")
     .select("building_id, direccion_raw, escaleras")
     .not("building_id", "is", null)
-    .not("escaleras", "is", null);
-  // Dedup por building_id (la primera ocurrencia).
+    .not("escaleras", "is", null)
+    .order("escaleras", { ascending: false });
   const seen = new Set<string>();
   const gt = (gtRows ?? []).filter((r: any) => {
     if (seen.has(r.building_id)) return false; seen.add(r.building_id); return true;
   });
 
-  const run = async () => {
-    const rows: any[] = [];
-    for (const r of gt) {
-      const ctx = await loadCtx(sb, apiKey, r.building_id);
-      if (!ctx) { rows.push({ ...r, error: "no ctx" }); continue; }
-      const out: any = { building_id: r.building_id, direccion: r.direccion_raw, gt: r.escaleras };
-      for (const v of variants) {
-        try { out[v] = await VARIANTS_ESCALERAS[v]?.(ctx) ?? null; }
-        catch (e) { out[v] = null; out[`${v}_error`] = (e as Error).message; }
-      }
-      rows.push(out);
-      // Persistencia incremental para no perder progreso.
-      if (rows.length % 5 === 0) {
-        await sb.from("app_settings").upsert({
-          key: `eval_detectors_${detector}_partial`,
-          value: { detector, progress: `${rows.length}/${gt.length}`, rows } as any,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "key" });
-      }
-    }
-    // Métricas por variante: acierto = (predicho == gt) o (predicho >= 2 y gt >= 2) para señal binaria.
+  // Estado parcial persistente
+  const partialKey = `eval_detectors_${detector}_partial`;
+  const { data: prev } = reset ? { data: null } as any
+    : await sb.from("app_settings").select("value").eq("key", partialKey).maybeSingle();
+  const prevRows: any[] = Array.isArray(prev?.value?.rows) ? prev!.value.rows : [];
+  const doneIds = new Set(prevRows.map((r: any) => r.building_id));
+  const pending = gt.filter((r: any) => !doneIds.has(r.building_id));
+  const batch = pending.slice(0, batchSize);
+
+  const computeMetrics = (rows: any[]) => {
     const metrics: Record<string, any> = {};
     for (const v of variants) {
       const total = rows.filter(r => r[v] != null).length;
       const exactos = rows.filter(r => r[v] === r.gt).length;
-      const seg_correct = rows.filter(r => (r[v] >= 2) === (r.gt >= 2)).length;
       const tp = rows.filter(r => r.gt >= 2 && r[v] >= 2).length;
       const fn = rows.filter(r => r.gt >= 2 && (r[v] ?? 1) < 2).length;
       const fp = rows.filter(r => r.gt < 2 && r[v] >= 2).length;
@@ -182,11 +177,8 @@ Deno.serve(async (req) => {
       const f1 = recall != null && precision != null && (recall + precision) > 0
         ? +(2 * recall * precision / (recall + precision)).toFixed(3) : null;
       metrics[v] = {
-        total_con_dato: total,
-        exactos,
+        total_con_dato: total, exactos,
         pct_exacto: total ? +(exactos / total * 100).toFixed(1) : null,
-        seg_correct,
-        pct_segundas_correctas: rows.length ? +(seg_correct / rows.length * 100).toFixed(1) : null,
         tp, fn, fp, tn,
         recall_2esc: recall != null ? +(recall * 100).toFixed(1) : null,
         precision_2esc: precision != null ? +(precision * 100).toFixed(1) : null,
@@ -195,16 +187,60 @@ Deno.serve(async (req) => {
         fp_n: `${fp}/${tn + fp}`,
       };
     }
-    const out = { detector, total_gt: rows.length, metrics, rows };
-    // Persiste el reporte para consulta posterior.
-    await sb.from("app_settings").upsert({ key: `eval_detectors_${detector}_last`, value: out as any, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    return metrics;
+  };
+
+  const run = async () => {
+    const rows: any[] = [...prevRows];
+    for (const r of batch) {
+      const ctx = await loadCtx(sb, apiKey, r.building_id);
+      if (!ctx) { rows.push({ ...r, error: "no ctx" }); continue; }
+      const out: any = { building_id: r.building_id, direccion: r.direccion_raw, gt: r.escaleras };
+      for (const v of variants) {
+        try { out[v] = await VARIANTS_ESCALERAS[v]?.(ctx) ?? null; }
+        catch (e) { out[v] = null; out[`${v}_error`] = (e as Error).message; }
+      }
+      rows.push(out);
+      // Persistencia tras cada edificio (lote pequeño).
+      await sb.from("app_settings").upsert({
+        key: partialKey,
+        value: {
+          detector,
+          progress: `${rows.length}/${gt.length}`,
+          pct: +(rows.length / gt.length * 100).toFixed(1),
+          total_gt: gt.length,
+          gt2_done: rows.filter(x => x.gt >= 2).length,
+          gt2_total: gt.filter(x => x.escaleras >= 2).length,
+          metrics_partial: computeMetrics(rows),
+          rows,
+        } as any,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+    }
+    const finished = rows.length >= gt.length;
+    const metrics = computeMetrics(rows);
+    const out = { detector, total_gt: gt.length, processed: rows.length, finished, metrics, rows };
+    if (finished) {
+      await sb.from("app_settings").upsert({ key: `eval_detectors_${detector}_last`, value: out as any, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    }
+    // Auto-reinvocación encadenada para el siguiente lote.
+    if (!finished && chainMode) {
+      const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/eval-detectors`;
+      const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      // fire-and-forget (no await, no bloquea)
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${srk}`, apikey: srk },
+        body: JSON.stringify({ detector, variants, batch_size: batchSize, chain: true, async: true }),
+      }).catch(() => {});
+    }
     return out;
   };
 
   if (asyncMode) {
     // @ts-ignore
     EdgeRuntime.waitUntil(run());
-    return json({ ok: true, async: true, queued: gt.length, variants }, 202);
+    return json({ ok: true, async: true, queued: batch.length, remaining_before: pending.length, total_gt: gt.length, variants, chain: chainMode }, 202);
   }
   const r = await run();
   return json(r);
