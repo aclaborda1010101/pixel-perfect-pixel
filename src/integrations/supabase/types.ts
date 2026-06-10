@@ -1504,6 +1504,172 @@ export type Database = {
         }
         Relationships: []
       }
+      enrichment_config: {
+        Row: {
+          created_at: string
+          id: string
+          parametros: Json
+          reglas: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          parametros?: Json
+          reglas?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          parametros?: Json
+          reglas?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      enrichment_jobs: {
+        Row: {
+          building_id: string | null
+          created_at: string
+          datos: Json
+          error: string | null
+          estado: string
+          fase: string
+          id: string
+          intentos: number
+          lease_token: string | null
+          lease_until: string | null
+          max_intentos: number
+          next_attempt_at: string | null
+          nota_simple_id: string | null
+          titular_apellido1: string | null
+          titular_apellido2: string | null
+          titular_nif: string | null
+          titular_nombre: string
+          titular_pct: number | null
+          titular_tipo: string
+          updated_at: string
+        }
+        Insert: {
+          building_id?: string | null
+          created_at?: string
+          datos?: Json
+          error?: string | null
+          estado?: string
+          fase: string
+          id?: string
+          intentos?: number
+          lease_token?: string | null
+          lease_until?: string | null
+          max_intentos?: number
+          next_attempt_at?: string | null
+          nota_simple_id?: string | null
+          titular_apellido1?: string | null
+          titular_apellido2?: string | null
+          titular_nif?: string | null
+          titular_nombre: string
+          titular_pct?: number | null
+          titular_tipo: string
+          updated_at?: string
+        }
+        Update: {
+          building_id?: string | null
+          created_at?: string
+          datos?: Json
+          error?: string | null
+          estado?: string
+          fase?: string
+          id?: string
+          intentos?: number
+          lease_token?: string | null
+          lease_until?: string | null
+          max_intentos?: number
+          next_attempt_at?: string | null
+          nota_simple_id?: string | null
+          titular_apellido1?: string | null
+          titular_apellido2?: string | null
+          titular_nif?: string | null
+          titular_nombre?: string
+          titular_pct?: number | null
+          titular_tipo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "enrichment_jobs_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrichment_jobs_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "enrichment_jobs_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrichment_jobs_nota_simple_id_fkey"
+            columns: ["nota_simple_id"]
+            isOneToOne: false
+            referencedRelation: "notas_simples"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      enrichment_verifications: {
+        Row: {
+          aprobado_at: string | null
+          aprobado_por: string | null
+          created_at: string
+          decision: string
+          id: string
+          job_id: string
+          motivo: string | null
+          propuesta: Json
+          updated_at: string
+        }
+        Insert: {
+          aprobado_at?: string | null
+          aprobado_por?: string | null
+          created_at?: string
+          decision?: string
+          id?: string
+          job_id: string
+          motivo?: string | null
+          propuesta?: Json
+          updated_at?: string
+        }
+        Update: {
+          aprobado_at?: string | null
+          aprobado_por?: string | null
+          created_at?: string
+          decision?: string
+          id?: string
+          job_id?: string
+          motivo?: string | null
+          propuesta?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "enrichment_verifications_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "enrichment_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_ids: {
         Row: {
           created_at: string
