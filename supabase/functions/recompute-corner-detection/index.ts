@@ -137,8 +137,14 @@ Deno.serve(async (req) => {
           }
         }
         doneSet.add(p.refcatastral_14);
+        // Persistir parcial DESPUÉS DE CADA EDIFICIO (no esperar al fin de lote: los timeouts se comen el batch entero)
+        state.processed_refs = Array.from(doneSet);
+        state.changes = changes; state.counts = counts; state.before = before; state.after = after;
+        state.progress = `${state.processed_refs.length}/${totalAll}`;
+        state.last_building_at = new Date().toISOString();
+        await sb.from("app_settings").upsert({ key: partialKey, value: state as any, updated_at: new Date().toISOString() }, { onConflict: "key" });
         // Espaciado entre edificios para no martillear Overpass
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 1200));
       } catch (e) {
         counts.errors++;
         console.warn(`recompute error ${p.refcatastral_14}: ${(e as Error).message}`);
@@ -146,7 +152,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Persistir parcial
+    // Persistencia final del lote (idempotente con la de cada edificio)
     state.processed_refs = Array.from(doneSet);
     state.changes = changes;
     state.counts = counts;
