@@ -43,6 +43,7 @@ import { CatastroDetalladoCard } from "@/components/comercial/CatastroDetalladoC
 import { AnalisisPlanoCatastralCard } from "@/components/comercial/AnalisisPlanoCatastralCard";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
+import { VerificacionInlinePanel } from "@/components/comercial/VerificacionInlinePanel";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -293,6 +294,8 @@ export default function ComercialEdificioDetalle() {
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
 
+      {/* Validación humana inline (alimenta qa_ground_truth) */}
+      {id && <VerificacionInlinePanel buildingId={id} />}
       {/* Correcciones del equipo */}
       {id && <TeamFeedbackCard buildingId={id} />}
 

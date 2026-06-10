@@ -1,0 +1,2 @@
+ALTER TABLE public.building_feedback DROP CONSTRAINT IF EXISTS building_feedback_canal_check;
+ALTER TABLE public.building_feedback ADD CONSTRAINT building_feedback_canal_check CHECK (canal IN ('voz','texto','verificacion_inline'));

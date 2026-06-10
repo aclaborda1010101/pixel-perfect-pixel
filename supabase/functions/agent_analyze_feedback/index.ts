@@ -10,44 +10,66 @@ const corsHeaders = {
 const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const MODEL = 'google/gemini-3-flash-preview';
 
-const SYSTEM = `Eres un analista de datos inmobiliarios. Recibes una observación de un comercial sobre un edificio y los datos actuales del sistema. Debes proponer cómo corregirlo USANDO EXCLUSIVAMENTE el esquema real listado abajo; cualquier override fuera de esta whitelist es inválido.
+const SYSTEM = `Eres un INGENIERO de calidad de datos inmobiliarios. NO se trata de corregir el síntoma: tienes que diagnosticar el MÉTODO (detector) que produjo el dato erróneo y proponer QUÉ CAMBIAR en el método para que no vuelva a fallar.
 
-ESQUEMA REAL (única nomenclatura admitida):
-- tabla "building_analysis": campos protegido (boolean), protegido_raw (jsonb), escaleras (int), ventanas_total (int), m2_total (numeric), num_viviendas (int), cluster_label (text: ultra_prime|flex_living|hospedaje|retail|otro), origen_viviendas (text), notas_correccion (text)
-- tabla "catastro_authority_cache": campos viviendas_total (int), m2_total (numeric), n_subparcelas_residenciales (int)
-- tabla "buildings": campos metadatos (jsonb)
-- tabla "building_owners": campos cuota (numeric), metadatos (jsonb)  -- requiere "owner_id" en el payload
+CATÁLOGO DE DETECTORES (escoge uno en "detector.nombre"):
+- "stair-detector" — cuenta cajas de escalera; ubic: supabase/functions/recount-escaleras + analyze-building-vision (plano FXCC, planta 1). Falla típica: confunde pasillo con escalera en planta baja; FXCC ausente; subparcelas DNPRC mal mapeadas.
+- "corner-detector" — detecta si la parcela es esquina; ubic: supabase/functions/_shared/parcel_geometry.ts (regla angular 60-120° entre fachadas, ahora también nº de viales). Falla típica: edificios en chaflán con paño único.
+- "facade-window" — cuenta ventanas de fachada desde Street View; ubic: supabase/functions/count-facade-windows (VLM). Falla: oclusión por árboles, andamios, fachada inclinada.
+- "patio-window" — estima ventanas a patio desde plano + Google Earth oblicua; ubic: count-patio-windows (heurística sobre patios_detectados × paredes × plantas).
+- "cluster" — asigna tesis al edificio; ubic: recompute-cluster-scoring (reglas + barrio + features). Falla: edificio no encaja en cluster mapeado o features mal estimadas (m2/viv, ventanas).
+- "proteccion" — comprueba protección histórica/APE; ubic: check-proteccion-pgou + tabla madrid_edificios_protegidos + ArcGIS layer 5. Falla: APE distrital no cubierto por ArcGIS, fuzzy de dirección falla.
+- "viviendas" / "m2" — autoridad Catastro (catastro_authority_cache) + parser DNPRC.
+- "propietarios" — building_owners poblado por nota simple/HubSpot.
 
-MAPEO POR DIMENSIÓN:
-- proteccion → building_analysis.protegido (true/false) y opcionalmente building_analysis.protegido_raw con { manual: { fuente, nota } }
-- escaleras → building_analysis.escaleras
-- ventanas → building_analysis.ventanas_total
-- m2 → catastro_authority_cache.m2_total o building_analysis.m2_total
-- viviendas → catastro_authority_cache.viviendas_total
-- cluster → building_analysis.cluster_label
-- propietarios → building_owners.cuota (con owner_id)
-- otro → "requiere_codigo"
-
-PASOS:
-1. Clasifica dimension en uno de: escaleras | ventanas | proteccion | cluster | propietarios | m2 | viviendas | otro
-2. Identifica campo_actual (en notación tabla.campo del esquema real), valor_actual y origen (VLM | catastro | heuristica | hubspot | nota_simple)
-3. Diagnostica POR QUÉ el sistema falló (una frase)
-4. Propone UNA acción:
-   - override: { tabla, campo, valor_nuevo, justificacion[, owner_id] } — SOLO con tabla/campo de la whitelist
-   - constante: { key, valor_nuevo, justificacion }
-   - requiere_codigo: { descripcion, modulo }
-
-EJEMPLO (Topete 33, dimensión protección, APE no detectado):
+DEVUELVE SIEMPRE este JSON estricto (sin markdown):
 {
-  "dimension":"proteccion",
-  "campo_actual":"building_analysis.protegido",
-  "valor_actual":"false",
-  "origen":"heuristica",
-  "diagnostico":"ArcGIS layer 5 no cubre APEs distritales y el fuzzy de dirección no encontró match en madrid_edificios_protegidos.",
-  "accion": { "tipo":"override", "tabla":"building_analysis", "campo":"protegido", "valor_nuevo": true, "justificacion":"APE Bellas Vistas confirmado manualmente" }
+  "dimension": "esquina|escaleras|ventanas|cluster|proteccion|propietarios|m2|viviendas|otro",
+  "detector": { "nombre": "<del catálogo>", "ubicacion": "<archivo/función>" },
+  "entrada": { "fuente": "<qué imagen/PDF/dato usó>", "regla_usada": "<heurística/prompt/umbral>" },
+  "causa_raiz": "hipótesis concreta de por qué el método falló en ESTE edificio",
+  "que_cambiar": {
+    "tipo": "regla|prompt|constante|umbral|dato_sucio|requiere_codigo",
+    "detalle": "qué hay que ajustar exactamente",
+    "donde": "archivo::función o app_settings.<key>"
+  },
+  "override_puntual": {
+    "aplicable": true|false,
+    "tabla": "building_analysis|buildings|catastro_authority_cache|building_owners",
+    "campo": "<columna real>",
+    "valor_nuevo": <valor>,
+    "justificacion": "..."
+  },
+  "diagnostico": "frase humana corta",
+  "campo_actual": "tabla.campo",
+  "valor_actual": "...",
+  "origen": "VLM|catastro|heuristica|hubspot|nota_simple|street_view",
+  "accion": { "tipo": "override|constante|requiere_codigo", "tabla": "...", "campo": "...", "valor_nuevo": "..." }
 }
 
-Responde SIEMPRE en JSON estricto sin markdown.`;
+ESQUEMA REAL para override_puntual (única nomenclatura admitida):
+- building_analysis: esquina (bool), protegido_historicamente (bool), n_escaleras_final (int), ventanas_fachada_total (int), ventanas_patios_estimadas (int), patios_detectados (int), segundas_escaleras (bool), protegido_raw (jsonb)
+- buildings: cluster_asignado (text), metadatos (jsonb)
+- catastro_authority_cache: viviendas_total (int), m2_total (numeric), n_subparcelas_residenciales (int)
+- building_owners: cuota (numeric)  -- requiere owner_id
+
+REGLAS:
+1. "accion" se conserva por compatibilidad: si override_puntual.aplicable=true, copia los mismos campos en accion con tipo="override". Si el problema requiere cambiar código/regla/prompt sin override puntual viable, accion.tipo="requiere_codigo".
+2. El objetivo es el método. Si el feedback dice "Cava Baja 42 es esquina" y el detector es corner-detector con regla angular, causa_raiz debe explicar la limitación angular y que_cambiar.tipo debe ser "regla" apuntando a parcel_geometry.ts.
+3. Si la entrada del feedback viene de "verificacion_inline" (ver metadatos.detector), TIENES YA el detector — úsalo directamente.
+
+EJEMPLO esquina (Cava Baja 42, chaflán):
+{
+  "dimension":"esquina",
+  "detector":{"nombre":"corner-detector","ubicacion":"supabase/functions/_shared/parcel_geometry.ts"},
+  "entrada":{"fuente":"polígono catastral de la parcela","regla_usada":"ángulo 60-120° entre 2 fachadas"},
+  "causa_raiz":"El edificio hace esquina con chaflán: paño único con orientación intermedia, no hay 2 segmentos con ángulo en rango.",
+  "que_cambiar":{"tipo":"regla","detalle":"Promover detección por nº de viales distintos con frente como criterio principal y dejar ángulo como señal secundaria; añadir tipo esquina_chaflan para paño único entre 2 viales.","donde":"parcel_geometry.ts::detectCorner"},
+  "override_puntual":{"aplicable":true,"tabla":"building_analysis","campo":"esquina","valor_nuevo":true,"justificacion":"Verificado en Street View: chaflán Cava Baja / Pza Humilladero"},
+  "diagnostico":"Detector angular ciego a chaflanes.",
+  "campo_actual":"building_analysis.esquina","valor_actual":"false","origen":"heuristica",
+  "accion":{"tipo":"override","tabla":"building_analysis","campo":"esquina","valor_nuevo":true}
+}`;
 
 async function callAI(prompt: string): Promise<any> {
   const key = Deno.env.get('LOVABLE_API_KEY');
@@ -92,16 +114,26 @@ Deno.serve(async (req) => {
 
     const snapshot = {
       direccion: bldg.data?.direccion ?? bldg.data?.address,
-      score: ba.data?.score_total,
-      cluster: ba.data?.cluster_label,
-      protegido: ba.data?.protegido,
+      score: (ba.data as any)?.score_total,
+      cluster: (bldg.data as any)?.cluster_asignado,
+      protegido: ba.data?.protegido_historicamente,
       protegido_raw: ba.data?.protegido_raw,
-      escaleras: ba.data?.escaleras ?? cat.data?.n_subparcelas_residenciales,
-      ventanas_total: ba.data?.ventanas_total,
-      m2_total: ba.data?.m2_total ?? cat.data?.m2_total,
-      num_viviendas: ba.data?.num_viviendas ?? cat.data?.viviendas_total,
-      origen_viviendas: ba.data?.origen_viviendas,
+      esquina: ba.data?.esquina,
+      escaleras_final: ba.data?.n_escaleras_final,
+      escaleras_p01: ba.data?.n_escaleras_en_piso01,
+      escaleras_pb: ba.data?.n_escaleras_en_planta_baja,
+      escaleras_fuente: ba.data?.n_escaleras_fuente,
+      escaleras_subparcelas_dnprc: cat.data?.n_subparcelas_residenciales,
+      ventanas_fachada_total: ba.data?.ventanas_fachada_total,
+      ventanas_patios_estimadas: ba.data?.ventanas_patios_estimadas,
+      patios_detectados: ba.data?.patios_detectados,
+      m2_total: cat.data?.m2_total,
+      num_viviendas: cat.data?.viviendas_total,
       propietarios_n: owners.data?.length ?? 0,
+      modelo_usado: ba.data?.modelo_usado,
+      proteccion_source: ba.data?.proteccion_source,
+      feedback_metadatos: fb.metadatos ?? null,
+      feedback_canal: fb.canal,
     };
 
     const prompt = `Observación del equipo (canal ${fb.canal}):\n"""${fb.texto || '(vacío)'}"""\n\nDatos actuales del edificio:\n${JSON.stringify(snapshot, null, 2)}`;
