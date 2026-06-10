@@ -119,6 +119,29 @@ VARIANTS_ESCALERAS.v9_vlm_router_arquitectura = async (c) => {
   return r.n;
 };
 
+// V10 A/B con gemini-2.5-pro como backbone de visión, MISMO prompt que v6
+// (few-shot focused) y MISMO desempate DNPRC con confidence<0.6 (no MAX).
+// needs_human_review si baja confianza.
+VARIANTS_ESCALERAS.v10_gemini25pro_v6prompt = async (c) => {
+  const r = await callVlmFocusedFullModel(c, true, "google/gemini-2.5-pro");
+  if (!r) return null;
+  if (r.confidence != null && r.confidence < 0.6) {
+    try {
+      await c.sb.from("building_feedback").insert({
+        building_id: c.building.id,
+        canal: "eval_detector_v10",
+        dimension: "n_escaleras",
+        estado: "pendiente",
+        texto: `v10 (gemini-2.5-pro) baja confianza (${r.confidence}). n=${r.n}`.slice(0, 1000),
+        metadatos: { variant: "v10_gemini25pro_v6prompt", n: r.n, confidence: r.confidence } as any,
+      });
+    } catch (_) {}
+    const s = await VARIANTS_ESCALERAS.v1_subparcelas_only(c);
+    if (typeof s === "number" && s >= 1) return Math.max(r.n, s);
+  }
+  return r.n;
+};
+
 async function callVlmRouterInverso(c: Ctx, ctx: { sub: number | null; esquina: boolean }): Promise<{ n: number; confidence: number | null } | null> {
   const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
     ? c.cat.fxcc_pages_urls
@@ -298,6 +321,10 @@ async function callVlmFocused(c: Ctx, fewshot: boolean): Promise<number | null> 
 }
 
 async function callVlmFocusedFull(c: Ctx, fewshot: boolean): Promise<{ n: number; confidence: number | null } | null> {
+  return callVlmFocusedFullModel(c, fewshot, "google/gemini-3.1-pro-preview");
+}
+
+async function callVlmFocusedFullModel(c: Ctx, fewshot: boolean, model: string): Promise<{ n: number; confidence: number | null } | null> {
   const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
     ? c.cat.fxcc_pages_urls
     : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
@@ -331,7 +358,7 @@ Responde SOLO con JSON: {"n_escaleras_piso01": number, "razonamiento": string, "
       method: "POST",
       headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-3.1-pro-preview",
+        model,
         messages: [{ role: "user", content: [
           { type: "text", text: PROMPT },
           ...pages.map((url) => ({ type: "image_url", image_url: { url } })),
