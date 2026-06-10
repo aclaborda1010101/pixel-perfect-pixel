@@ -6,6 +6,10 @@
 import { corsHeaders, err, getServiceClient, json, sleep } from "../_shared/scoring_v2_common.ts";
 
 const CONCURRENCY = 2;
+// Cuántos edificios procesa un único invoke antes de re-invocarse a sí mismo.
+// process-building-full puede tardar ~60-120s por edificio (catastro + visión + scoring),
+// así que con CONCURRENCY=2 mantenemos cada ciclo por debajo del wall-time del edge runtime.
+const CHUNK_SIZE = 6;
 
 async function processOne(building_id: string, force: boolean) {
   const base = `${Deno.env.get("SUPABASE_URL")}/functions/v1`;
@@ -40,6 +44,33 @@ async function runBatch(ids: string[], force: boolean, runId: string) {
   }
   await Promise.all(workers);
   console.log(`[batch ${runId}] complete`);
+}
+
+// Auto-reinvoca la función con el resto de la cola para drenarla por ciclos.
+async function selfInvoke(remaining: string[], force: boolean, runId: string, onlyMissing: boolean) {
+  if (!remaining.length) {
+    console.log(`[batch ${runId}] drain complete`);
+    return;
+  }
+  const base = `${Deno.env.get("SUPABASE_URL")}/functions/v1`;
+  try {
+    const r = await fetch(`${base}/batch-process-cartera`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        building_ids: remaining,
+        force,
+        only_missing: onlyMissing,
+        _continuation_of: runId,
+      }),
+    });
+    console.log(`[batch ${runId}] self-invoke status`, r.status, "remaining=", remaining.length);
+  } catch (e) {
+    console.error(`[batch ${runId}] self-invoke fail`, String((e as Error).message ?? e));
+  }
 }
 
 Deno.serve(async (req) => {
@@ -81,18 +112,35 @@ Deno.serve(async (req) => {
 
     if (!ids.length) return json({ status: "nothing_to_do", total: 0 });
 
-    const runId = crypto.randomUUID().slice(0, 8);
+    const runId = (body._continuation_of as string | undefined) ?? crypto.randomUUID().slice(0, 8);
+
+    // Divide la cola en un chunk para este invoke + el resto que se procesará por re-invocación.
+    const chunk = ids.slice(0, CHUNK_SIZE);
+    const remaining = ids.slice(CHUNK_SIZE);
+
+    const work = (async () => {
+      await runBatch(chunk, force, runId);
+      // Re-invoca con el resto para drenar la cola sin depender de un único wall-time.
+      await selfInvoke(remaining, force, runId, onlyMissing);
+    })();
 
     // @ts-ignore — Deno EdgeRuntime API
     if (typeof EdgeRuntime !== "undefined" && (EdgeRuntime as any).waitUntil) {
       // @ts-ignore
-      EdgeRuntime.waitUntil(runBatch(ids, force, runId));
+      EdgeRuntime.waitUntil(work);
     } else {
-      // Fallback: dispara y olvida
-      runBatch(ids, force, runId);
+      work;
     }
 
-    return json({ status: "queued", total: ids.length, run_id: runId, concurrency: CONCURRENCY });
+    return json({
+      status: "queued",
+      total: ids.length,
+      chunk: chunk.length,
+      remaining: remaining.length,
+      run_id: runId,
+      concurrency: CONCURRENCY,
+      chunk_size: CHUNK_SIZE,
+    });
   } catch (e) {
     console.error("batch-process-cartera error", e);
     return err(String((e as Error).message ?? e));
