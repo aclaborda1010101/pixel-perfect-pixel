@@ -773,6 +773,21 @@ out geom;`;
     return { dist: best, name: bestName };
   };
 
+  // TODOS los nombres de vía dentro de un umbral (para detectar chaflanes
+  // donde un mismo paño está cerca de dos calles distintas).
+  const namesWithin = (pt: [number, number], maxDist: number): Set<string> => {
+    const set = new Set<string>();
+    for (const h of highways) {
+      if (!h.name) continue;
+      for (let i = 0; i < h.line.length - 1; i++) {
+        if (distPointToSegment(pt, h.line[i], h.line[i + 1]) <= maxDist) {
+          set.add(h.name); break;
+        }
+      }
+    }
+    return set;
+  };
+
   // Google Roads fallback (nearestRoads) — usado solo si Overpass falla en una arista.
   const googleKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
   const googleRoadHit = async (lat: number, lon: number): Promise<{ hit: boolean; name?: string }> => {
