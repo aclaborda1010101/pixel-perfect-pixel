@@ -51,6 +51,19 @@ const VARIANTS_ESCALERAS: Record<string, (c: Ctx) => Promise<number | null>> = {
     }
     return r.n;
   },
+
+  // V7 VLM MULTIPÁGINA: pasa planta baja Y piso 01, pide correspondencia
+  // portal↔caja de escalera + nº de portales en planta baja como evidencia.
+  // DNPRC sigue siendo desempate cuando confidence<0.6 (NO MAX puro).
+  v7_vlm_multipagina: async (c) => {
+    const r = await callVlmMultipagina(c);
+    if (!r) return null;
+    if (r.confidence != null && r.confidence < 0.6) {
+      const sub = await VARIANTS_ESCALERAS.v1_subparcelas_only(c);
+      if (typeof sub === "number" && sub >= 1) return Math.max(r.n, sub);
+    }
+    return r.n;
+  },
 };
 
 async function callVlmFocused(c: Ctx, fewshot: boolean): Promise<number | null> {
@@ -110,6 +123,72 @@ Responde SOLO con JSON: {"n_escaleras_piso01": number, "razonamiento": string, "
   } catch { return null; }
 }
 
+async function callVlmMultipagina(c: Ctx): Promise<{ n: number; confidence: number | null } | null> {
+  const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
+    ? c.cat.fxcc_pages_urls
+    : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
+  if (!pages.length) return null;
+
+  const PROMPT = `Eres un experto en planos FXCC del Catastro de Madrid.
+TAREA: contar cajas de escalera (ESC) en el edificio usando DOS plantas como
+evidencia cruzada: PLANTA BAJA y PISO 01.
+
+PROCEDIMIENTO OBLIGATORIO:
+1) Localiza la página de PLANTA BAJA ("PB","P.BAJA","PLANTA BAJA"). Cuenta cuántos
+   PORTALES independientes de entrada al edificio hay (puertas a la calle que dan
+   acceso a un núcleo vertical). En edificios en chaflán o doble fachada suele
+   haber 2 portales.
+2) Localiza la página de PISO 01 ("PISO 01","PLANTA 01","PLANTA 1ª"). Cuenta las
+   cajas de escalera (ESC) — recintos cerrados rectangulares con peldaños/aspas
+   que separan bloques V.A.* / V.B.*. NUNCA cuentes sobre planta baja.
+3) CORRESPONDENCIA: cada portal de planta baja debe conducir a una caja de
+   escalera en piso 01. Si ves 2 portales en PB pero sólo distingues 1 núcleo
+   en piso 01, mira de nuevo: probablemente hay 2 cajas pegadas o el plano es
+   pequeño. Usa la correspondencia como prior.
+4) El RESULTADO FINAL es n_escaleras_piso01 = max(núcleos visibles en piso 01,
+   nº de portales independientes en PB confirmados por núcleos en piso 01).
+
+EJEMPLOS:
+- Serrano 16: PB con 2 portales (norte/sur) → piso 01 muestra ESC_A y ESC_B → n=2.
+- Cava Baja 42: edificio en chaflán, PB con 2 portales (Cava Baja y Plaza del
+  Humilladero), piso 01 con 2 núcleos aunque pegados → n=2.
+- Postigo de San Martín 6: PB con 2 portales simétricos → piso 01 con 2 ESC → n=2.
+- Edificio lineal de fachada única con 1 portal en PB y bloque V.A.* único en
+  piso 01 → n=1.
+
+Responde SOLO con JSON:
+{
+  "n_portales_pb": number,
+  "n_nucleos_visibles_piso01": number,
+  "n_escaleras_piso01": number,
+  "correspondencia_ok": boolean,
+  "razonamiento": string,
+  "confidence": number
+}`;
+
+  try {
+    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3.1-pro-preview",
+        messages: [{ role: "user", content: [
+          { type: "text", text: PROMPT },
+          ...pages.map((url) => ({ type: "image_url", image_url: { url } })),
+        ]}],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const txt = j?.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(txt);
+    const n = Math.max(1, Math.min(8, Math.round(Number(parsed?.n_escaleras_piso01 ?? 1))));
+    const conf = parsed?.confidence != null ? Number(parsed.confidence) : null;
+    return isFinite(n) ? { n, confidence: conf } : null;
+  } catch { return null; }
+}
+
 async function loadCtx(sb: any, apiKey: string, building_id: string): Promise<Ctx | null> {
   const { data: b } = await sb.from("buildings").select("id, direccion, refcatastral").eq("id", building_id).maybeSingle();
   if (!b) return null;
@@ -136,6 +215,9 @@ Deno.serve(async (req) => {
   const batchSize: number = Math.max(1, Math.min(10, body.batch_size ?? 3));
   const reset: boolean = body.reset === true;
   const chainMode: boolean = body.chain === true; // self-reinvoke next batch
+  // Subset de control: 10 gt=2 + 10 gt=1 (primeros encontrados).
+  const controlMode: boolean = body.control_subset === true;
+  const controlSuffix: string = controlMode ? "_control" : "";
 
   if (detector !== "escaleras") return err("solo 'escaleras' implementado por ahora", 400);
 
@@ -149,12 +231,17 @@ Deno.serve(async (req) => {
     .not("escaleras", "is", null)
     .order("escaleras", { ascending: false });
   const seen = new Set<string>();
-  const gt = (gtRows ?? []).filter((r: any) => {
+  let gt = (gtRows ?? []).filter((r: any) => {
     if (seen.has(r.building_id)) return false; seen.add(r.building_id); return true;
   });
+  if (controlMode) {
+    const gt2 = gt.filter((r: any) => r.escaleras >= 2).slice(0, 10);
+    const gt1 = gt.filter((r: any) => r.escaleras < 2).slice(0, 10);
+    gt = [...gt2, ...gt1];
+  }
 
   // Estado parcial persistente
-  const partialKey = `eval_detectors_${detector}_partial`;
+  const partialKey = `eval_detectors_${detector}${controlSuffix}_partial`;
   const { data: prev } = reset ? { data: null } as any
     : await sb.from("app_settings").select("value").eq("key", partialKey).maybeSingle();
   const prevRows: any[] = Array.isArray(prev?.value?.rows) ? prev!.value.rows : [];
@@ -221,7 +308,7 @@ Deno.serve(async (req) => {
     const metrics = computeMetrics(rows);
     const out = { detector, total_gt: gt.length, processed: rows.length, finished, metrics, rows };
     if (finished) {
-      await sb.from("app_settings").upsert({ key: `eval_detectors_${detector}_last`, value: out as any, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      await sb.from("app_settings").upsert({ key: `eval_detectors_${detector}${controlSuffix}_last`, value: out as any, updated_at: new Date().toISOString() }, { onConflict: "key" });
     }
     // Auto-reinvocación encadenada para el siguiente lote.
     if (!finished && chainMode) {
@@ -231,7 +318,7 @@ Deno.serve(async (req) => {
       fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${srk}`, apikey: srk },
-        body: JSON.stringify({ detector, variants, batch_size: batchSize, chain: true, async: true }),
+        body: JSON.stringify({ detector, variants, batch_size: batchSize, chain: true, async: true, control_subset: controlMode }),
       }).catch(() => {});
     }
     return out;
