@@ -3731,23 +3731,40 @@ export type Database = {
         Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
         Returns: string
       }
-      match_knowledge_chunks: {
-        Args: {
-          filter_scope_id?: string
-          filter_scope_type?: string
-          match_count?: number
-          query_embedding: string
-        }
-        Returns: {
-          contenido: string
-          id: string
-          metadatos: Json
-          origen: string
-          scope_id: string
-          scope_type: string
-          similarity: number
-        }[]
-      }
+      match_knowledge_chunks:
+        | {
+            Args: {
+              filter_scope_id?: string
+              filter_scope_type?: string
+              match_count?: number
+              query_embedding: string
+            }
+            Returns: {
+              contenido: string
+              id: string
+              metadatos: Json
+              origen: string
+              scope_id: string
+              scope_type: string
+              similarity: number
+            }[]
+          }
+        | {
+            Args: {
+              filter_origenes?: string[]
+              filter_scope_id?: string
+              filter_scope_type?: string
+              match_count?: number
+              query_embedding: string
+            }
+            Returns: {
+              chunk_id: string
+              metadatos: Json
+              similarity: number
+              snippet: string
+              source: string
+            }[]
+          }
       normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
       normalize_pct_propiedad: {
