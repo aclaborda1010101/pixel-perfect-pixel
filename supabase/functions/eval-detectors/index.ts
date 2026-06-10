@@ -142,6 +142,78 @@ VARIANTS_ESCALERAS.v10_gemini25pro_v6prompt = async (c) => {
   return r.n;
 };
 
+// V11 SPLIT POR PÁGINA: 1 página por llamada con prompt v6 (gemini-3.1-pro),
+// agregación max-vote del n predicho en cada página (las que no son P01 dan
+// confidence baja y se ignoran si conf<0.3). DNPRC desempate cuando todas
+// las páginas dan confidence<0.6.
+VARIANTS_ESCALERAS.v11_split_per_page = async (c) => {
+  const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
+    ? c.cat.fxcc_pages_urls
+    : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
+  if (!pages.length) return null;
+  const targetPages = pages.slice(0, 6);
+  const results: Array<{ n: number; conf: number | null }> = [];
+  for (const url of targetPages) {
+    const r = await callVlmSinglePage(c, url);
+    if (r) results.push(r);
+    await new Promise((res) => setTimeout(res, 800));
+  }
+  if (!results.length) return null;
+  // Filtra páginas con confidence>=0.3 (las otras es ruido de páginas no-P01).
+  const useful = results.filter((r) => (r.conf ?? 0) >= 0.3);
+  const pool = useful.length ? useful : results;
+  const maxConf = Math.max(...pool.map((r) => r.conf ?? 0));
+  const nMax = Math.max(...pool.map((r) => r.n));
+  if (maxConf < 0.6) {
+    try {
+      await c.sb.from("building_feedback").insert({
+        building_id: c.building.id,
+        canal: "eval_detector_v11",
+        dimension: "n_escaleras",
+        estado: "pendiente",
+        texto: `v11 split baja confianza (max=${maxConf}). nMax=${nMax}, pages=${pool.length}`.slice(0, 1000),
+        metadatos: { variant: "v11_split_per_page", n: nMax, max_conf: maxConf, samples: pool } as any,
+      });
+    } catch (_) {}
+    const s = await VARIANTS_ESCALERAS.v1_subparcelas_only(c);
+    if (typeof s === "number" && s >= 1) return Math.max(nMax, s);
+  }
+  return nMax;
+};
+
+async function callVlmSinglePage(c: Ctx, url: string): Promise<{ n: number; conf: number | null } | null> {
+  const PROMPT = `Eres un experto en planos FXCC del Catastro de Madrid.
+Recibes UNA SOLA página del FXCC. Tarea:
+1) Identifica si esta página es "PISO 01" / "PLANTA 01" / "PLANTA 1ª". Si NO lo es
+   (planta baja, sótano, ático, alzados, secciones, portada), responde n=1 y
+   confidence=0.1 (página no relevante).
+2) Si SÍ es piso 01: cuenta las cajas de escalera (ESC) — recintos cerrados
+   rectangulares separando bloques V.A.* y V.B.*. Pistas: 2 portales, edificio
+   en chaflán o doble fachada → suelen indicar 2 escaleras. Si SOLO ves 1
+   núcleo claro y todas las viviendas son V.A.*, entonces n=1.
+- NUNCA cuentes sobre planta baja.
+- Si dudas en una página que es P01, devuelve tu mejor estimación con
+  confidence entre 0.4 y 0.6.
+
+Responde SOLO JSON: {"es_piso01": boolean, "n_escaleras_piso01": number, "confidence": number}`;
+  try {
+    const j = await gatewayChat(c.apiKey, {
+      model: "google/gemini-3.1-pro-preview",
+      messages: [{ role: "user", content: [
+        { type: "text", text: PROMPT },
+        { type: "image_url", image_url: { url } },
+      ]}],
+      response_format: { type: "json_object" },
+    });
+    if (!j) return null;
+    const txt = j?.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(txt);
+    const n = Math.max(1, Math.min(8, Math.round(Number(parsed?.n_escaleras_piso01 ?? 1))));
+    const conf = parsed?.confidence != null ? Number(parsed.confidence) : null;
+    return isFinite(n) ? { n, conf } : null;
+  } catch { return null; }
+}
+
 async function callVlmRouterInverso(c: Ctx, ctx: { sub: number | null; esquina: boolean }): Promise<{ n: number; confidence: number | null } | null> {
   const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
     ? c.cat.fxcc_pages_urls
