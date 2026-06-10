@@ -3193,6 +3193,100 @@ export type Database = {
         }
         Relationships: []
       }
+      qa_ground_truth: {
+        Row: {
+          ano: number | null
+          building_id: string | null
+          created_at: string
+          deal_id: string | null
+          dh: boolean | null
+          direccion_norm: string
+          direccion_raw: string
+          escaleras: number | null
+          id: string
+          lista: string
+          m2_per_viv: number | null
+          m2_tot: number | null
+          m2_viv: number | null
+          matched_by: string | null
+          motivo: string | null
+          n_viv: number | null
+          pct_viv: number | null
+          propietarios: number | null
+          tipo: string | null
+          updated_at: string
+          zona: string | null
+        }
+        Insert: {
+          ano?: number | null
+          building_id?: string | null
+          created_at?: string
+          deal_id?: string | null
+          dh?: boolean | null
+          direccion_norm: string
+          direccion_raw: string
+          escaleras?: number | null
+          id?: string
+          lista: string
+          m2_per_viv?: number | null
+          m2_tot?: number | null
+          m2_viv?: number | null
+          matched_by?: string | null
+          motivo?: string | null
+          n_viv?: number | null
+          pct_viv?: number | null
+          propietarios?: number | null
+          tipo?: string | null
+          updated_at?: string
+          zona?: string | null
+        }
+        Update: {
+          ano?: number | null
+          building_id?: string | null
+          created_at?: string
+          deal_id?: string | null
+          dh?: boolean | null
+          direccion_norm?: string
+          direccion_raw?: string
+          escaleras?: number | null
+          id?: string
+          lista?: string
+          m2_per_viv?: number | null
+          m2_tot?: number | null
+          m2_viv?: number | null
+          matched_by?: string | null
+          motivo?: string | null
+          n_viv?: number | null
+          pct_viv?: number | null
+          propietarios?: number | null
+          tipo?: string | null
+          updated_at?: string
+          zona?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qa_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qa_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "qa_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scoring_v2_feedback: {
         Row: {
           aviso_key: string
