@@ -8,6 +8,7 @@
 //   { detector: "escaleras" | "ventanas" | "esquina", variants?: string[] }
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
+import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
 // --- Variantes para ESCALERAS ---
 type Ctx = { sb: any; apiKey: string; building: any; cat: any; ba: any; cac: any };
@@ -64,7 +65,159 @@ const VARIANTS_ESCALERAS: Record<string, (c: Ctx) => Promise<number | null>> = {
     }
     return r.n;
   },
+
+  // V8 VLM con CROPS+ZOOM: amplía la región central de cada página (zoom ~2x)
+  // y, si el edificio es esquina/chaflán, añade también crops de las esquinas
+  // del plano (donde suele estar la 2ª caja). Mantiene few-shot y DNPRC como
+  // desempate cuando confidence<0.6 (no MAX puro).
+  v8_vlm_crops_zoom: async (c) => {
+    const r = await callVlmCropsZoom(c);
+    if (!r) return null;
+    // Si baja confianza, registra building_feedback para revisión humana.
+    if (r.confidence != null && r.confidence < 0.6) {
+      try {
+        await c.sb.from("building_feedback").insert({
+          building_id: c.building.id,
+          canal: "eval_detector_v8",
+          dimension: "n_escaleras",
+          estado: "pendiente",
+          texto: `v8 baja confianza (${r.confidence}). n=${r.n}. ${r.razonamiento ?? ""}`.slice(0, 1000),
+          metadatos: { variant: "v8_vlm_crops_zoom", n: r.n, confidence: r.confidence } as any,
+        });
+      } catch (_) {/* idempotencia best-effort */}
+      const sub = await VARIANTS_ESCALERAS.v1_subparcelas_only(c);
+      if (typeof sub === "number" && sub >= 1) return Math.max(r.n, sub);
+    }
+    return r.n;
+  },
 };
+
+// --- Image cropping helpers (Deno + imagescript) ---
+async function fetchImage(url: string): Promise<Image | null> {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    return await Image.decode(buf);
+  } catch { return null; }
+}
+
+function toBase64Png(bytes: Uint8Array): string {
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return `data:image/png;base64,${btoa(s)}`;
+}
+
+async function cropRegion(img: Image, x: number, y: number, w: number, h: number, zoom: number): Promise<string | null> {
+  try {
+    const c = img.clone().crop(x, y, w, h);
+    const tw = Math.min(1600, Math.floor(w * zoom));
+    const th = Math.min(1600, Math.floor(h * zoom));
+    c.resize(tw, th);
+    const out = await c.encode();
+    return toBase64Png(out);
+  } catch { return null; }
+}
+
+async function buildCropsForPage(url: string, esquina: boolean): Promise<{ images: string[]; tags: string[] }> {
+  const img = await fetchImage(url);
+  if (!img) return { images: [url], tags: ["original"] };
+  const W = img.width, H = img.height;
+  const out: string[] = [];
+  const tags: string[] = [];
+  // Center crop: 55% area, zoom 2x.
+  const cw = Math.floor(W * 0.55), ch = Math.floor(H * 0.55);
+  const cx = Math.floor((W - cw) / 2), cy = Math.floor((H - ch) / 2);
+  const center = await cropRegion(img, cx, cy, cw, ch, 2);
+  if (center) { out.push(center); tags.push("center_zoom2x"); }
+  if (esquina) {
+    // Crops de las 4 zonas de esquina (chaflán puede estar en cualquiera).
+    const ew = Math.floor(W * 0.5), eh = Math.floor(H * 0.5);
+    const corners: Array<[number, number, string]> = [
+      [0, 0, "tl"], [W - ew, 0, "tr"], [0, H - eh, "bl"], [W - ew, H - eh, "br"],
+    ];
+    for (const [x, y, tag] of corners) {
+      const c = await cropRegion(img, x, y, ew, eh, 1.8);
+      if (c) { out.push(c); tags.push(`corner_${tag}`); }
+    }
+  }
+  return { images: out, tags };
+}
+
+async function callVlmCropsZoom(c: Ctx): Promise<{ n: number; confidence: number | null; razonamiento?: string } | null> {
+  const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
+    ? c.cat.fxcc_pages_urls
+    : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
+  if (!pages.length) return null;
+  const esquina = c.ba?.esquina === true;
+
+  // Limitar a primeras ~6 páginas para no explotar tokens; P01 suele estar entre las primeras.
+  const targetPages = pages.slice(0, 6);
+  const imageParts: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+  const tagsAll: string[] = [];
+  for (let i = 0; i < targetPages.length; i++) {
+    const u = targetPages[i];
+    imageParts.push({ type: "image_url", image_url: { url: u } });
+    tagsAll.push(`pag${i + 1}_original`);
+    const { images, tags } = await buildCropsForPage(u, esquina);
+    for (let k = 0; k < images.length; k++) {
+      imageParts.push({ type: "image_url", image_url: { url: images[k] } });
+      tagsAll.push(`pag${i + 1}_${tags[k]}`);
+    }
+  }
+
+  const PROMPT = `Eres un experto en planos FXCC del Catastro de Madrid.
+TAREA: contar cajas de escalera (ESC) en PISO 01.
+
+Te paso, por cada página relevante: la imagen ORIGINAL, una versión RECORTADA Y
+AMPLIADA del CENTRO (zoom 2x) y, si el edificio es en ESQUINA/CHAFLÁN, también
+RECORTES de las 4 esquinas del plano (donde a menudo está la 2ª caja en
+edificios en chaflán). Usa los recortes para distinguir 1 vs 2 cajas cuando el
+plano original es pequeño o las cajas están pegadas.
+
+Reglas:
+- Localiza la página "PISO 01" / "PLANTA 01" / "PLANTA 1ª".
+- Una caja ESC = recinto cerrado rectangular separando bloques V.A.* / V.B.*.
+- NUNCA cuentes sobre planta baja.
+- 2 grupos de viviendas (V.A vs V.B), 2 portales, chaflán o doble fachada
+  → suelen indicar 2 escaleras.
+- Si en el zoom central ves UN solo núcleo claro y todas las viviendas son
+  V.A.*, entonces n=1 incluso si esquina_chaflan=true.
+- Marca confidence<0.6 si las cajas no se distinguen claramente.
+
+EJEMPLOS:
+- Serrano 16: 2 cajas (ESC_A norte, ESC_B sur), V.A y V.B → n=2.
+- Cava Baja 42: chaflán con 2 portales independientes, 2 núcleos aunque pegados → n=2.
+- Postigo de San Martín 6: 2 ESC simétricas en PISO 01 → n=2.
+- Bloque lineal con 1 portal y V.A.* únicamente → n=1.
+
+esquina_chaflan_prior = ${esquina}
+
+Responde SOLO con JSON:
+{"n_escaleras_piso01": number, "razonamiento": string, "confidence": number, "vio_chaflan": boolean}`;
+
+  try {
+    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3.1-pro-preview",
+        messages: [{ role: "user", content: [{ type: "text", text: PROMPT }, ...imageParts] }],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const txt = j?.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(txt);
+    const n = Math.max(1, Math.min(8, Math.round(Number(parsed?.n_escaleras_piso01 ?? 1))));
+    const conf = parsed?.confidence != null ? Number(parsed.confidence) : null;
+    return isFinite(n) ? { n, confidence: conf, razonamiento: parsed?.razonamiento } : null;
+  } catch { return null; }
+}
 
 async function callVlmFocused(c: Ctx, fewshot: boolean): Promise<number | null> {
   const r = await callVlmFocusedFull(c, fewshot);
