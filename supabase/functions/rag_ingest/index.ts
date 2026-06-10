@@ -32,6 +32,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const items: Item[] = Array.isArray(body?.items) ? body.items : [body];
+    const maxLen: number = Number(body?.chunk_size ?? 800) || 800;
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -41,7 +42,7 @@ Deno.serve(async (req) => {
     let withEmbedding = 0;
     for (const it of items) {
       if (!it?.contenido || !it?.origen) continue;
-      const chunks = chunk(it.contenido);
+      const chunks = chunk(it.contenido, maxLen);
       for (const c of chunks) {
         const v = await embed(c);
         const { error } = await supabase.from("knowledge_chunks").insert({
