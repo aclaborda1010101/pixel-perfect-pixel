@@ -40,9 +40,25 @@ const VARIANTS_ESCALERAS: Record<string, (c: Ctx) => Promise<number | null>> = {
     if (a == null && b == null) return null;
     return Math.max(a ?? 0, b ?? 0);
   },
+
+  // V6 VLM few-shot PRIMARIO; DNPRC solo como desempate cuando confidence < 0.6.
+  v6_vlm_primary_dnprc_tiebreak: async (c) => {
+    const r = await callVlmFocusedFull(c, true);
+    if (!r) return null;
+    if (r.confidence != null && r.confidence < 0.6) {
+      const sub = await VARIANTS_ESCALERAS.v1_subparcelas_only(c);
+      if (typeof sub === "number" && sub >= 1) return Math.max(r.n, sub);
+    }
+    return r.n;
+  },
 };
 
 async function callVlmFocused(c: Ctx, fewshot: boolean): Promise<number | null> {
+  const r = await callVlmFocusedFull(c, fewshot);
+  return r ? r.n : null;
+}
+
+async function callVlmFocusedFull(c: Ctx, fewshot: boolean): Promise<{ n: number; confidence: number | null } | null> {
   const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
     ? c.cat.fxcc_pages_urls
     : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
@@ -89,7 +105,8 @@ Responde SOLO con JSON: {"n_escaleras_piso01": number, "razonamiento": string, "
     const txt = j?.choices?.[0]?.message?.content ?? "";
     const parsed = JSON.parse(txt);
     const n = Math.max(1, Math.min(8, Math.round(Number(parsed?.n_escaleras_piso01 ?? 1))));
-    return isFinite(n) ? n : null;
+    const conf = parsed?.confidence != null ? Number(parsed.confidence) : null;
+    return isFinite(n) ? { n, confidence: conf } : null;
   } catch { return null; }
 }
 
