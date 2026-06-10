@@ -717,7 +717,7 @@ export function mergeCollinearRing(
 
 export async function detectStreetEdges(
   ring: [number, number][],
-  opts: { lat: number; lon: number; padding_m?: number },
+  opts: { lat: number; lon: number; padding_m?: number; skipGoogle?: boolean },
 ): Promise<StreetEdgesResult> {
   if (ring.length < 4) {
     return { street_edges: [], is_corner: false, total_street_length_m: 0, corner_angle_deg: null };
@@ -789,7 +789,7 @@ out geom;`;
   };
 
   // Google Roads fallback (nearestRoads) — usado solo si Overpass falla en una arista.
-  const googleKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  const googleKey = opts.skipGoogle ? null : Deno.env.get("GOOGLE_MAPS_API_KEY");
   const googleRoadHit = async (lat: number, lon: number): Promise<{ hit: boolean; name?: string }> => {
     if (!googleKey) return { hit: false };
     try {
