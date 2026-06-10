@@ -61,6 +61,13 @@ export interface StreetEdgesResult {
   corner_angle_deg: number | null;
   corner_type?: "multifachada" | "esquina_chaflan" | "esquina_angulo" | "linea";
   street_names_distinct?: string[];
+  frentes?: Frente[];
+}
+
+export interface Frente {
+  vial: string;
+  longitud_m: number;
+  aristas: number[];        // índices de aristas (sobre el merged ring) que componen el frente
 }
 
 const OVERPASS_ENDPOINTS = [
