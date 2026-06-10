@@ -722,6 +722,51 @@ export function mergeCollinearRing(
   return pts;
 }
 
+// Variante que devuelve, además del ring fusionado, la trazabilidad de qué
+// índices de arista RAW componen cada arista del ring fusionado.
+// edgeOriginIndices[i] = lista de índices de aristas raw que fueron fundidas en
+// la arista i del merged ring (de mergedRing[i] a mergedRing[i+1]).
+export function mergeCollinearRingWithIndex(
+  ring: [number, number][],
+  angleThresholdDeg = 10,
+): { mergedRing: [number, number][]; mergedFromRawIdx: number[][] } {
+  if (ring.length < 4) {
+    const idxs = ring.slice(0, -1).map((_, i) => [i]);
+    return { mergedRing: ring, mergedFromRawIdx: idxs };
+  }
+  const closed = ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1];
+  const pts: [number, number][] = closed ? ring.slice(0, -1) : ring.slice();
+  // edgeOrigin[i] = lista de raw-edge indices que componen la arista actual i (pts[i] -> pts[i+1 mod n])
+  let edgeOrigin: number[][] = pts.map((_, i) => [i]);
+
+  let changed = true;
+  let guard = 0;
+  while (changed && guard++ < 20 && pts.length > 3) {
+    changed = false;
+    for (let i = 0; i < pts.length; i++) {
+      const n = pts.length;
+      const prev = pts[(i - 1 + n) % n];
+      const cur = pts[i];
+      const next = pts[(i + 1) % n];
+      const b1 = bearingDeg(prev, cur);
+      const b2 = bearingDeg(cur, next);
+      const diff = angularDiffDeg(b1, b2);
+      if (diff <= angleThresholdDeg) {
+        // quitar vértice i: la arista entrante (i-1) y la saliente (i) se funden.
+        const prevEdgeIdx = (i - 1 + n) % n;
+        edgeOrigin[prevEdgeIdx] = [...edgeOrigin[prevEdgeIdx], ...edgeOrigin[i]];
+        pts.splice(i, 1);
+        edgeOrigin.splice(i, 1);
+        changed = true;
+        i--;
+        if (pts.length <= 3) break;
+      }
+    }
+  }
+  const closedPts: [number, number][] = [...pts, pts[0]];
+  return { mergedRing: closedPts, mergedFromRawIdx: edgeOrigin };
+}
+
 export async function detectStreetEdges(
   ring: [number, number][],
   opts: { lat: number; lon: number; padding_m?: number; skipGoogle?: boolean },
