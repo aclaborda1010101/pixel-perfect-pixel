@@ -13,15 +13,38 @@ const MODEL = 'google/gemini-3-flash-preview';
 const EMB_MODEL = 'google/gemini-embedding-001';
 const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss'];
 
-const SYSTEM = `Eres un coach de negociación basado en Chris Voss (Never Split the Difference). Trabajas para un closer inmobiliario que llama a propietarios de Madrid para captar edificios. Recomienda UNA técnica concreta (mirroring, labeling, calibrated questions, accusation audit, "that's right", "no", anchoring, bending reality) y una frase exacta lista para decir en español neutro y natural. Cita los fragmentos del corpus que usaste.
+const SYSTEM_BRIEF = `Eres el coach Chris Voss de un closer inmobiliario que hace LLAMADAS EN FRÍO a proindivisarios en Madrid. Objetivo de la llamada (NO es vender ni cerrar reunión): (1) que no cuelgue en los primeros 20s, (2) sacar 1 dato de catalogación nuevo, (3) abrir canal (opt-in WhatsApp o identificar influenciador). Personaliza TODO al snapshot: edad/perfil del propietario, % de propiedad (cuota), banderas del edificio (protegido, ITE, conflicto, herencia, baja gestión), cluster. Cita los fragmentos del corpus libro_voss que usaste (chunk_id real, no inventes).
 
-Devuelve SIEMPRE JSON estricto sin markdown:
+Devuelve SIEMPRE JSON estricto sin markdown, máximo ~200 palabras totales sumando todos los campos string, en español natural listo para leer:
+{
+  "tecnica_principal": "auditoria_acusaciones+orientacion_al_no",
+  "apertura_exacta": "Frase literal lista para leer: gratitud + auditoría de acusaciones personalizada al perfil (edad, cuota %, situación edificio) + pregunta orientada al no. Una sola frase larga o dos cortas, máx ~55 palabras.",
+  "etiquetas": [ "Parece que ...", "Da la impresión de que ..." ],
+  "preguntas_calibradas": [ "¿Cómo ...?", "¿Qué ...?" ],
+  "cierre_micro_compromiso": "Frase literal de opt-in WhatsApp por orientación al no, máx ~30 palabras",
+  "objeciones_probables": [
+    { "objecion": "...", "respuesta_voss": "frase literal lista para decir" },
+    { "objecion": "...", "respuesta_voss": "..." },
+    { "objecion": "...", "respuesta_voss": "..." }
+  ],
+  "por_que": "1 frase: por qué este abordaje encaja con ESTE propietario concreto",
+  "fragmentos_usados": [ { "source": "libro_voss", "chunk_id": "<uuid>", "tecnica": "..." } ]
+}
+
+Reglas duras:
+- Las 2 etiquetas se eligen según el perfil concreto (mayor sin herederos → "ya tiene su vida resuelta"; herencia reciente → "nadie eligió estar ahí"; % bajo → "con esa parte usted no pinta nada"; ITE/derrama → "más disgustos que alegrías"; conflicto → "ponerse de acuerdo no es fácil").
+- Las 1–2 preguntas calibradas se eligen según LO QUE FALTE por catalogar (si no sabemos gobernanza → "¿Cómo se organiza el edificio para decisiones?"; si no sabemos motor → "¿Qué tendría que pasar para que esto dejara de ser un problema?"; si no sabemos posición resto → "¿Cómo lo ven los demás propietarios?"). Empiezan SIEMPRE por qué/cómo, nunca por qué causal.
+- Las 3 objeciones son las MÁS PROBABLES según el perfil (mayor → "no me interesa", "esto es una estafa"; investor pequeño → "no quiero vender"; profesional → "hable con mi gestor"). Respuesta Voss = etiquetar + reorientar, nunca rebatir.
+- Nunca pidas reunión ni hables de precio en esta apertura.
+- Si falta dato concreto del snapshot, usa fórmulas neutras ("la situación del edificio") en vez de inventar.`;
+
+const SYSTEM_POST = `Eres el coach Chris Voss analizando una llamada ya ocurrida con un proindivisario. Devuelve JSON estricto sin markdown:
 {
   "tecnica_principal": "...",
-  "sugerencia": "Frase exacta que el comercial puede decir",
-  "por_que": "Razonamiento en una o dos frases",
-  "siguiente_paso": "Acción concreta tras la frase",
-  "fragmentos_usados": [ { "source": "...", "chunk_id": "...", "snippet": "..." } ]
+  "sugerencia": "Qué decir distinto la próxima vez (frase lista)",
+  "por_que": "1-2 frases",
+  "siguiente_paso": "Acción concreta de seguimiento (WhatsApp, recontacto, info que falta)",
+  "fragmentos_usados": [ { "source": "libro_voss", "chunk_id": "<uuid>", "tecnica": "..." } ]
 }`;
 
 async function embed(text: string, key: string): Promise<number[] | null> {
@@ -33,7 +56,10 @@ async function embed(text: string, key: string): Promise<number[] | null> {
     });
     if (!r.ok) return null;
     const j = await r.json();
-    return j?.data?.[0]?.embedding ?? null;
+    const v = j?.data?.[0]?.embedding;
+    if (!Array.isArray(v)) return null;
+    // DB column is vector(768); truncate if gateway returns 3072
+    return (v.length > 768 ? v.slice(0, 768) : v) as number[];
   } catch { return null; }
 }
 
@@ -103,8 +129,9 @@ ${fragments.length ? fragments.map((f: any, i: number) => `[${i+1}] (${f.source}
 
 Devuelve el JSON estricto.`;
 
+    const sys = mode === 'post' ? SYSTEM_POST : SYSTEM_BRIEF;
     const ai = await callAI([
-      { role: 'system', content: SYSTEM },
+      { role: 'system', content: sys },
       { role: 'user', content: userMsg },
     ], lk);
 

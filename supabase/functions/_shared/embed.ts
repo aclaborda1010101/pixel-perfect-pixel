@@ -12,18 +12,20 @@ export async function embed(text: string): Promise<number[] | null> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/text-embedding-004",
+        model: "google/gemini-embedding-001",
         input: text,
       }),
     });
     if (!res.ok) {
-      console.warn("embed: gateway returned", res.status);
+      const body = await res.text().catch(() => "<no body>");
+      console.warn("embed: gateway returned", res.status, body.slice(0, 300));
       return null;
     }
     const json = await res.json();
     const v = json?.data?.[0]?.embedding;
     if (!Array.isArray(v)) return null;
-    return v as number[];
+    // Truncate to 768 (DB column dim) since gateway ignored `dimensions` param
+    return (v.length > 768 ? v.slice(0, 768) : v) as number[];
   } catch (e) {
     console.warn("embed: error", e);
     return null;
