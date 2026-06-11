@@ -1042,7 +1042,13 @@ out geom;`;
 
   if (distinctVials.size >= 2 || (hasChaflanPanel && distinctVials.size >= 2)) {
     is_corner = true;
-    corner_type = hasChaflanPanel ? "esquina_chaflan" : "multifachada";
+    // Regla nueva (validada con equipo): >=3 vías distintas SIEMPRE es multifachada,
+    // aunque exista panel de chaflán geométrico. El chaflán solo prevalece con exactamente 2 vías.
+    if (distinctVials.size >= 3) {
+      corner_type = "multifachada";
+    } else {
+      corner_type = hasChaflanPanel ? "esquina_chaflan" : "multifachada";
+    }
   } else if (distinctVials.size === 1 && frentes.length >= 2) {
     // Mismo nombre con runs no contiguos (calle curva que toca dos veces) → NO cuenta como esquina por requisito.
     // Lo dejamos como línea pero marcamos en diag.
