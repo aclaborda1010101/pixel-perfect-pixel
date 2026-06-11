@@ -176,26 +176,36 @@ async function callVlm(imagesBase64: string[], ctx: {
   const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
   const prompt = `Eres un arquitecto técnico analizando UNA fachada concreta de un edificio residencial en Madrid. Te paso 3 fotos de Street View de la MISMA fachada (la "${ctx.fachada_label}") desde 3 puntos distintos.
 
-DEFINICIÓN VINCULANTE de "ventana":
-Hueco arquitectónico VIDRIADO con marco, en una habitación con salida al exterior, que permite
-segregar esa habitación como pieza habitable independiente.
+DEFINICIÓN VINCULANTE de "ventana" (estricta, criterio humano):
+Hueco arquitectónico VIDRIADO con MARCO y ANTEPECHO (peto/petril), en una
+habitación con salida al exterior. La parte baja del hueco NO llega al
+suelo: hay un alféizar/antepecho típicamente a ~90-110cm del pavimento.
 SÍ cuentan:
 - Un mirador (bow window) = 1 ventana (no cuentes los paños individuales).
-- Una puerta-balcón = 1 ventana.
-- Un balcón corrido con 2 puertas-balcón a habitaciones distintas = 2 ventanas.
-- Locales comerciales en planta baja = sí cuentan como ventanas de planta baja.
-NO cuentan (no los confundas con ventanas):
+- Locales comerciales en planta baja: 1 escaparate grande = 1 ventana.
+NO cuentan (excluir SIEMPRE, aunque parezcan ventana):
+- PUERTAS-BALCÓN ni BALCONERAS: cualquier hueco cuya parte baja llega al
+  suelo y se cruza para salir a un balcón/balconcillo/balcón francés
+  (incluido balcón francés con barandilla pegada al hueco). NO son ventanas.
+- Puertas de balcón corrido o balcón individual (cada puerta de salida al
+  balcón se excluye, sin importar a cuántas habitaciones sirva).
+- Puertas de acceso (portal, locales) en planta baja.
 - Ventanas de escalera.
 - Respiraderos / rejillas de ventilación.
 - Celosías o lamas de tendedero.
 - Claraboyas (van en cubierta, no en fachada).
-- Balcones cerrados ya contados como mirador/puerta-balcón (no los duplicaes).
 - Huecos ciegos, trampantojos o decoración.
+
+REGLA DE DESAMBIGUACIÓN: si dudas si un hueco es ventana o balconera,
+observa si tiene barandilla/petril metálico exterior pegado al hueco y la
+parte baja llega al suelo → ES BALCONERA, NO ventana. Sólo cuenta como
+ventana cuando ves antepecho macizo (muro bajo) de la fachada.
 
 REGLAS DE CONTEO APRENDIDAS DEL GROUND TRUTH HUMANO (vinculantes):
 1. FACHADA REPETITIVA CON OCLUSIÓN: si la fachada tiene patrón regular (mismos huecos por planta) y hay obstáculos (árboles, andamios, vehículos) que tapan parte, identifica UNA planta tipo COMPLETAMENTE DESPEJADA, cuenta sus huecos, y multiplica por nº de plantas residenciales. No reduzcas el conteo por lo que el árbol tape: la fachada continúa detrás.
 2. PLANTA BAJA COMERCIAL: los locales SÍ cuentan como ventanas en PB, pero escaparates de un solo paño grande cuentan como 1 ventana (no por cada cristal).
 3. ESQUINA / MULTIFACHADA: si el edificio da a 2+ calles y estás contando el total del edificio (no una sola fachada), suma TODAS las fachadas a vía pública. Cuando n_streets ≥ 3 el edificio es multifachada aunque geométricamente parezca chaflán.
+5. NO MEZCLES ventanas y balconeras: en Madrid el patrón típico de planta tipo es 1 balconera central + 1 ventana por eje, o 1 balconera por eje. Cuenta SÓLO las ventanas (con antepecho); si el eje sólo tiene balconeras, ese eje aporta 0 ventanas en plantas tipo (pero el eje vertical sigue existiendo a efectos de geometría — no lo cuentes en el total).
 4. PRINCIPIO DE NO INVENTAR: si la oclusión impide ver una planta completa despejada Y no puedes inferir el patrón con las 3 imágenes, marca confianza "baja" y flag "needs_review". Nunca rellenes con un número estimado sin base visual.
 
 DATOS DE CATASTRO (vinculantes, no contradigas):
@@ -212,26 +222,35 @@ Identifica los EJES VERTICALES de huecos en ESTA fachada (la ${ctx.fachada_label
 
 Cuenta los ejes reconciliando las 3 imágenes: una ve mejor la izquierda, otra el centro, otra la derecha. Si un eje está parcialmente tapado por árboles, toldos o vehículos pero ves huecos arriba alineados verticalmente, el eje existe completo. Si la fachada continúa al doblar en esquina, NO incluyas los ejes de la otra fachada — solo los de esta cara.
 
+Cuenta SÓLO huecos que cumplan la DEFINICIÓN VINCULANTE de ventana (con
+antepecho). Excluye balconeras aunque ocupen un eje vertical.
+
 Aplica la fórmula:
-  total = ejes × plantas_tipo + ventanas_planta_baja + ventanas_entresuelo
-  ventanas_planta_baja  = ejes - 1 si hay portal en ESTA fachada (los locales comerciales sí cuentan como ventanas)
-  ventanas_entresuelo   = ejes - 1 si hay entresuelo
+  ventanas_por_planta_tipo = nº de huecos-ventana en UNA planta tipo despejada (excluyendo balconeras)
+  ventanas_plantas_tipo    = ventanas_por_planta_tipo × plantas_tipo
+  ventanas_planta_baja     = nº ventanas/escaparates en planta baja de ESTA fachada (excluye puertas)
+  ventanas_entresuelo      = nº ventanas en entresuelo si lo hay, 0 si no
+  total                    = ventanas_plantas_tipo + ventanas_planta_baja + ventanas_entresuelo
+
+Reporta también balconeras_por_planta_tipo aparte (informativo, NO suma al total).
 
 DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
 {
   "fachada_analizada": "${ctx.fachada_label}",
   "ejes_verticales_detectados": N,
+  "ventanas_por_planta_tipo": V,
+  "balconeras_por_planta_tipo": B,
   "razon_del_conteo": "...",
   "hay_portal_en_esta_fachada": boolean,
   "ventanas_planta_baja": M,
   "ventanas_entresuelo": K,
-  "ventanas_plantas_tipo": N * plantas_tipo,
-  "total": M + K + N * plantas_tipo,
+  "ventanas_plantas_tipo": V * plantas_tipo,
+  "total": M + K + V * plantas_tipo,
   "miradores_detectados": número,
   "balcones_corridos_detectados": número,
   "confianza": "alta" | "media" | "baja",
   "flags": [],
-  "exclusiones_aplicadas": ["respiraderos","celosias","escalera","trampantojos"],
+  "exclusiones_aplicadas": ["balconeras","puertas_balcon","respiraderos","celosias","escalera","trampantojos"],
   "ejes_por_imagen": [
     { "image_index": 0, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
     { "image_index": 1, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
@@ -240,7 +259,7 @@ DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
 }
 
 VALIDACIÓN OBLIGATORIA antes de devolver:
-1. Recalcula y verifica total == ventanas_planta_baja + ventanas_entresuelo + ejes_verticales_detectados * plantas_tipo. Si no cuadra, recuenta.
+1. Recalcula y verifica total == ventanas_planta_baja + ventanas_entresuelo + ventanas_por_planta_tipo * plantas_tipo. Si no cuadra, recuenta.
 2. Para reconciliar las 3 imágenes, ignora las que tengan confianza_imagen < 0.4 (mala visibilidad, oclusión, foto de otra fachada). Toma como referencia las imágenes con mayor confianza.
 3. Si solo queda 1 imagen utilizable, marca confianza global = "baja" y añade flag "imagenes_descartadas_baja_confianza".`;
 
@@ -517,12 +536,24 @@ Deno.serve(async (req) => {
       f.vlm_raw = res.raw;
       f.vlm_parsed = res.parsed;
       const ejes = Number(res.parsed?.ejes_verticales_detectados ?? 0);
+      // Nuevo: VLM devuelve `ventanas_por_planta_tipo` (excluye balconeras).
+      // Si no lo da, fallback al conteo de ejes (comportamiento previo).
+      const vpt = Number.isFinite(Number(res.parsed?.ventanas_por_planta_tipo))
+        ? Number(res.parsed.ventanas_por_planta_tipo)
+        : ejes;
       const hayPortal = res.parsed?.hay_portal_en_esta_fachada !== false && f.role === "principal";
       f.ejes = ejes;
       f.hay_portal = !!hayPortal;
-      f.vbp = hayPortal ? Math.max(0, ejes - 1) : (f.role === "principal" ? ejes : 0);
-      f.ven = derived.has_entresuelo ? Math.max(0, ejes - 1) : 0;
-      f.vtt = ejes * derived.plantas_tipo;
+      // PB y entresuelo: usamos también ventanas (no balconeras) directos del VLM si vienen.
+      const vbpVlm = Number.isFinite(Number(res.parsed?.ventanas_planta_baja))
+        ? Number(res.parsed.ventanas_planta_baja)
+        : (hayPortal ? Math.max(0, vpt - 1) : (f.role === "principal" ? vpt : 0));
+      const venVlm = Number.isFinite(Number(res.parsed?.ventanas_entresuelo))
+        ? Number(res.parsed.ventanas_entresuelo)
+        : (derived.has_entresuelo ? Math.max(0, vpt - 1) : 0);
+      f.vbp = vbpVlm;
+      f.ven = venVlm;
+      f.vtt = vpt * derived.plantas_tipo;
       f.total = f.vtt + f.vbp + f.ven;
       if (ejes < 2 || ejes > 15) flags.push(`ejes_fuera_de_rango_${f.role}`);
     }));
