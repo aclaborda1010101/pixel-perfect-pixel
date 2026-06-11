@@ -249,21 +249,38 @@ VALIDACIÓN OBLIGATORIA antes de devolver:
     content.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } });
   }
 
-  const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-pro",
-      messages: [{ role: "user", content }],
-    }),
-  });
-  const text = await r.text();
-  let raw = text;
-  try {
-    const j = JSON.parse(text);
-    raw = j?.choices?.[0]?.message?.content ?? text;
-  } catch { /* keep raw */ }
-  return { raw, parsed: tryParseVlmJson(raw) };
+  // Hasta 3 intentos: reintenta si la respuesta es un timeout upstream o el
+  // parser no logra extraer JSON (caso Castelló 12 → VLM 504 → ejes=0).
+  let lastRaw = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-pro",
+          messages: [{ role: "user", content }],
+        }),
+      });
+      const text = await r.text();
+      let raw = text;
+      let upstreamTimeout = false;
+      try {
+        const j = JSON.parse(text);
+        raw = j?.choices?.[0]?.message?.content ?? text;
+        const errMsg = j?.choices?.[0]?.error?.message ?? j?.error?.message ?? "";
+        if (/timeout|Upstream idle/i.test(String(errMsg))) upstreamTimeout = true;
+      } catch { /* keep raw */ }
+      lastRaw = raw;
+      const parsed = tryParseVlmJson(raw);
+      if (parsed && !upstreamTimeout) return { raw, parsed };
+      // Reintentar con backoff
+      await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)));
+    } catch (_e) {
+      await new Promise((res) => setTimeout(res, 1500 * (attempt + 1)));
+    }
+  }
+  return { raw: lastRaw, parsed: tryParseVlmJson(lastRaw) };
 }
 
 function ab2b64(buf: ArrayBuffer): string {
