@@ -181,6 +181,152 @@ VARIANTS_ESCALERAS.v11_split_per_page = async (c) => {
   return nMax;
 };
 
+// V12 LOCALIZER + CROP DIRIGIDO: paso 1 ligero (gemini-3-flash) localiza la
+// página de PISO 01 y devuelve {page_index, confidence}. Paso 2: crop central
+// 60% zoom 2x sobre esa página y prompt v6 (few-shot) con gemini-3.1-pro.
+// Fallback a v6 completo si el localizador no encuentra P01 con conf>=0.6
+// (registrado como needs_review en building_feedback para no degradar).
+VARIANTS_ESCALERAS.v12_planta1_locator_crop = async (c) => {
+  const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
+    ? c.cat.fxcc_pages_urls
+    : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
+  if (!pages.length) return null;
+  const targetPages = pages.slice(0, 8);
+
+  const loc = await locatePlanta1(c, targetPages);
+  const locOk = loc && loc.confidence != null && loc.confidence >= 0.6
+    && Number.isFinite(loc.page_index) && loc.page_index >= 0 && loc.page_index < targetPages.length;
+
+  if (!locOk) {
+    // FALLBACK seguro: v6 + flag needs_review.
+    try {
+      await c.sb.from("building_feedback").insert({
+        building_id: c.building.id,
+        canal: "eval_detector_v12",
+        dimension: "n_escaleras",
+        estado: "pendiente",
+        texto: `v12 localizer no encontró PISO 01 (conf=${loc?.confidence ?? "null"}, idx=${loc?.page_index ?? "?"}). Fallback v6 + needs_review.`.slice(0, 1000),
+        metadatos: { variant: "v12_planta1_locator_crop", fallback: "v6", loc } as any,
+      });
+    } catch (_) {}
+    return await VARIANTS_ESCALERAS.v6_vlm_primary_dnprc_tiebreak(c);
+  }
+
+  // Crop dirigido a la página localizada (central + esquinas si chaflán).
+  const pageUrl = targetPages[loc!.page_index];
+  const img = await fetchImage(pageUrl);
+  const imageParts: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+  imageParts.push({ type: "image_url", image_url: { url: pageUrl } });
+  if (img) {
+    const W = img.width, H = img.height;
+    // central 60% area, zoom 2x
+    const cw = Math.floor(W * 0.6), ch = Math.floor(H * 0.6);
+    const cx = Math.floor((W - cw) / 2), cy = Math.floor((H - ch) / 2);
+    const center = await cropRegion(img, cx, cy, cw, ch, 2);
+    if (center) imageParts.push({ type: "image_url", image_url: { url: center } });
+    if (c.ba?.esquina === true) {
+      const ew = Math.floor(W * 0.5), eh = Math.floor(H * 0.5);
+      const corners: Array<[number, number]> = [
+        [0, 0], [W - ew, 0], [0, H - eh], [W - ew, H - eh],
+      ];
+      for (const [x, y] of corners) {
+        const cr = await cropRegion(img, x, y, ew, eh, 1.8);
+        if (cr) imageParts.push({ type: "image_url", image_url: { url: cr } });
+      }
+    }
+  }
+
+  // Pista opcional planta baja (página index-1 si existe) para correspondencia portal↔caja.
+  if (loc!.page_index - 1 >= 0) {
+    imageParts.push({ type: "image_url", image_url: { url: targetPages[loc!.page_index - 1] } });
+  }
+
+  const PROMPT = `Eres un experto en planos FXCC del Catastro de Madrid.
+La PRIMERA imagen es la página identificada como PISO 01 (planta 1).
+Después puede venir un CROP central ampliado (zoom 2x) y, si es chaflán, crops
+de las esquinas. La ÚLTIMA imagen (si la hay) es la PLANTA BAJA, sólo como
+pista de correspondencia portal↔caja.
+
+TAREA: cuenta cajas de escalera (ESC) en PISO 01.
+- Una caja ESC = recinto cerrado rectangular separando bloques V.A.* / V.B.*.
+- NUNCA cuentes sobre planta baja; planta baja sólo es pista de nº de portales.
+- 2 portales en PB + chaflán o doble fachada → suelen indicar 2 escaleras.
+- Si SOLO ves 1 núcleo claro y todas las viviendas son V.A.* (sin V.B.*), n=1.
+- Si las cajas se ven pegadas o el plano es pequeño, usa el crop ampliado.
+
+EJEMPLOS:
+- Serrano 16: 2 cajas ESC (norte/sur), V.A y V.B → n=2.
+- Cava Baja 42: chaflán, 2 portales, 2 núcleos aunque pegados → n=2.
+- Postigo de San Martín 6: 2 ESC simétricas → n=2.
+- Bloque lineal con 1 portal y V.A.* únicamente → n=1.
+
+esquina_chaflan_prior = ${c.ba?.esquina === true}
+
+Responde SOLO JSON: {"n_escaleras_piso01": number, "razonamiento": string, "confidence": number}`;
+
+  let n = 1; let conf: number | null = null; let razon = "";
+  try {
+    const j = await gatewayChat(c.apiKey, {
+      model: "google/gemini-3.1-pro-preview",
+      messages: [{ role: "user", content: [{ type: "text", text: PROMPT }, ...imageParts] }],
+      response_format: { type: "json_object" },
+    });
+    if (!j) return await VARIANTS_ESCALERAS.v6_vlm_primary_dnprc_tiebreak(c);
+    const txt = j?.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(txt);
+    n = Math.max(1, Math.min(8, Math.round(Number(parsed?.n_escaleras_piso01 ?? 1))));
+    conf = parsed?.confidence != null ? Number(parsed.confidence) : null;
+    razon = String(parsed?.razonamiento ?? "");
+  } catch {
+    return await VARIANTS_ESCALERAS.v6_vlm_primary_dnprc_tiebreak(c);
+  }
+
+  if (conf != null && conf < 0.6) {
+    try {
+      await c.sb.from("building_feedback").insert({
+        building_id: c.building.id,
+        canal: "eval_detector_v12",
+        dimension: "n_escaleras",
+        estado: "pendiente",
+        texto: `v12 baja confianza (${conf}). n=${n}. ${razon}`.slice(0, 1000),
+        metadatos: { variant: "v12_planta1_locator_crop", n, confidence: conf, loc } as any,
+      });
+    } catch (_) {}
+    const sub = await VARIANTS_ESCALERAS.v1_subparcelas_only(c);
+    if (typeof sub === "number" && sub >= 1) return Math.max(n, sub);
+  }
+  return n;
+};
+
+async function locatePlanta1(c: Ctx, pages: string[]): Promise<{ page_index: number; confidence: number } | null> {
+  const PROMPT = `Eres un clasificador rápido de páginas FXCC del Catastro de Madrid.
+Recibes una lista ordenada de páginas (índice 0..N-1). Localiza el ÍNDICE de la
+página que corresponde a "PISO 01" / "PLANTA 01" / "PLANTA 1ª" (NO la baja, no
+sótano, no ático, no alzados, no portada).
+Devuelve confidence alta (>=0.8) sólo si ves el rótulo claro. Si dudas, conf<0.6.
+Responde SOLO JSON: {"page_index": number, "confidence": number, "razon": string}`;
+  try {
+    const j = await gatewayChat(c.apiKey, {
+      model: "google/gemini-3-flash-preview",
+      messages: [{ role: "user", content: [
+        { type: "text", text: PROMPT },
+        ...pages.map((url, i) => ([
+          { type: "text" as const, text: `--- página índice ${i} ---` },
+          { type: "image_url" as const, image_url: { url } },
+        ])).flat(),
+      ]}],
+      response_format: { type: "json_object" },
+    });
+    if (!j) return null;
+    const txt = j?.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(txt);
+    const idx = Math.round(Number(parsed?.page_index));
+    const conf = parsed?.confidence != null ? Number(parsed.confidence) : null;
+    if (!Number.isFinite(idx) || conf == null) return null;
+    return { page_index: idx, confidence: conf };
+  } catch { return null; }
+}
+
 async function callVlmSinglePage(c: Ctx, url: string): Promise<{ n: number; conf: number | null } | null> {
   const PROMPT = `Eres un experto en planos FXCC del Catastro de Madrid.
 Recibes UNA SOLA página del FXCC. Tarea:
