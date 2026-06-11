@@ -176,19 +176,18 @@ async function callVlm(imagesBase64: string[], ctx: {
   const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
   const prompt = `Eres un arquitecto técnico analizando UNA fachada concreta de un edificio residencial en Madrid. Te paso 3 fotos de Street View de la MISMA fachada (la "${ctx.fachada_label}") desde 3 puntos distintos.
 
-DEFINICIÓN VINCULANTE de "ventana" (estricta, criterio humano):
-Hueco arquitectónico VIDRIADO con MARCO y ANTEPECHO (peto/petril), en una
-habitación con salida al exterior. La parte baja del hueco NO llega al
-suelo: hay un alféizar/antepecho típicamente a ~90-110cm del pavimento.
+DEFINICIÓN VINCULANTE de "hueco-ventana" (v_pre-balconeras, criterio humano):
+Hueco vidriado de fachada en habitaciones habitables. INCLUYE tanto
+ventanas con antepecho macizo COMO balconeras / puertas-balcón / balcones
+franceses (su clasificación se hace en una segunda pasada). En esta pasada
+cuentas TODOS los huecos vidriados como "ventanas_por_planta_tipo".
 SÍ cuentan:
-- Un mirador (bow window) = 1 ventana (no cuentes los paños individuales).
-- Locales comerciales en planta baja: 1 escaparate grande = 1 ventana.
-NO cuentan (excluir SIEMPRE, aunque parezcan ventana):
-- PUERTAS-BALCÓN ni BALCONERAS: cualquier hueco cuya parte baja llega al
-  suelo y se cruza para salir a un balcón/balconcillo/balcón francés
-  (incluido balcón francés con barandilla pegada al hueco). NO son ventanas.
-- Puertas de balcón corrido o balcón individual (cada puerta de salida al
-  balcón se excluye, sin importar a cuántas habitaciones sirva).
+- Ventanas con antepecho.
+- Balconeras y puertas de balcón (cada hueco que da al balcón, una por
+  habitación; un balcón corrido NO los fusiona).
+- Un mirador (bow window) = 1 hueco (no por paño).
+- Escaparates de locales en planta baja: 1 escaparate grande = 1 hueco.
+NO cuentan:
 - Puertas de acceso (portal, locales) en planta baja.
 - Ventanas de escalera.
 - Respiraderos / rejillas de ventilación.
@@ -196,16 +195,11 @@ NO cuentan (excluir SIEMPRE, aunque parezcan ventana):
 - Claraboyas (van en cubierta, no en fachada).
 - Huecos ciegos, trampantojos o decoración.
 
-REGLA DE DESAMBIGUACIÓN: si dudas si un hueco es ventana o balconera,
-observa si tiene barandilla/petril metálico exterior pegado al hueco y la
-parte baja llega al suelo → ES BALCONERA, NO ventana. Sólo cuenta como
-ventana cuando ves antepecho macizo (muro bajo) de la fachada.
-
 REGLAS DE CONTEO APRENDIDAS DEL GROUND TRUTH HUMANO (vinculantes):
 1. FACHADA REPETITIVA CON OCLUSIÓN: si la fachada tiene patrón regular (mismos huecos por planta) y hay obstáculos (árboles, andamios, vehículos) que tapan parte, identifica UNA planta tipo COMPLETAMENTE DESPEJADA, cuenta sus huecos, y multiplica por nº de plantas residenciales. No reduzcas el conteo por lo que el árbol tape: la fachada continúa detrás.
 2. PLANTA BAJA COMERCIAL: los locales SÍ cuentan como ventanas en PB, pero escaparates de un solo paño grande cuentan como 1 ventana (no por cada cristal).
 3. ESQUINA / MULTIFACHADA: si el edificio da a 2+ calles y estás contando el total del edificio (no una sola fachada), suma TODAS las fachadas a vía pública. Cuando n_streets ≥ 3 el edificio es multifachada aunque geométricamente parezca chaflán.
-5. NO MEZCLES ventanas y balconeras: en Madrid el patrón típico de planta tipo es 1 balconera central + 1 ventana por eje, o 1 balconera por eje. Cuenta SÓLO las ventanas (con antepecho); si el eje sólo tiene balconeras, ese eje aporta 0 ventanas en plantas tipo (pero el eje vertical sigue existiendo a efectos de geometría — no lo cuentes en el total).
+5. CUENTA TODOS LOS HUECOS VIDRIADOS de la planta tipo (ventanas y balconeras juntas). La clasificación la hace una segunda pasada; aquí maximiza el recall.
 4. PRINCIPIO DE NO INVENTAR: si la oclusión impide ver una planta completa despejada Y no puedes inferir el patrón con las 3 imágenes, marca confianza "baja" y flag "needs_review". Nunca rellenes con un número estimado sin base visual.
 
 DATOS DE CATASTRO (vinculantes, no contradigas):
@@ -226,13 +220,13 @@ Cuenta SÓLO huecos que cumplan la DEFINICIÓN VINCULANTE de ventana (con
 antepecho). Excluye balconeras aunque ocupen un eje vertical.
 
 Aplica la fórmula:
-  ventanas_por_planta_tipo = nº de huecos-ventana en UNA planta tipo despejada (excluyendo balconeras)
+  ventanas_por_planta_tipo = nº de huecos vidriados en UNA planta tipo despejada (INCLUYENDO balconeras)
   ventanas_plantas_tipo    = ventanas_por_planta_tipo × plantas_tipo
-  ventanas_planta_baja     = nº ventanas/escaparates en planta baja de ESTA fachada (excluye puertas)
+  ventanas_planta_baja     = nº huecos vidriados/escaparates en planta baja de ESTA fachada (excluye puertas)
   ventanas_entresuelo      = nº ventanas en entresuelo si lo hay, 0 si no
   total                    = ventanas_plantas_tipo + ventanas_planta_baja + ventanas_entresuelo
 
-Reporta también balconeras_por_planta_tipo aparte (informativo, NO suma al total).
+Reporta también balconeras_por_planta_tipo aparte (estimación inicial; la cifra vinculante la fija la 2ª pasada).
 
 DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
 {
@@ -250,7 +244,7 @@ DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
   "balcones_corridos_detectados": número,
   "confianza": "alta" | "media" | "baja",
   "flags": [],
-  "exclusiones_aplicadas": ["balconeras","puertas_balcon","respiraderos","celosias","escalera","trampantojos"],
+  "exclusiones_aplicadas": ["puertas_acceso","respiraderos","celosias","escalera","trampantojos","claraboyas"],
   "ejes_por_imagen": [
     { "image_index": 0, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
     { "image_index": 1, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
