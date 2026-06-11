@@ -298,6 +298,83 @@ Responde SOLO JSON: {"n_escaleras_piso01": number, "razonamiento": string, "conf
   return n;
 };
 
+// V13 OCR-RÓTULOS: lee rótulos de texto en TODAS las páginas FXCC y cuenta
+// etiquetas DISTINTAS que identifiquen cajas de escalera (ESC, ESC.A, ESC1,
+// ESCALERA A, E1/E2, etc.) en PISO 01 (con planta baja como pista de portales).
+// Señal combinada: si OCR encuentra >=2 etiquetas DISTINTAS de escalera con
+// confianza alta → devuelve 2; en cualquier otro caso devuelve v6 (no degrada).
+VARIANTS_ESCALERAS.v13_ocr_rotulos_escalera = async (c) => {
+  const pages: string[] = Array.isArray(c.cat?.fxcc_pages_urls) && c.cat.fxcc_pages_urls.length
+    ? c.cat.fxcc_pages_urls
+    : (Array.isArray(c.cat?.plantas_pages_urls) ? c.cat.plantas_pages_urls : []);
+  if (!pages.length) return await VARIANTS_ESCALERAS.v6_vlm_primary_dnprc_tiebreak(c);
+
+  const PROMPT = `Eres un OCR experto en planos FXCC del Catastro de Madrid.
+TAREA ESTRICTA: localiza TEXTOS/RÓTULOS impresos sobre el plano que identifiquen
+cajas de escalera. NO cuentes geometría, NO interpretes: SOLO lee rótulos.
+
+Patrones válidos (case-insensitive): "ESC", "ESC.", "ESC.A", "ESC.B", "ESC1",
+"ESC2", "ESC.1", "ESC.2", "ESCALERA", "ESCALERA A", "ESCALERA B", "E1", "E2",
+"E.A", "E.B", "CAJA ESC", "NÚCLEO ESC".
+
+Recibirás varias páginas. Para CADA página, identifica si es PISO 01 / PLANTA 1ª
+(NO planta baja, NO sótano, NO ático, NO alzados). Sólo los rótulos en PISO 01
+cuentan para el conteo final; los de planta baja son pista de nº de portales.
+
+Devuelve SOLO este JSON:
+{
+  "rotulos_piso01": string[],              // etiquetas DISTINTAS encontradas literalmente en PISO 01 (normalizadas en mayúsculas, sin puntos finales)
+  "rotulos_planta_baja": string[],         // idem en planta baja (pista portales)
+  "paginas_piso01_idx": number[],          // índices 0-based de páginas usadas como PISO 01
+  "evidencia": string,                     // breve, 1-2 frases
+  "confidence": number                     // 0..1 sobre la lectura del texto
+}`;
+
+  let parsed: any = null;
+  try {
+    const j = await gatewayChat(c.apiKey, {
+      model: "google/gemini-3.1-pro-preview",
+      messages: [{ role: "user", content: [
+        { type: "text", text: PROMPT },
+        ...pages.slice(0, 8).map((url, i) => ([
+          { type: "text" as const, text: `--- página índice ${i} ---` },
+          { type: "image_url" as const, image_url: { url } },
+        ])).flat(),
+      ]}],
+      response_format: { type: "json_object" },
+    });
+    if (!j) return await VARIANTS_ESCALERAS.v6_vlm_primary_dnprc_tiebreak(c);
+    const txt = j?.choices?.[0]?.message?.content ?? "";
+    parsed = JSON.parse(txt);
+  } catch {
+    return await VARIANTS_ESCALERAS.v6_vlm_primary_dnprc_tiebreak(c);
+  }
+
+  const conf = parsed?.confidence != null ? Number(parsed.confidence) : 0;
+  const rotulos: string[] = Array.isArray(parsed?.rotulos_piso01) ? parsed.rotulos_piso01.map((s: any) => String(s ?? "").trim().toUpperCase()).filter(Boolean) : [];
+  // Normalización agresiva: quita puntos, espacios extra y unifica "ESCALERA X" → "ESC X".
+  const norm = (s: string) => s
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^ESCALERA\b/, "ESC")
+    .trim();
+  const distintos = new Set(rotulos.map(norm).filter(s => /^(ESC|E)\b/.test(s)));
+
+  try {
+    await c.sb.from("building_feedback").insert({
+      building_id: c.building.id,
+      canal: "eval_detector_v13",
+      dimension: "n_escaleras",
+      estado: "pendiente",
+      texto: `v13 OCR rótulos: ${distintos.size} distintos en P01 [${Array.from(distintos).join("|")}], conf=${conf}.`.slice(0, 1000),
+      metadatos: { variant: "v13_ocr_rotulos_escalera", rotulos_piso01: Array.from(distintos), conf, raw: parsed } as any,
+    });
+  } catch (_) {}
+
+  if (distintos.size >= 2 && conf >= 0.6) return 2;
+  return await VARIANTS_ESCALERAS.v6_vlm_primary_dnprc_tiebreak(c);
+};
+
 async function locatePlanta1(c: Ctx, pages: string[]): Promise<{ page_index: number; confidence: number } | null> {
   const PROMPT = `Eres un clasificador rápido de páginas FXCC del Catastro de Madrid.
 Recibes una lista ordenada de páginas (índice 0..N-1). Localiza el ÍNDICE de la
