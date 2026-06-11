@@ -18,6 +18,12 @@ const ARCGIS_LAYER =
 // Capa legacy (DESARROLLO_URBANO_ACTUALIZADO) — algunos elementos singulares solo aparecen allí.
 const ARCGIS_LAYER_LEGACY =
   "https://sigma.madrid.es/hosted/rest/services/DESARROLLO_URBANO_ACTUALIZADO/EDIFICIOS_PROTEGIDOS/MapServer/5/query";
+// Capa de Expedientes de Planeamiento AD. Layer 1. Sirve para detectar
+// Áreas de Planeamiento Específico (APE) que cubran al edificio (PE +
+// denominación con "APE"). Cubre tanto APE clásicas como PEPS de distrito
+// tipo "Colonia Bellas Vistas" o "Metro Cuatro Caminos".
+const ARCGIS_APE_LAYER =
+  "https://sigma.madrid.es/hosted/rest/services/DESARROLLO_URBANO_ACTUALIZADO/EXPEDIENTES_PLANEAMIENTO_AD/MapServer/1/query";
 
 type PgouHit = {
   n_catalogo: string | null;
@@ -38,6 +44,40 @@ function parseHit(j: any): PgouHit | null {
     nombre: a.NOMBRE ?? null,
     proteccion_actual: nivel ? String(nivel) : null,
     proteccion_97: a.PROTECCION_97 ?? a.NORMATIVA ?? null,
+  };
+}
+
+// Query APE/PE polygons that intersect the parcel polygon.
+async function queryApeByPolygon(ring: [number, number][]): Promise<{ hit: PgouHit | null; raw: any }> {
+  const rings = [ring.map(([lon, lat]) => [lon, lat])];
+  const geometry = JSON.stringify({ rings, spatialReference: { wkid: 4326 } });
+  const params = new URLSearchParams({
+    geometry, geometryType: "esriGeometryPolygon", inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    where: "TFIG_TX_ABREV='PE' OR UPPER(EXP_TX_DENOM) LIKE '%APE%'",
+    outFields: "EXP_ID,EXP_TX_NUMERO,FIG_TX_ETIQ,TFIG_TX_ABREV,EXP_TX_DENOM,FAS_TX_DENOM",
+    returnGeometry: "false", f: "json",
+  });
+  const r = await fetch(ARCGIS_APE_LAYER, { method: "POST", body: params });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`ArcGIS APE ${r.status}`);
+  const feats = (j?.features ?? []) as any[];
+  // Solo nos quedamos con los que parecen APE/PEPS reales (descartamos MPG y PE genéricos sin "APE" o de ámbito ciudad).
+  const real = feats.filter((f: any) => {
+    const denom = String(f?.attributes?.EXP_TX_DENOM ?? "").toUpperCase();
+    const tfig = String(f?.attributes?.TFIG_TX_ABREV ?? "").toUpperCase();
+    return denom.includes("APE") || (tfig === "PE" && !denom.includes("NN.UU") && !denom.includes("CUBIERTAS VERDES"));
+  });
+  if (real.length === 0) return { hit: null, raw: { status: r.status, count: feats.length, ape_count: 0, sample: feats[0]?.attributes ?? null } };
+  const top = real[0].attributes;
+  return {
+    hit: {
+      n_catalogo: top.FIG_TX_ETIQ ?? top.EXP_TX_NUMERO ?? null,
+      nombre: top.EXP_TX_DENOM ?? null,
+      proteccion_actual: `APE/${top.TFIG_TX_ABREV ?? "PE"}`,
+      proteccion_97: top.FAS_TX_DENOM ?? null,
+    },
+    raw: { status: r.status, count: real.length, sample: top, all: real.map((f: any) => f.attributes) },
   };
 }
 
@@ -155,6 +195,17 @@ async function processOne(supabase: any, buildingId: string) {
       } catch (e) {
         intentos.push({ intento: "rc14_legacy", error: (e as Error).message, ts: new Date().toISOString() });
       }
+    }
+  }
+
+  // 2b) Fallback APE/PEPS distrito por polígono
+  if (!hit && exteriorRing) {
+    try {
+      const r = await queryApeByPolygon(exteriorRing);
+      intentos.push({ intento: "ape_distrito_pe", hit: !!r.hit, raw: r.raw, ts: new Date().toISOString() });
+      if (r.hit) { hit = r.hit; source = "pgou_ape_distrito"; }
+    } catch (e) {
+      intentos.push({ intento: "ape_distrito_pe", error: (e as Error).message, ts: new Date().toISOString() });
     }
   }
 
