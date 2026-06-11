@@ -176,19 +176,18 @@ async function callVlm(imagesBase64: string[], ctx: {
   const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
   const prompt = `Eres un arquitecto técnico analizando UNA fachada concreta de un edificio residencial en Madrid. Te paso 3 fotos de Street View de la MISMA fachada (la "${ctx.fachada_label}") desde 3 puntos distintos.
 
-DEFINICIÓN VINCULANTE de "ventana" (estricta, criterio humano):
-Hueco arquitectónico VIDRIADO con MARCO y ANTEPECHO (peto/petril), en una
-habitación con salida al exterior. La parte baja del hueco NO llega al
-suelo: hay un alféizar/antepecho típicamente a ~90-110cm del pavimento.
+DEFINICIÓN VINCULANTE de "hueco-ventana" (v_pre-balconeras, criterio humano):
+Hueco vidriado de fachada en habitaciones habitables. INCLUYE tanto
+ventanas con antepecho macizo COMO balconeras / puertas-balcón / balcones
+franceses (su clasificación se hace en una segunda pasada). En esta pasada
+cuentas TODOS los huecos vidriados como "ventanas_por_planta_tipo".
 SÍ cuentan:
-- Un mirador (bow window) = 1 ventana (no cuentes los paños individuales).
-- Locales comerciales en planta baja: 1 escaparate grande = 1 ventana.
-NO cuentan (excluir SIEMPRE, aunque parezcan ventana):
-- PUERTAS-BALCÓN ni BALCONERAS: cualquier hueco cuya parte baja llega al
-  suelo y se cruza para salir a un balcón/balconcillo/balcón francés
-  (incluido balcón francés con barandilla pegada al hueco). NO son ventanas.
-- Puertas de balcón corrido o balcón individual (cada puerta de salida al
-  balcón se excluye, sin importar a cuántas habitaciones sirva).
+- Ventanas con antepecho.
+- Balconeras y puertas de balcón (cada hueco que da al balcón, una por
+  habitación; un balcón corrido NO los fusiona).
+- Un mirador (bow window) = 1 hueco (no por paño).
+- Escaparates de locales en planta baja: 1 escaparate grande = 1 hueco.
+NO cuentan:
 - Puertas de acceso (portal, locales) en planta baja.
 - Ventanas de escalera.
 - Respiraderos / rejillas de ventilación.
@@ -196,16 +195,11 @@ NO cuentan (excluir SIEMPRE, aunque parezcan ventana):
 - Claraboyas (van en cubierta, no en fachada).
 - Huecos ciegos, trampantojos o decoración.
 
-REGLA DE DESAMBIGUACIÓN: si dudas si un hueco es ventana o balconera,
-observa si tiene barandilla/petril metálico exterior pegado al hueco y la
-parte baja llega al suelo → ES BALCONERA, NO ventana. Sólo cuenta como
-ventana cuando ves antepecho macizo (muro bajo) de la fachada.
-
 REGLAS DE CONTEO APRENDIDAS DEL GROUND TRUTH HUMANO (vinculantes):
 1. FACHADA REPETITIVA CON OCLUSIÓN: si la fachada tiene patrón regular (mismos huecos por planta) y hay obstáculos (árboles, andamios, vehículos) que tapan parte, identifica UNA planta tipo COMPLETAMENTE DESPEJADA, cuenta sus huecos, y multiplica por nº de plantas residenciales. No reduzcas el conteo por lo que el árbol tape: la fachada continúa detrás.
 2. PLANTA BAJA COMERCIAL: los locales SÍ cuentan como ventanas en PB, pero escaparates de un solo paño grande cuentan como 1 ventana (no por cada cristal).
 3. ESQUINA / MULTIFACHADA: si el edificio da a 2+ calles y estás contando el total del edificio (no una sola fachada), suma TODAS las fachadas a vía pública. Cuando n_streets ≥ 3 el edificio es multifachada aunque geométricamente parezca chaflán.
-5. NO MEZCLES ventanas y balconeras: en Madrid el patrón típico de planta tipo es 1 balconera central + 1 ventana por eje, o 1 balconera por eje. Cuenta SÓLO las ventanas (con antepecho); si el eje sólo tiene balconeras, ese eje aporta 0 ventanas en plantas tipo (pero el eje vertical sigue existiendo a efectos de geometría — no lo cuentes en el total).
+5. CUENTA TODOS LOS HUECOS VIDRIADOS de la planta tipo (ventanas y balconeras juntas). La clasificación la hace una segunda pasada; aquí maximiza el recall.
 4. PRINCIPIO DE NO INVENTAR: si la oclusión impide ver una planta completa despejada Y no puedes inferir el patrón con las 3 imágenes, marca confianza "baja" y flag "needs_review". Nunca rellenes con un número estimado sin base visual.
 
 DATOS DE CATASTRO (vinculantes, no contradigas):
@@ -226,13 +220,13 @@ Cuenta SÓLO huecos que cumplan la DEFINICIÓN VINCULANTE de ventana (con
 antepecho). Excluye balconeras aunque ocupen un eje vertical.
 
 Aplica la fórmula:
-  ventanas_por_planta_tipo = nº de huecos-ventana en UNA planta tipo despejada (excluyendo balconeras)
+  ventanas_por_planta_tipo = nº de huecos vidriados en UNA planta tipo despejada (INCLUYENDO balconeras)
   ventanas_plantas_tipo    = ventanas_por_planta_tipo × plantas_tipo
-  ventanas_planta_baja     = nº ventanas/escaparates en planta baja de ESTA fachada (excluye puertas)
+  ventanas_planta_baja     = nº huecos vidriados/escaparates en planta baja de ESTA fachada (excluye puertas)
   ventanas_entresuelo      = nº ventanas en entresuelo si lo hay, 0 si no
   total                    = ventanas_plantas_tipo + ventanas_planta_baja + ventanas_entresuelo
 
-Reporta también balconeras_por_planta_tipo aparte (informativo, NO suma al total).
+Reporta también balconeras_por_planta_tipo aparte (estimación inicial; la cifra vinculante la fija la 2ª pasada).
 
 DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
 {
@@ -250,7 +244,7 @@ DEVUELVE EXCLUSIVAMENTE JSON con esta forma:
   "balcones_corridos_detectados": número,
   "confianza": "alta" | "media" | "baja",
   "flags": [],
-  "exclusiones_aplicadas": ["balconeras","puertas_balcon","respiraderos","celosias","escalera","trampantojos"],
+  "exclusiones_aplicadas": ["puertas_acceso","respiraderos","celosias","escalera","trampantojos","claraboyas"],
   "ejes_por_imagen": [
     { "image_index": 0, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
     { "image_index": 1, "ejes_visibles": N, "completos": boolean, "confianza_imagen": 0.0 },
@@ -307,6 +301,63 @@ function ab2b64(buf: ArrayBuffer): string {
   let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
+}
+
+// 2ª pasada: clasifica cuántos huecos de la planta tipo son balconeras.
+// No inventa; si no puede afirmarlo, devuelve confianza < 0.5.
+async function classifyBalconeras(imagesBase64: string[], ctx: {
+  huecos_por_planta_tipo: number;
+  fachada_label: "principal" | "secundaria";
+}): Promise<{ raw: string; balconeras_por_planta_tipo: number | null; confianza: number; razon: string }>{
+  const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
+  const prompt = `Segunda pasada de clasificación. Te paso 3 fotos de la
+misma fachada "${ctx.fachada_label}". La primera pasada contó
+${ctx.huecos_por_planta_tipo} HUECOS VIDRIADOS por planta tipo (ventanas + balconeras).
+
+Tu tarea: contar SOLO las BALCONERAS por planta tipo. Una balconera es
+un hueco vidriado cuya parte baja LLEGA al suelo y suele tener
+barandilla/petril metálico exterior pegado al hueco (balcón corrido,
+balcón individual o balcón francés). Una VENTANA tiene antepecho
+macizo (~90-110cm) y la parte baja NO llega al suelo.
+
+Reglas estrictas:
+- Identifica UNA planta tipo despejada (la más visible) y clasifica sus huecos.
+- Si no puedes ver con claridad si un hueco es ventana o balconera, NO inventes:
+  baja la confianza global.
+- "balconeras_por_planta_tipo" debe ser entero en [0, ${ctx.huecos_por_planta_tipo}].
+- Si la oclusión te impide clasificar con seguridad, confianza < 0.5 y razón clara.
+
+Devuelve EXCLUSIVAMENTE JSON:
+{
+  "balconeras_por_planta_tipo": number,
+  "ventanas_por_planta_tipo": number,
+  "confianza": number,
+  "razon": string
+}`;
+  const content: any[] = [{ type: "text", text: prompt }];
+  for (const b64 of imagesBase64) content.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } });
+  let lastRaw = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: "google/gemini-2.5-pro", messages: [{ role: "user", content }] }),
+      });
+      const text = await r.text();
+      let raw = text;
+      try { raw = JSON.parse(text)?.choices?.[0]?.message?.content ?? text; } catch { /* keep */ }
+      lastRaw = raw;
+      const p = tryParseVlmJson(raw);
+      if (p && Number.isFinite(Number(p.balconeras_por_planta_tipo))) {
+        const b = Math.max(0, Math.min(ctx.huecos_por_planta_tipo, Math.round(Number(p.balconeras_por_planta_tipo))));
+        const c = Math.max(0, Math.min(1, Number(p.confianza ?? 0)));
+        return { raw, balconeras_por_planta_tipo: b, confianza: c, razon: String(p.razon ?? "") };
+      }
+      await new Promise((res) => setTimeout(res, 1200 * (attempt + 1)));
+    } catch { await new Promise((res) => setTimeout(res, 1200 * (attempt + 1))); }
+  }
+  return { raw: lastRaw, balconeras_por_planta_tipo: null, confianza: 0, razon: "parser_fail" };
 }
 
 Deno.serve(async (req) => {
@@ -536,15 +587,36 @@ Deno.serve(async (req) => {
       f.vlm_raw = res.raw;
       f.vlm_parsed = res.parsed;
       const ejes = Number(res.parsed?.ejes_verticales_detectados ?? 0);
-      // Nuevo: VLM devuelve `ventanas_por_planta_tipo` (excluye balconeras).
-      // Si no lo da, fallback al conteo de ejes (comportamiento previo).
-      const vpt = Number.isFinite(Number(res.parsed?.ventanas_por_planta_tipo))
+      // 1ª pasada (v_pre-balconeras): cuenta TODOS los huecos como ventanas.
+      const huecos = Number.isFinite(Number(res.parsed?.ventanas_por_planta_tipo))
         ? Number(res.parsed.ventanas_por_planta_tipo)
         : ejes;
       const hayPortal = res.parsed?.hay_portal_en_esta_fachada !== false && f.role === "principal";
       f.ejes = ejes;
       f.hay_portal = !!hayPortal;
-      // PB y entresuelo: usamos también ventanas (no balconeras) directos del VLM si vienen.
+      // 2ª pasada: clasifica balconeras y resta del conteo de plantas tipo.
+      let vpt = huecos;
+      let balc2: number | null = null;
+      let balc_conf = 0;
+      if (huecos > 0) {
+        const cls = await classifyBalconeras(f.captures.map((c) => c.b64!), {
+          huecos_por_planta_tipo: huecos, fachada_label: f.role,
+        });
+        balc2 = cls.balconeras_por_planta_tipo;
+        balc_conf = cls.confianza;
+        if (balc2 != null && balc_conf >= 0.5) {
+          vpt = Math.max(0, huecos - balc2);
+        } else {
+          flags.push(`balconeras_clasificacion_baja_confianza_${f.role}`);
+        }
+        (f.vlm_parsed ?? {}).segunda_pasada_balconeras = {
+          huecos_por_planta_tipo: huecos,
+          balconeras_por_planta_tipo: balc2,
+          ventanas_por_planta_tipo_final: vpt,
+          confianza: balc_conf,
+          razon: cls.razon,
+        };
+      }
       const vbpVlm = Number.isFinite(Number(res.parsed?.ventanas_planta_baja))
         ? Number(res.parsed.ventanas_planta_baja)
         : (hayPortal ? Math.max(0, vpt - 1) : (f.role === "principal" ? vpt : 0));

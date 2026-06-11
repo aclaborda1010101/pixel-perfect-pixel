@@ -155,15 +155,32 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const set_name: string = body.set_name ?? "ctrl_10x10_v1";
   const onlyIds: string[] | null = Array.isArray(body.building_ids) && body.building_ids.length ? body.building_ids : null;
+  const batchSize: number = Math.max(1, Math.min(6, Number(body.batch_size ?? 3)));
+  const force: boolean = body.force === true;
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   let q = sb.from("escaleras_control_set").select("building_id, gt").eq("set_name", set_name);
   if (onlyIds) q = q.in("building_id", onlyIds);
   const { data: rows, error } = await q;
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-  const items = rows ?? [];
+  let items = rows ?? [];
+
+  // Saltar los ya resueltos (pred_n != null o needs_review sin error), salvo force.
+  if (!force && items.length) {
+    const { data: done } = await sb.from("escaleras_eval_results")
+      .select("building_id, pred_n, needs_review, error")
+      .eq("set_name", set_name).eq("version", "v7.4")
+      .in("building_id", items.map((i: any) => i.building_id));
+    const ok = new Set((done ?? [])
+      .filter((r: any) => r.error == null && (r.pred_n != null || r.needs_review === true))
+      .map((r: any) => r.building_id));
+    items = items.filter((i: any) => !ok.has(i.building_id));
+  }
+
+  const batch = items.slice(0, batchSize);
+  const remaining = items.slice(batchSize).map((i: any) => i.building_id);
 
   const run = async () => {
-    for (const it of items) {
+    for (const it of batch) {
       try {
         const r = await evalOne(sb, apiKey, set_name, it.building_id, it.gt);
         await sb.from("escaleras_eval_results").upsert({
@@ -175,11 +192,24 @@ Deno.serve(async (req) => {
       } catch (e) { console.warn("v7.4 err", it.building_id, (e as Error).message); }
       await new Promise(r => setTimeout(r, 400));
     }
-    console.log("eval-escaleras-v7.4 done");
+    console.log("eval-escaleras-v7.4 batch done", batch.length, "remaining", remaining.length);
+    if (remaining.length) {
+      try {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/eval-escaleras-v7-4`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          },
+          body: JSON.stringify({ set_name, building_ids: remaining, batch_size: batchSize, force }),
+        });
+      } catch (e) { console.warn("v7.4 auto-reinvoke failed", (e as Error).message); }
+    }
   };
   // @ts-ignore EdgeRuntime
   EdgeRuntime.waitUntil(run());
-  return new Response(JSON.stringify({ ok: true, async: true, queued: items.length }), {
+  return new Response(JSON.stringify({ ok: true, async: true, batch: batch.length, remaining: remaining.length }), {
     status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
