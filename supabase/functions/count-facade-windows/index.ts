@@ -192,6 +192,12 @@ NO cuentan (no los confundas con ventanas):
 - Balcones cerrados ya contados como mirador/puerta-balcón (no los duplicaes).
 - Huecos ciegos, trampantojos o decoración.
 
+REGLAS DE CONTEO APRENDIDAS DEL GROUND TRUTH HUMANO (vinculantes):
+1. FACHADA REPETITIVA CON OCLUSIÓN: si la fachada tiene patrón regular (mismos huecos por planta) y hay obstáculos (árboles, andamios, vehículos) que tapan parte, identifica UNA planta tipo COMPLETAMENTE DESPEJADA, cuenta sus huecos, y multiplica por nº de plantas residenciales. No reduzcas el conteo por lo que el árbol tape: la fachada continúa detrás.
+2. PLANTA BAJA COMERCIAL: los locales SÍ cuentan como ventanas en PB, pero escaparates de un solo paño grande cuentan como 1 ventana (no por cada cristal).
+3. ESQUINA / MULTIFACHADA: si el edificio da a 2+ calles y estás contando el total del edificio (no una sola fachada), suma TODAS las fachadas a vía pública. Cuando n_streets ≥ 3 el edificio es multifachada aunque geométricamente parezca chaflán.
+4. PRINCIPIO DE NO INVENTAR: si la oclusión impide ver una planta completa despejada Y no puedes inferir el patrón con las 3 imágenes, marca confianza "baja" y flag "needs_review". Nunca rellenes con un número estimado sin base visual.
+
 DATOS DE CATASTRO (vinculantes, no contradigas):
 - Plantas habitables sobre rasante: ${ctx.inferred_floor_count}
 - Tiene entresuelo: ${ctx.has_entresuelo}
