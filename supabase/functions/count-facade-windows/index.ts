@@ -303,6 +303,63 @@ function ab2b64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
+// 2ª pasada: clasifica cuántos huecos de la planta tipo son balconeras.
+// No inventa; si no puede afirmarlo, devuelve confianza < 0.5.
+async function classifyBalconeras(imagesBase64: string[], ctx: {
+  huecos_por_planta_tipo: number;
+  fachada_label: "principal" | "secundaria";
+}): Promise<{ raw: string; balconeras_por_planta_tipo: number | null; confianza: number; razon: string }>{
+  const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
+  const prompt = `Segunda pasada de clasificación. Te paso 3 fotos de la
+misma fachada "${ctx.fachada_label}". La primera pasada contó
+${ctx.huecos_por_planta_tipo} HUECOS VIDRIADOS por planta tipo (ventanas + balconeras).
+
+Tu tarea: contar SOLO las BALCONERAS por planta tipo. Una balconera es
+un hueco vidriado cuya parte baja LLEGA al suelo y suele tener
+barandilla/petril metálico exterior pegado al hueco (balcón corrido,
+balcón individual o balcón francés). Una VENTANA tiene antepecho
+macizo (~90-110cm) y la parte baja NO llega al suelo.
+
+Reglas estrictas:
+- Identifica UNA planta tipo despejada (la más visible) y clasifica sus huecos.
+- Si no puedes ver con claridad si un hueco es ventana o balconera, NO inventes:
+  baja la confianza global.
+- "balconeras_por_planta_tipo" debe ser entero en [0, ${ctx.huecos_por_planta_tipo}].
+- Si la oclusión te impide clasificar con seguridad, confianza < 0.5 y razón clara.
+
+Devuelve EXCLUSIVAMENTE JSON:
+{
+  "balconeras_por_planta_tipo": number,
+  "ventanas_por_planta_tipo": number,
+  "confianza": number,
+  "razon": string
+}`;
+  const content: any[] = [{ type: "text", text: prompt }];
+  for (const b64 of imagesBase64) content.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } });
+  let lastRaw = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: "google/gemini-2.5-pro", messages: [{ role: "user", content }] }),
+      });
+      const text = await r.text();
+      let raw = text;
+      try { raw = JSON.parse(text)?.choices?.[0]?.message?.content ?? text; } catch { /* keep */ }
+      lastRaw = raw;
+      const p = tryParseVlmJson(raw);
+      if (p && Number.isFinite(Number(p.balconeras_por_planta_tipo))) {
+        const b = Math.max(0, Math.min(ctx.huecos_por_planta_tipo, Math.round(Number(p.balconeras_por_planta_tipo))));
+        const c = Math.max(0, Math.min(1, Number(p.confianza ?? 0)));
+        return { raw, balconeras_por_planta_tipo: b, confianza: c, razon: String(p.razon ?? "") };
+      }
+      await new Promise((res) => setTimeout(res, 1200 * (attempt + 1)));
+    } catch { await new Promise((res) => setTimeout(res, 1200 * (attempt + 1))); }
+  }
+  return { raw: lastRaw, balconeras_por_planta_tipo: null, confianza: 0, razon: "parser_fail" };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return err("POST only", 405);
@@ -530,15 +587,36 @@ Deno.serve(async (req) => {
       f.vlm_raw = res.raw;
       f.vlm_parsed = res.parsed;
       const ejes = Number(res.parsed?.ejes_verticales_detectados ?? 0);
-      // Nuevo: VLM devuelve `ventanas_por_planta_tipo` (excluye balconeras).
-      // Si no lo da, fallback al conteo de ejes (comportamiento previo).
-      const vpt = Number.isFinite(Number(res.parsed?.ventanas_por_planta_tipo))
+      // 1ª pasada (v_pre-balconeras): cuenta TODOS los huecos como ventanas.
+      const huecos = Number.isFinite(Number(res.parsed?.ventanas_por_planta_tipo))
         ? Number(res.parsed.ventanas_por_planta_tipo)
         : ejes;
       const hayPortal = res.parsed?.hay_portal_en_esta_fachada !== false && f.role === "principal";
       f.ejes = ejes;
       f.hay_portal = !!hayPortal;
-      // PB y entresuelo: usamos también ventanas (no balconeras) directos del VLM si vienen.
+      // 2ª pasada: clasifica balconeras y resta del conteo de plantas tipo.
+      let vpt = huecos;
+      let balc2: number | null = null;
+      let balc_conf = 0;
+      if (huecos > 0) {
+        const cls = await classifyBalconeras(f.captures.map((c) => c.b64!), {
+          huecos_por_planta_tipo: huecos, fachada_label: f.role,
+        });
+        balc2 = cls.balconeras_por_planta_tipo;
+        balc_conf = cls.confianza;
+        if (balc2 != null && balc_conf >= 0.5) {
+          vpt = Math.max(0, huecos - balc2);
+        } else {
+          flags.push(`balconeras_clasificacion_baja_confianza_${f.role}`);
+        }
+        (f.vlm_parsed ?? {}).segunda_pasada_balconeras = {
+          huecos_por_planta_tipo: huecos,
+          balconeras_por_planta_tipo: balc2,
+          ventanas_por_planta_tipo_final: vpt,
+          confianza: balc_conf,
+          razon: cls.razon,
+        };
+      }
       const vbpVlm = Number.isFinite(Number(res.parsed?.ventanas_planta_baja))
         ? Number(res.parsed.ventanas_planta_baja)
         : (hayPortal ? Math.max(0, vpt - 1) : (f.role === "principal" ? vpt : 0));
