@@ -70,30 +70,30 @@ async function callGateway(apiKey: string, model: string, imageUrls: string[]): 
   try { return JSON.parse(txt); } catch { throw new Error("JSON inválido"); }
 }
 
-async function evalOne(sb: any, apiKey: string, set_name: string, building_id: string, gt: number) {
+async function evalOne(sb: any, apiKey: string, set_name: string, building_id: string, gt: number, opts: { version: string; primaryModel: string; fallbackModel?: string | null }) {
   const { data: cat } = await sb.from("catastro_data")
     .select("fxcc_pages_urls, plantas_pages_urls").eq("building_id", building_id).maybeSingle();
   const pages: string[] = Array.isArray(cat?.fxcc_pages_urls) && cat!.fxcc_pages_urls.length
     ? cat!.fxcc_pages_urls
     : (Array.isArray(cat?.plantas_pages_urls) ? cat!.plantas_pages_urls : []);
   if (pages.length === 0) {
-    return { building_id, set_name, version: "v7.2", gt, error: "sin FXCC", needs_review: true };
+    return { building_id, set_name, version: opts.version, gt, error: "sin FXCC", needs_review: true };
   }
   let parsed: any = null;
   let lastErr: string | null = null;
-  let modelo = "google/gemini-3.1-pro-preview";
+  let modelo = opts.primaryModel;
   for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
     try { parsed = await callGateway(apiKey, modelo, pages); }
     catch (e) { lastErr = (e as Error).message; await new Promise(r => setTimeout(r, 1500)); }
   }
-  if (!parsed) {
-    modelo = "google/gemini-2.5-pro";
+  if (!parsed && opts.fallbackModel) {
+    modelo = opts.fallbackModel;
     for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
       try { parsed = await callGateway(apiKey, modelo, pages); }
       catch (e) { lastErr = (e as Error).message; await new Promise(r => setTimeout(r, 1500)); }
     }
   }
-  if (!parsed) return { building_id, set_name, version: "v7.2", gt, error: lastErr ?? "VLM sin respuesta", needs_review: true };
+  if (!parsed) return { building_id, set_name, version: opts.version, gt, error: lastErr ?? "VLM sin respuesta", needs_review: true };
 
   const nP = parsed.n_portales_pb == null ? null : Math.round(Number(parsed.n_portales_pb));
   const nC = parsed.n_cajas_p01 == null ? null : Math.round(Number(parsed.n_cajas_p01));
@@ -120,7 +120,7 @@ async function evalOne(sb: any, apiKey: string, set_name: string, building_id: s
   return {
     building_id,
     set_name,
-    version: "v7.2",
+    version: opts.version,
     gt,
     pred_n: nFinal,
     pred_segundas: predSegundas,
@@ -137,6 +137,9 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const set_name: string = body.set_name ?? "ctrl_10x10_v1";
   const onlyIds: string[] | null = Array.isArray(body.building_ids) && body.building_ids.length ? body.building_ids : null;
+  const version: string = body.version ?? "v7.2";
+  const primaryModel: string = body.primary_model ?? "google/gemini-3.1-pro-preview";
+  const fallbackModel: string | null = body.fallback_model === undefined ? "google/gemini-2.5-pro" : body.fallback_model;
 
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   let q = sb.from("escaleras_control_set").select("building_id, gt").eq("set_name", set_name);
@@ -148,7 +151,7 @@ Deno.serve(async (req) => {
   const run = async () => {
     for (const it of items) {
       try {
-        const r = await evalOne(sb, apiKey, set_name, it.building_id, it.gt);
+        const r = await evalOne(sb, apiKey, set_name, it.building_id, it.gt, { version, primaryModel, fallbackModel });
         await sb.from("escaleras_eval_results").upsert({
           set_name: r.set_name, version: r.version, building_id: r.building_id, gt: r.gt,
           pred_n: r.pred_n ?? null, pred_segundas: r.pred_segundas ?? null,
