@@ -604,14 +604,23 @@ Deno.serve(async (req) => {
         });
         balc2 = cls.balconeras_por_planta_tipo;
         balc_conf = cls.confianza;
+        // Cap: descuento máximo 30% del bruto. Si la 2ª pasada pide restar
+        // más, se trunca. Evita colapsos tipo Alonso Heredia (3 vs 30) por
+        // resta abusiva. Si confianza < 0.5, no se resta nada.
+        const capBalc = Math.floor(huecos * 0.3);
+        let balcAplicado = 0;
         if (balc2 != null && balc_conf >= 0.5) {
-          vpt = Math.max(0, huecos - balc2);
+          balcAplicado = Math.min(balc2, capBalc);
+          if (balc2 > capBalc) flags.push(`balconeras_capadas_30pct_${f.role}`);
+          vpt = Math.max(0, huecos - balcAplicado);
         } else {
           flags.push(`balconeras_clasificacion_baja_confianza_${f.role}`);
         }
         (f.vlm_parsed ?? {}).segunda_pasada_balconeras = {
           huecos_por_planta_tipo: huecos,
           balconeras_por_planta_tipo: balc2,
+          balconeras_aplicadas_tras_cap: balcAplicado,
+          cap_30pct: capBalc,
           ventanas_por_planta_tipo_final: vpt,
           confianza: balc_conf,
           razon: cls.razon,
