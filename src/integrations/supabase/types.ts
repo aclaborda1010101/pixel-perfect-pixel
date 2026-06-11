@@ -1806,6 +1806,76 @@ export type Database = {
           },
         ]
       }
+      facade_window_ground_truth: {
+        Row: {
+          annotated_image_path: string | null
+          building_id: string
+          created_at: string
+          created_by: string | null
+          delta: number | null
+          direccion: string
+          human_count: number
+          id: string
+          model_count: number | null
+          notes: string | null
+          rule_learned: string | null
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          annotated_image_path?: string | null
+          building_id: string
+          created_at?: string
+          created_by?: string | null
+          delta?: number | null
+          direccion: string
+          human_count: number
+          id?: string
+          model_count?: number | null
+          notes?: string | null
+          rule_learned?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          annotated_image_path?: string | null
+          building_id?: string
+          created_at?: string
+          created_by?: string | null
+          delta?: number | null
+          direccion?: string
+          human_count?: number
+          id?: string
+          model_count?: number | null
+          notes?: string | null
+          rule_learned?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facade_window_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facade_window_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "facade_window_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hubspot_calls: {
         Row: {
           associated_contact_ids: string[] | null
