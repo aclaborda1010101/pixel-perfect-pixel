@@ -54,7 +54,11 @@ async function queryApeByPolygon(ring: [number, number][]): Promise<{ hit: PgouH
   const params = new URLSearchParams({
     geometry, geometryType: "esriGeometryPolygon", inSR: "4326",
     spatialRel: "esriSpatialRelIntersects",
-    where: "TFIG_TX_ABREV='PE' OR UPPER(EXP_TX_DENOM) LIKE '%APE%'",
+    // Solo capturamos APEs/PEPS de ámbito distrito (etiqueta APE.xx.xx,
+    // colonia histórica o PEPS de barrio). Excluimos PE genéricos de
+    // ámbito ciudad como "Regulación Servicios Terciarios" o "Cubiertas
+    // Verdes" filtrándolos abajo.
+    where: "UPPER(EXP_TX_DENOM) LIKE 'APE%' OR UPPER(EXP_TX_DENOM) LIKE '%APE.%' OR UPPER(EXP_TX_DENOM) LIKE '%COLONIA%' OR UPPER(EXP_TX_DENOM) LIKE 'PEPS%'",
     outFields: "EXP_ID,EXP_TX_NUMERO,FIG_TX_ETIQ,TFIG_TX_ABREV,EXP_TX_DENOM,FAS_TX_DENOM",
     returnGeometry: "false", f: "json",
   });
@@ -62,11 +66,17 @@ async function queryApeByPolygon(ring: [number, number][]): Promise<{ hit: PgouH
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`ArcGIS APE ${r.status}`);
   const feats = (j?.features ?? []) as any[];
-  // Solo nos quedamos con los que parecen APE/PEPS reales (descartamos MPG y PE genéricos sin "APE" o de ámbito ciudad).
+  // Filtro extra: el polígono APE debe ser razonablemente pequeño (no
+  // ámbito ciudad). Como el servicio no expone superficie aquí, basta con
+  // confiar en el where: APE/COLONIA/PEPS. Excluimos cualquier denominación
+  // genérica residual.
   const real = feats.filter((f: any) => {
     const denom = String(f?.attributes?.EXP_TX_DENOM ?? "").toUpperCase();
-    const tfig = String(f?.attributes?.TFIG_TX_ABREV ?? "").toUpperCase();
-    return denom.includes("APE") || (tfig === "PE" && !denom.includes("NN.UU") && !denom.includes("CUBIERTAS VERDES"));
+    if (denom.startsWith("APE")) return true;
+    if (/APE\.\d{2}\.\d{2}/.test(denom)) return true;
+    if (denom.startsWith("PEPS")) return true;
+    if (denom.includes("COLONIA")) return true;
+    return false;
   });
   if (real.length === 0) return { hit: null, raw: { status: r.status, count: feats.length, ape_count: 0, sample: feats[0]?.attributes ?? null } };
   const top = real[0].attributes;
