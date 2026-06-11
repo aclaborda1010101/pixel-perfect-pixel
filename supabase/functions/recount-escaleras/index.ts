@@ -1,45 +1,54 @@
-// recount-escaleras
-// Reconteo focalizado de cajas de escalera SIEMPRE sobre la PLANTA 1 (PISO 01)
-// del FXCC catastral. Cruza con n_subparcelas_residenciales (DNPRC) y aplica
-// MAX(plano_piso1, subparcelas_distintas). Genera building_feedback al cambiar
-// segundas_escaleras.
+// recount-escaleras (v7.2-gemini P01-first promovido)
+// Estrategia: VLM lee PB y P01; n_final = n_cajas_p01 (PB sólo tie-breaker
+// si P01 no es legible). Modelo principal google/gemini-2.5-pro
+// (precision 100% en ctrl_10x10_v1). Si el VLM no puede decidir →
+// needs_review: NO se sobrescribe segundas_escaleras (no inventar; un FP
+// dispararía cambio de uso a hospedaje). Cruza con n_subparcelas_residenciales
+// (DNPRC) sólo para elevar n_escaleras_final, NUNCA para tocar segundas_*.
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
 
-const PROMPT_PISO1 = `Eres un experto en planos catastrales (FXCC) de Madrid.
-Tu única tarea es contar las CAJAS DE ESCALERA (núcleos verticales) en la
-PRIMERA PLANTA (PISO 01) del edificio.
+const PROMPT_V72 = `Eres un experto en planos catastrales (FXCC) de Madrid.
+Tu objetivo es contar las CAJAS DE ESCALERA (núcleos verticales) de un
+edificio residencial. Prioriza SIEMPRE la PLANTA 1 sobre la PLANTA BAJA.
 
-REGLAS ESTRICTAS (no las contradigas):
-1. El conteo se hace SIEMPRE sobre la planta etiquetada como "PISO 01" / "PLANTA 01" /
-   "PLANTA 1ª" / "PRIMERA PLANTA". Es la primera planta encima de la planta baja.
-2. NO uses la planta baja ("PB", "PLANTA BAJA", "P. BAJA", "BAJA") para contar.
-   En planta baja una caja de escalera se confunde con el portal, el zaguán o un
-   pasillo largo; sólo el PISO 01 muestra los huecos de caja con claridad.
-3. Si entre las páginas no hay una claramente etiquetada como PISO 01, usa la
-   primera planta tipo residencial (la primera con códigos V.A / V.B / V.C…).
-4. Una CAJA DE ESCALERA en el plano es un recinto cerrado, normalmente
-   rectangular, etiquetado "ESC", "E", "ESC1", "ESC2", o reconocible por su
-   geometría (peldaños/aspas/diagonales internas) y por separar dos zonas
-   residenciales independientes (escalera A / escalera B).
-5. Cuenta cuántas cajas DISTINTAS hay en esa planta. Si hay 2 ó más núcleos
-   verticales NO conectados entre sí → n_escaleras_piso01 = 2 (o el número que
-   sean) con confianza alta.
-6. Si dudas entre 1 y 2: mira si hay 2 grupos de viviendas V.A.* y V.B.*
-   separados, y/o si los códigos de localizador interior usan letras de
-   escalera distintas. Eso confirma 2 escaleras.
+1. PLANTA 1 ("PISO 01", "PLANTA 01", "PLANTA 1ª", "PRIMERA").
+   - Una "caja de escalera" es un recinto cerrado con peldaños/diagonales
+     que separa grupos de viviendas (V.A.*, V.B.*, ...).
+   - Cuenta las cajas DISTINTAS. Si hay 2 grupos de viviendas (V.A y V.B)
+     servidos por núcleos independientes, son 2 cajas.
+   - Llama "n_cajas_p01" al número de cajas que veas en P01.
+   - Marca "p01_legible" = true si la planta es clara, false si está
+     cortada/borrosa/ausente.
+
+2. PLANTA BAJA ("PB", "PLANTA BAJA", "P. BAJA", "BAJA") — SECUNDARIO.
+   - Cuenta SOLO portales residenciales (puertas de calle a viviendas;
+     ignora locales, garaje, trasteros, salidas de emergencia).
+   - Llama "n_portales_pb" al número de portales residenciales.
+   - Marca "pb_legible" = true/false.
+
+REGLA DE DECISIÓN (estricta):
+- Si p01_legible y n_cajas_p01 es un entero >=1 → n_final = n_cajas_p01.
+- Si NO p01_legible pero pb_legible y n_portales_pb es entero >=1
+  → n_final = n_portales_pb (PB como tie-breaker).
+- Si ninguna planta es legible → n_final = null, needs_review = true.
+- Prohibido inventar. Un falso positivo de "2 escaleras" dispara cambio de
+  uso a hospedaje en producción: si no estás seguro, devuelve null.
 
 Devuelve EXACTAMENTE este JSON (sin texto fuera):
 {
-  "pagina_piso01_index": number,              // índice 0-based de la página utilizada
-  "pagina_piso01_etiqueta": string,           // ej: "PISO 01", "PLANTA 1ª"
-  "n_escaleras_piso01": number,               // entero >=1
-  "etiquetas_escaleras": string[],            // ej: ["ESC_A","ESC_B"]
-  "posiciones": string[],                     // ej: ["norte junto a fachada","sur junto a patio"]
-  "razonamiento": string,                     // 1-3 frases en español
-  "confidence": number                        // 0..1
-}
-`;
+  "pagina_pb_etiqueta": string | null,
+  "pagina_p01_etiqueta": string | null,
+  "p01_legible": boolean,
+  "pb_legible": boolean,
+  "n_portales_pb": number | null,
+  "n_cajas_p01": number | null,
+  "n_final": number | null,
+  "fuente_n_final": "p01" | "pb" | null,
+  "needs_review": boolean,
+  "confidence": number,
+  "razonamiento": string
+}`;
 
 async function callGateway(apiKey: string, model: string, imageUrls: string[]): Promise<any> {
   const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -115,14 +124,14 @@ async function recountOne(sb: any, apiKey: string, building_id: string) {
   }
 
   let parsed: any = null;
-  let modelo = "google/gemini-3.1-pro-preview";
+  let modelo = "google/gemini-2.5-pro";
   let lastErr: string | null = null;
   for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
     try { parsed = await callGateway(apiKey, modelo, pages); }
     catch (e) { lastErr = (e as Error).message; await new Promise(r => setTimeout(r, 1500)); }
   }
   if (!parsed) {
-    modelo = "google/gemini-2.5-pro";
+    modelo = "google/gemini-3.1-pro-preview";
     for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
       try { parsed = await callGateway(apiKey, modelo, pages); }
       catch (e) { lastErr = (e as Error).message; await new Promise(r => setTimeout(r, 1500)); }
@@ -130,45 +139,75 @@ async function recountOne(sb: any, apiKey: string, building_id: string) {
   }
   if (!parsed) return { building_id, direccion: b.direccion, error: lastErr ?? "VLM sin respuesta" };
 
-  const nVlm = Math.max(1, Math.min(8, Math.round(Number(parsed.n_escaleras_piso01 ?? 1))));
-  // MAX(plano, subparcelas) — sólo eleva si subparcelas claramente lo confirma.
-  const candidates = [nVlm];
-  if (typeof nSub === "number" && nSub >= 1) candidates.push(nSub);
-  const nFinal = Math.max(...candidates);
-  const fuente = nFinal === nVlm && (nSub == null || nSub <= nVlm)
-    ? "plano_piso01"
-    : (nSub != null && nSub > nVlm ? "subparcelas_catastro" : "max");
+  const nP = parsed.n_portales_pb == null ? null : Math.round(Number(parsed.n_portales_pb));
+  const nC = parsed.n_cajas_p01 == null ? null : Math.round(Number(parsed.n_cajas_p01));
+  const p01Leg = Boolean(parsed.p01_legible);
+  const pbLeg = Boolean(parsed.pb_legible);
 
-  // Auditoría: n_final = MAX(VLM, DNPRC). Pero NO se escribe segundas_escaleras
-  // desde DNPRC porque el A/B mostró 24/47 falsos positivos en gt=1.
-  // segundas_escaleras se mantiene desde el VLM (señal con baja recall pero alta precisión).
-  const segundas = nVlm >= 2;
+  // Regla P01-first server-side (no nos fiamos sólo del VLM).
+  let nVlm: number | null = null;
+  let fuenteVlm: "p01" | "pb" | null = null;
+  if (p01Leg && nC != null && Number.isFinite(nC) && nC >= 1) {
+    nVlm = nC; fuenteVlm = "p01";
+  } else if (!p01Leg && pbLeg && nP != null && Number.isFinite(nP) && nP >= 1) {
+    nVlm = nP; fuenteVlm = "pb";
+  } else if (parsed.n_final != null && Number.isFinite(Number(parsed.n_final))) {
+    nVlm = Math.round(Number(parsed.n_final));
+    fuenteVlm = (parsed.fuente_n_final === "pb" ? "pb" : "p01");
+  }
+  nVlm = nVlm == null ? null : Math.max(1, Math.min(8, nVlm));
+  const needsReview = nVlm == null;
+
+  // n_final = MAX(VLM, DNPRC) sólo cuando tenemos VLM. DNPRC NUNCA toca
+  // segundas_escaleras (24/47 FP en gt=1 según A/B previo).
+  const nFinal: number | null = nVlm == null
+    ? (typeof nSub === "number" && nSub >= 1 ? nSub : null)
+    : Math.max(nVlm, typeof nSub === "number" ? nSub : nVlm);
+  const fuente = needsReview
+    ? (typeof nSub === "number" && nSub >= 1 ? "subparcelas_catastro_only" : "needs_review")
+    : (nFinal === nVlm && (nSub == null || nSub <= (nVlm ?? 0))
+        ? `vlm_${fuenteVlm}`
+        : (nSub != null && nSub > (nVlm ?? 0) ? "subparcelas_catastro" : "max"));
+
+  // segundas_escaleras: SÓLO se escribe si el VLM tiene veredicto.
+  // Si needs_review, mantenemos el valor previo (no inventar).
+  const segundasNuevo: boolean | null = needsReview ? null : (nVlm! >= 2);
   const evidencia = {
+    version: "v7.2-gemini",
+    n_portales_pb: nP,
+    n_cajas_p01: nC,
+    p01_legible: p01Leg,
+    pb_legible: pbLeg,
+    fuente_vlm: fuenteVlm,
     n_vlm_piso01: nVlm,
     n_subparcelas_residenciales: nSub,
     n_final: nFinal,
     fuente,
-    pagina_index: parsed.pagina_piso01_index ?? null,
-    pagina_etiqueta: parsed.pagina_piso01_etiqueta ?? null,
-    etiquetas: parsed.etiquetas_escaleras ?? null,
-    posiciones: parsed.posiciones ?? null,
+    needs_review: needsReview,
+    pagina_pb_etiqueta: parsed.pagina_pb_etiqueta ?? null,
+    pagina_p01_etiqueta: parsed.pagina_p01_etiqueta ?? null,
     razonamiento: parsed.razonamiento ?? null,
     confidence: parsed.confidence ?? null,
     modelo,
   };
 
-  await sb.from("building_analysis").upsert({
+  const upsertRow: any = {
     building_id,
     n_escaleras_en_piso01: nVlm,
     n_escaleras_final: nFinal,
     n_escaleras_fuente: fuente,
     n_escaleras_evidencia: evidencia,
-    segundas_escaleras: segundas,
-  }, { onConflict: "building_id" });
+  };
+  if (!needsReview) upsertRow.segundas_escaleras = segundasNuevo;
 
-  const changed = (prev?.segundas_escaleras ?? null) !== segundas
+  await sb.from("building_analysis").upsert(upsertRow, { onConflict: "building_id" });
+
+  const segundasFinal = needsReview ? (prev?.segundas_escaleras ?? null) : segundasNuevo;
+  const changed = !needsReview && (
+    (prev?.segundas_escaleras ?? null) !== segundasNuevo
     || (prev?.n_escaleras_en_piso01 ?? null) !== nVlm
-    || (prev?.n_escaleras_final ?? null) !== nFinal;
+    || (prev?.n_escaleras_final ?? null) !== nFinal
+  );
 
   if (changed) {
     await sb.from("building_feedback").insert({
@@ -177,12 +216,12 @@ async function recountOne(sb: any, apiKey: string, building_id: string) {
       autor_email: "escaleras-recount@affluxos",
       dimension: "escaleras",
       estado: "abierto",
-      texto: `Reconteo de escaleras (regla PLANTA 1): ${prev?.n_escaleras_en_piso01 ?? "—"} → ${nVlm} (plano), subparcelas=${nSub ?? "—"}, final=${nFinal} [${fuente}]. segundas_escaleras: ${prev?.segundas_escaleras ?? "—"} → ${segundas}.`,
+      texto: `Reconteo escaleras v7.2-gemini (P01-first): VLM ${nVlm} [${fuenteVlm}], subparcelas=${nSub ?? "—"}, final=${nFinal} [${fuente}]. segundas_escaleras: ${prev?.segundas_escaleras ?? "—"} → ${segundasNuevo}.`,
       analisis_ia: { antes: prev, despues: evidencia },
     });
   }
 
-  return { building_id, direccion: b.direccion, ...evidencia, segundas_escaleras: segundas, changed };
+  return { building_id, direccion: b.direccion, ...evidencia, segundas_escaleras: segundasFinal, changed, needs_review: needsReview };
 }
 
 Deno.serve(async (req) => {
