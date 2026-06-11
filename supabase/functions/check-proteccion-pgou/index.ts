@@ -11,7 +11,12 @@
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
 
+// Capa oficial del Catálogo de Edificios Protegidos del PGOUM 97 (Ayto. Madrid).
+// Fuente: datos.madrid.es dataset 300158 / Geoportal IDEAM.
 const ARCGIS_LAYER =
+  "https://sigma.madrid.es/hosted/rest/services/PGOUM97/PG_EDIFICIOS_PROTEGIDOS/MapServer/6/query";
+// Capa legacy (DESARROLLO_URBANO_ACTUALIZADO) — algunos elementos singulares solo aparecen allí.
+const ARCGIS_LAYER_LEGACY =
   "https://sigma.madrid.es/hosted/rest/services/DESARROLLO_URBANO_ACTUALIZADO/EDIFICIOS_PROTEGIDOS/MapServer/5/query";
 
 type PgouHit = {
@@ -25,15 +30,18 @@ function parseHit(j: any): PgouHit | null {
   const f = j?.features?.[0];
   if (!f) return null;
   const a = f.attributes ?? {};
+  // Campos PGOUM97 layer 6: CAT_CEP, NOMBRE, NIVEL/NIVEL_CEC/NIVEL_CES/NIVEL_CPJ, NORMATIVA, APE0001
+  // Campos legacy layer 5: N_CATALOGO, NOMBRE, PROTECCION_ACTUAL, PROTECCION_97
+  const nivel = a.NIVEL ?? a.NIVEL_CEC ?? a.NIVEL_CES ?? a.NIVEL_CPJ ?? a.PROTECCION_ACTUAL ?? null;
   return {
-    n_catalogo: a.N_CATALOGO ?? null,
+    n_catalogo: a.CAT_CEP ?? a.N_CATALOGO ?? null,
     nombre: a.NOMBRE ?? null,
-    proteccion_actual: a.PROTECCION_ACTUAL ?? null,
-    proteccion_97: a.PROTECCION_97 ?? null,
+    proteccion_actual: nivel ? String(nivel) : null,
+    proteccion_97: a.PROTECCION_97 ?? a.NORMATIVA ?? null,
   };
 }
 
-async function queryByPolygon(ring: [number, number][]): Promise<{ hit: PgouHit | null; raw: any }> {
+async function queryByPolygon(ring: [number, number][], layerUrl = ARCGIS_LAYER): Promise<{ hit: PgouHit | null; raw: any }> {
   const rings = [ring.map(([lon, lat]) => [lon, lat])];
   const geometry = JSON.stringify({ rings, spatialReference: { wkid: 4326 } });
   const params = new URLSearchParams({
@@ -41,19 +49,19 @@ async function queryByPolygon(ring: [number, number][]): Promise<{ hit: PgouHit 
     geometryType: "esriGeometryPolygon",
     inSR: "4326",
     spatialRel: "esriSpatialRelIntersects",
-    outFields: "N_CATALOGO,NOMBRE,PROTECCION_ACTUAL,PROTECCION_97",
+    outFields: "*",
     returnGeometry: "false",
     f: "json",
   });
-  const r = await fetch(ARCGIS_LAYER, { method: "POST", body: params });
+  const r = await fetch(layerUrl, { method: "POST", body: params });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`ArcGIS POLY ${r.status}: ${JSON.stringify(j).slice(0, 200)}`);
   return { hit: parseHit(j), raw: { status: r.status, count: j?.features?.length ?? 0, sample: j?.features?.[0] ?? null } };
 }
 
-async function queryByRefcat(rc14: string): Promise<{ hit: PgouHit | null; raw: any }> {
-  const url = `${ARCGIS_LAYER}?where=${encodeURIComponent(`REFCAT LIKE '${rc14}%'`)}` +
-    `&outFields=N_CATALOGO,NOMBRE,PROTECCION_ACTUAL,PROTECCION_97,REFCAT&returnGeometry=false&f=json`;
+async function queryByRefcat(rc14: string, layerUrl = ARCGIS_LAYER): Promise<{ hit: PgouHit | null; raw: any }> {
+  const url = `${layerUrl}?where=${encodeURIComponent(`REFCAT LIKE '${rc14}%'`)}` +
+    `&outFields=*&returnGeometry=false&f=json`;
   const r = await fetch(url);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`ArcGIS RC ${r.status}`);
@@ -63,13 +71,19 @@ async function queryByRefcat(rc14: string): Promise<{ hit: PgouHit | null; raw: 
 async function queryByFuzzyDireccion(supabase: any, direccion: string): Promise<{ hit: PgouHit | null; raw: any }> {
   const dirNorm = (direccion || "").toUpperCase().trim();
   if (!dirNorm) return { hit: null, raw: { reason: "no_dir" } };
-  // similaridad pg_trgm
-  // fallback: select directo con similarity()
-  const { data: rows } = await supabase
-    .from("madrid_edificios_protegidos")
-    .select("refcat, direccion, direccion_norm, nivel_proteccion")
-    .ilike("direccion_norm", `%${dirNorm.split(" ").slice(0, 3).join(" ")}%`)
-    .limit(3);
+  // Fallback: tabla local madrid_edificios_protegidos (puede estar vacía → no-op).
+  // Bug previo: usaba supabase.rpc(...).catch(...). Ahora .from().ilike() devuelve promesa estándar.
+  let rows: any[] | null = null;
+  try {
+    const res = await supabase
+      .from("madrid_edificios_protegidos")
+      .select("refcat, direccion, direccion_norm, nivel_proteccion")
+      .ilike("direccion_norm", `%${dirNorm.split(" ").slice(0, 3).join(" ")}%`)
+      .limit(3);
+    rows = res?.data ?? null;
+  } catch (e) {
+    return { hit: null, raw: { source: "fuzzy", error: (e as Error).message } };
+  }
   if (rows && rows.length > 0) {
     const row = rows[0];
     return {
@@ -105,23 +119,42 @@ async function processOne(supabase: any, buildingId: string) {
   if (exteriorRing) {
     try {
       const r = await queryByPolygon(exteriorRing);
-      intentos.push({ intento: "poligono", hit: !!r.hit, raw: r.raw, ts: new Date().toISOString() });
+      intentos.push({ intento: "poligono_pgoum97", hit: !!r.hit, raw: r.raw, ts: new Date().toISOString() });
       if (r.hit) { hit = r.hit; source = "pgou_poligono"; }
     } catch (e) {
-      intentos.push({ intento: "poligono", error: (e as Error).message, ts: new Date().toISOString() });
+      intentos.push({ intento: "poligono_pgoum97", error: (e as Error).message, ts: new Date().toISOString() });
+    }
+    // Fallback polígono contra capa legacy (singulares)
+    if (!hit) {
+      try {
+        const r = await queryByPolygon(exteriorRing, ARCGIS_LAYER_LEGACY);
+        intentos.push({ intento: "poligono_legacy", hit: !!r.hit, raw: r.raw, ts: new Date().toISOString() });
+        if (r.hit) { hit = r.hit; source = "pgou_legacy_poligono"; }
+      } catch (e) {
+        intentos.push({ intento: "poligono_legacy", error: (e as Error).message, ts: new Date().toISOString() });
+      }
     }
   } else {
-    intentos.push({ intento: "poligono", skipped: "sin_exterior_ring", ts: new Date().toISOString() });
+    intentos.push({ intento: "poligono_pgoum97", skipped: "sin_exterior_ring", ts: new Date().toISOString() });
   }
 
   // 2) Fallback RC14
   if (!hit && rc14) {
     try {
       const r = await queryByRefcat(rc14);
-      intentos.push({ intento: "rc14", hit: !!r.hit, raw: r.raw, ts: new Date().toISOString() });
+      intentos.push({ intento: "rc14_pgoum97", hit: !!r.hit, raw: r.raw, ts: new Date().toISOString() });
       if (r.hit) { hit = r.hit; source = "pgou_rc14"; }
     } catch (e) {
-      intentos.push({ intento: "rc14", error: (e as Error).message, ts: new Date().toISOString() });
+      intentos.push({ intento: "rc14_pgoum97", error: (e as Error).message, ts: new Date().toISOString() });
+    }
+    if (!hit) {
+      try {
+        const r = await queryByRefcat(rc14, ARCGIS_LAYER_LEGACY);
+        intentos.push({ intento: "rc14_legacy", hit: !!r.hit, raw: r.raw, ts: new Date().toISOString() });
+        if (r.hit) { hit = r.hit; source = "pgou_legacy_rc14"; }
+      } catch (e) {
+        intentos.push({ intento: "rc14_legacy", error: (e as Error).message, ts: new Date().toISOString() });
+      }
     }
   }
 
