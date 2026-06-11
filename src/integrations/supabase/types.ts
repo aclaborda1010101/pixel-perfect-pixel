@@ -1682,6 +1682,125 @@ export type Database = {
           },
         ]
       }
+      escaleras_control_set: {
+        Row: {
+          building_id: string
+          created_at: string
+          gt: number
+          id: string
+          rank: number
+          seed: string
+          set_name: string
+        }
+        Insert: {
+          building_id: string
+          created_at?: string
+          gt: number
+          id?: string
+          rank: number
+          seed: string
+          set_name: string
+        }
+        Update: {
+          building_id?: string
+          created_at?: string
+          gt?: number
+          id?: string
+          rank?: number
+          seed?: string
+          set_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "escaleras_control_set_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escaleras_control_set_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "escaleras_control_set_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      escaleras_eval_results: {
+        Row: {
+          building_id: string
+          confidence: number | null
+          created_at: string
+          error: string | null
+          evidencia: Json | null
+          gt: number
+          id: string
+          needs_review: boolean
+          pred_n: number | null
+          pred_segundas: boolean | null
+          set_name: string
+          version: string
+        }
+        Insert: {
+          building_id: string
+          confidence?: number | null
+          created_at?: string
+          error?: string | null
+          evidencia?: Json | null
+          gt: number
+          id?: string
+          needs_review?: boolean
+          pred_n?: number | null
+          pred_segundas?: boolean | null
+          set_name: string
+          version: string
+        }
+        Update: {
+          building_id?: string
+          confidence?: number | null
+          created_at?: string
+          error?: string | null
+          evidencia?: Json | null
+          gt?: number
+          id?: string
+          needs_review?: boolean
+          pred_n?: number | null
+          pred_segundas?: boolean | null
+          set_name?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "escaleras_eval_results_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escaleras_eval_results_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "escaleras_eval_results_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_ids: {
         Row: {
           created_at: string
