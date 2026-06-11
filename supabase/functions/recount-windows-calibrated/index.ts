@@ -61,8 +61,9 @@ Deno.serve(async (req) => {
   const ids: string[] = body.building_ids ?? ["f62fef57-e8cc-43fe-bb5a-fba80980d487","3402ffbd-8dbe-4257-8132-8730f3c2ba2a"];
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-  const out: any[] = [];
-  for (const bid of ids) {
+  const run = async () => {
+    const out: any[] = [];
+    for (const bid of ids) {
     try {
       const { data: fwc } = await sb.from("facade_window_counts").select("street_view_panoramas, final_count, ejes_verticales").eq("building_id", bid).order("created_at", { ascending: false }).limit(1).maybeSingle();
       const panos: any[] = Array.isArray(fwc?.street_view_panoramas) ? fwc!.street_view_panoramas : [];
@@ -126,11 +127,12 @@ Deno.serve(async (req) => {
         });
       }
     } catch (e) { out.push({ building_id: bid, error: (e as Error).message }); }
-  }
-
-  const ape_arr = out.map(o => o.ape_pct).filter((x): x is number => typeof x === "number");
-  const mape = ape_arr.length ? ape_arr.reduce((s,x)=>s+x,0)/ape_arr.length : null;
-  return new Response(JSON.stringify({ ok: true, results: out, mape }, null, 2), {
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+    }
+    const ape_arr = out.map(o => o.ape_pct).filter((x): x is number => typeof x === "number");
+    const mape = ape_arr.length ? ape_arr.reduce((s,x)=>s+x,0)/ape_arr.length : null;
+    await sb.from("app_settings").upsert({ key: "recount_windows_calibrated_last", value: { results: out, mape, finished_at: new Date().toISOString() } as any, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  };
+  // @ts-ignore EdgeRuntime
+  EdgeRuntime.waitUntil(run());
+  return new Response(JSON.stringify({ ok: true, async: true, ids }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
