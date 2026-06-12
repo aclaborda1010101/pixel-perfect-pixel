@@ -25,9 +25,15 @@ const MODEL = "google/gemini-2.5-pro";
 const PROMPT_PASS_A = `Eres un experto leyendo planos catastrales (FXCC) de Madrid.
 Te paso UNA SOLA página de un FXCC. Concéntrate solo en esa lámina.
 
-1) Identifica la planta. Etiquetas típicas: "PB", "P. BAJA", "PISO 01",
-   "PLANTA 01", "PLANTA 1ª", "PRIMERA", "P02", "ATICO"...
-2) Si la página es PLANTA 1 (P01):
+1) Identifica la planta. Aceptamos TODAS estas variantes como PLANTA 1 / planta
+   tipo (es_p01 = true): "PISO 01", "PLANTA 01", "PLANTA 1", "PLANTA 1ª",
+   "PRIMERA", "PRIMERA PLANTA", "P01", "P1", "1ª PLANTA", "PLANTA TIPO",
+   "PLANTA SEGUNDA", "SEGUNDA", "P02", "P2", "PLANTA TERCERA", "TERCERA",
+   "P03", "P3", "PLANTA CUARTA", "CUARTA", "P04", "P4", "ATICO" — es decir,
+   cualquier planta sobre rasante distinta de la BAJA en un edificio
+   residencial vale como "planta tipo" para contar cajas de escalera.
+   Sólo es_p01=false cuando es PB, sótano, semisotano, garaje o cubierta.
+2) Si la página es planta tipo (es_p01=true):
    - Cuenta TODAS las cajas de escalera (núcleos verticales cerrados con
      peldaños/diagonales que separan grupos de viviendas V.A, V.B...).
    - Para cada caja da su bounding box normalizado [x0,y0,x1,y1] (0-1, origen
@@ -133,12 +139,17 @@ async function evalOne(sb: any, apiKey: string, set_name: string, building_id: s
   const best = p01Candidates[0];
 
   if (!best) {
-    // Sin P01 legible → respeta base (no degradar)
+    // Sin planta-tipo legible → respeta base (no degradar). Si base tiene
+    // pred_n válido lo damos por bueno aunque base.needs_review estuviera
+    // marcado (era flag de v7.2 sobre cajas dudosas, no implica degradar
+    // si ya hay valor). Evitamos así el cruce que mandaba a NR válidos.
+    const basePred = base.pred_n == null ? null : Number(base.pred_n);
+    const baseNR = basePred == null;
     return { building_id, set_name, version: "v7.6", gt,
-      pred_n: base.pred_n ?? null,
-      pred_segundas: base.pred_n == null ? null : base.pred_n >= 2,
-      needs_review: !!base.needs_review, confidence: 0,
-      evidencia: { base, decision: "respeta v7.2-gemini (sin P01 legible)", passA } };
+      pred_n: basePred,
+      pred_segundas: basePred == null ? null : basePred >= 2,
+      needs_review: baseNR, confidence: basePred == null ? 0 : 0.6,
+      evidencia: { base, decision: "respeta v7.2-gemini (sin planta-tipo legible)", passA } };
   }
 
   const nA = Math.round(Number(best.n_cajas_p01));
@@ -155,8 +166,9 @@ async function evalOne(sb: any, apiKey: string, set_name: string, building_id: s
   let pred: number | null = null;
   let needsReview = true;
   let razon = "";
+  let verifiedByV76 = false;
   if (nB != null && nA === nB && cB >= 0.7 && !passB?.needs_review) {
-    pred = nA; needsReview = false; razon = `A y B coinciden en ${nA} (conf B=${cB})`;
+    pred = nA; needsReview = false; verifiedByV76 = true; razon = `A y B coinciden en ${nA} (conf B=${cB})`;
   } else if (nB != null && nA === nB && cB >= 0.5) {
     // coincidencia con confianza media → solo upgrade desde base==1 si nA>=2
     if ((base.pred_n ?? 0) >= 2) { pred = base.pred_n; needsReview = false; razon = "respeta base>=2"; }
@@ -170,7 +182,7 @@ async function evalOne(sb: any, apiKey: string, set_name: string, building_id: s
   return { building_id, set_name, version: "v7.6", gt,
     pred_n: pred, pred_segundas: pred == null ? null : pred >= 2,
     needs_review: needsReview, confidence: Math.min(1, Math.max(0, cB)),
-    evidencia: { base, best_page_idx: best.idx, nA, nB, decision: razon, passA, passB } };
+    evidencia: { base, best_page_idx: best.idx, nA, nB, decision: razon, verifiedByV76, passA, passB } };
 }
 
 Deno.serve(async (req) => {
@@ -214,8 +226,11 @@ Deno.serve(async (req) => {
           needs_review: r.needs_review ?? false, confidence: r.confidence ?? null,
           evidencia: r.evidencia ?? null, error: r.error ?? null,
         }, { onConflict: "set_name,version,building_id" });
-        // Persistencia building_analysis solo si hay pred y no needs_review
-        if (r.pred_n != null && !r.needs_review) {
+        // Persistencia building_analysis SOLO cuando v7.6 verificó (A=B,
+        // conf>=0.7). Si sólo respetamos base v7.2-gemini no hacemos doble
+        // upsert (la fuente ya quedó escrita por recount-escaleras).
+        const verified = (r.evidencia as any)?.verifiedByV76 === true;
+        if (r.pred_n != null && !r.needs_review && verified) {
           await sb.from("building_analysis").upsert({
             building_id: r.building_id,
             n_escaleras_final: r.pred_n,
