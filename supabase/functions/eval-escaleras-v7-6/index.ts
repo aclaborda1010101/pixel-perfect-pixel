@@ -25,9 +25,15 @@ const MODEL = "google/gemini-2.5-pro";
 const PROMPT_PASS_A = `Eres un experto leyendo planos catastrales (FXCC) de Madrid.
 Te paso UNA SOLA página de un FXCC. Concéntrate solo en esa lámina.
 
-1) Identifica la planta. Etiquetas típicas: "PB", "P. BAJA", "PISO 01",
-   "PLANTA 01", "PLANTA 1ª", "PRIMERA", "P02", "ATICO"...
-2) Si la página es PLANTA 1 (P01):
+1) Identifica la planta. Aceptamos TODAS estas variantes como PLANTA 1 / planta
+   tipo (es_p01 = true): "PISO 01", "PLANTA 01", "PLANTA 1", "PLANTA 1ª",
+   "PRIMERA", "PRIMERA PLANTA", "P01", "P1", "1ª PLANTA", "PLANTA TIPO",
+   "PLANTA SEGUNDA", "SEGUNDA", "P02", "P2", "PLANTA TERCERA", "TERCERA",
+   "P03", "P3", "PLANTA CUARTA", "CUARTA", "P04", "P4", "ATICO" — es decir,
+   cualquier planta sobre rasante distinta de la BAJA en un edificio
+   residencial vale como "planta tipo" para contar cajas de escalera.
+   Sólo es_p01=false cuando es PB, sótano, semisotano, garaje o cubierta.
+2) Si la página es planta tipo (es_p01=true):
    - Cuenta TODAS las cajas de escalera (núcleos verticales cerrados con
      peldaños/diagonales que separan grupos de viviendas V.A, V.B...).
    - Para cada caja da su bounding box normalizado [x0,y0,x1,y1] (0-1, origen
