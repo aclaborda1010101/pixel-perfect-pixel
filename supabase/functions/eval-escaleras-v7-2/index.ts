@@ -140,16 +140,31 @@ Deno.serve(async (req) => {
   const version: string = body.version ?? "v7.2";
   const primaryModel: string = body.primary_model ?? "google/gemini-3.1-pro-preview";
   const fallbackModel: string | null = body.fallback_model === undefined ? "google/gemini-2.5-pro" : body.fallback_model;
+  const batchSize: number = Math.max(1, Math.min(10, Number(body.batch_size ?? 5)));
+  const chain: boolean = body.chain !== false;
+  const force: boolean = body.force === true;
 
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   let q = sb.from("escaleras_control_set").select("building_id, gt").eq("set_name", set_name);
   if (onlyIds) q = q.in("building_id", onlyIds);
   const { data: rows, error } = await q;
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-  const items = rows ?? [];
+  let items = rows ?? [];
+  if (!force && items.length) {
+    const { data: done } = await sb.from("escaleras_eval_results")
+      .select("building_id, pred_n, needs_review, error")
+      .eq("set_name", set_name).eq("version", version)
+      .in("building_id", items.map((i: any) => i.building_id));
+    const ok = new Set((done ?? [])
+      .filter((r: any) => r.pred_n != null || r.needs_review === true || r.error != null)
+      .map((r: any) => r.building_id));
+    items = items.filter((i: any) => !ok.has(i.building_id));
+  }
+  const batch = items.slice(0, batchSize);
+  const remaining = items.slice(batchSize).map((i: any) => i.building_id);
 
   const run = async () => {
-    for (const it of items) {
+    for (const it of batch) {
       try {
         const r = await evalOne(sb, apiKey, set_name, it.building_id, it.gt, { version, primaryModel, fallbackModel });
         await sb.from("escaleras_eval_results").upsert({
@@ -161,11 +176,21 @@ Deno.serve(async (req) => {
       } catch (e) { console.warn("v7.2 error", it.building_id, (e as Error).message); }
       await new Promise(r => setTimeout(r, 400));
     }
-    console.log("eval-escaleras-v7.2 done");
+    console.log("eval-escaleras-v7.2 batch done", batch.length, "remaining", remaining.length);
+    if (chain && remaining.length) {
+      try {
+        const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/eval-escaleras-v7-2`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${srk}`, apikey: srk },
+          body: JSON.stringify({ set_name, building_ids: remaining, version, primary_model: primaryModel, fallback_model: fallbackModel, batch_size: batchSize, chain: true, force }),
+        });
+      } catch (e) { console.warn("v7.2 chain failed", (e as Error).message); }
+    }
   };
   // @ts-ignore
   EdgeRuntime.waitUntil(run());
-  return new Response(JSON.stringify({ ok: true, async: true, queued: items.length }), {
+  return new Response(JSON.stringify({ ok: true, async: true, batch: batch.length, remaining: remaining.length }), {
     status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
