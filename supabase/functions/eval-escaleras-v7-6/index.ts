@@ -139,12 +139,17 @@ async function evalOne(sb: any, apiKey: string, set_name: string, building_id: s
   const best = p01Candidates[0];
 
   if (!best) {
-    // Sin P01 legible → respeta base (no degradar)
+    // Sin planta-tipo legible → respeta base (no degradar). Si base tiene
+    // pred_n válido lo damos por bueno aunque base.needs_review estuviera
+    // marcado (era flag de v7.2 sobre cajas dudosas, no implica degradar
+    // si ya hay valor). Evitamos así el cruce que mandaba a NR válidos.
+    const basePred = base.pred_n == null ? null : Number(base.pred_n);
+    const baseNR = basePred == null;
     return { building_id, set_name, version: "v7.6", gt,
-      pred_n: base.pred_n ?? null,
-      pred_segundas: base.pred_n == null ? null : base.pred_n >= 2,
-      needs_review: !!base.needs_review, confidence: 0,
-      evidencia: { base, decision: "respeta v7.2-gemini (sin P01 legible)", passA } };
+      pred_n: basePred,
+      pred_segundas: basePred == null ? null : basePred >= 2,
+      needs_review: baseNR, confidence: basePred == null ? 0 : 0.6,
+      evidencia: { base, decision: "respeta v7.2-gemini (sin planta-tipo legible)", passA } };
   }
 
   const nA = Math.round(Number(best.n_cajas_p01));
