@@ -105,7 +105,7 @@ Deno.serve(async(req)=>{
           const camF=offset(tLat,tLon,ff.dist,outside);
           const urlsF=[25,10,-2].map(p=>sv(camF.lat,camF.lon,heading,p,ff.fov,gKey));
           let vF:any={};
-          try{ vF=await vlm(apiKey,PROMPT_FULL_V7(pt,role,len),urlsF); }catch(e){ vF={error:(e as Error).message}; }
+          try{ vF=await vlm(apiKey,PROMPT_FULL(pt,role,len),urlsF); }catch(e){ vF={error:(e as Error).message}; }
           await new Promise(r=>setTimeout(r,300));
 
           const fullEjes=Number(vF.ejes_completos??0); const fullPb=Number(vF.pb_completos??0);
