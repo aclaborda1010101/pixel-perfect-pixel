@@ -3569,6 +3569,76 @@ export type Database = {
         }
         Relationships: []
       }
+      proteccion_validation_queue: {
+        Row: {
+          building_id: string
+          capa: string | null
+          detectado_en: string
+          direccion: string | null
+          estado: string
+          id: string
+          n_catalogo: string | null
+          nivel_proteccion: string | null
+          nota: string | null
+          rc14: string | null
+          validado_at: string | null
+          validado_por: string | null
+          validado_resultado: boolean | null
+        }
+        Insert: {
+          building_id: string
+          capa?: string | null
+          detectado_en?: string
+          direccion?: string | null
+          estado: string
+          id?: string
+          n_catalogo?: string | null
+          nivel_proteccion?: string | null
+          nota?: string | null
+          rc14?: string | null
+          validado_at?: string | null
+          validado_por?: string | null
+          validado_resultado?: boolean | null
+        }
+        Update: {
+          building_id?: string
+          capa?: string | null
+          detectado_en?: string
+          direccion?: string | null
+          estado?: string
+          id?: string
+          n_catalogo?: string | null
+          nivel_proteccion?: string | null
+          nota?: string | null
+          rc14?: string | null
+          validado_at?: string | null
+          validado_por?: string | null
+          validado_resultado?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proteccion_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proteccion_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "proteccion_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       qa_ground_truth: {
         Row: {
           ano: number | null
