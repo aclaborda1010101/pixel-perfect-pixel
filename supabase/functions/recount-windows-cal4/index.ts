@@ -78,11 +78,20 @@ Deno.serve(async (req) => {
     "33e39048-881b-4d85-a790-852d573de122", // Ardemans 65
     "67248b55-818d-4e8e-a525-2e3b11ff7dde", // Conde Duque 17
   ];
+  const chain: boolean = body.chain !== false;
+  const perInvocation: number = Math.max(1, Math.min(3, Number(body.per_invocation ?? 1)));
   const sb = createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+  const slice = ids.slice(0, perInvocation);
+  const remaining = ids.slice(perInvocation);
+
   const run = async () => {
-    const out:any[] = [];
-    for (const bid of ids) {
+    // Lee acumulado previo para no perder resultados al trocear
+    const { data: prev } = await sb.from("app_settings").select("value").eq("key","recount_windows_cal4_last").maybeSingle();
+    const prevResults:any[] = Array.isArray((prev?.value as any)?.results) ? (prev!.value as any).results : [];
+    const byId = new Map<string, any>();
+    for (const r of prevResults) byId.set(r.building_id, r);
+    for (const bid of slice) {
       try {
         const { data: b } = await sb.from("buildings").select("id,direccion,refcatastral,catastro_ref").eq("id",bid).maybeSingle();
         const rc14 = (b?.refcatastral ?? b?.catastro_ref ?? "").substring(0,14);
@@ -94,7 +103,7 @@ Deno.serve(async (req) => {
         const gt_val = gtH?.human_count ?? null;
 
         const edges:any[] = Array.isArray(pgc?.street_edges_jsonb) ? pgc!.street_edges_jsonb : [];
-        if (!edges.length) { out.push({building_id:bid, direccion:b?.direccion, error:"sin street_edges"}); continue; }
+        if (!edges.length) { byId.set(bid,{building_id:bid, direccion:b?.direccion, error:"sin street_edges"}); continue; }
 
         // principal: la marcada con role o la más larga; secundaria: la siguiente más larga si es esquina
         const principal = edges.find(e=>e.role==="principal") ?? [...edges].sort((a,b)=>b.len_m-a.len_m)[0];
@@ -149,25 +158,47 @@ Deno.serve(async (req) => {
         const total = facadeResults.reduce((s,f)=>s+f.total_role,0);
         const ape = gt_val ? Math.abs(total-gt_val)/gt_val*100 : null;
 
-        out.push({
+        const row = {
           building_id:bid, direccion:b?.direccion, rc14, plantas, plantas_tipo,
           is_corner, gt:gt_val, pred_cal4:total,
           ape_pct: ape==null?null:Math.round(ape*10)/10,
+          within_10pct: ape!=null && ape<=10,
           within_15pct: ape!=null && ape<=15,
           facades:facadeResults,
-        });
-      } catch(e) { out.push({building_id:bid, error:(e as Error).message}); }
+        };
+        byId.set(bid, row);
+        // Persistir tras CADA edificio
+        const cur = Array.from(byId.values());
+        const apes = cur.map(o=>o.ape_pct).filter((x):x is number => typeof x==="number");
+        const mape = apes.length ? apes.reduce((s,x)=>s+x,0)/apes.length : null;
+        await sb.from("app_settings").upsert({
+          key:"recount_windows_cal4_last",
+          value:{results:cur, mape, n:cur.length, updated_at:new Date().toISOString()} as any,
+          updated_at:new Date().toISOString(),
+        },{onConflict:"key"});
+      } catch(e) { byId.set(bid,{building_id:bid, error:(e as Error).message}); }
     }
-    const apes = out.map(o=>o.ape_pct).filter((x):x is number => typeof x==="number");
+    const out = Array.from(byId.values());
+    const apes = out.map((o:any)=>o.ape_pct).filter((x:any):x is number => typeof x==="number");
     const mape = apes.length ? apes.reduce((s,x)=>s+x,0)/apes.length : null;
     await sb.from("app_settings").upsert({
       key:"recount_windows_cal4_last",
-      value:{results:out, mape, n:out.length, finished_at:new Date().toISOString()} as any,
+      value:{results:out, mape, n:out.length, finished_at: remaining.length?undefined:new Date().toISOString(), updated_at:new Date().toISOString()} as any,
       updated_at:new Date().toISOString(),
     },{onConflict:"key"});
-    console.log("cal4 done", JSON.stringify({mape, n:out.length}));
+    console.log("cal4 batch done", JSON.stringify({mape, n:out.length, processed:slice.length, remaining:remaining.length}));
+    if (chain && remaining.length) {
+      try {
+        const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/recount-windows-cal4`, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json", Authorization:`Bearer ${srk}`, apikey:srk },
+          body:JSON.stringify({ building_ids: remaining, chain:true, per_invocation: perInvocation }),
+        });
+      } catch(e) { console.warn("cal4 chain failed", (e as Error).message); }
+    }
   };
   // @ts-ignore EdgeRuntime
   EdgeRuntime.waitUntil(run());
-  return new Response(JSON.stringify({ok:true,async:true,ids,step_m:STEP_M,setback_m:SETBACK_M}),{status:202,headers:{...corsHeaders,"Content-Type":"application/json"}});
+  return new Response(JSON.stringify({ok:true,async:true,processing:slice,remaining:remaining.length,step_m:STEP_M,setback_m:SETBACK_M}),{status:202,headers:{...corsHeaders,"Content-Type":"application/json"}});
 });
