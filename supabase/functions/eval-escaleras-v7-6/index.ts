@@ -166,8 +166,9 @@ async function evalOne(sb: any, apiKey: string, set_name: string, building_id: s
   let pred: number | null = null;
   let needsReview = true;
   let razon = "";
+  let verifiedByV76 = false;
   if (nB != null && nA === nB && cB >= 0.7 && !passB?.needs_review) {
-    pred = nA; needsReview = false; razon = `A y B coinciden en ${nA} (conf B=${cB})`;
+    pred = nA; needsReview = false; verifiedByV76 = true; razon = `A y B coinciden en ${nA} (conf B=${cB})`;
   } else if (nB != null && nA === nB && cB >= 0.5) {
     // coincidencia con confianza media → solo upgrade desde base==1 si nA>=2
     if ((base.pred_n ?? 0) >= 2) { pred = base.pred_n; needsReview = false; razon = "respeta base>=2"; }
@@ -181,7 +182,7 @@ async function evalOne(sb: any, apiKey: string, set_name: string, building_id: s
   return { building_id, set_name, version: "v7.6", gt,
     pred_n: pred, pred_segundas: pred == null ? null : pred >= 2,
     needs_review: needsReview, confidence: Math.min(1, Math.max(0, cB)),
-    evidencia: { base, best_page_idx: best.idx, nA, nB, decision: razon, passA, passB } };
+    evidencia: { base, best_page_idx: best.idx, nA, nB, decision: razon, verifiedByV76, passA, passB } };
 }
 
 Deno.serve(async (req) => {
@@ -225,8 +226,11 @@ Deno.serve(async (req) => {
           needs_review: r.needs_review ?? false, confidence: r.confidence ?? null,
           evidencia: r.evidencia ?? null, error: r.error ?? null,
         }, { onConflict: "set_name,version,building_id" });
-        // Persistencia building_analysis solo si hay pred y no needs_review
-        if (r.pred_n != null && !r.needs_review) {
+        // Persistencia building_analysis SOLO cuando v7.6 verificó (A=B,
+        // conf>=0.7). Si sólo respetamos base v7.2-gemini no hacemos doble
+        // upsert (la fuente ya quedó escrita por recount-escaleras).
+        const verified = (r.evidencia as any)?.verifiedByV76 === true;
+        if (r.pred_n != null && !r.needs_review && verified) {
           await sb.from("building_analysis").upsert({
             building_id: r.building_id,
             n_escaleras_final: r.pred_n,
