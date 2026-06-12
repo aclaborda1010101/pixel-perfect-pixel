@@ -214,6 +214,16 @@ Deno.serve(async (req) => {
           needs_review: r.needs_review ?? false, confidence: r.confidence ?? null,
           evidencia: r.evidencia ?? null, error: r.error ?? null,
         }, { onConflict: "set_name,version,building_id" });
+        // Persistencia building_analysis solo si hay pred y no needs_review
+        if (r.pred_n != null && !r.needs_review) {
+          await sb.from("building_analysis").upsert({
+            building_id: r.building_id,
+            n_escaleras_final: r.pred_n,
+            segundas_escaleras: r.pred_n >= 2,
+            n_escaleras_fuente: "v7.6",
+            n_escaleras_evidencia: r.evidencia ?? null,
+          }, { onConflict: "building_id" });
+        }
       } catch (e) { console.warn("v7.6 err", it.building_id, (e as Error).message); }
       await new Promise(r => setTimeout(r, 400));
     }
