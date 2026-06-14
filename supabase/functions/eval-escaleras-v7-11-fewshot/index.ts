@@ -11,16 +11,9 @@ const MODEL = "google/gemini-2.5-pro";
 const VERSION = "v7.11-fewshot";
 const LIB_KEY = "escaleras_fewshot_library";
 
-const LIBRARY_BUILDING_IDS = [
-  "5786db99-e0e8-44ac-a545-048f65dceedb",
-  "3a1cd262-a73d-4202-97aa-6adf929cbd89",
-  "e0d20e70-33c8-4cc6-b80e-983cfdd29f70",
-  "efd3192c-62b5-4b2d-bf5d-87fbdd6de69e",
-  "8af90a55-271d-4f5d-9bd3-a89a0451f88d",
-  "7695c919-1968-4bb3-9599-3b2abc203964",
-  "64aac8d8-41ff-4965-9259-59b319b3ac9b",
-  "1480e70d-8707-497e-bde6-74084f66821b",
-];
+// Pool por defecto: edificios con GT=2 confirmado humano (qa_ground_truth.escaleras=2).
+// Si no se pasa lib_building_ids, se cargan dinámicamente desde la BD al arrancar.
+const LIBRARY_BUILDING_IDS: string[] = [];
 
 const PROMPT_LIB = `Eres experto en FXCC catastral de Madrid. Te paso UNA lamina.
 1) Identifica la planta. es_p01=true si es planta tipo sobre rasante distinta de PB/sotano/cubierta.
@@ -204,9 +197,15 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
 
   if (body.build_library === true) {
-    const libBatch: number = Math.max(1, Math.min(4, Number(body.lib_batch_size ?? 3)));
+    const libBatch: number = 1; // wall-time safety: 1 edificio por invocación
     let pool: string[] = Array.isArray(body.lib_building_ids) && body.lib_building_ids.length
-      ? body.lib_building_ids : LIBRARY_BUILDING_IDS.slice();
+      ? body.lib_building_ids
+      : [];
+    if (!pool.length) {
+      const { data: gt } = await sb.from("qa_ground_truth")
+        .select("building_id").eq("escaleras", 2).not("building_id", "is", null);
+      pool = Array.from(new Set((gt ?? []).map((r: any) => r.building_id))).filter(Boolean) as string[];
+    }
     const existing = await readLib(sb);
     const have = new Set(existing.map((e: any) => e.building_id));
     pool = pool.filter((id) => !have.has(id));
@@ -222,7 +221,7 @@ Deno.serve(async (req) => {
       try { await buildLibraryChunk(sb, apiKey, batch); }
       catch (e) { console.warn("build err", (e as Error).message); }
       if (rest.length) {
-        await reinvoke({ build_library: true, lib_building_ids: rest, lib_batch_size: libBatch });
+        await reinvoke({ build_library: true, lib_building_ids: rest });
       } else {
         const final = await readLib(sb);
         await writeLib(sb, final, false);
@@ -235,7 +234,7 @@ Deno.serve(async (req) => {
   const set_name: string = body.set_name ?? "ctrl_10x10_v1";
   const force: boolean = body.force === true;
   const onlyIds: string[] | null = Array.isArray(body.building_ids) && body.building_ids.length ? body.building_ids : null;
-  const batchSize: number = Math.max(1, Math.min(4, Number(body.batch_size ?? 2)));
+  const batchSize: number = 1; // wall-time safety: 1 edificio por invocación
 
   const lib = await readLib(sb);
   if (lib.length < 4) {
