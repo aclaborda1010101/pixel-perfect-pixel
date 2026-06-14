@@ -1029,12 +1029,16 @@ export type Database = {
           checklist: Json
           comercial_id: string
           created_at: string
+          estado: string
+          finalizada_at: string | null
+          hubspot_call_id: string | null
           id: string
           iniciada_at: string
           notas: string | null
           objetivo: string | null
           owner_id: string | null
           paso: number
+          puntuacion: number | null
           resultado: string | null
           updated_at: string
           voss_brief: Json | null
@@ -1047,12 +1051,16 @@ export type Database = {
           checklist?: Json
           comercial_id: string
           created_at?: string
+          estado?: string
+          finalizada_at?: string | null
+          hubspot_call_id?: string | null
           id?: string
           iniciada_at?: string
           notas?: string | null
           objetivo?: string | null
           owner_id?: string | null
           paso?: number
+          puntuacion?: number | null
           resultado?: string | null
           updated_at?: string
           voss_brief?: Json | null
@@ -1065,12 +1073,16 @@ export type Database = {
           checklist?: Json
           comercial_id?: string
           created_at?: string
+          estado?: string
+          finalizada_at?: string | null
+          hubspot_call_id?: string | null
           id?: string
           iniciada_at?: string
           notas?: string | null
           objetivo?: string | null
           owner_id?: string | null
           paso?: number
+          puntuacion?: number | null
           resultado?: string | null
           updated_at?: string
           voss_brief?: Json | null
