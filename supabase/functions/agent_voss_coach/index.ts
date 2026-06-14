@@ -14,7 +14,7 @@ const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const EMB_URL = 'https://ai.gateway.lovable.dev/v1/embeddings';
 const MODEL = 'google/gemini-2.5-flash';
 const EMB_MODEL = 'google/gemini-embedding-001';
-const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss', 'tipologias_qa'];
+const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss', 'tipologias_qa', 'metodo_cold_call'];
 
 const SYSTEM_BRIEF = `Eres un EXPERTO Chris Voss especializado en LLAMADA EN FRÍO a proindivisarios de edificios de Madrid (herencias, copropiedad fragmentada, conflictos, mala gestión). NO eres un coach genérico de manual: produces un PLAN DE LLAMADA literal, accionable y referido a los DATOS REALES del SNAPSHOT.
 
@@ -221,6 +221,18 @@ Deno.serve(async (req) => {
       fragments = (kc || []).map((k: any) => ({ chunk_id: k.id, source: k.origen, snippet: (k.contenido || '').slice(0, 500) }));
     }
 
+    // 3.bis) Tácticas ganadoras del playbook (sistema que aprende)
+    const perfilKey = snapshot.propietario?.buyer_persona || 'sin_clasificar';
+    const { data: pbRows } = await sb
+      .from('call_playbook')
+      .select('tactica_tipo, tactica_texto, ejemplo_literal, n_usos, n_exito, tasa_exito')
+      .in('perfil_tipologia', [perfilKey, 'sin_clasificar'])
+      .gte('n_usos', 1)
+      .order('tasa_exito', { ascending: false })
+      .order('n_usos', { ascending: false })
+      .limit(8);
+    const playbook = pbRows || [];
+
     // 4) Payload al modelo
     const userMsg = `MODO: ${mode}
 
@@ -231,6 +243,9 @@ HISTÓRICO DE LLAMADAS (${historico.length} previas):
 ${historico.length ? JSON.stringify(historico, null, 2) : '(sin histórico — PRIMER CONTACTO en frío)'}
 
 ${mode === 'post' ? `TRANSCRIPCIÓN A EVALUAR:\n${call_transcript || '(sin transcripción provista)'}\n` : ''}
+PLAYBOOK MEDIDO (tácticas con mejor tasa_exito para este perfil — PRIORÍZALAS y cítalas en por_que_funciona):
+${playbook.length ? playbook.map((p: any, i: number) => `[${i+1}] tipo=${p.tactica_tipo} texto="${p.tactica_texto}" tasa=${p.tasa_exito} (n=${p.n_usos}/${p.n_exito})${p.ejemplo_literal ? ` ej: "${p.ejemplo_literal}"` : ''}`).join('\n') : '(playbook vacío — primera iteración, usa criterio Voss/Sandler)'}
+
 FRAGMENTOS VOSS (cita chunk_id real en fragmentos_usados):
 ${fragments.map((f, i) => `[${i+1}] (${f.source}) chunk_id=${f.chunk_id}\n${f.snippet}`).join('\n\n')}
 
@@ -245,6 +260,11 @@ Devuelve el JSON estricto con la forma EXACTA del system.`;
     if (!Array.isArray(ai.fragmentos_usados) || ai.fragmentos_usados.length === 0) {
       ai.fragmentos_usados = fragments.slice(0, 2).map((f) => ({ source: f.source, chunk_id: f.chunk_id, tecnica: 'corpus_voss' }));
     }
+    if (mode === 'brief') {
+      ai.playbook_priorizado = playbook.slice(0, 3).map((p: any) => ({
+        tipo: p.tactica_tipo, tactica: p.tactica_texto, tasa_exito: p.tasa_exito, n_usos: p.n_usos,
+      }));
+    }
 
     return new Response(JSON.stringify({
       ok: true,
@@ -253,6 +273,7 @@ Devuelve el JSON estricto con la forma EXACTA del system.`;
       meta: {
         historico_count: historico.length,
         fragments_count: fragments.length,
+        playbook_count: playbook.length,
         datos_faltantes: snapshot.datos_faltantes,
         snapshot_keys: Object.keys(snapshot),
       },
