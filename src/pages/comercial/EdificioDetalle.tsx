@@ -44,6 +44,7 @@ import { AnalisisPlanoCatastralCard } from "@/components/comercial/AnalisisPlano
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
 import { VerificacionInlinePanel } from "@/components/comercial/VerificacionInlinePanel";
+import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -290,6 +291,9 @@ export default function ComercialEdificioDetalle() {
 
       {/* Análisis IA (Catastro + Google + Gemini) */}
       {id && <AnalisisIASection buildingId={id} />}
+
+      {/* PGOUM: protección + plantas levantables */}
+      {id && <PgoumBlock buildingId={id} />}
 
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
