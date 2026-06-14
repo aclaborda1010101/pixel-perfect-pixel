@@ -83,8 +83,8 @@ async function processOne(sb: any, apiKey: string, gKey: string, bid: string) {
   const byRole: Record<string, any[]> = {};
   for (const p of panos) (byRole[p.role || "principal"] ??= []).push(p);
 
-  // (a) ENCUADRE: 1 paso lateral cada ~10m, máx 3 puntos (para no exceder 150s)
-  const stepsPerFacade = longitud > 0 ? Math.max(1, Math.min(3, Math.ceil(longitud / 10))) : 1;
+  // (a) ENCUADRE: 1 paso lateral cada ~12m, MAX 2 puntos (presupuesto 150s)
+  const stepsPerFacade = longitud > 0 ? Math.max(1, Math.min(2, Math.ceil(longitud / 12))) : 1;
   const offsets = (() => {
     if (stepsPerFacade <= 1) return [0];
     const span = longitud / 2;
@@ -101,12 +101,14 @@ async function processOne(sb: any, apiKey: string, gKey: string, bid: string) {
     if (role === "patio") continue;
     const ejesArr: number[] = []; const pbArr: number[] = []; const detalle: any[] = [];
     let lastOclusion: string | null = null;
-    for (const p of ps) {
+    // Presupuesto: 1 pano por rol, max 2 offsets, 2 headings, 1 pitch -> ~4 VLM calls/edificio
+    const panosUse = ps.slice(0, 1);
+    for (const p of panosUse) {
       for (const off of offsets) {
         const { lat, lng } = offsetLatLng(p.lat, p.lng, p.heading, off);
         const headings = [p.heading, (p.heading - 12 + 360) % 360, (p.heading + 12) % 360];
         const urls: string[] = [];
-        for (const h of headings) for (const pi of [20, 0]) urls.push(sv(lat, lng, h, pi, 70, gKey));
+        for (const h of headings) urls.push(sv(lat, lng, h, 15, 70, gKey)); // 1 pitch, 3 headings
         try {
           const v = await vlm(apiKey, plantas_tipo, urls, lastOclusion);
           let ejes = Number(v.ejes_verticales ?? 0);
