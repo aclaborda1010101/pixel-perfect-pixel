@@ -83,6 +83,7 @@ export function AppSidebar() {
   const cuenta: Item[] = isComercial ? [
     { url: "/comercial/cuenta", label: "Mi cuenta", icon: UserCircle },
   ] : [
+    { url: "/admin/proteccion-pgoum", label: "Validación PGOUM", icon: CheckSquare },
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
   ];
 
