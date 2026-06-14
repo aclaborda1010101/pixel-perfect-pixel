@@ -9,10 +9,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
-const POSITIVE_OUTCOMES = new Set([
-  'interesado', 'reunion_agendada', 'info_extraida', 'opt_in', 'whatsapp_enviado',
-  'derivado_influencer', 'segundo_contacto',
-]);
+const POSITIVE_OUTCOMES = new Set(['interesado', 'dudoso']);
 
 function classifyTipo(t: string): string {
   const s = (t || '').toLowerCase();
