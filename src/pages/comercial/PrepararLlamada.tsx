@@ -424,11 +424,32 @@ export default function ComercialPrepararLlamada() {
             </ul>
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => jumpTo(1)}>Volver al brief</Button>
-              <Button variant="gold" onClick={finalizeCall} disabled={finalizing}>
+              <Button variant="gold" onClick={finalizeCall} disabled={finalizing || !!awaiting}>
                 <PhoneOff className="h-4 w-4" />
-                {finalizing ? "Analizando llamada…" : "Llamada finalizada · analizar"}
+                {finalizing ? "Analizando llamada…" : awaiting ? "Esperando transcripción…" : "Llamada finalizada · analizar"}
               </Button>
             </div>
+            {awaiting && (
+              <div className="rounded border border-gold/40 bg-gold-soft/20 p-3 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Clock4 className="h-3.5 w-3.5 text-gold" />
+                    <span className="font-mono uppercase tracking-eyebrow text-muted-foreground">
+                      Esperando transcripción de HubSpot
+                    </span>
+                  </div>
+                  <div className="font-mono text-foreground">
+                    Reintento en {Math.max(0, Math.ceil((awaiting.nextAt - now) / 1000))} s · intento {awaiting.attempt}/{RETRY_DELAYS_MS.length}
+                  </div>
+                </div>
+                <div className="mt-2 flex justify-end">
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    setAwaiting({ nextAt: Date.now(), attempt: awaiting.attempt });
+                    try { await tryFinalizeOnce({ pullHubspot: true }); } catch {}
+                  }}>Reintentar ahora</Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
