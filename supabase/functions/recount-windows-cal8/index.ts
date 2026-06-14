@@ -106,9 +106,9 @@ async function processOne(sb: any, apiKey: string, gKey: string, bid: string) {
     for (const p of panosUse) {
       for (const off of offsets) {
         const { lat, lng } = offsetLatLng(p.lat, p.lng, p.heading, off);
-        const headings = [p.heading, (p.heading + 12) % 360]; // 2 en vez de 3
+        const headings = [p.heading, (p.heading - 12 + 360) % 360, (p.heading + 12) % 360];
         const urls: string[] = [];
-        for (const h of headings) urls.push(sv(lat, lng, h, 15, 70, gKey)); // 1 pitch
+        for (const h of headings) urls.push(sv(lat, lng, h, 15, 70, gKey)); // 1 pitch, 3 headings
         try {
           const v = await vlm(apiKey, plantas_tipo, urls, lastOclusion);
           let ejes = Number(v.ejes_verticales ?? 0);
