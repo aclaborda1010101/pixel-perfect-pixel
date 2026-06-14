@@ -979,6 +979,48 @@ export type Database = {
           },
         ]
       }
+      call_playbook: {
+        Row: {
+          created_at: string
+          ejemplo_literal: string | null
+          evidencia: Json
+          id: string
+          n_exito: number
+          n_usos: number
+          perfil_tipologia: string
+          tactica_texto: string
+          tactica_tipo: string
+          tasa_exito: number
+          ultima_actualizacion: string
+        }
+        Insert: {
+          created_at?: string
+          ejemplo_literal?: string | null
+          evidencia?: Json
+          id?: string
+          n_exito?: number
+          n_usos?: number
+          perfil_tipologia: string
+          tactica_texto: string
+          tactica_tipo: string
+          tasa_exito?: number
+          ultima_actualizacion?: string
+        }
+        Update: {
+          created_at?: string
+          ejemplo_literal?: string | null
+          evidencia?: Json
+          id?: string
+          n_exito?: number
+          n_usos?: number
+          perfil_tipologia?: string
+          tactica_texto?: string
+          tactica_tipo?: string
+          tasa_exito?: number
+          ultima_actualizacion?: string
+        }
+        Relationships: []
+      }
       call_sessions: {
         Row: {
           building_id: string | null
