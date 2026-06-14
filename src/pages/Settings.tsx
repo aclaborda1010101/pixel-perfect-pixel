@@ -13,6 +13,7 @@ import { AnalisisIAPanel } from "@/components/settings/AnalisisIAPanel";
 import { SubZonasPanel } from "@/components/settings/SubZonasPanel";
 import { AprendizajePanel } from "@/components/settings/AprendizajePanel";
 import { KnowledgeBasePanel } from "@/components/settings/KnowledgeBasePanel";
+import { PlaybookPanel } from "@/components/settings/PlaybookPanel";
 import { EnrichmentConfigPanel } from "@/components/settings/EnrichmentConfigPanel";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 
@@ -35,6 +36,7 @@ export default function Settings() {
         {isAdmin && <SubZonasPanel />}
         {isAdmin && <AprendizajePanel />}
         {isAdmin && <KnowledgeBasePanel />}
+        {isAdmin && <PlaybookPanel />}
         {isAdmin && <EnrichmentConfigPanel />}
         <Card>
           <CardHeader>
