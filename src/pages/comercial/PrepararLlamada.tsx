@@ -37,6 +37,9 @@ export default function ComercialPrepararLlamada() {
   const [finalizing, setFinalizing] = useState(false);
   const [puntuacion, setPuntuacion] = useState<number | null>(null);
   const [vossPost, setVossPost] = useState<any | null>(null);
+  // Espera activa a transcripción de HubSpot tras pulsar "Llamada finalizada"
+  const [awaiting, setAwaiting] = useState<{ nextAt: number; attempt: number } | null>(null);
+  const [now, setNow] = useState<number>(Date.now());
   const DEFAULT_CHECKLIST = [
     { k: "tipologia", label: "Tipología del propietario (T1–T10 / buyer persona)" },
     { k: "motor", label: "Qué le mueve (dinero, paz, herederos, miedo, control)" },
@@ -159,29 +162,79 @@ export default function ComercialPrepararLlamada() {
     if (!sessionId) return;
     setFinalizing(true);
     try {
-      const { data: res, error } = await supabase.functions.invoke("finalize_call_session", {
-        body: { session_id: sessionId },
-      });
-      if (error) throw error;
-      if ((res as any)?.ok === false) {
-        toast.error(`Sin transcripción aprovechable (${(res as any)?.source ?? "—"}). Sesión queda en espera.`);
-      } else {
-        toast.success(`Llamada analizada · score ${(res as any)?.puntuacion ?? "—"}/100`);
-        if (Array.isArray((res as any)?.checks)) setChecklist((res as any).checks);
-        if ((res as any)?.puntuacion != null) setPuntuacion(Number((res as any).puntuacion));
-        // refrescar voss_post
-        const { data: refreshed } = await (supabase.from("call_sessions" as any) as any)
-          .select("voss_post, notas").eq("id", sessionId).maybeSingle();
-        if (refreshed?.voss_post) setVossPost(refreshed.voss_post);
-        if (refreshed?.notas) setNotas(refreshed.notas);
-        setPaso(3);
-      }
+      await tryFinalizeOnce({ pullHubspot: true });
     } catch (e: any) {
       toast.error(e?.message ?? "Error finalizando llamada");
     } finally {
       setFinalizing(false);
     }
   }
+
+  // Calendario de reintentos tras "Llamada finalizada" si la transcripción aún no
+  // ha aterrizado desde HubSpot. Pull activo antes de cada reintento.
+  const RETRY_DELAYS_MS = [60_000, 120_000, 180_000, 300_000]; // 1', 2', 3', 5'
+
+  async function tryFinalizeOnce({ pullHubspot }: { pullHubspot: boolean }): Promise<boolean> {
+    if (!sessionId) return false;
+    if (pullHubspot) {
+      // Pull activo de Calls desde HubSpot (best-effort, no bloquea más de unos segundos)
+      try {
+        await supabase.functions.invoke("hubspot_sync_engagements", {
+          body: { types: ["calls"], max_pages: 2, background: false },
+        });
+      } catch { /* best-effort */ }
+    }
+    const { data: res, error } = await supabase.functions.invoke("finalize_call_session", {
+      body: { session_id: sessionId },
+    });
+    if (error) throw error;
+    if ((res as any)?.ok === false) {
+      // No hay transcripción todavía: programa siguiente reintento si quedan
+      const attempt = (awaiting?.attempt ?? 0);
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (delay != null) {
+        const nextAt = Date.now() + delay;
+        setAwaiting({ nextAt, attempt: attempt + 1 });
+        toast.message("Esperando transcripción de HubSpot…", {
+          description: `Reintento automático en ${Math.round(delay / 1000)} s (intento ${attempt + 1}/${RETRY_DELAYS_MS.length}).`,
+        });
+      } else {
+        setAwaiting(null);
+        toast.error("Sin transcripción tras 5 min. La sesión queda en espera; se reintentará por el sync automático.");
+      }
+      return false;
+    }
+    // OK
+    setAwaiting(null);
+    toast.success(`Llamada analizada · score ${(res as any)?.puntuacion ?? "—"}/100`);
+    if (Array.isArray((res as any)?.checks)) setChecklist((res as any).checks);
+    if ((res as any)?.puntuacion != null) setPuntuacion(Number((res as any).puntuacion));
+    const { data: refreshed } = await (supabase.from("call_sessions" as any) as any)
+      .select("voss_post, notas").eq("id", sessionId).maybeSingle();
+    if (refreshed?.voss_post) setVossPost(refreshed.voss_post);
+    if (refreshed?.notas) setNotas(refreshed.notas);
+    setPaso(3);
+    return true;
+  }
+
+  // Tick del countdown + disparo del reintento cuando llega su momento
+  useEffect(() => {
+    if (!awaiting) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [awaiting]);
+
+  useEffect(() => {
+    if (!awaiting) return;
+    if (now < awaiting.nextAt) return;
+    // Ejecutar reintento
+    (async () => {
+      try { await tryFinalizeOnce({ pullHubspot: true }); }
+      catch (e: any) { toast.error(e?.message ?? "Error en reintento"); setAwaiting(null); }
+    })();
+    // El propio tryFinalizeOnce reprograma el siguiente o limpia awaiting.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [now, awaiting?.nextAt]);
 
   // Normaliza esquema viejo y nuevo a un mismo shape
   const normalizedBrief = (() => {
