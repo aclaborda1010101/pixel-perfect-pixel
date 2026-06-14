@@ -34,15 +34,16 @@ export default function ComercialPrepararLlamada() {
   const [paso, setPaso] = useState<1 | 2 | 3>(1);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [objetivo, setObjetivo] = useState<string>("reunion");
+  const [finalizing, setFinalizing] = useState(false);
+  const [puntuacion, setPuntuacion] = useState<number | null>(null);
+  const [vossPost, setVossPost] = useState<any | null>(null);
   const DEFAULT_CHECKLIST = [
-    { k: "saludo", label: "Saludo + identificación de Afflux" },
-    { k: "interes", label: "Preguntar por interés en venta/asesoría" },
-    { k: "situacion", label: "Indagar situación (herencia, propiedad, %)" },
-    { k: "dolor", label: "Detectar dolor / motivo de inacción" },
-    { k: "valor", label: "Anclar valor estimado de su parte" },
-    { k: "cierre", label: "Pedir compromiso (reunión / WhatsApp / pixel)" },
+    { k: "tipologia", label: "Tipología del propietario (T1–T10 / buyer persona)" },
+    { k: "motor", label: "Qué le mueve (dinero, paz, herederos, miedo, control)" },
+    { k: "info_edificio", label: "Info edificio / copropietarios / alquileres" },
+    { k: "canal_abierto", label: "Canal abierto (WhatsApp opt-in / mail / influenciador)" },
   ];
-  const [checklist, setChecklist] = useState<Array<{ k: string; label: string; done: boolean }>>(
+  const [checklist, setChecklist] = useState<Array<{ k: string; label: string; done: boolean; evidencia?: string | null; auto_done?: boolean }>>(
     DEFAULT_CHECKLIST.map((c) => ({ ...c, done: false })),
   );
 
@@ -81,11 +82,13 @@ export default function ComercialPrepararLlamada() {
     if (!ownerId) return;
     setLoadingBrief(true);
     try {
-      const { data, error } = await supabase.functions.invoke("agent_pre_call_brief", {
-        body: { owner_id: ownerId, locale: "es" },
+      const buildingId = data?.ownerScore?.building_id;
+      const { data: res, error } = await supabase.functions.invoke("agent_voss_coach", {
+        body: { mode: "brief", owner_id: ownerId, building_id: buildingId },
       });
       if (error) throw error;
-      setBrief(data);
+      setBrief(res);
+      if (sessionId) await persistSession({ voss_brief: (res as any)?.voss ?? res });
     } catch (e: any) {
       toast.error(e?.message ?? "No se pudo generar el briefing");
     } finally {
@@ -103,7 +106,7 @@ export default function ComercialPrepararLlamada() {
       const uid = u?.user?.id;
       if (!uid) return;
       const { data: existing } = await (supabase.from("call_sessions" as any) as any)
-        .select("*").eq("comercial_id", uid).eq("owner_id", ownerId).is("cerrada_at", null)
+        .select("*").eq("comercial_id", uid).eq("owner_id", ownerId).neq("estado", "finalizada")
         .order("iniciada_at", { ascending: false }).limit(1).maybeSingle();
       if (existing) {
         setSessionId(existing.id);
@@ -111,11 +114,23 @@ export default function ComercialPrepararLlamada() {
         if (existing.objetivo) setObjetivo(existing.objetivo);
         if (Array.isArray(existing.checklist) && existing.checklist.length) setChecklist(existing.checklist);
         if (existing.notas) setNotas(existing.notas);
+        if (existing.voss_brief) setBrief({ voss: existing.voss_brief });
+        if (existing.voss_post) setVossPost(existing.voss_post);
+        if (existing.puntuacion != null) setPuntuacion(Number(existing.puntuacion));
       } else {
         const { data: ins } = await (supabase.from("call_sessions" as any) as any)
-          .insert({ comercial_id: uid, owner_id: ownerId, paso: 1, objetivo: "reunion", checklist: DEFAULT_CHECKLIST.map((c)=>({...c,done:false})) })
+          .insert({
+            comercial_id: uid, owner_id: ownerId, paso: 1, objetivo: "reunion",
+            estado: "preparada",
+            iniciada_at: new Date().toISOString(),
+            checklist: DEFAULT_CHECKLIST.map((c) => ({ ...c, done: false })),
+          })
           .select("id").maybeSingle();
-        if (ins) setSessionId((ins as any).id);
+        if (ins) {
+          setSessionId((ins as any).id);
+          // brief automático
+          setTimeout(() => loadBrief(), 100);
+        }
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,6 +153,34 @@ export default function ComercialPrepararLlamada() {
     if (n < 1 || n > 3) return;
     setPaso(n as 1|2|3);
     persistSession({ paso: n });
+  }
+
+  async function finalizeCall() {
+    if (!sessionId) return;
+    setFinalizing(true);
+    try {
+      const { data: res, error } = await supabase.functions.invoke("finalize_call_session", {
+        body: { session_id: sessionId },
+      });
+      if (error) throw error;
+      if ((res as any)?.ok === false) {
+        toast.error(`Sin transcripción aprovechable (${(res as any)?.source ?? "—"}). Sesión queda en espera.`);
+      } else {
+        toast.success(`Llamada analizada · score ${(res as any)?.puntuacion ?? "—"}/100`);
+        if (Array.isArray((res as any)?.checks)) setChecklist((res as any).checks);
+        if ((res as any)?.puntuacion != null) setPuntuacion(Number((res as any).puntuacion));
+        // refrescar voss_post
+        const { data: refreshed } = await (supabase.from("call_sessions" as any) as any)
+          .select("voss_post, notas").eq("id", sessionId).maybeSingle();
+        if (refreshed?.voss_post) setVossPost(refreshed.voss_post);
+        if (refreshed?.notas) setNotas(refreshed.notas);
+        setPaso(3);
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Error finalizando llamada");
+    } finally {
+      setFinalizing(false);
+    }
   }
 
   // Normaliza esquema viejo y nuevo a un mismo shape
