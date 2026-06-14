@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 const STEPS = [
   { id: 1, label: "Preparación", hint: "Brief + Voss pre-llamada" },
-  { id: 2, label: "Llamada", hint: "Checklist y guía táctica" },
+  { id: 2, label: "Llamada finalizada", hint: "Analizar grabación" },
   { id: 3, label: "Resultado", hint: "Outcome + análisis post" },
 ];
 
