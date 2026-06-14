@@ -44,6 +44,7 @@ import { AnalisisPlanoCatastralCard } from "@/components/comercial/AnalisisPlano
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
 import { VerificacionInlinePanel } from "@/components/comercial/VerificacionInlinePanel";
+import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
