@@ -93,7 +93,7 @@ export default function ProteccionValidationQueuePage() {
     <div className="space-y-4">
       <PageHeader
         title="Validación PGOUM"
-        description="Confirma o corrige los hits de protección urbanística. Se escribe a qa_ground_truth."
+        subtitle="Confirma o corrige los hits de protección urbanística. Se escribe a qa_ground_truth."
       />
       <div className="flex gap-2">
         <Button size="sm" variant={filter === "pendientes" ? "default" : "outline"} onClick={() => setFilter("pendientes")}>
