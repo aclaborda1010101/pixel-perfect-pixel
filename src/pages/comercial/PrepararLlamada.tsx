@@ -354,15 +354,26 @@ export default function ComercialPrepararLlamada() {
             </div>
             <ul className="space-y-2">
               {checklist.map((c) => (
-                <li key={c.k} className="flex items-center gap-3 rounded-[4px] border border-border-faint bg-surface-1/30 p-3">
-                  <Checkbox checked={c.done} onCheckedChange={() => toggleCheck(c.k)} />
-                  <span className={c.done ? "text-muted-foreground line-through" : "text-foreground"}>{c.label}</span>
+                <li key={c.k} className="flex items-start gap-3 rounded-[4px] border border-border-faint bg-surface-1/30 p-3">
+                  <Checkbox checked={c.done} onCheckedChange={() => toggleCheck(c.k)} className="mt-0.5" />
+                  <div className="flex-1">
+                    <div className={c.done ? "text-muted-foreground line-through" : "text-foreground"}>{c.label}</div>
+                    {c.evidencia && (
+                      <div className="mt-1 rounded border-l-2 border-gold/40 bg-surface-1/40 px-2 py-1 text-xs italic text-muted-foreground">
+                        "{c.evidencia}"
+                      </div>
+                    )}
+                  </div>
+                  {c.auto_done && <Badge variant="gold" className="text-[10px]">auto</Badge>}
                 </li>
               ))}
             </ul>
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => jumpTo(1)}>Volver al brief</Button>
-              <Button variant="gold" onClick={() => jumpTo(3)}>Llamada terminada <ArrowRight className="h-4 w-4" /></Button>
+              <Button variant="gold" onClick={finalizeCall} disabled={finalizing}>
+                <PhoneOff className="h-4 w-4" />
+                {finalizing ? "Analizando llamada…" : "Llamada finalizada · analizar"}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -370,6 +381,37 @@ export default function ComercialPrepararLlamada() {
 
       {paso === 3 && (
       <>
+      {puntuacion != null && (
+        <Card>
+          <CardHeader>
+            <Eyebrow>Análisis Voss · automático</Eyebrow>
+            <CardTitle>Puntuación: <span className="font-mono text-gold">{puntuacion}/100</span></CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {vossPost?.puntuacion?.justificacion && (
+              <p className="text-foreground">{vossPost.puntuacion.justificacion}</p>
+            )}
+            <ul className="space-y-1.5">
+              {checklist.map((c) => (
+                <li key={c.k} className="flex items-start gap-2">
+                  {c.done ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" /> : <XCircle className="mt-0.5 h-4 w-4 text-muted-foreground" />}
+                  <div className="flex-1">
+                    <div className="text-foreground">{c.label}</div>
+                    {c.evidencia && (
+                      <div className="mt-0.5 italic text-xs text-muted-foreground">"{c.evidencia}"</div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {vossPost?.proxima_accion && (
+              <div className="rounded border border-gold/30 bg-gold-soft/20 p-2 text-xs">
+                <span className="font-mono uppercase tracking-eyebrow text-muted-foreground">Próxima acción:</span> {vossPost.proxima_accion}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
       {/* Post-call */}
       <Card>
         <CardHeader><Eyebrow>Post-llamada</Eyebrow><CardTitle>Registrar resultado</CardTitle></CardHeader>
