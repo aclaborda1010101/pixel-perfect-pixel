@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
 import { VerificacionInlinePanel } from "@/components/comercial/VerificacionInlinePanel";
+import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
