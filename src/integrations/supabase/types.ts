@@ -1864,6 +1864,167 @@ export type Database = {
           },
         ]
       }
+      escaleras_validation_queue: {
+        Row: {
+          building_id: string | null
+          confianza: number | null
+          detectado_en: string
+          direccion: string | null
+          estado: string
+          evidencia: Json | null
+          id: string
+          motivo: string | null
+          n_escaleras_detectado: number | null
+          rc14: string | null
+          segundas_escaleras: boolean | null
+          validado_at: string | null
+          validado_n_escaleras: number | null
+          validado_por: string | null
+          validado_resultado: boolean | null
+        }
+        Insert: {
+          building_id?: string | null
+          confianza?: number | null
+          detectado_en?: string
+          direccion?: string | null
+          estado?: string
+          evidencia?: Json | null
+          id?: string
+          motivo?: string | null
+          n_escaleras_detectado?: number | null
+          rc14?: string | null
+          segundas_escaleras?: boolean | null
+          validado_at?: string | null
+          validado_n_escaleras?: number | null
+          validado_por?: string | null
+          validado_resultado?: boolean | null
+        }
+        Update: {
+          building_id?: string | null
+          confianza?: number | null
+          detectado_en?: string
+          direccion?: string | null
+          estado?: string
+          evidencia?: Json | null
+          id?: string
+          motivo?: string | null
+          n_escaleras_detectado?: number | null
+          rc14?: string | null
+          segundas_escaleras?: boolean | null
+          validado_at?: string | null
+          validado_n_escaleras?: number | null
+          validado_por?: string | null
+          validado_resultado?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "escaleras_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escaleras_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "escaleras_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      esquina_validation_queue: {
+        Row: {
+          building_id: string | null
+          confianza: number | null
+          detectado_en: string
+          direccion: string | null
+          estado: string
+          id: string
+          is_corner_anterior: boolean | null
+          is_corner_nuevo: boolean | null
+          n_frentes: number | null
+          nota: string | null
+          rc14: string | null
+          street_names: string[] | null
+          tipo_anterior: string | null
+          tipo_nuevo: string | null
+          validado_at: string | null
+          validado_por: string | null
+          validado_resultado: boolean | null
+          validado_tipo: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          confianza?: number | null
+          detectado_en?: string
+          direccion?: string | null
+          estado?: string
+          id?: string
+          is_corner_anterior?: boolean | null
+          is_corner_nuevo?: boolean | null
+          n_frentes?: number | null
+          nota?: string | null
+          rc14?: string | null
+          street_names?: string[] | null
+          tipo_anterior?: string | null
+          tipo_nuevo?: string | null
+          validado_at?: string | null
+          validado_por?: string | null
+          validado_resultado?: boolean | null
+          validado_tipo?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          confianza?: number | null
+          detectado_en?: string
+          direccion?: string | null
+          estado?: string
+          id?: string
+          is_corner_anterior?: boolean | null
+          is_corner_nuevo?: boolean | null
+          n_frentes?: number | null
+          nota?: string | null
+          rc14?: string | null
+          street_names?: string[] | null
+          tipo_anterior?: string | null
+          tipo_nuevo?: string | null
+          validado_at?: string | null
+          validado_por?: string | null
+          validado_resultado?: boolean | null
+          validado_tipo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "esquina_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "esquina_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "esquina_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_ids: {
         Row: {
           created_at: string
