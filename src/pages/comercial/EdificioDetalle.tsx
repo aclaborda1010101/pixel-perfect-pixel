@@ -292,6 +292,9 @@ export default function ComercialEdificioDetalle() {
       {/* Análisis IA (Catastro + Google + Gemini) */}
       {id && <AnalisisIASection buildingId={id} />}
 
+      {/* PGOUM: protección + plantas levantables */}
+      {id && <PgoumBlock buildingId={id} />}
+
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
 
