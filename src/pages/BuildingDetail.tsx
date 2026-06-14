@@ -641,7 +641,7 @@ export default function BuildingDetail() {
           />
         </TabsContent>
       </Tabs>
-      {id && <div className="mt-6 space-y-6"><VerificacionInlinePanel buildingId={id} /><TeamFeedbackCard buildingId={id} /></div>}
+      {id && <div className="mt-6 space-y-6"><PgoumBlock buildingId={id} /><VerificacionInlinePanel buildingId={id} /><TeamFeedbackCard buildingId={id} /></div>}
     </div>
   );
 }
