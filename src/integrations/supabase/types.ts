@@ -192,6 +192,7 @@ export type Database = {
           created_at: string
           densidad_ventanas_fachada: number | null
           edificio_reformado: boolean | null
+          escaleras_needs_review: boolean
           esquina: boolean | null
           fachada_lineal_total_m: number | null
           formula_ventanas_patio: string | null
@@ -220,6 +221,7 @@ export type Database = {
           patios_detectados: number | null
           plano_render_url: string | null
           plantas_levantables: number | null
+          plantas_levantables_requiere_humano: boolean
           plantas_max_normativa: number | null
           plantas_visibles: number | null
           proteccion_source: string | null
@@ -230,6 +232,7 @@ export type Database = {
           tiene_azotea_transitable: boolean | null
           tiene_sotano: boolean | null
           updated_at: string
+          ventanas_fachada_needs_review: boolean
           ventanas_fachada_total: number | null
           ventanas_patios_desglose: Json | null
           ventanas_patios_estimadas: number | null
@@ -252,6 +255,7 @@ export type Database = {
           created_at?: string
           densidad_ventanas_fachada?: number | null
           edificio_reformado?: boolean | null
+          escaleras_needs_review?: boolean
           esquina?: boolean | null
           fachada_lineal_total_m?: number | null
           formula_ventanas_patio?: string | null
@@ -280,6 +284,7 @@ export type Database = {
           patios_detectados?: number | null
           plano_render_url?: string | null
           plantas_levantables?: number | null
+          plantas_levantables_requiere_humano?: boolean
           plantas_max_normativa?: number | null
           plantas_visibles?: number | null
           proteccion_source?: string | null
@@ -290,6 +295,7 @@ export type Database = {
           tiene_azotea_transitable?: boolean | null
           tiene_sotano?: boolean | null
           updated_at?: string
+          ventanas_fachada_needs_review?: boolean
           ventanas_fachada_total?: number | null
           ventanas_patios_desglose?: Json | null
           ventanas_patios_estimadas?: number | null
@@ -312,6 +318,7 @@ export type Database = {
           created_at?: string
           densidad_ventanas_fachada?: number | null
           edificio_reformado?: boolean | null
+          escaleras_needs_review?: boolean
           esquina?: boolean | null
           fachada_lineal_total_m?: number | null
           formula_ventanas_patio?: string | null
@@ -340,6 +347,7 @@ export type Database = {
           patios_detectados?: number | null
           plano_render_url?: string | null
           plantas_levantables?: number | null
+          plantas_levantables_requiere_humano?: boolean
           plantas_max_normativa?: number | null
           plantas_visibles?: number | null
           proteccion_source?: string | null
@@ -350,6 +358,7 @@ export type Database = {
           tiene_azotea_transitable?: boolean | null
           tiene_sotano?: boolean | null
           updated_at?: string
+          ventanas_fachada_needs_review?: boolean
           ventanas_fachada_total?: number | null
           ventanas_patios_desglose?: Json | null
           ventanas_patios_estimadas?: number | null
