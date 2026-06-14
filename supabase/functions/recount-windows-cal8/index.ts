@@ -101,10 +101,9 @@ async function processOne(sb: any, apiKey: string, gKey: string, bid: string) {
     if (role === "patio") continue;
     const ejesArr: number[] = []; const pbArr: number[] = []; const detalle: any[] = [];
     let lastOclusion: string | null = null;
-    for (const p of ps) {
-      // limitar panos a 1 por rol para no exceder presupuesto
-      const panosUse = ps.slice(0, 1);
-      for (const _ of [0]) { void _;
+    // Presupuesto: 1 pano por rol, max 2 offsets, 2 headings, 1 pitch -> ~4 VLM calls/edificio
+    const panosUse = ps.slice(0, 1);
+    for (const p of panosUse) {
       for (const off of offsets) {
         const { lat, lng } = offsetLatLng(p.lat, p.lng, p.heading, off);
         const headings = [p.heading, (p.heading + 12) % 360]; // 2 en vez de 3
@@ -124,7 +123,6 @@ async function processOne(sb: any, apiKey: string, gKey: string, bid: string) {
           detalle.push({ role, off, ejes, pb, miradores: v.miradores_detectados, ocl: v.oclusion_alta, fila: v.fila_mas_limpia, conf: v.confianza });
         } catch (e) { detalle.push({ role, off, error: (e as Error).message }); }
         await new Promise(r => setTimeout(r, 300));
-      }
       }
     }
     const ejes_med = Math.round(median(ejesArr));
