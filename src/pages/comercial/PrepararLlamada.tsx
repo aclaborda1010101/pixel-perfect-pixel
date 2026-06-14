@@ -321,14 +321,15 @@ export default function ComercialPrepararLlamada() {
 
       {/* Briefing IA */}
       {loadingBrief && !brief && <BriefSkeleton />}
-      {normalizedBrief && <BriefView brief={normalizedBrief} />}
 
-      {/* Coach Voss · pre-llamada */}
+      {/* Coach Voss · pre-llamada (plan completo con datos reales) */}
       {ownerId && (
         <VossCoachCard
           ownerId={ownerId}
           buildingId={data?.ownerScore?.building_id}
           mode="brief"
+          initialVoss={(brief as any)?.voss ?? null}
+          onLoaded={(v) => { setBrief({ voss: v }); if (sessionId) persistSession({ voss_brief: v }); }}
         />
       )}
         <div className="flex justify-end">
