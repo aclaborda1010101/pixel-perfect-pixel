@@ -1,15 +1,8 @@
-// eval-escaleras-v7.11-fewshot
-// Estrategia: v7.2-gemini como suelo (precision 1.0, no degradar) + few-shot
-// multimodal usando 4 ejemplos anotados de la biblioteca (edificios externos
-// con gt=2 confirmado). Promoci\u00f3n s\u00f3lo cuando A==B con conf>=0.7 y
-// el pred nuevo MEJORA el de base sin contradecirlo a la baja.
-//
-// Modos:
-//   { build_library: true }  \u2192 construye/refresca la biblioteca anotada.
-//   { set_name, building_ids?, force? } \u2192 evalua usando la biblioteca.
-//
-// Biblioteca: persistida en app_settings.key='escaleras_fewshot_library'.
-// Cada entrada: { building_id, page_url, n_cajas:2, confidence, descripcion }.
+// eval-escaleras-v7.11-fewshot — CHUNKED + chained re-invocation
+// - build_library: procesa lotes de N edificios (default 3), persiste tras cada uno
+//   y se auto-reinvoca con el resto hasta terminar. Nunca hace los 20 de golpe.
+// - eval: mismo patrón ya existente (default batch_size=2 con auto-reinvocación).
+// Promoción posterior la decide el orquestador comparando v7.11-fewshot vs v7.2-gemini.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
@@ -18,21 +11,20 @@ const MODEL = "google/gemini-2.5-pro";
 const VERSION = "v7.11-fewshot";
 const LIB_KEY = "escaleras_fewshot_library";
 
-// Edificios externos a ctrl_10x10_v1 con gt=2 confirmado en qa_ground_truth.
 const LIBRARY_BUILDING_IDS = [
-  "5786db99-e0e8-44ac-a545-048f65dceedb", // margallo 13
-  "3a1cd262-a73d-4202-97aa-6adf929cbd89", // claudio coello 26
-  "e0d20e70-33c8-4cc6-b80e-983cfdd29f70", // gran via 73
-  "efd3192c-62b5-4b2d-bf5d-87fbdd6de69e", // serrano 16
-  "8af90a55-271d-4f5d-9bd3-a89a0451f88d", // san miguel 5
-  "7695c919-1968-4bb3-9599-3b2abc203964", // san pedro 6
-  "64aac8d8-41ff-4965-9259-59b319b3ac9b", // bilbao 1
-  "1480e70d-8707-497e-bde6-74084f66821b", // amor dios 14
+  "5786db99-e0e8-44ac-a545-048f65dceedb",
+  "3a1cd262-a73d-4202-97aa-6adf929cbd89",
+  "e0d20e70-33c8-4cc6-b80e-983cfdd29f70",
+  "efd3192c-62b5-4b2d-bf5d-87fbdd6de69e",
+  "8af90a55-271d-4f5d-9bd3-a89a0451f88d",
+  "7695c919-1968-4bb3-9599-3b2abc203964",
+  "64aac8d8-41ff-4965-9259-59b319b3ac9b",
+  "1480e70d-8707-497e-bde6-74084f66821b",
 ];
 
-const PROMPT_LIB = `Eres experto en FXCC catastral de Madrid. Te paso UNA l\u00e1mina.
-1) Identifica la planta. es_p01=true si es planta tipo sobre rasante distinta de PB/s\u00f3tano/cubierta.
-2) Si es planta tipo y legible, cuenta cajas de escalera (n\u00facleos verticales con pelda\u00f1os
+const PROMPT_LIB = `Eres experto en FXCC catastral de Madrid. Te paso UNA lamina.
+1) Identifica la planta. es_p01=true si es planta tipo sobre rasante distinta de PB/sotano/cubierta.
+2) Si es planta tipo y legible, cuenta cajas de escalera (nucleos verticales con peldanos
    que separan grupos de viviendas) y da bbox normalizados [x0,y0,x1,y1].
 JSON: {"etiqueta":string,"es_p01":bool,"p01_legible":bool,
  "n_cajas_p01":number|null,"cajas_bbox":[{"bbox":[number,number,number,number],"indicio":string}],
@@ -40,19 +32,19 @@ JSON: {"etiqueta":string,"es_p01":bool,"p01_legible":bool,
 
 function fewshotPrompt(lib: any[]): string {
   const lines = lib.map((e, i) =>
-    `Ejemplo ${i + 1} (edificio real, planta tipo, GT=2 cajas confirmado por humano): ${e.descripcion || "dos n\u00facleos verticales servidores de grupos de viviendas distintos."}`
+    `Ejemplo ${i + 1} (edificio real, planta tipo, GT=2 cajas confirmado por humano): ${e.descripcion || "dos nucleos verticales servidores de grupos distintos."}`
   ).join("\n");
-  return `Eres experto leyendo FXCC catastral de Madrid. Vas a contar CAJAS DE ESCALERA en la planta tipo de un edificio residencial.
+  return `Eres experto leyendo FXCC catastral de Madrid. Vas a contar CAJAS DE ESCALERA en la planta tipo.
 
-REFERENCIA VISUAL (im\u00e1genes adjuntas previas al objetivo, gt=2 humano):
+REFERENCIA VISUAL (imagenes adjuntas previas al objetivo, gt=2 humano):
 ${lines}
 
-TAREA: Te paso despu\u00e9s las p\u00e1ginas del FXCC del edificio objetivo. Localiza la PLANTA TIPO (P01/P02/P03/P\u00e1tico, NO PB ni s\u00f3tano ni cubierta), y cuenta cuantas cajas de escalera hay en esa planta.
-- "Caja de escalera" = n\u00facleo vertical cerrado con pelda\u00f1os/diagonales que sirve un grupo de viviendas (V.A, V.B...).
-- Dos n\u00facleos compartiendo escalera = 1. Ascensor solo \u2260 caja. Patios y patinillos \u2260 caja.
-- Si dos grupos de viviendas (V.A y V.B) son servidos por n\u00facleos independientes, son 2.
-- Compara visualmente con los ejemplos: si la disposici\u00f3n recuerda a los ejemplos GT=2, probablemente sean 2.
-- PROHIBIDO INVENTAR. Si no ves la planta tipo legible o tienes dudas \u2192 needs_review=true.
+TAREA: Te paso las paginas del FXCC del edificio objetivo. Localiza la PLANTA TIPO (P01/P02/P03/Atico, NO PB ni sotano), y cuenta cajas.
+- "Caja de escalera" = nucleo vertical cerrado con peldanos que sirve grupo de viviendas (V.A, V.B...).
+- Dos nucleos compartiendo escalera = 1. Ascensor solo != caja. Patios != caja.
+- Si V.A y V.B son servidos por nucleos independientes -> 2.
+- Compara visualmente con los ejemplos: si la disposicion recuerda a GT=2, probablemente sean 2.
+- PROHIBIDO INVENTAR. Si no ves planta tipo legible -> needs_review=true.
 
 JSON estricto:
 {"pagina_p01_idx":number|null,"p01_legible":bool,
@@ -71,9 +63,23 @@ async function vlm(apiKey: string, messages: any): Promise<any> {
   return JSON.parse(j?.choices?.[0]?.message?.content ?? "{}");
 }
 
-async function buildLibrary(sb: any, apiKey: string): Promise<any[]> {
-  const lib: any[] = [];
-  for (const bid of LIBRARY_BUILDING_IDS) {
+async function readLib(sb: any): Promise<any[]> {
+  const { data } = await sb.from("app_settings").select("value").eq("key", LIB_KEY).maybeSingle();
+  return Array.isArray(data?.value?.entries) ? data!.value.entries : [];
+}
+async function writeLib(sb: any, entries: any[], inProgress: boolean) {
+  await sb.from("app_settings").upsert({
+    key: LIB_KEY,
+    value: { entries, built_at: new Date().toISOString(), in_progress: inProgress } as any,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "key" });
+}
+
+async function buildLibraryChunk(sb: any, apiKey: string, ids: string[]): Promise<void> {
+  const lib = await readLib(sb);
+  const have = new Set(lib.map((e: any) => e.building_id));
+  for (const bid of ids) {
+    if (have.has(bid)) continue;
     try {
       const { data: cat } = await sb.from("catastro_data")
         .select("fxcc_pages_urls,plantas_pages_urls").eq("building_id", bid).maybeSingle();
@@ -90,9 +96,8 @@ async function buildLibrary(sb: any, apiKey: string): Promise<any[]> {
           ]}]);
           probes.push({ idx: i, url: pages[i], ...r });
         } catch (e) { probes.push({ idx: i, error: (e as Error).message }); }
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 250));
       }
-      // Mejor p\u00e1gina: es_p01 + legible + n_cajas==2 + max conf
       const cand = probes.filter((p: any) => p.es_p01 && p.p01_legible && Number(p.n_cajas_p01) === 2);
       cand.sort((a: any, b: any) => (b.confidence ?? 0) - (a.confidence ?? 0));
       if (cand[0]) lib.push({
@@ -100,19 +105,13 @@ async function buildLibrary(sb: any, apiKey: string): Promise<any[]> {
         n_cajas: 2, confidence: cand[0].confidence,
         descripcion: cand[0].descripcion || cand[0].razon || null,
       });
+      // Persistencia incremental por edificio
+      await writeLib(sb, lib, true);
     } catch (e) { console.warn("lib build err", bid, (e as Error).message); }
   }
-  await sb.from("app_settings").upsert({
-    key: LIB_KEY,
-    value: { entries: lib, built_at: new Date().toISOString() } as any,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "key" });
-  console.log("library built", lib.length);
-  return lib;
 }
 
 function pickExamples(lib: any[], bid: string, k = 4): any[] {
-  // Selecci\u00f3n determinista por hash del building_id para no sobreajustar.
   if (lib.length <= k) return lib;
   const seed = bid.split("").reduce((s, c) => (s * 31 + c.charCodeAt(0)) >>> 0, 7);
   const idxs = Array.from({ length: lib.length }, (_, i) => i)
@@ -120,7 +119,7 @@ function pickExamples(lib: any[], bid: string, k = 4): any[] {
   return idxs.slice(0, k).map(i => lib[i]);
 }
 
-async function evalOne(sb: any, apiKey: string, set_name: string, bid: string, gt: number, lib: any[]) {
+async function evalOne(sb: any, apiKey: string, set_name: string, bid: string, _gt: number, lib: any[]) {
   const { data: baseRow } = await sb.from("escaleras_eval_results")
     .select("pred_n,needs_review,confidence,error").eq("set_name", set_name)
     .eq("version", "v7.2-gemini").eq("building_id", bid).maybeSingle();
@@ -138,10 +137,9 @@ async function evalOne(sb: any, apiKey: string, set_name: string, bid: string, g
   }
 
   const examples = pickExamples(lib, bid, 4);
-  // Mensaje multimodal: prompt + im\u00e1genes ejemplo + separador + p\u00e1ginas objetivo.
   const content: any[] = [{ type: "text", text: fewshotPrompt(examples) }];
   for (const ex of examples) content.push({ type: "image_url", image_url: { url: ex.page_url } });
-  content.push({ type: "text", text: `--- FIN EJEMPLOS. AHORA EDIFICIO OBJETIVO (${pages.length} p\u00e1ginas FXCC) ---` });
+  content.push({ type: "text", text: `--- FIN EJEMPLOS. EDIFICIO OBJETIVO (${pages.length} pags FXCC) ---` });
   for (const u of pages) content.push({ type: "image_url", image_url: { url: u } });
 
   let passA: any = null;
@@ -153,7 +151,6 @@ async function evalOne(sb: any, apiKey: string, set_name: string, bid: string, g
   const confA: number = Number(passA?.confidence ?? 0);
   const nrA: boolean = !!passA?.needs_review;
 
-  // Verificaci\u00f3n A==B sobre la misma p\u00e1gina elegida (sin few-shot, evita anclaje)
   let nB: number | null = null; let confB: number = 0;
   if (nA != null && !nrA && passA?.pagina_p01_idx != null) {
     const pageIdx = Math.max(0, Math.min(pages.length - 1, Number(passA.pagina_p01_idx)));
@@ -164,30 +161,37 @@ async function evalOne(sb: any, apiKey: string, set_name: string, bid: string, g
       ]}]);
       nB = v?.n_cajas_p01 == null ? null : Math.round(Number(v.n_cajas_p01));
       confB = Number(v?.confidence ?? 0);
-    } catch (e) { /* nB queda null */ }
+    } catch { /* nB null */ }
   }
 
-  // DECISI\u00d3N (precision-preserving):
-  // 1) Si A==B y conf>=0.7 y nA est\u00e1 en [1..6] \u2192 pred=nA.
-  // 2) Si no concuerdan o nrA \u2192 respeta base (no degradar precision).
   let pred: number | null = basePred;
   let needsReview = base.needs_review ?? (basePred == null);
   let source = "fallback_v7_2_base";
   if (nA != null && nB != null && nA === nB && confA >= 0.7 && confB >= 0.7 && nA >= 1 && nA <= 6 && !nrA) {
     pred = nA; needsReview = false; source = "fewshot_ab_match";
   } else if (basePred == null && nA != null && !nrA && confA >= 0.8) {
-    // Caso NR sin base: aceptar fewshot s\u00f3lo con conf alta para no perder precision.
     pred = nA; needsReview = false; source = "fewshot_solo_alta_conf";
   }
 
   return {
-    pred_n: pred,
-    needs_review: needsReview,
+    pred_n: pred, needs_review: needsReview,
     confidence: Math.max(confA, confB) || base.confidence || 0,
     evidencia: { source, base, nA, nB, confA, confB, nrA,
       examples: examples.map(e => e.building_id),
       passA_razon: passA?.razon, passA_comp: passA?.comparacion_ejemplos },
   };
+}
+
+async function reinvoke(payload: any) {
+  try {
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/eval-escaleras-v7-11-fewshot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json",
+        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) { console.warn("reinvoke fail", (e as Error).message); }
 }
 
 Deno.serve(async (req) => {
@@ -198,13 +202,31 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
 
   if (body.build_library === true) {
-    // Background build
+    const libBatch: number = Math.max(1, Math.min(4, Number(body.lib_batch_size ?? 3)));
+    let pool: string[] = Array.isArray(body.lib_building_ids) && body.lib_building_ids.length
+      ? body.lib_building_ids : LIBRARY_BUILDING_IDS.slice();
+    const existing = await readLib(sb);
+    const have = new Set(existing.map((e: any) => e.building_id));
+    pool = pool.filter((id) => !have.has(id));
+    const batch = pool.slice(0, libBatch);
+    const rest = pool.slice(libBatch);
+    if (!batch.length) {
+      await writeLib(sb, existing, false);
+      return new Response(JSON.stringify({ ok: true, action: "build_library", done: true, lib_size: existing.length }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     // @ts-ignore EdgeRuntime
     EdgeRuntime.waitUntil((async () => {
-      try { await buildLibrary(sb, apiKey); }
+      try { await buildLibraryChunk(sb, apiKey, batch); }
       catch (e) { console.warn("build err", (e as Error).message); }
+      if (rest.length) {
+        await reinvoke({ build_library: true, lib_building_ids: rest, lib_batch_size: libBatch });
+      } else {
+        const final = await readLib(sb);
+        await writeLib(sb, final, false);
+      }
     })());
-    return new Response(JSON.stringify({ ok: true, async: true, action: "build_library", n_candidates: LIBRARY_BUILDING_IDS.length }),
+    return new Response(JSON.stringify({ ok: true, async: true, action: "build_library", batch: batch.length, remaining: rest.length }),
       { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
@@ -213,18 +235,12 @@ Deno.serve(async (req) => {
   const onlyIds: string[] | null = Array.isArray(body.building_ids) && body.building_ids.length ? body.building_ids : null;
   const batchSize: number = Math.max(1, Math.min(4, Number(body.batch_size ?? 2)));
 
-  // Cargar biblioteca; si vac\u00eda, construirla antes de evaluar
-  let lib: any[] = [];
-  const { data: setting } = await sb.from("app_settings").select("value").eq("key", LIB_KEY).maybeSingle();
-  lib = Array.isArray(setting?.value?.entries) ? setting!.value.entries : [];
+  const lib = await readLib(sb);
   if (lib.length < 4) {
-    console.log("building library inline (lib<4)");
-    try { lib = await buildLibrary(sb, apiKey); }
-    catch (e) { return new Response(JSON.stringify({ error: "lib_build_failed: " + (e as Error).message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
-  }
-  if (lib.length < 4) {
-    return new Response(JSON.stringify({ error: "biblioteca insuficiente", lib_size: lib.length }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({
+      error: "biblioteca insuficiente", lib_size: lib.length,
+      hint: "POST { build_library: true } primero (se construye por lotes)",
+    }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   let q = sb.from("escaleras_control_set").select("building_id,gt").eq("set_name", set_name);
@@ -242,7 +258,8 @@ Deno.serve(async (req) => {
   const batch = items.slice(0, batchSize);
   const remaining = items.slice(batchSize).map((i: any) => i.building_id);
 
-  const run = async () => {
+  // @ts-ignore EdgeRuntime
+  EdgeRuntime.waitUntil((async () => {
     for (const it of batch) {
       try {
         const r = await evalOne(sb, apiKey, set_name, it.building_id, it.gt, lib);
@@ -254,23 +271,10 @@ Deno.serve(async (req) => {
           evidencia: r.evidencia ?? null, error: null,
         }, { onConflict: "set_name,version,building_id" });
       } catch (e) { console.warn("v7.11 err", it.building_id, (e as Error).message); }
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 250));
     }
-    console.log("v7.11 batch done", batch.length, "remaining", remaining.length);
-    if (remaining.length) {
-      try {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/eval-escaleras-v7-11-fewshot`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json",
-            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
-          body: JSON.stringify({ set_name, building_ids: remaining, batch_size: batchSize, force }),
-        });
-      } catch (e) { console.warn("v7.11 reinvoke fail", (e as Error).message); }
-    }
-  };
-  // @ts-ignore EdgeRuntime
-  EdgeRuntime.waitUntil(run());
+    if (remaining.length) await reinvoke({ set_name, building_ids: remaining, batch_size: batchSize, force });
+  })());
   return new Response(JSON.stringify({ ok: true, async: true, batch: batch.length, remaining: remaining.length, lib_size: lib.length }),
     { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
