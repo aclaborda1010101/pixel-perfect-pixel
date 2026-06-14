@@ -87,14 +87,16 @@ async function buildLibraryChunk(sb: any, apiKey: string, ids: string[]): Promis
         ? cat!.fxcc_pages_urls
         : (Array.isArray(cat?.plantas_pages_urls) ? cat!.plantas_pages_urls : []);
       if (!pages.length) continue;
+      // Cap páginas analizadas a 6 (planta tipo suele estar en p1-p5)
+      const pagesCap = pages.slice(0, 6);
       const probes: any[] = [];
-      for (let i = 0; i < pages.length; i++) {
+      for (let i = 0; i < pagesCap.length; i++) {
         try {
           const r = await vlm(apiKey, [{ role: "user", content: [
             { type: "text", text: PROMPT_LIB },
-            { type: "image_url", image_url: { url: pages[i] } },
+            { type: "image_url", image_url: { url: pagesCap[i] } },
           ]}]);
-          probes.push({ idx: i, url: pages[i], ...r });
+          probes.push({ idx: i, url: pagesCap[i], ...r });
         } catch (e) { probes.push({ idx: i, error: (e as Error).message }); }
         await new Promise(r => setTimeout(r, 250));
       }
