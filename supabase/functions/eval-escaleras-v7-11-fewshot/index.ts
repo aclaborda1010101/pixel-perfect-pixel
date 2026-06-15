@@ -100,6 +100,11 @@ async function buildLibraryChunk(sb: any, apiKey: string, ids: string[]): Promis
         n_cajas: 2, confidence: cand[0].confidence,
         descripcion: cand[0].descripcion || cand[0].razon || null,
       });
+      else lib.push({
+        building_id: bid, status: "no_candidate",
+        reason: "es_p01+n=2+legible no encontrado en FXCC", n_cajas: null,
+        probed_pages: probes.length,
+      });
       // Persistencia incremental por edificio
       await writeLib(sb, lib, true);
     } catch (e) { console.warn("lib build err", bid, (e as Error).message); }
