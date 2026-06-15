@@ -4520,6 +4520,39 @@ export type Database = {
           },
         ]
       }
+      v_productividad_comercial: {
+        Row: {
+          comercial: string | null
+          dur_30_60: number | null
+          dur_60_90: number | null
+          dur_desconocida: number | null
+          dur_gt_90: number | null
+          dur_lt_30: number | null
+          llamadas_scoreadas: number | null
+          llamadas_total: number | null
+          pct_canal_abierto: number | null
+          pct_info_edificio: number | null
+          pct_que_le_mueve: number | null
+          pct_tipologia: number | null
+          score_post_call_medio: number | null
+        }
+        Relationships: []
+      }
+      v_productividad_global: {
+        Row: {
+          dur_30_60: number | null
+          dur_60_90: number | null
+          dur_desconocida: number | null
+          dur_gt_90: number | null
+          dur_lt_30: number | null
+          llamadas_scoreadas: number | null
+          pct_canal_abierto: number | null
+          pct_info_edificio: number | null
+          pct_que_le_mueve: number | null
+          pct_tipologia: number | null
+        }
+        Relationships: []
+      }
       v_propietarios: {
         Row: {
           buyer_persona: string | null
