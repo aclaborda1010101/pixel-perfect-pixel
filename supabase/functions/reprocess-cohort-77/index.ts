@@ -41,18 +41,14 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({} as any));
   const BATCH: number = Math.max(1, Math.min(20, Number(body?.batch ?? DEFAULT_BATCH)));
 
-  // Selección rápida: los que NO tienen metricas_extra.reprocess_frozen_v1=true.
-  // Una sola query, sin sub-consultas N+1.
+  // Selección rápida sin descargar metricas_extra (puede ser grande).
+  // Filtramos server-side por presencia del flag.
   const { data: baRows } = await sb
     .from("building_analysis")
-    .select("building_id, metricas_extra")
-    .limit(500);
-  const ids: string[] = [];
-  for (const r of baRows ?? []) {
-    const mx = (r as any)?.metricas_extra ?? {};
-    if (mx?.reprocess_frozen_v1 !== true) ids.push((r as any).building_id);
-    if (ids.length >= BATCH * 4) break;
-  }
+    .select("building_id")
+    .not("metricas_extra", "cs", '{"reprocess_frozen_v1":true}')
+    .limit(BATCH * 4);
+  const ids: string[] = (baRows ?? []).map((r: any) => r.building_id);
   const batch = ids.slice(0, BATCH);
   const remaining = Math.max(ids.length - BATCH, 0);
 
