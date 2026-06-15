@@ -252,6 +252,20 @@ Deno.serve(async (req) => {
       },
     });
 
+    // 7) Auto-trigger pipeline de enriquecimiento (no bloqueante)
+    const buildingForPipeline = nota.building_id || (autoLinked ? (await supabase
+      .from("notas_simples").select("building_id").eq("id", notaId).maybeSingle()).data?.building_id : null);
+    if (buildingForPipeline && (structured.titulares?.length ?? 0) > 0) {
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/enrichment-pipeline-start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ building_id: buildingForPipeline }),
+      }).catch((e) => console.warn("enrichment-pipeline-start invoke:", e.message));
+    }
+
     return jsonResponse({ ok: true, nota_simple_id: notaId, structured, auto_linked_building: autoLinked });
   } catch (e) {
     const msg = String((e as Error)?.message ?? e);
