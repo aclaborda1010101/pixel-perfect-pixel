@@ -469,7 +469,13 @@ async function handleInglobaly(supabase: any, job: Job) {
       }
     }, sels);
 
-    // 1d. click real del botón Acceso (no requestSubmit) y esperar navegación o cambio de URL
+    // 1d. verificar valores tecleados y submit
+    const preSubmit = await page.evaluate((s: any) => {
+      const u = (document.querySelector(s.userSel) as HTMLInputElement | null)?.value || "";
+      const p = (document.querySelector(s.passSel) as HTMLInputElement | null)?.value || "";
+      return { userLen: u.length, userValue: u, passLen: p.length };
+    }, sels);
+    pushTimeline(job, { fase: "inglobaly", nota: "pre_submit_values", ...preSubmit });
     const urlBefore = page.url();
     await snapshot(supabase, page, job.id, "inglobaly", "pre_submit", job);
     await Promise.all([
