@@ -1,84 +1,66 @@
-# PUNTO 1 — Detector de esquina por viales (determinista)
+## Objetivo
+Botón "Dar de alta nuevo edificio" en `/comercial/edificios` que arranca el flujo completo de la skill `titulares-edificio-hubspot` hasta dejar el edificio listo con titulares verificados y enriquecidos. Cierra los huecos detectados en la auditoría (paso 6 HubSpot, paso 7 reglas runtime, paso 8 dedupe).
 
-## Diagnóstico actual
+## 1. UI — Alta nuevo edificio
+- Botón **"Dar de alta nuevo edificio"** en cabecera de `src/pages/comercial/Edificios.tsx` (junto al buscador).
+- Dialog `NewBuildingDialog` con:
+  - Dirección (obligatoria, autocompleta contra `buildings` para evitar duplicados; si coincide, ofrece "Abrir existente").
+  - Ciudad / barrio / distrito (opcionales, autodetectables luego por catastro).
+  - Referencia catastral (opcional).
+  - Upload directo de la nota simple PDF (reutiliza `useNotasSimples.upload`).
+- Al crear: `INSERT buildings`, sube PDF, llama `analyze_nota_simple`, redirige a `/comercial/edificios/:id` con pestaña "Enriquecimiento" activa.
 
-`detectStreetEdges` fusiona aristas colineales (`mergeCollinearRing`) **antes** de asignar nombre de vial → un chaflán cuyo paño corto separa dos calles desaparece, y con él la prueba "2 viales distintos".
+## 2. Orquestación — pipeline automática
+- Tras `analyze_nota_simple` completa (`status=listo`), trigger automático de `enrichment-pipeline-start` con el `building_id` recién creado (hoy ya existe la función, pero es manual).
+- Añadir hook DB o llamada en cadena desde el dialog para no depender de cron.
 
-Estado verificado:
-- **Cava Baja 42**: `is_corner=true` ya, pero `street_names_distinct` vacío y `corner_type` NULL → es un falso positivo por suerte (regla angular legacy). Cuando se borre la regla angular se rompería.
-- **Topete 33**: `is_corner=false`, `street_names_distinct={}` → Overpass no encontró highways o el merge fundió el chaflán antes de probar nombres.
+## 3. Cierre paso 6 — escritura HubSpot
+Nueva edge function `enrichment-write-hubspot` invocada por `enrichment-apply-verification` cuando `decision=aprobada`:
+- Si titular es **empresa**: `POST /crm/v3/objects/companies` (dedupe por CIF en `external_ids`).
+- Si titular es **persona**: `POST /crm/v3/objects/contacts` (dedupe por NIF / email).
+- Asociar contacto/empresa al **deal** del edificio (`hubspot_deal_id` en `buildings`).
+- Adjuntar PDF de nota simple como **nota/engagement** en el deal.
+- Crear **tarea Tecnofind** en HubSpot si falta teléfono (hoy solo se crea local en `building_tasks`).
+- Guardar `hubspot_contact_id` / `hubspot_company_id` en `external_ids`.
+- Marca `fase=completado` al terminar.
 
-## Cambios
+## 4. Cierre paso 7 — reglas T1–T10 aplicadas en runtime
+- `enrichment-apply-verification` lee `enrichment_config.reglas` y aplica el mapa (hoy hardcodea T9/T8).
+- Añadir detección de **fallecido** (heurística: nota simple menciona "herederos de" / "causahabientes") → tipología T10 automática.
+- Completar entradas faltantes en el panel de reglas (T1 propietario único, T2 copropietario, T4 usufructuario, T5 nuda propiedad, T6 empresa patrimonial, T7 apoderado sin control).
 
-### 1. `supabase/functions/_shared/parcel_geometry.ts` — `detectStreetEdges`
+## 5. Cierre paso 8 — dedupe e idempotencia
+- Migración: `UNIQUE (building_id, titular_nif)` y `UNIQUE (building_id, lower(titular_nombre), nota_simple_id)` en `enrichment_jobs`.
+- `owners` dedupe por NIF (no solo nombre); fallback a nombre normalizado (sin tildes, lowercase).
+- `enrichment_verifications`: una sola fila vigente por `job_id` (`UNIQUE (job_id) WHERE decision != 'pendiente'`).
 
-Orden NUEVO:
+## 6. Refuerzo Inglobaly (paso 3)
+- Reescribir selectores Playwright-style (`a:has-text`) → puppeteer-core válido (`page.$x` XPath o `page.evaluate` con `textContent`).
+- Sin nota simple no se lanza Inglobaly; con `BROWSER_WSS_URL` ya configurado, primera prueba real captura screenshots de fallo para ajustar selectores reales del portal.
 
-```text
-ring INSPIRE → asignar street_names POR ARISTA RAW
-            → fusionar aristas colineales preservando UNIÓN de nombres
-            → decisión de esquina sobre el ring fusionado con nombres heredados
-```
+## 7. UI Verificación (paso 5 — ya parado, faltan controles)
+- Página `/admin/verificacion-titulares` con cola de `enrichment_verifications` pendientes.
+- Por cada job: mostrar titular, datos datoscif, datos Inglobaly, co-domicilios, tipología propuesta, screenshots.
+- Acciones: **Aprobar** / **Rechazar con motivo** / **Editar y aprobar** (overrides) → llama `enrichment-apply-verification`.
 
-Pasos concretos:
+## Detalles técnicos
+- **Tablas nuevas**: ninguna. Cambios sólo en constraints `enrichment_jobs` y `enrichment_verifications`.
+- **Edge functions**:
+  - Nueva: `enrichment-write-hubspot`.
+  - Modificadas: `enrichment-apply-verification` (leer reglas, invocar write-hubspot), `enrichment-agent` (selectores Inglobaly), `analyze_nota_simple` (callback a `enrichment-pipeline-start`).
+- **Front**: `NewBuildingDialog`, botón en `Edificios.tsx`, página verificación en `src/pages/admin/`.
+- **HubSpot**: usa `_shared/hubspot.ts` ya existente (gateway Lovable, no SDK directo).
+- **Validación final**: alta de Ambros 28 end-to-end → debe terminar con titulares en BD, contactos en HubSpot, deal asociado, nota adjunta.
 
-- **a)** Calcular `outsideBearing`, hacer 3 probes y recoger `street_names` para **cada arista del `ring` raw** (no del merged). Edges <1,5 m siguen ignoradas.
-- **b)** Nuevo `mergeCollinearRingWithNames(ring, perEdgeNames, 10°)`: fusiona vértices colineales y **acumula la unión de nombres** de las aristas fundidas en una `Set<string>` por arista resultante. Devuelve `{mergedRing, mergedEdgeNames: Set<string>[]}`.
-- **c)** Construir `street_edges[]` sobre el merged ring, asignando `street_names = Array.from(mergedEdgeNames[i])` y recomputando `is_chaflan_panel = street_names.length >= 2`.
-- **d)** **Eliminar** la rama "esquina_angulo" (regla 60-120°) como condición de `is_corner`. Se mantiene `corner_angle_deg` como señal informativa.
-- **e)** Decisión:
-  ```text
-  frentes = group street_edges by primary street_name (ignore null/empty),
-            requiring edges of a same name to be non-contiguous along the ring
-            (si todas son contiguas → cuenta como UN solo frente)
-  is_corner = frentes.length >= 2
-  corner_type =
-    - "esquina_chaflan"   si algún edge tiene >=2 names (paño chaflán)
-    - "multifachada"      si frentes >=2 sin paño chaflán
-    - "linea"             en otro caso
-  ```
-- **f)** Nuevo campo en `StreetEdgesResult`:
-  ```ts
-  frentes: { vial: string; longitud_m: number; aristas: number[] }[]
-  ```
-  Se persistirá para reusar en el detector de fachada/ventanas.
+## Orden de ejecución
+1. UI alta edificio + auto-trigger pipeline (rápido, desbloquea pruebas).
+2. Dedupe constraints (evita basura en pruebas).
+3. Reglas T1–T10 runtime.
+4. Selectores Inglobaly + prueba real con screenshots.
+5. UI cola de verificación.
+6. Escritura HubSpot.
 
-### 2. Migración DB
-
-Añadir columna a `parcel_geometry_cache`:
-
-```sql
-ALTER TABLE public.parcel_geometry_cache
-  ADD COLUMN IF NOT EXISTS frentes_jsonb jsonb;
-```
-
-### 3. `recompute-corner-detection/index.ts`
-
-- Persistir también `frentes_jsonb`.
-- Para cada cambio de `is_corner`, además del `building_feedback` ya generado, **upsert en `qa_ground_truth`** la columna `es_esquina = new_is_corner` con `fuente_verificacion='corner_detector_v3'` SOLO si no existe ya `verificado_por` humano (no piso ground-truth humano).
-- Añadir al response un bloque `verifications` con Cava Baja 42 + Topete 33 explícitamente (lookup por dirección).
-
-### 4. Ejecución y aceptación
-
-1. Deploy de `recompute-corner-detection`.
-2. Forzar recompute de los 74 con `force=true` (la caché actual tiene names vacíos).
-3. Llamar `recompute-corner-detection` para regenerar `is_corner/corner_type/frentes/street_names_distinct` y emitir feedbacks/qa.
-4. Verificar en SQL:
-   - Cava Baja 42 → `is_corner=true`, `corner_type='esquina_chaflan'`, `street_names_distinct` contiene al menos "Cava Baja" + "Plaza del Humilladero" (o vial perpendicular real).
-   - Topete 33 → re-evaluado con nombres asignados pre-merge.
-   - Total esquinas antes vs después.
-5. Calcular precision/recall sobre `qa_ground_truth.es_esquina IS NOT NULL` (las verificadas por humanos). Si <95% → no se promociona, se devuelve la tabla con los discrepantes.
-
-## Notas técnicas
-
-- No se toca RLS.
-- La fuente de nombres sigue siendo Overpass highways (`name` tag) dentro del radio bbox + padding 25 m. Google Roads se mantiene como fallback puntual.
-- `qa_ground_truth.es_esquina` solo se rellena para los cambios; el set verificable son los edificios marcados por el equipo (los que tengan `verificado_por` no-null) — la métrica precision/recall se calcula sobre ese subconjunto.
-
-## Archivos tocados
-
-- `supabase/functions/_shared/parcel_geometry.ts` (refactor `detectStreetEdges` + nuevo `mergeCollinearRingWithNames`)
-- `supabase/functions/recompute-corner-detection/index.ts` (persistir `frentes`, upsert qa, verificaciones explícitas)
-- Migración SQL: `parcel_geometry_cache.frentes_jsonb`
-
-No se toca producción de scoring ni de fachada en esta fase.
+## Fuera de alcance
+- Detección automática de fallecido más allá de heurística textual (queda para iteración).
+- Refresh periódico de datos Inglobaly (one-shot por alta).
+- Migración masiva de los edificios ya existentes sin nota simple.
