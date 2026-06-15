@@ -41,8 +41,6 @@ Deno.serve(async (req) => {
 
   // Selección: cohorte = building_processing_status (los 77) que aún tengan
   // algún subsistema vacío o no marcado como reprocesado con versión congelada.
-  const { data: rows, error } = await sb.rpc("exec_sql" as any, {}).catch(() => ({ data: null, error: null })) as any;
-  // Fallback sin RPC: query directa
   const { data: pend } = await sb
     .from("building_processing_status")
     .select("building_id, error, current_phase, status")
