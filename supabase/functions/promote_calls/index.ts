@@ -140,14 +140,29 @@ Deno.serve(async (req) => {
       }
       const phoneOwner = new Map<string, string>();
       if (phones.size) {
-        const arr = Array.from(phones);
-        // We can't index-match on suffix server-side cleanly; pull owners with non-null phone in chunks.
-        // Use ilike with last-9 trick: %<last9>
-        for (const p of arr) {
-          const { data: os } = await supabase
+        // Cargar todos los owners con telefono en una sola pasada paginada, normalizar y mapear.
+        const PAGE = 1000;
+        const all = new Map<string, string[]>(); // last9 -> owner_ids[]
+        let from = 0;
+        while (true) {
+          const { data: os, error } = await supabase
             .from('owners').select('id, telefono')
-            .ilike('telefono', `%${p}`).limit(2);
-          if (os && os.length === 1) phoneOwner.set(p, os[0].id);
+            .not('telefono', 'is', null)
+            .range(from, from + PAGE - 1);
+          if (error) break;
+          if (!os || os.length === 0) break;
+          for (const o of os) {
+            const n = normPhone(o.telefono);
+            if (!n) continue;
+            const arr = all.get(n) || [];
+            arr.push(o.id); all.set(n, arr);
+          }
+          if (os.length < PAGE) break;
+          from += PAGE;
+        }
+        for (const p of phones) {
+          const ids = all.get(p);
+          if (ids && ids.length === 1) phoneOwner.set(p, ids[0]);
         }
       }
 
