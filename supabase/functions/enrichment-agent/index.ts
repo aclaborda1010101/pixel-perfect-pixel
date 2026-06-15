@@ -157,6 +157,18 @@ async function handleInglobaly(supabase: any, job: Job) {
     const page = await browser.newPage();
     page.setDefaultTimeout(15000);
 
+    // Helper puppeteer-core para "click on element containing text"
+    const clickByText = async (selector: string, text: string) => {
+      const handle = await page.evaluateHandle((sel: string, t: string) => {
+        const nodes = Array.from(document.querySelectorAll(sel));
+        const re = new RegExp(t, "i");
+        return nodes.find((n) => re.test(n.textContent || "")) || null;
+      }, selector, text);
+      const el = handle.asElement();
+      if (!el) throw new Error(`element_not_found:${selector}:${text}`);
+      await el.click();
+    };
+
     const step = async (name: string, fn: () => Promise<void>) => {
       try {
         await fn();
@@ -178,37 +190,38 @@ async function handleInglobaly(supabase: any, job: Job) {
       await page.goto("https://www.inglobaly.com", { waitUntil: "domcontentloaded" });
     });
     await step("click_acceso", async () => {
-      await page.click("a:has-text('Acceso'), button:has-text('Acceso'), #acceso");
+      await clickByText("a, button", "Acceso|Iniciar|Login|Entrar");
     });
     await step("login", async () => {
-      await page.waitForSelector("#usuario, input[name='usuario']");
-      await page.type("#usuario, input[name='usuario']", INGLOBALY_USER);
-      await page.type("#password, input[name='password']", INGLOBALY_PASS);
+      await page.waitForSelector("input[type='email'], input[name='usuario'], input[name='email'], #usuario");
+      const userSel = "input[type='email'], input[name='usuario'], input[name='email'], #usuario";
+      const passSel = "input[type='password'], input[name='password'], #password";
+      await page.type(userSel, INGLOBALY_USER);
+      await page.type(passSel, INGLOBALY_PASS);
       await Promise.all([
-        page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-        page.click("button[type='submit']"),
+        page.waitForNavigation({ waitUntil: "domcontentloaded" }).catch(() => null),
+        page.click("button[type='submit'], input[type='submit']"),
       ]);
     });
 
     // Búsqueda
     if (job.titular_nif) {
       await step("search_nif", async () => {
-        await page.waitForSelector("input[name='nif'], #nif");
-        await page.type("input[name='nif'], #nif", job.titular_nif!);
-        await page.click("button:has-text('Buscar'), button[type='submit']");
+        await page.waitForSelector("input[name='nif'], #nif, input[placeholder*='NIF' i]");
+        await page.type("input[name='nif'], #nif, input[placeholder*='NIF' i]", job.titular_nif!);
+        await clickByText("button", "Buscar");
       });
     } else {
       await step("search_exact", async () => {
-        // NUNCA modo Advanced
-        await page.waitForSelector("input[name='nombre'], #nombre");
-        await page.type("input[name='nombre'], #nombre", job.titular_nombre);
+        await page.waitForSelector("input[name='nombre'], #nombre, input[placeholder*='Nombre' i]");
+        await page.type("input[name='nombre'], #nombre, input[placeholder*='Nombre' i]", job.titular_nombre);
         if (job.titular_apellido1) {
-          await page.type("input[name='apellido1'], #apellido1", job.titular_apellido1);
+          await page.type("input[name='apellido1'], #apellido1, input[placeholder*='Apellido' i]", job.titular_apellido1).catch(()=>{});
         }
         if (job.titular_apellido2) {
-          await page.type("input[name='apellido2'], #apellido2", job.titular_apellido2);
+          await page.type("input[name='apellido2'], #apellido2", job.titular_apellido2).catch(()=>{});
         }
-        await page.click("button:has-text('Buscar'), button[type='submit']");
+        await clickByText("button", "Buscar");
       });
     }
 
