@@ -427,103 +427,118 @@ async function handleInglobaly(supabase: any, job: Job) {
         btn?.click();
       }),
     ]);
+    // tras login, asegurar render dinámico
+    await new Promise((r) => setTimeout(r, 2500));
     await snapshot(supabase, page, job.id, "inglobaly", "post_login", job);
 
-    // 2. ir a la página de búsqueda — probar rutas conocidas
-    const searchRoutes = [
-      "https://www.inglobaly.com/buscar",
-      "https://www.inglobaly.com/busqueda",
-      "https://www.inglobaly.com/search",
-      "https://www.inglobaly.com/panel/buscar",
-    ];
-    let searchOk = false;
-    for (const r of searchRoutes) {
-      try {
-        await page.goto(r, { waitUntil: "domcontentloaded", timeout: 20000 });
-        const has = await page.evaluate(() => /N\.?I\.?F\.?|Nombre|Apellido/i.test(document.body.innerText));
-        if (has) { searchOk = true; break; }
-      } catch {}
-    }
-    if (!searchOk) {
-      // fallback: quedarnos en la página actual tras login
-      pushTimeline(job, { fase: "inglobaly", nota: "search_route_no_detectada, usando home post-login" });
-    }
-    await snapshot(supabase, page, job.id, "inglobaly", "search_form_dump", job);
-
-    // 3. localizar inputs por etiqueta
-    const inputForLabel = async (labelRe: string): Promise<string | null> => {
-      return await page.evaluate((reSrc: string) => {
-        const re = new RegExp(reSrc, "i");
-        // a) <label for="...">
-        for (const lab of Array.from(document.querySelectorAll("label"))) {
-          const txt = (lab as HTMLElement).innerText || "";
-          if (!re.test(txt)) continue;
-          const forId = lab.getAttribute("for");
-          if (forId && document.getElementById(forId)) return `#${CSS.escape(forId)}`;
-          const inner = lab.querySelector("input,select,textarea") as HTMLElement | null;
-          if (inner) {
-            if (inner.id) return `#${CSS.escape(inner.id)}`;
-            const name = inner.getAttribute("name");
-            if (name) return `${inner.tagName.toLowerCase()}[name='${name}']`;
-          }
-        }
-        // b) placeholder/aria
-        for (const i of Array.from(document.querySelectorAll("input,textarea"))) {
-          const el = i as HTMLInputElement;
-          const ph = el.placeholder || el.getAttribute("aria-label") || el.getAttribute("title") || "";
-          if (re.test(ph)) {
-            if (el.id) return `#${CSS.escape(el.id)}`;
-            const name = el.getAttribute("name");
-            if (name) return `${el.tagName.toLowerCase()}[name='${name}']`;
-          }
-        }
-        // c) name="nif|nombre|apellido"
-        const byName = document.querySelector(`input[name*='${reSrc.toLowerCase()}' i]`);
-        if (byName) {
-          const n = (byName as HTMLInputElement).getAttribute("name");
-          return n ? `input[name='${n}']` : null;
-        }
-        return null;
-      }, labelRe);
-    };
-
-    const nifSel = await inputForLabel("N\\.?I\\.?F|NIF|CIF|Documento");
-    const nombreSel = await inputForLabel("^Nombre$|Nombre$|Nombre\\b");
-    const ap1Sel = await inputForLabel("Apellido\\s*1|Primer\\s+apellido|^Apellido$");
-    const ap2Sel = await inputForLabel("Apellido\\s*2|Segundo\\s+apellido");
-
-    pushTimeline(job, { fase: "inglobaly", nota: "selectores", nifSel, nombreSel, ap1Sel, ap2Sel });
-    job.datos.inglobaly_selectores = { nifSel, nombreSel, ap1Sel, ap2Sel };
-
-    const buscarBtn = async () => {
+    // 2. localizar el buscador de la HOME bajo el texto "only search"
+    //    Estrategia: encontrar el nodo que contiene el texto "only search"
+    //    y tomar el primer <input> (type text/search) que aparezca DESPUÉS de él
+    //    en orden de documento, dentro del mismo contenedor / hermano siguiente.
+    const locateOnlySearchInput = async (): Promise<{ inputSel: string | null; mode: "exact" | "free"; debug: any }> => {
       return await page.evaluate(() => {
-        const re = /buscar|search/i;
-        const cands = Array.from(document.querySelectorAll("button,input[type='submit'],a"));
-        const el = cands.find((n) => re.test(((n as HTMLElement).innerText || (n as HTMLInputElement).value || "")));
-        if (!el) return false;
-        (el as HTMLElement).click();
-        return true;
+        function visible(el: Element) {
+          const r = (el as HTMLElement).getBoundingClientRect();
+          const s = getComputedStyle(el as HTMLElement);
+          return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";
+        }
+        function cssPath(el: Element): string {
+          const e = el as HTMLElement;
+          if (e.id) return `#${CSS.escape(e.id)}`;
+          const name = e.getAttribute("name");
+          if (name) return `${e.tagName.toLowerCase()}[name='${name}']`;
+          const cls = (e.className || "").toString().trim().split(/\s+/).filter(Boolean).slice(0, 2).map((c) => `.${CSS.escape(c)}`).join("");
+          // index among siblings of same tag
+          const parent = e.parentElement;
+          if (!parent) return e.tagName.toLowerCase();
+          const sib = Array.from(parent.children).filter((n) => n.tagName === e.tagName);
+          const idx = sib.indexOf(e) + 1;
+          return `${cssPath(parent)} > ${e.tagName.toLowerCase()}${cls}:nth-of-type(${idx})`;
+        }
+
+        const re = /only\s*search/i;
+        // Buscar todos los nodos cuyo texto directo contenga "only search"
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+        const anchors: Element[] = [];
+        let n: Node | null;
+        while ((n = walker.nextNode())) {
+          if (re.test(n.nodeValue || "")) {
+            const p = (n.parentElement as Element) || null;
+            if (p && visible(p)) anchors.push(p);
+          }
+        }
+        const debug: any = { anchorCount: anchors.length, anchors: anchors.slice(0, 3).map((a) => (a as HTMLElement).innerText?.slice(0, 80)) };
+
+        for (const anchor of anchors) {
+          // Buscar inputs dentro del mismo contenedor padre cercano
+          const containers = [anchor, anchor.parentElement, anchor.parentElement?.parentElement, anchor.parentElement?.parentElement?.parentElement].filter(Boolean) as Element[];
+          for (const c of containers) {
+            const inputs = Array.from(c.querySelectorAll("input")).filter((i) => {
+              const el = i as HTMLInputElement;
+              const t = (el.type || "text").toLowerCase();
+              return ["text", "search", ""].includes(t) && visible(el);
+            }) as HTMLInputElement[];
+            // preferir uno que esté DESPUÉS del anchor en el documento
+            const after = inputs.filter((i) => anchor.compareDocumentPosition(i) & Node.DOCUMENT_POSITION_FOLLOWING);
+            const pick = after[0] || inputs[0];
+            if (pick) {
+              // detectar checkbox/toggle "exact"
+              let mode: "exact" | "free" = "free";
+              const around = (c.textContent || "").toLowerCase();
+              if (/exact/.test(around)) mode = "exact";
+              return { inputSel: cssPath(pick), mode, debug };
+            }
+          }
+        }
+        return { inputSel: null, mode: "free" as const, debug };
       });
     };
 
-    // 4. ejecutar búsqueda preferente por NIF
-    if (job.titular_nif && nifSel) {
-      pushTimeline(job, { fase: "inglobaly", nota: "search_nif", nif: job.titular_nif });
-      await page.click(nifSel, { clickCount: 3 }).catch(() => {});
-      await page.type(nifSel, job.titular_nif);
-      const clicked = await buscarBtn();
-      if (!clicked) throw new Error("boton_buscar_no_encontrado");
-    } else if (nombreSel) {
-      pushTimeline(job, { fase: "inglobaly", nota: "search_nombre" });
-      await page.click(nombreSel, { clickCount: 3 }).catch(() => {});
-      await page.type(nombreSel, job.titular_nombre);
-      if (ap1Sel && job.titular_apellido1) await page.type(ap1Sel, job.titular_apellido1).catch(() => {});
-      if (ap2Sel && job.titular_apellido2) await page.type(ap2Sel, job.titular_apellido2).catch(() => {});
-      const clicked = await buscarBtn();
-      if (!clicked) throw new Error("boton_buscar_no_encontrado");
-    } else {
-      throw new Error("selector_no_encontrado:formulario_busqueda");
+    const loc = await locateOnlySearchInput();
+    pushTimeline(job, { fase: "inglobaly", nota: "only_search_locate", ...loc });
+    job.datos.inglobaly_selectores = loc;
+
+    if (!loc.inputSel) {
+      // guardar HTML+screenshot y marcar requiere_revision
+      await snapshot(supabase, page, job.id, "inglobaly", "home_no_only_search", job);
+      await finishJob(supabase, job, {
+        estado: "requiere_revision",
+        error: "inglobaly: no encontrado input bajo 'only search'",
+        datos: job.datos,
+      });
+      return;
     }
+
+    // 3. activar checkbox "exact" si existe
+    await page.evaluate(() => {
+      const re = /\bexact(o|a)?\b/i;
+      const labels = Array.from(document.querySelectorAll("label"));
+      for (const lab of labels) {
+        if (!re.test((lab as HTMLElement).innerText || "")) continue;
+        const forId = lab.getAttribute("for");
+        const cb = (forId ? document.getElementById(forId) : lab.querySelector("input[type='checkbox'],input[type='radio']")) as HTMLInputElement | null;
+        if (cb && !cb.checked) cb.click();
+      }
+    }).catch(() => {});
+
+    // 4. introducir NIF preferente o nombre+apellidos
+    const query = job.titular_nif || [job.titular_nombre, job.titular_apellido1, job.titular_apellido2].filter(Boolean).join(" ");
+    pushTimeline(job, { fase: "inglobaly", nota: "search", query, by: job.titular_nif ? "nif" : "nombre" });
+    await page.click(loc.inputSel, { clickCount: 3 }).catch(() => {});
+    await page.type(loc.inputSel, query, { delay: 20 });
+
+    // 5. submit: Enter dentro del input, y como fallback buscar botón "Buscar/Search" cercano
+    await page.keyboard.press("Enter").catch(() => {});
+    await new Promise((r) => setTimeout(r, 1500));
+    await page.evaluate((sel: string) => {
+      const inp = document.querySelector(sel) as HTMLInputElement | null;
+      const form = inp?.closest("form");
+      if (form) { (form as HTMLFormElement).requestSubmit?.(); return; }
+      const re = /buscar|search/i;
+      const scope = inp?.closest("section,div,form,article,main,body") || document.body;
+      const btn = Array.from(scope.querySelectorAll("button,input[type='submit'],a")).find((n) => re.test((n as HTMLElement).innerText || (n as HTMLInputElement).value || "")) as HTMLElement | undefined;
+      btn?.click();
+    }, loc.inputSel).catch(() => {});
 
     await page.waitForFunction(() => {
       const t = document.body.innerText;
