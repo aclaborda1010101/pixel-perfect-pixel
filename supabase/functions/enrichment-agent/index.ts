@@ -397,39 +397,133 @@ async function handleInglobaly(supabase: any, job: Job) {
     page.setDefaultTimeout(20000);
     await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
 
-    // 1. login
-    pushTimeline(job, { fase: "inglobaly", nota: "login" });
-    await page.goto("https://www.inglobaly.com", { waitUntil: "domcontentloaded", timeout: 30000 });
-    // intentar abrir login si hay enlace
-    await page.evaluate(() => {
-      const re = /acceso|iniciar|login|entrar|acceder/i;
-      const el = Array.from(document.querySelectorAll("a,button"))
-        .find((n) => re.test((n as HTMLElement).innerText || "")) as HTMLElement | undefined;
-      el?.click();
-    }).catch(() => {});
-    await page.waitForSelector("input[type='password']", { timeout: 20000 });
-    const userSel = await page.evaluate(() => {
-      const cand = document.querySelectorAll("input[type='email'], input[type='text'], input:not([type])");
-      for (const i of Array.from(cand)) {
-        const el = i as HTMLInputElement;
-        if (el.type === "password" || el.type === "hidden") continue;
-        return el.name ? `input[name='${el.name}']` : `#${el.id}`;
+    // 1. login JSF
+    pushTimeline(job, { fase: "inglobaly", nota: "login_start" });
+    await page.goto("https://www.inglobaly.com/index.jsf", { waitUntil: "domcontentloaded", timeout: 30000 });
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // 1a. aceptar cookies/consentimiento si existe
+    const cookieClicked = await page.evaluate(() => {
+      const re = /\b(aceptar|acepto|accept|ok|estoy de acuerdo|entendido|consent)\b/i;
+      const cands = Array.from(document.querySelectorAll("button, a, input[type='button'], input[type='submit'], [role='button']"));
+      for (const el of cands) {
+        const t = ((el as HTMLElement).innerText || (el as HTMLInputElement).value || "").trim();
+        if (re.test(t)) {
+          const r = (el as HTMLElement).getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) { (el as HTMLElement).click(); return t; }
+        }
       }
       return null;
     });
-    if (!userSel) throw new Error("login_input_no_encontrado");
-    await page.type(userSel, INGLOBALY_USER, { delay: 30 });
-    await page.type("input[type='password']", INGLOBALY_PASS, { delay: 30 });
+    if (cookieClicked) {
+      pushTimeline(job, { fase: "inglobaly", nota: "cookies_aceptadas", btn: cookieClicked });
+      await new Promise((r) => setTimeout(r, 800));
+    }
+
+    // 1b. localizar selectores reales del formulario JSF (botón puede ser <a onclick=mojarra.jsfcljs...>)
+    await page.waitForSelector("input[type='password']", { timeout: 20000 });
+    const sels = await page.evaluate(() => {
+      const pwd = document.querySelector("input[type='password']") as HTMLInputElement | null;
+      if (!pwd) return null;
+      const form = pwd.closest("form") as HTMLFormElement | null;
+      const userEl = form?.querySelector("input[type='text'], input:not([type]), input[type='email']") as HTMLInputElement | null;
+      // marcar botón con data-attr para click determinista por puppeteer
+      const re = /acceso|acceder|entrar|^login$|sign in|enter|enviar/i;
+      let btn: HTMLElement | null =
+        (form?.querySelector("button[type='submit'], input[type='submit']") as HTMLElement | null);
+      if (!btn) {
+        btn = (Array.from(form?.querySelectorAll("a,button,input[type='button']") || []) as HTMLElement[])
+          .find((e) => re.test(((e as HTMLElement).innerText || (e as HTMLInputElement).value || "").trim())) || null;
+      }
+      if (btn) btn.setAttribute("data-eagent-btn", "1");
+      const idForSel = (el: Element | null) =>
+        el ? (el.id ? `#${CSS.escape(el.id)}` : (el.getAttribute("name") ? `${el.tagName.toLowerCase()}[name='${el.getAttribute("name")}']` : null)) : null;
+      return {
+        userSel: idForSel(userEl),
+        passSel: idForSel(pwd),
+        btnSel: btn ? "[data-eagent-btn='1']" : null,
+        btnTag: btn?.tagName.toLowerCase() || null,
+        btnText: btn ? ((btn as HTMLElement).innerText || (btn as HTMLInputElement).value || "").trim() : null,
+        btnOnclick: btn?.getAttribute("onclick") || null,
+        formId: form?.id || null,
+      };
+    });
+    pushTimeline(job, { fase: "inglobaly", nota: "login_selectores", ...(sels || {}) });
+    if (!sels?.userSel || !sels?.passSel || !sels?.btnSel) {
+      await snapshot(supabase, page, job.id, "inglobaly", "login_selectores_no_detectados", job);
+      throw new Error("selector_no_encontrado:login_form");
+    }
+
+    // 1c. focus + type carácter a carácter (eventos input/change que JSF necesita)
+    await page.click(sels.userSel, { clickCount: 3 }).catch(() => {});
+    await page.type(sels.userSel, INGLOBALY_USER, { delay: 60 });
+    await page.click(sels.passSel, { clickCount: 3 }).catch(() => {});
+    await page.type(sels.passSel, INGLOBALY_PASS, { delay: 60 });
+    // disparar blur/change explícito
+    await page.evaluate((s: any) => {
+      for (const sel of [s.userSel, s.passSel]) {
+        const el = document.querySelector(sel) as HTMLInputElement | null;
+        if (!el) continue;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        el.blur();
+      }
+    }, sels);
+
+    // 1d. verificar valores tecleados y submit
+    const preSubmit = await page.evaluate((s: any) => {
+      const u = (document.querySelector(s.userSel) as HTMLInputElement | null)?.value || "";
+      const p = (document.querySelector(s.passSel) as HTMLInputElement | null)?.value || "";
+      return { userLen: u.length, userValue: u, passLen: p.length };
+    }, sels);
+    pushTimeline(job, { fase: "inglobaly", nota: "pre_submit_values", ...preSubmit });
+    const urlBefore = page.url();
+    await snapshot(supabase, page, job.id, "inglobaly", "pre_submit", job);
     await Promise.all([
-      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => null),
-      page.evaluate(() => {
-        const btn = document.querySelector("button[type='submit'], input[type='submit']") as HTMLElement | null;
-        btn?.click();
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => null),
+      page.click(sels.btnSel).catch(async () => {
+        // fallback: click via evaluate si .click() Puppeteer no engancha
+        await page.evaluate((s: string) => {
+          const el = document.querySelector(s) as HTMLElement | null;
+          el?.click();
+        }, sels.btnSel);
       }),
     ]);
-    // tras login, asegurar render dinámico
+    // espera extra por si el postback es ajax sin navegación
     await new Promise((r) => setTimeout(r, 2500));
     await snapshot(supabase, page, job.id, "inglobaly", "post_login", job);
+
+    // 1e. VERIFICAR login: que no quedan campos login/pass y URL distinta a /index.jsf
+    const verify = await page.evaluate(() => {
+      const hasLogin = !!document.querySelector("input[type='password']");
+      const url = location.href;
+      const bodyText = (document.body.innerText || "").slice(0, 4000);
+      const onlySearch = /only\s*search/i.test(bodyText);
+      // capturar mensajes de error JSF y h:messages
+      const errs: string[] = [];
+      document.querySelectorAll(".ui-message, .ui-messages, .errorMessage, .alert, .error, [role='alert']").forEach((n) => {
+        const t = (n as HTMLElement).innerText?.trim();
+        if (t) errs.push(t);
+      });
+      // texto cerca del formulario que contenga error/invalid/incorrect
+      const re = /(error|inv[aá]lid|incorrect|no\s*v[aá]lid|denegad|contrase|credencial|bloque|captcha)/i;
+      Array.from(document.querySelectorAll("body *")).forEach((n) => {
+        const t = (n as HTMLElement).innerText || "";
+        if (t && t.length < 200 && re.test(t)) errs.push(t.trim());
+      });
+      return { hasLogin, url, onlySearch, errs: Array.from(new Set(errs)).slice(0, 10) };
+    });
+    pushTimeline(job, { fase: "inglobaly", nota: "login_verify", urlBefore, ...verify });
+    const stillIndex = /\/index\.jsf(\?|$|#)/i.test(verify.url) || verify.url === urlBefore;
+    if (verify.hasLogin || stillIndex) {
+      await snapshot(supabase, page, job.id, "inglobaly", "login_failed_post_submit", job);
+      await finishJob(supabase, job, {
+        estado: "requiere_revision",
+        error: `inglobaly: login_no_completado (url=${verify.url}, login_visible=${verify.hasLogin})`,
+        datos: job.datos,
+      });
+      return;
+    }
+    pushTimeline(job, { fase: "inglobaly", nota: "login_ok", url: verify.url, only_search_visible: verify.onlySearch });
 
     // 2. localizar el buscador de la HOME bajo el texto "only search"
     //    Estrategia: encontrar el nodo que contiene el texto "only search"
