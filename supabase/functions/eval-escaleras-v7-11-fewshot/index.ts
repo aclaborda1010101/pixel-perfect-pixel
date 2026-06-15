@@ -112,11 +112,12 @@ async function buildLibraryChunk(sb: any, apiKey: string, ids: string[]): Promis
 }
 
 function pickExamples(lib: any[], bid: string, k = 4): any[] {
-  if (lib.length <= k) return lib;
+  const valid = lib.filter((e: any) => e && e.status !== "no_candidate" && e.page_url);
+  if (valid.length <= k) return valid;
   const seed = bid.split("").reduce((s, c) => (s * 31 + c.charCodeAt(0)) >>> 0, 7);
-  const idxs = Array.from({ length: lib.length }, (_, i) => i)
+  const idxs = Array.from({ length: valid.length }, (_, i) => i)
     .sort((a, b) => (((a + seed) * 2654435761) >>> 0) - (((b + seed) * 2654435761) >>> 0));
-  return idxs.slice(0, k).map(i => lib[i]);
+  return idxs.slice(0, k).map(i => valid[i]);
 }
 
 async function evalOne(sb: any, apiKey: string, set_name: string, bid: string, _gt: number, lib: any[]) {
