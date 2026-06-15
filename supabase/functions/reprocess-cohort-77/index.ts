@@ -68,35 +68,33 @@ Deno.serve(async (req) => {
   const batch = ids.slice(0, BATCH);
   const remaining = Math.max(ids.length - BATCH, 0);
 
-  const results: any[] = [];
-  for (const bid of batch) {
-    if (Date.now() - t0 > MAX_MS) break;
-    const steps: Record<string, any> = {};
-    steps.geom    = await callFn("recompute-parcel-geometry",   { building_id: bid, force: true });
-    steps.esquina = await callFn("recompute-corner-detection",  { building_id: bid, force: true });
-    steps.escs    = await callFn("recount-escaleras",           { building_id: bid, force: true });
-    steps.facade  = await callFn("recount-windows-cal5",        { building_id: bid, force: true });
-    steps.proteccion = await callFn("check-proteccion-pgou",    { building_id: bid, force: true });
-    steps.score   = await callFn("recompute-cluster-scoring",   { building_id: bid });
+  // @ts-ignore EdgeRuntime
+  EdgeRuntime.waitUntil((async () => {
+    for (const bid of batch) {
+      if (Date.now() - t0 > MAX_MS) break;
+      try {
+        await callFn("recompute-parcel-geometry",   { building_id: bid, force: true });
+        await callFn("recompute-corner-detection",  { building_id: bid, force: true });
+        await callFn("recount-escaleras",           { building_id: bid, force: true });
+        await callFn("recount-windows-cal5",        { building_id: bid, force: true });
+        await callFn("check-proteccion-pgou",       { building_id: bid, force: true });
+        await callFn("recompute-cluster-scoring",   { building_id: bid });
+        const { data: ba } = await sb.from("building_analysis").select("metricas_extra").eq("building_id", bid).maybeSingle();
+        const mx = { ...(((ba as any)?.metricas_extra) ?? {}), reprocess_frozen_v1: true, reprocess_frozen_at: new Date().toISOString() };
+        await sb.from("building_analysis").update({ metricas_extra: mx }).eq("building_id", bid);
+      } catch (e) { console.warn("reprocess err", bid, (e as Error).message); }
+    }
+    // Self-reinvoke si quedan
+    if (remaining > 0 || ids.length > batch.length) {
+      fetch(`${SUPABASE_URL}/functions/v1/reprocess-cohort-77`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ batch: BATCH }),
+      }).catch(() => {});
+    }
+  })());
 
-    // marcar como reprocesado
-    const { data: ba } = await sb.from("building_analysis").select("metricas_extra").eq("building_id", bid).maybeSingle();
-    const mx = { ...(((ba as any)?.metricas_extra) ?? {}), reprocess_frozen_v1: true, reprocess_frozen_at: new Date().toISOString() };
-    await sb.from("building_analysis").update({ metricas_extra: mx }).eq("building_id", bid);
-
-    results.push({ building_id: bid, steps: Object.fromEntries(Object.entries(steps).map(([k,v]) => [k, (v as any).ok])) });
-  }
-
-  // Self-reinvoke si quedan
-  if (remaining > 0 || ids.length > batch.length) {
-    fetch(`${SUPABASE_URL}/functions/v1/reprocess-cohort-77`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
-      body: JSON.stringify({ batch: BATCH }),
-    }).catch(() => {});
-  }
-
-  return new Response(JSON.stringify({ ok: true, processed: batch.length, queue_remaining_aprox: remaining, results }), {
-    headers: { ...cors, "Content-Type": "application/json" },
+  return new Response(JSON.stringify({ ok: true, async: true, queued: batch.length, queue_remaining_aprox: remaining }), {
+    status: 202, headers: { ...cors, "Content-Type": "application/json" },
   });
 });
