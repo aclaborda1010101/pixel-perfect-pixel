@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_building_analysis_metricas_extra_gin ON public.building_analysis USING GIN (metricas_extra jsonb_path_ops);
