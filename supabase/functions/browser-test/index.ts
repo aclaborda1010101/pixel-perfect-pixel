@@ -2,7 +2,20 @@
 // GET → conecta a BROWSER_WSS_URL, abre about:blank, devuelve versión + título.
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
-const BROWSER_WSS_URL = Deno.env.get("BROWSER_WSS_URL") ?? "";
+const RAW_WSS = Deno.env.get("BROWSER_WSS_URL") ?? "";
+
+// Browserless: /stealth/bql es BrowserQL (GraphQL), no Puppeteer/CDP.
+// Para puppeteer-core hay que conectar al endpoint base (sin path) conservando el token.
+function toPuppeteerWss(raw: string): string {
+  try {
+    const u = new URL(raw);
+    u.pathname = "/";
+    return u.toString().replace(/\/$/, "") + (u.search ? "" : "");
+  } catch {
+    return raw;
+  }
+}
+const BROWSER_WSS_URL = toPuppeteerWss(RAW_WSS);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -22,13 +35,14 @@ Deno.serve(async (req) => {
     const version = await browser.version();
     const page = await browser.newPage();
     page.setDefaultTimeout(15000);
-    await page.goto("https://www.inglobaly.com", { waitUntil: "domcontentloaded" });
+    await page.goto("https://example.com", { waitUntil: "load", timeout: 20000 });
     const title = await page.title();
     const url = page.url();
     out.ok = true;
     out.version = version;
-    out.inglobaly_title = title;
-    out.inglobaly_url = url;
+    out.test_title = title;
+    out.test_url = url;
+    out.endpoint = BROWSER_WSS_URL.replace(/token=[^&]+/, "token=***");
     out.elapsed_ms = Date.now() - started;
     await page.close();
   } catch (e: any) {
