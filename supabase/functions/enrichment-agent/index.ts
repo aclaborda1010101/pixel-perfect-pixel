@@ -499,7 +499,31 @@ async function handleInglobaly(supabase: any, job: Job) {
     job.datos.inglobaly_selectores = loc;
 
     if (!loc.inputSel) {
-      // guardar HTML+screenshot y marcar requiere_revision
+      // dump diagnóstico: URL, inputs visibles y textos candidatos
+      const diag = await page.evaluate(() => {
+        const url = location.href;
+        const inputs = Array.from(document.querySelectorAll("input,textarea")).map((i) => {
+          const el = i as HTMLInputElement;
+          return {
+            tag: el.tagName.toLowerCase(),
+            type: el.type || "",
+            name: el.getAttribute("name") || "",
+            id: el.id || "",
+            placeholder: el.placeholder || "",
+            aria: el.getAttribute("aria-label") || "",
+          };
+        });
+        // textos que contengan "search" o "buscar" o "only"
+        const re = /search|buscar|only/i;
+        const matches: string[] = [];
+        document.querySelectorAll("body *").forEach((n) => {
+          const t = (n as HTMLElement).innerText || "";
+          if (t && t.length < 120 && re.test(t)) matches.push(t.trim());
+        });
+        return { url, inputs, texts: Array.from(new Set(matches)).slice(0, 30) };
+      });
+      pushTimeline(job, { fase: "inglobaly", nota: "home_diag", ...diag });
+      job.datos.inglobaly_home_diag = diag;
       await snapshot(supabase, page, job.id, "inglobaly", "home_no_only_search", job);
       await finishJob(supabase, job, {
         estado: "requiere_revision",
