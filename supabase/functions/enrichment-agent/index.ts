@@ -164,48 +164,59 @@ async function handleDatoscif(supabase: any, job: Job) {
         if (!text || text.length < 200 || /no encontrad|no existe|404/i.test(text.slice(0, 400))) {
           continue;
         }
-        // Extracción DOM: para cada label conocido, encontrar el valor en la celda/elemento contiguo
-        const labelMap = await page.evaluate(() => {
-          const LABELS = ["CIF","Domicilio Social","Domicilio","Capital Social","Capital","Objeto Social","Fecha de Constitución","Forma Jurídica"];
-          const out: Record<string, string[]> = {};
-          const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
-          const isLabel = (el: Element, label: string) => {
-            const t = norm((el as HTMLElement).innerText || el.textContent || "");
-            return t.toLowerCase() === label.toLowerCase() || t.toLowerCase().startsWith(label.toLowerCase() + " (");
-          };
-          const collect = (label: string, value: string) => {
-            if (!value) return;
-            const v = norm(value);
-            if (v.length < 2 || v.toLowerCase() === label.toLowerCase()) return;
-            out[label] = out[label] || [];
-            if (!out[label].includes(v)) out[label].push(v);
-          };
-          // Buscar en pares estándar dt/dd, th/td, label/value
-          for (const label of LABELS) {
-            // dt -> dd
-            for (const dt of Array.from(document.querySelectorAll("dt,th,strong,b,span.label,div.label"))) {
-              if (!isLabel(dt, label)) continue;
-              const dd = dt.nextElementSibling || (dt.parentElement && dt.parentElement.nextElementSibling);
-              if (dd) collect(label, (dd as HTMLElement).innerText || dd.textContent || "");
-            }
-            // tr con dos celdas: primera = label
-            for (const tr of Array.from(document.querySelectorAll("tr"))) {
-              const cells = tr.querySelectorAll("td,th");
-              if (cells.length >= 2 && isLabel(cells[0], label)) {
-                collect(label, (cells[1] as HTMLElement).innerText || cells[1].textContent || "");
-              }
-            }
-            // Bloques tipo card: <div>Label</div><div>Value</div>
-            for (const div of Array.from(document.querySelectorAll("div,p,li"))) {
-              const txt = norm((div as HTMLElement).innerText || "");
-              if (txt.toLowerCase().startsWith(label.toLowerCase() + ":")) {
-                collect(label, txt.slice(label.length + 1));
-              }
+        // Extracción DOM precisa: schema.org microdata + tabla de cargos
+        const dom = await page.evaluate(() => {
+          const txt = (sel: string) => (document.querySelector(sel) as HTMLElement | null)?.innerText?.trim() || null;
+          const microItem = (prop: string) =>
+            (document.querySelector(`[itemprop="${prop}"]`) as HTMLElement | null)?.innerText?.trim() || null;
+          // Dirección
+          const street = microItem("streetAddress");
+          const cp = microItem("postalCode");
+          const city = microItem("addressLocality");
+          const region = microItem("addressRegion");
+          const domicilio = [street, cp, city, region].filter(Boolean).join(", ") || null;
+          // Cargos
+          const cargos: { nombre: string; cargo: string; desde: string | null; hasta: string | null }[] = [];
+          for (const tr of Array.from(document.querySelectorAll("#cargos_tabla tbody tr"))) {
+            const cells = tr.querySelectorAll("td");
+            if (cells.length < 2) continue;
+            cargos.push({
+              nombre: (cells[0] as HTMLElement).innerText.trim().replace(/\s+/g, " "),
+              cargo: (cells[1] as HTMLElement).innerText.trim().replace(/\s+/g, " "),
+              desde: cells[2] ? (cells[2] as HTMLElement).innerText.trim() || null : null,
+              hasta: cells[3] ? (cells[3] as HTMLElement).innerText.trim() || null : null,
+            });
+          }
+          // Capital actual: buscar última fila "Capital Actual:"
+          let capital: string | null = null;
+          const allTds = Array.from(document.querySelectorAll("td"));
+          for (let i = 0; i < allTds.length; i++) {
+            const t = (allTds[i] as HTMLElement).innerText.trim();
+            if (/^Capital\s+Actual/i.test(t) && allTds[i + 1]) {
+              const val = (allTds[i + 1] as HTMLElement).innerText.trim();
+              const unit = allTds[i + 2] ? (allTds[i + 2] as HTMLElement).innerText.trim() : "";
+              capital = `${val} ${unit}`.trim();
             }
           }
-          return out;
+          // Fecha de constitución
+          let fundacion: string | null = null;
+          const all = document.body.innerText;
+          const fm = all.match(/Fecha\s+de\s+Constituci[oó]n[\s\S]{0,40}?(\d{2}\/\d{2}\/\d{4})/i);
+          if (fm) fundacion = fm[1];
+          // Objeto social
+          let objeto: string | null = null;
+          const om = all.match(/Objeto\s+Social\s*\n+([\s\S]{20,1200}?)(?:\n\s*\n|Cambio de objeto|Capital\s+Social|Datos del Registro)/i);
+          if (om) objeto = om[1].replace(/\s+/g, " ").trim();
+          return {
+            legalname: microItem("legalname"),
+            taxId: microItem("taxID"),
+            domicilio,
+            cargos,
+            capital,
+            fundacion,
+            objeto,
+          };
         });
-        const pick = (k: string) => (labelMap[k] && labelMap[k][0]) || null;
         // Extracción por bloques de texto plano renderizado
         const grab = (re: RegExp): string | null => {
           const m = text.match(re);
