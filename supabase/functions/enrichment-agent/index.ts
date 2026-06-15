@@ -222,10 +222,7 @@ async function handleDatoscif(supabase: any, job: Job) {
           const m = text.match(re);
           return m ? m[1].trim().replace(/\s+/g, " ") : null;
         };
-        const cifFromMap = pick("CIF");
-        const cif = (cifFromMap && /[A-Z]\d{7}[A-Z0-9]/i.test(cifFromMap)
-          ? cifFromMap.match(/[A-Z]\d{7}[A-Z0-9]/i)![0]
-          : null) || grab(/\b(?:CIF|NIF)\s*[:\-]?\s*([A-Z]\d{7}[A-Z0-9])\b/i);
+        const cif = dom.taxId || grab(/\b(?:CIF|NIF)\s*[:\-]?\s*([A-Z]\d{7}[A-Z0-9])\b/i);
         // Para domicilio, capital, objeto y fundación: aceptar saltos de línea entre etiqueta y valor
         const grabMulti = (re: RegExp): string | null => {
           const m = text.match(re);
@@ -235,38 +232,13 @@ async function handleDatoscif(supabase: any, job: Job) {
           if (v.length < 6 || /^(social|\(\d+\))/i.test(v)) return null;
           return v;
         };
-        const domicilio = pick("Domicilio Social") || pick("Domicilio") ||
-          grabMulti(/Domicilio\s+social[^\n]*\n+\s*([^\n]{10,200})/i);
-        const capital = pick("Capital Social") || pick("Capital") ||
-          grabMulti(/Capital(?:\s+social)?[^\n]*\n+\s*([^\n]{2,80})/i);
-        const objeto = pick("Objeto Social") ||
-          grabMulti(/Objeto\s+social[^\n]*\n+\s*([^\n]{5,500})/i);
-        const fundacionRaw = pick("Fecha de Constitución") ||
-          grab(/(?:Fecha\s+de\s+constituci[oó]n|Constituida)[^:\n]*[:\-]\s*([^\n]{4,40})/i);
-        const fundacion = fundacionRaw && /\d{2}\/\d{2}\/\d{4}|\d{4}/.test(fundacionRaw) ? fundacionRaw : null;
-        // Administradores: bloque tras "Administrador" / "Organigrama" / "Cargos"
-        const admins: { cargo: string | null; nombre: string }[] = [];
-        const STOP = /VINCULACIONES|Empresas\s+relacionadas|Cuentas\s+anuales|Balance|Sector|Web|Email|Teléfono|©|Política/i;
-        const NOISE = /^(ORGANIGRAMA|VINCULACIONES|Actuales|Sólo\s+Antiguas|Ver\s+Todas|Consejeros|Cualquiera|Solo\s+apoderamos|Apoderamos|Antiguas|Cargos)\b/i;
-        const CARGO_RE = /^(Administrador(?:\s+(?:Único|Unico|Solidario|Mancomunado|Conjunto|Suplente))?|Presidente|Secretario|Vicepresidente|Consejero(?:\s+Delegado)?|Apoderado|Vocal|Director(?:\s+General)?|Liquidador)\b/i;
-        const admBlock = text.match(/(?:ORGANIGRAMA[\s\S]*?|Administrador(?:es)?|Órgano\s+de\s+administraci[oó]n)[\s\S]{0,3000}/i);
-        if (admBlock) {
-          const lines = admBlock[0].split(/\n+/).map((s: string) => s.trim()).filter(Boolean);
-          let lastCargo: string | null = null;
-          for (const ln of lines) {
-            if (STOP.test(ln)) break;
-            if (NOISE.test(ln)) continue;
-            if (CARGO_RE.test(ln)) { lastCargo = ln; continue; }
-            // Línea con apariencia de nombre/razón social (>=2 palabras o termina en SL/SA/SLU)
-            if (/[A-ZÁÉÍÓÚÑ]/.test(ln) &&
-                (/\b(SL|SA|SLU|SAU|SLNE|SCP|CB|COOP)\b\.?$/i.test(ln) ||
-                 /^([A-ZÁÉÍÓÚÑ][a-zA-ZÁÉÍÓÚÑáéíóúñ\.\-']*\s+){1,5}[A-ZÁÉÍÓÚÑ][a-zA-ZÁÉÍÓÚÑáéíóúñ\.\-']*$/.test(ln) ||
-                 /^[A-ZÁÉÍÓÚÑ\s\.\-']{6,80}$/.test(ln))) {
-              admins.push({ cargo: lastCargo, nombre: ln });
-              if (admins.length >= 15) break;
-            }
-          }
-        }
+        const domicilio = dom.domicilio;
+        const capital = dom.capital;
+        const objeto = dom.objeto;
+        const fundacion = dom.fundacion;
+        // Administradores: filtrar a cargos de administración o representación
+        const CARGO_OK = /Administrador|Presidente|Secretario|Vicepresidente|Consejero|Apoderado|Vocal|Director|Liquidador|Representante|Socio\s+Unico/i;
+        const admins = (dom.cargos || []).filter(c => CARGO_OK.test(c.cargo));
 
         await snapshot(supabase, page, job.id, "datoscif", "render", job);
 
