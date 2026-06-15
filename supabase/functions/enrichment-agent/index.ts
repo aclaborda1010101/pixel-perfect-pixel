@@ -27,7 +27,7 @@ const BROWSER_WSS_URL = toPuppeteerWss(RAW_BROWSER_WSS);
 const INGLOBALY_USER = Deno.env.get("INGLOBALY_USER") ?? "";
 const INGLOBALY_PASS = Deno.env.get("INGLOBALY_PASS") ?? "";
 const BUCKET = "enrichment-evidence";
-const MAX_JOBS_PER_RUN = 8;
+const MAX_JOBS_PER_RUN = 1; // tareas con navegador son pesadas
 
 type Job = {
   id: string;
@@ -67,6 +67,33 @@ async function uploadScreenshot(
   return path;
 }
 
+async function uploadText(
+  supabase: any, jobId: string, fase: string, step: string, content: string, ext = "html",
+): Promise<string | null> {
+  const path = `evidence/${jobId}/${fase}/${Date.now()}_${step}.${ext}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(
+    path, new Blob([content], { type: ext === "html" ? "text/html" : "text/plain" }),
+    { contentType: ext === "html" ? "text/html" : "text/plain", upsert: false },
+  );
+  if (error) { console.warn("upload text error", error.message); return null; }
+  return path;
+}
+
+async function snapshot(
+  supabase: any, page: any, jobId: string, fase: string, step: string, job: Job,
+) {
+  try {
+    const buf = await page.screenshot({ type: "png", fullPage: false });
+    const html = await page.content();
+    const p1 = await uploadScreenshot(supabase, jobId, fase, step, buf);
+    const p2 = await uploadText(supabase, jobId, fase, step, html, "html");
+    job.datos.screenshots = job.datos.screenshots || [];
+    if (p1) job.datos.screenshots.push({ step, path: p1, html: p2 });
+  } catch (e) {
+    console.warn("snapshot error", (e as any)?.message);
+  }
+}
+
 function pushTimeline(job: Job, entry: any) {
   job.datos.timeline = Array.isArray(job.datos.timeline) ? job.datos.timeline : [];
   job.datos.timeline.push({ ts: new Date().toISOString(), ...entry });
@@ -103,52 +130,251 @@ async function finishJob(
 
 // ============ Fase datoscif ============
 async function handleDatoscif(supabase: any, job: Job) {
+  if (!BROWSER_WSS_URL) {
+    await supabase.from("enrichment_jobs").update({
+      estado: "esperando_navegador",
+      datos: { ...job.datos, razon: "browser_no_configurado" },
+      lease_token: null, lease_until: null,
+    }).eq("id", job.id);
+    return;
+  }
   const slug = slugify(job.titular_nombre);
-  const url = `https://www.datoscif.es/empresa/${slug}`;
-  pushTimeline(job, { fase: "datoscif", nota: `fetch ${url}` });
+  const candidates: string[] = [`https://www.datoscif.es/empresa/${slug}`];
+  if (job.titular_nif) candidates.push(`https://www.datoscif.es/cif/${job.titular_nif}`);
+
+  let browser: any = null;
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; AffluxBot/1.0)" },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) {
+    const puppeteer = (await import("npm:puppeteer-core@22.15.0")).default;
+    browser = await puppeteer.connect({ browserWSEndpoint: BROWSER_WSS_URL });
+    const page = await browser.newPage();
+    await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
+    page.setDefaultTimeout(20000);
+
+    let found: any = null;
+    for (const url of candidates) {
+      pushTimeline(job, { fase: "datoscif", nota: `goto ${url}` });
+      try {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 25000 });
+        // Esperar a que el SPA pinte contenido relevante
+        await page.waitForFunction(() => {
+          const t = document.body?.innerText || "";
+          return /CIF|Domicilio|Capital|Administrador|Objeto social/i.test(t) && t.length > 500;
+        }, { timeout: 15000 }).catch(() => null);
+        const text = await page.evaluate(() => document.body?.innerText || "");
+        if (!text || text.length < 200 || /no encontrad|no existe|404/i.test(text.slice(0, 400))) {
+          continue;
+        }
+        // Extracción DOM precisa: schema.org microdata + tabla de cargos
+        const dom = await page.evaluate(() => {
+          const txt = (sel: string) => (document.querySelector(sel) as HTMLElement | null)?.innerText?.trim() || null;
+          const microItem = (prop: string) =>
+            (document.querySelector(`[itemprop="${prop}"]`) as HTMLElement | null)?.innerText?.trim() || null;
+          // Dirección
+          const street = microItem("streetAddress");
+          const cp = microItem("postalCode");
+          const city = microItem("addressLocality");
+          const region = microItem("addressRegion");
+          const domicilio = [street, cp, city, region].filter(Boolean).join(", ") || null;
+          // Cargos
+          const cargos: { nombre: string; cargo: string; desde: string | null; hasta: string | null }[] = [];
+          for (const tr of Array.from(document.querySelectorAll("#cargos_tabla tbody tr"))) {
+            const cells = tr.querySelectorAll("td");
+            if (cells.length < 2) continue;
+            cargos.push({
+              nombre: (cells[0] as HTMLElement).innerText.trim().replace(/\s+/g, " "),
+              cargo: (cells[1] as HTMLElement).innerText.trim().replace(/\s+/g, " "),
+              desde: cells[2] ? (cells[2] as HTMLElement).innerText.trim() || null : null,
+              hasta: cells[3] ? (cells[3] as HTMLElement).innerText.trim() || null : null,
+            });
+          }
+          // Capital actual: buscar última fila "Capital Actual:"
+          let capital: string | null = null;
+          const allTds = Array.from(document.querySelectorAll("td"));
+          for (let i = 0; i < allTds.length; i++) {
+            const t = (allTds[i] as HTMLElement).innerText.trim();
+            if (/^Capital\s+Actual/i.test(t) && allTds[i + 1]) {
+              const val = (allTds[i + 1] as HTMLElement).innerText.trim();
+              const unit = allTds[i + 2] ? (allTds[i + 2] as HTMLElement).innerText.trim() : "";
+              capital = `${val} ${unit}`.trim();
+            }
+          }
+          // Fecha de constitución
+          let fundacion: string | null = null;
+          const all = document.body.innerText;
+          const fm = all.match(/Fecha\s+de\s+Constituci[oó]n[\s\S]{0,40}?(\d{2}\/\d{2}\/\d{4})/i);
+          if (fm) fundacion = fm[1];
+          // Objeto social
+          let objeto: string | null = null;
+          const om = all.match(/Objeto\s+Social\s*\n+([\s\S]{20,1200}?)(?:\n\s*\n|Cambio de objeto|Capital\s+Social|Datos del Registro)/i);
+          if (om) objeto = om[1].replace(/\s+/g, " ").trim();
+          return {
+            legalname: microItem("legalname"),
+            taxId: microItem("taxID"),
+            domicilio,
+            cargos,
+            capital,
+            fundacion,
+            objeto,
+          };
+        });
+        // Extracción por bloques de texto plano renderizado
+        const grab = (re: RegExp): string | null => {
+          const m = text.match(re);
+          return m ? m[1].trim().replace(/\s+/g, " ") : null;
+        };
+        const cif = dom.taxId || grab(/\b(?:CIF|NIF)\s*[:\-]?\s*([A-Z]\d{7}[A-Z0-9])\b/i);
+        // Para domicilio, capital, objeto y fundación: aceptar saltos de línea entre etiqueta y valor
+        const grabMulti = (re: RegExp): string | null => {
+          const m = text.match(re);
+          if (!m) return null;
+          let v = m[1].trim().replace(/\s+/g, " ");
+          // Si el "valor" capturado parece sólo un sub-encabezado (e.g. "social (2)"), descartar
+          if (v.length < 6 || /^(social|\(\d+\))/i.test(v)) return null;
+          return v;
+        };
+        const domicilio = dom.domicilio;
+        const capital = dom.capital;
+        const objeto = dom.objeto;
+        const fundacion = dom.fundacion;
+        // Administradores: filtrar a cargos de administración o representación
+        const CARGO_OK = /Administrador|Presidente|Secretario|Vicepresidente|Consejero|Apoderado|Vocal|Director|Liquidador|Representante|Socio\s+Unico/i;
+        const admins = (dom.cargos || []).filter(c => CARGO_OK.test(c.cargo));
+
+        await snapshot(supabase, page, job.id, "datoscif", "render", job);
+
+        const okFields = [cif, domicilio].filter(Boolean).length;
+        if (okFields === 0 && admins.length === 0) {
+          continue; // probar siguiente URL
+        }
+        found = { cif, domicilio, capital, objeto, fundacion, administradores: admins, fuente: url };
+        break;
+      } catch (e: any) {
+        pushTimeline(job, { fase: "datoscif", nota: `error ${url}`, err: e.message });
+      }
+    }
+
+    try { await page.close(); } catch {}
+
+    if (!found) {
       await finishJob(supabase, job, {
         estado: "requiere_revision",
-        error: `datoscif http ${res.status}`,
+        error: "datoscif: empresa no encontrada",
         datos: { ...job.datos, razon: "datoscif_no_encontrado" },
       });
       return;
     }
-    const html = await res.text();
-    // Extracción mínima por regex; si no encontramos NADA → requiere_revision
-    const cifMatch = html.match(/CIF[^A-Z0-9]*([A-Z]\d{8})/i);
-    const domicilioMatch = html.match(/Domicilio[^<]*<[^>]+>([^<]{5,200})</i);
-    const adminMatch = [...html.matchAll(/Administrador[^<]*<[^>]+>([^<]{3,120})</gi)]
-      .map(m => m[1].trim());
-
-    if (!cifMatch && !domicilioMatch && adminMatch.length === 0) {
-      // probable client-rendered o empresa no existente
+    job.datos.datoscif = found;
+    // Materializar SIEMPRE que tengamos CIF (idempotente)
+    if (found.cif || job.titular_nif) {
+      const matRes = await materializeCompany(supabase, job, found);
+      job.datos.company_materializada = matRes;
+    }
+    // Si faltan campos clave → requiere_revision (no marcar como OK)
+    const faltan: string[] = [];
+    if (!found.cif) faltan.push("cif");
+    if (!found.domicilio) faltan.push("domicilio");
+    if (!found.administradores || !found.administradores.length) faltan.push("administradores");
+    if (faltan.length) {
+      pushTimeline(job, { fase: "datoscif", nota: "incompleto", faltan, payload: found });
       await finishJob(supabase, job, {
         estado: "requiere_revision",
-        error: "html sin datos estructurados",
-        datos: { ...job.datos, razon: "datoscif_client_rendered_o_no_existe" },
+        error: `datoscif: faltan campos ${faltan.join(",")}`,
+        datos: { ...job.datos, razon: "datoscif_campos_vacios", faltan },
       });
       return;
     }
-    job.datos.datoscif = {
-      cif: cifMatch?.[1] ?? null,
-      domicilio: domicilioMatch?.[1]?.trim() ?? null,
-      administradores: adminMatch,
-      fuente: url,
-    };
-    pushTimeline(job, { fase: "datoscif", nota: "ok", payload: job.datos.datoscif });
+    pushTimeline(job, { fase: "datoscif", nota: "ok", payload: found });
     await finishJob(supabase, job, { estado: "ok", fase: "verificacion", datos: job.datos });
   } catch (e: any) {
     await finishJob(supabase, job, {
       estado: "error",
       error: `datoscif exception: ${e.message}`,
     });
+  } finally {
+    try { await browser?.disconnect(); } catch {}
   }
+}
+
+// ============ Materializar company desde datoscif ============
+async function materializeCompany(supabase: any, job: Job, d: any) {
+  const nombre = job.titular_nombre.trim();
+  const cif = d.cif ?? job.titular_nif ?? null;
+  // Buscar existente por CIF o nombre
+  let existing: any = null;
+  if (cif) {
+    const { data } = await supabase.from("companies").select("id").eq("cif", cif).maybeSingle();
+    existing = data;
+  }
+  if (!existing) {
+    const { data } = await supabase.from("companies").select("id").ilike("nombre", nombre).maybeSingle();
+    existing = data;
+  }
+  const founded_year = (() => {
+    const m = (d.fundacion || "").match(/(19|20)\d{2}/);
+    return m ? parseInt(m[0]) : null;
+  })();
+  const metadatos = {
+    domicilio: d.domicilio ?? null,
+    capital: d.capital ?? null,
+    objeto: d.objeto ?? null,
+    founded_year,
+    administradores: d.administradores ?? [],
+    fuente: d.fuente,
+    fuente_at: new Date().toISOString(),
+  };
+
+  let companyId: string;
+  if (existing) {
+    companyId = existing.id;
+    // merge metadatos
+    const { data: prev } = await supabase.from("companies").select("metadatos, cif").eq("id", companyId).maybeSingle();
+    await supabase.from("companies").update({
+      cif: prev?.cif ?? cif,
+      metadatos: { ...(prev?.metadatos || {}), ...metadatos },
+    }).eq("id", companyId);
+  } else {
+    const { data: ins, error } = await supabase.from("companies").insert({
+      nombre, cif, metadatos,
+    }).select("id").maybeSingle();
+    if (error) throw new Error(`companies insert: ${error.message}`);
+    companyId = ins!.id;
+  }
+
+  let bcId: string | null = null;
+  if (job.building_id) {
+    const { data: bcEx } = await supabase
+      .from("building_companies")
+      .select("id")
+      .eq("building_id", job.building_id)
+      .eq("company_id", companyId)
+      .eq("role", "titular")
+      .maybeSingle();
+    if (bcEx) {
+      bcId = bcEx.id;
+      await supabase.from("building_companies").update({
+        percentage: job.datos?.raw?.porcentaje ?? job.datos?.raw?.pct ?? null,
+        source: "enrichment:datoscif",
+      }).eq("id", bcId);
+    } else {
+      const { data: bcIns, error } = await supabase.from("building_companies").insert({
+        building_id: job.building_id,
+        company_id: companyId,
+        role: "titular",
+        percentage: job.datos?.raw?.porcentaje ?? job.datos?.raw?.pct ?? null,
+        source: "enrichment:datoscif",
+      }).select("id").maybeSingle();
+      if (error) console.warn("building_companies insert:", error.message);
+      bcId = bcIns?.id ?? null;
+    }
+  }
+
+  // Enlazar nota_simple_titulares si existe
+  await supabase.from("nota_simple_titulares")
+    .update({ company_id: companyId })
+    .eq("building_id", job.building_id ?? "")
+    .ilike("nombre", nombre);
+
+  return { company_id: companyId, building_company_id: bcId };
 }
 
 // ============ Fase inglobaly (navegador headless) ============
@@ -168,80 +394,153 @@ async function handleInglobaly(supabase: any, job: Job) {
     const puppeteer = (await import("npm:puppeteer-core@22.15.0")).default;
     browser = await puppeteer.connect({ browserWSEndpoint: BROWSER_WSS_URL });
     const page = await browser.newPage();
-    page.setDefaultTimeout(15000);
+    page.setDefaultTimeout(20000);
+    await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
 
-    // Helper puppeteer-core para "click on element containing text"
-    const clickByText = async (selector: string, text: string) => {
-      const handle = await page.evaluateHandle((sel: string, t: string) => {
-        const nodes = Array.from(document.querySelectorAll(sel));
-        const re = new RegExp(t, "i");
-        return nodes.find((n) => re.test(n.textContent || "")) || null;
-      }, selector, text);
-      const el = handle.asElement();
-      if (!el) throw new Error(`element_not_found:${selector}:${text}`);
-      await el.click();
-    };
-
-    const step = async (name: string, fn: () => Promise<void>) => {
-      try {
-        await fn();
-        const buf = await page.screenshot({ type: "png" });
-        const p = await uploadScreenshot(supabase, job.id, "inglobaly", name, buf);
-        if (p) {
-          job.datos.screenshots = job.datos.screenshots || [];
-          job.datos.screenshots.push({ step: name, path: p });
-        }
-        pushTimeline(job, { fase: "inglobaly", nota: name });
-      } catch (e: any) {
-        const buf = await page.screenshot({ type: "png" }).catch(() => null);
-        if (buf) await uploadScreenshot(supabase, job.id, "inglobaly", `${name}_FAIL`, buf);
-        throw new Error(`selector_no_encontrado:${name}: ${e.message}`);
+    // 1. login
+    pushTimeline(job, { fase: "inglobaly", nota: "login" });
+    await page.goto("https://www.inglobaly.com", { waitUntil: "domcontentloaded", timeout: 30000 });
+    // intentar abrir login si hay enlace
+    await page.evaluate(() => {
+      const re = /acceso|iniciar|login|entrar|acceder/i;
+      const el = Array.from(document.querySelectorAll("a,button"))
+        .find((n) => re.test((n as HTMLElement).innerText || "")) as HTMLElement | undefined;
+      el?.click();
+    }).catch(() => {});
+    await page.waitForSelector("input[type='password']", { timeout: 20000 });
+    const userSel = await page.evaluate(() => {
+      const cand = document.querySelectorAll("input[type='email'], input[type='text'], input:not([type])");
+      for (const i of Array.from(cand)) {
+        const el = i as HTMLInputElement;
+        if (el.type === "password" || el.type === "hidden") continue;
+        return el.name ? `input[name='${el.name}']` : `#${el.id}`;
       }
+      return null;
+    });
+    if (!userSel) throw new Error("login_input_no_encontrado");
+    await page.type(userSel, INGLOBALY_USER, { delay: 30 });
+    await page.type("input[type='password']", INGLOBALY_PASS, { delay: 30 });
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => null),
+      page.evaluate(() => {
+        const btn = document.querySelector("button[type='submit'], input[type='submit']") as HTMLElement | null;
+        btn?.click();
+      }),
+    ]);
+    await snapshot(supabase, page, job.id, "inglobaly", "post_login", job);
+
+    // 2. ir a la página de búsqueda — probar rutas conocidas
+    const searchRoutes = [
+      "https://www.inglobaly.com/buscar",
+      "https://www.inglobaly.com/busqueda",
+      "https://www.inglobaly.com/search",
+      "https://www.inglobaly.com/panel/buscar",
+    ];
+    let searchOk = false;
+    for (const r of searchRoutes) {
+      try {
+        await page.goto(r, { waitUntil: "domcontentloaded", timeout: 20000 });
+        const has = await page.evaluate(() => /N\.?I\.?F\.?|Nombre|Apellido/i.test(document.body.innerText));
+        if (has) { searchOk = true; break; }
+      } catch {}
+    }
+    if (!searchOk) {
+      // fallback: quedarnos en la página actual tras login
+      pushTimeline(job, { fase: "inglobaly", nota: "search_route_no_detectada, usando home post-login" });
+    }
+    await snapshot(supabase, page, job.id, "inglobaly", "search_form_dump", job);
+
+    // 3. localizar inputs por etiqueta
+    const inputForLabel = async (labelRe: string): Promise<string | null> => {
+      return await page.evaluate((reSrc: string) => {
+        const re = new RegExp(reSrc, "i");
+        // a) <label for="...">
+        for (const lab of Array.from(document.querySelectorAll("label"))) {
+          const txt = (lab as HTMLElement).innerText || "";
+          if (!re.test(txt)) continue;
+          const forId = lab.getAttribute("for");
+          if (forId && document.getElementById(forId)) return `#${CSS.escape(forId)}`;
+          const inner = lab.querySelector("input,select,textarea") as HTMLElement | null;
+          if (inner) {
+            if (inner.id) return `#${CSS.escape(inner.id)}`;
+            const name = inner.getAttribute("name");
+            if (name) return `${inner.tagName.toLowerCase()}[name='${name}']`;
+          }
+        }
+        // b) placeholder/aria
+        for (const i of Array.from(document.querySelectorAll("input,textarea"))) {
+          const el = i as HTMLInputElement;
+          const ph = el.placeholder || el.getAttribute("aria-label") || el.getAttribute("title") || "";
+          if (re.test(ph)) {
+            if (el.id) return `#${CSS.escape(el.id)}`;
+            const name = el.getAttribute("name");
+            if (name) return `${el.tagName.toLowerCase()}[name='${name}']`;
+          }
+        }
+        // c) name="nif|nombre|apellido"
+        const byName = document.querySelector(`input[name*='${reSrc.toLowerCase()}' i]`);
+        if (byName) {
+          const n = (byName as HTMLInputElement).getAttribute("name");
+          return n ? `input[name='${n}']` : null;
+        }
+        return null;
+      }, labelRe);
     };
 
-    await step("goto", async () => {
-      await page.goto("https://www.inglobaly.com", { waitUntil: "domcontentloaded" });
-    });
-    await step("click_acceso", async () => {
-      await clickByText("a, button", "Acceso|Iniciar|Login|Entrar");
-    });
-    await step("login", async () => {
-      await page.waitForSelector("input[type='email'], input[name='usuario'], input[name='email'], #usuario");
-      const userSel = "input[type='email'], input[name='usuario'], input[name='email'], #usuario";
-      const passSel = "input[type='password'], input[name='password'], #password";
-      await page.type(userSel, INGLOBALY_USER);
-      await page.type(passSel, INGLOBALY_PASS);
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: "domcontentloaded" }).catch(() => null),
-        page.click("button[type='submit'], input[type='submit']"),
-      ]);
-    });
+    const nifSel = await inputForLabel("N\\.?I\\.?F|NIF|CIF|Documento");
+    const nombreSel = await inputForLabel("^Nombre$|Nombre$|Nombre\\b");
+    const ap1Sel = await inputForLabel("Apellido\\s*1|Primer\\s+apellido|^Apellido$");
+    const ap2Sel = await inputForLabel("Apellido\\s*2|Segundo\\s+apellido");
 
-    // Búsqueda
-    if (job.titular_nif) {
-      await step("search_nif", async () => {
-        await page.waitForSelector("input[name='nif'], #nif, input[placeholder*='NIF' i]");
-        await page.type("input[name='nif'], #nif, input[placeholder*='NIF' i]", job.titular_nif!);
-        await clickByText("button", "Buscar");
+    pushTimeline(job, { fase: "inglobaly", nota: "selectores", nifSel, nombreSel, ap1Sel, ap2Sel });
+    job.datos.inglobaly_selectores = { nifSel, nombreSel, ap1Sel, ap2Sel };
+
+    const buscarBtn = async () => {
+      return await page.evaluate(() => {
+        const re = /buscar|search/i;
+        const cands = Array.from(document.querySelectorAll("button,input[type='submit'],a"));
+        const el = cands.find((n) => re.test(((n as HTMLElement).innerText || (n as HTMLInputElement).value || "")));
+        if (!el) return false;
+        (el as HTMLElement).click();
+        return true;
       });
+    };
+
+    // 4. ejecutar búsqueda preferente por NIF
+    if (job.titular_nif && nifSel) {
+      pushTimeline(job, { fase: "inglobaly", nota: "search_nif", nif: job.titular_nif });
+      await page.click(nifSel, { clickCount: 3 }).catch(() => {});
+      await page.type(nifSel, job.titular_nif);
+      const clicked = await buscarBtn();
+      if (!clicked) throw new Error("boton_buscar_no_encontrado");
+    } else if (nombreSel) {
+      pushTimeline(job, { fase: "inglobaly", nota: "search_nombre" });
+      await page.click(nombreSel, { clickCount: 3 }).catch(() => {});
+      await page.type(nombreSel, job.titular_nombre);
+      if (ap1Sel && job.titular_apellido1) await page.type(ap1Sel, job.titular_apellido1).catch(() => {});
+      if (ap2Sel && job.titular_apellido2) await page.type(ap2Sel, job.titular_apellido2).catch(() => {});
+      const clicked = await buscarBtn();
+      if (!clicked) throw new Error("boton_buscar_no_encontrado");
     } else {
-      await step("search_exact", async () => {
-        await page.waitForSelector("input[name='nombre'], #nombre, input[placeholder*='Nombre' i]");
-        await page.type("input[name='nombre'], #nombre, input[placeholder*='Nombre' i]", job.titular_nombre);
-        if (job.titular_apellido1) {
-          await page.type("input[name='apellido1'], #apellido1, input[placeholder*='Apellido' i]", job.titular_apellido1).catch(()=>{});
-        }
-        if (job.titular_apellido2) {
-          await page.type("input[name='apellido2'], #apellido2", job.titular_apellido2).catch(()=>{});
-        }
-        await clickByText("button", "Buscar");
-      });
+      throw new Error("selector_no_encontrado:formulario_busqueda");
     }
 
-    await step("abrir_ficha", async () => {
-      await page.waitForSelector("table tbody tr a, .resultado a", { timeout: 15000 });
-      await page.click("table tbody tr a, .resultado a");
+    await page.waitForFunction(() => {
+      const t = document.body.innerText;
+      return /resultado|encontrad|coincid|sin\s+resultado/i.test(t);
+    }, { timeout: 20000 }).catch(() => null);
+    await snapshot(supabase, page, job.id, "inglobaly", "resultados", job);
+
+    // Abrir primer resultado si existe
+    const opened = await page.evaluate(() => {
+      const link = document.querySelector("table tbody tr a, .resultado a, ul.resultados a, a[href*='ficha'], a[href*='detalle']") as HTMLAnchorElement | null;
+      if (link) { link.click(); return true; }
+      return false;
     });
+    if (opened) {
+      await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => null);
+      await snapshot(supabase, page, job.id, "inglobaly", "ficha", job);
+    }
 
     const extracted = await page.evaluate(() => {
       const txt = (sel: string) => document.querySelector(sel)?.textContent?.trim() ?? "";
@@ -287,9 +586,19 @@ async function handleInglobaly(supabase: any, job: Job) {
       domicilios: extracted.domicilios,
       co_domicilios: coDom,
       fuente: "inglobaly",
+      ficha_abierta: opened,
     };
     pushTimeline(job, { fase: "inglobaly", nota: "ok", co_dom: coDom.length });
-    await finishJob(supabase, job, { estado: "ok", fase: "tecnofind", datos: job.datos });
+    // si no se abrió ficha o no se extrajo nada, marcar requiere_revision
+    if (!opened || (!extracted.nif && extracted.domicilios.length === 0)) {
+      await finishJob(supabase, job, {
+        estado: "requiere_revision",
+        error: "inglobaly: búsqueda sin resultados extraíbles",
+        datos: job.datos,
+      });
+    } else {
+      await finishJob(supabase, job, { estado: "ok", fase: "tecnofind", datos: job.datos });
+    }
   } catch (e: any) {
     const msg = e.message || String(e);
     const reqRev = msg.startsWith("selector_no_encontrado");
@@ -300,7 +609,7 @@ async function handleInglobaly(supabase: any, job: Job) {
       datos: job.datos,
     });
   } finally {
-    try { await browser?.close(); } catch {}
+    try { await browser?.disconnect(); } catch {}
   }
 }
 
