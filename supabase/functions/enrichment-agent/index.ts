@@ -492,7 +492,19 @@ async function handleInglobaly(supabase: any, job: Job) {
       const url = location.href;
       const bodyText = (document.body.innerText || "").slice(0, 4000);
       const onlySearch = /only\s*search/i.test(bodyText);
-      return { hasLogin, url, onlySearch };
+      // capturar mensajes de error JSF y h:messages
+      const errs: string[] = [];
+      document.querySelectorAll(".ui-message, .ui-messages, .errorMessage, .alert, .error, [role='alert']").forEach((n) => {
+        const t = (n as HTMLElement).innerText?.trim();
+        if (t) errs.push(t);
+      });
+      // texto cerca del formulario que contenga error/invalid/incorrect
+      const re = /(error|inv[aá]lid|incorrect|no\s*v[aá]lid|denegad|contrase|credencial|bloque|captcha)/i;
+      Array.from(document.querySelectorAll("body *")).forEach((n) => {
+        const t = (n as HTMLElement).innerText || "";
+        if (t && t.length < 200 && re.test(t)) errs.push(t.trim());
+      });
+      return { hasLogin, url, onlySearch, errs: Array.from(new Set(errs)).slice(0, 10) };
     });
     pushTimeline(job, { fase: "inglobaly", nota: "login_verify", urlBefore, ...verify });
     const stillIndex = /\/index\.jsf(\?|$|#)/i.test(verify.url) || verify.url === urlBefore;
