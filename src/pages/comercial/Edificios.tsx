@@ -907,6 +907,7 @@ export default function ComercialEdificios() {
           )}
         </TabsContent>
       </Tabs>
+      <NewBuildingDialog open={showNewBuilding} onOpenChange={setShowNewBuilding} />
     </div>
   );
 }
