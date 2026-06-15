@@ -53,6 +53,8 @@ import {
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
+import { NewBuildingDialog } from "@/components/buildings/NewBuildingDialog";
+import { Plus } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Row = {
