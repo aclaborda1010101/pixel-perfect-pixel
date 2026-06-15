@@ -4385,6 +4385,42 @@ export type Database = {
           },
         ]
       }
+      v_cohort77_calls_audit: {
+        Row: {
+          building_id: string | null
+          calls_locales: number | null
+          direccion: string | null
+          gap: number | null
+          hs_calls_esperadas: number | null
+          owners_con_hs: number | null
+          owners_total: number | null
+          ultima_call_hs: string | null
+          ultima_call_local: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_company_graph: {
         Row: {
           buildings_count: number | null
@@ -4418,6 +4454,19 @@ export type Database = {
           ciudad: string | null
           total: number | null
           trabajados: number | null
+        }
+        Relationships: []
+      }
+      v_hubspot_calls_huerfanas: {
+        Row: {
+          associated_contact_ids: string[] | null
+          associated_deal_ids: string[] | null
+          hs_call_direction: string | null
+          hs_call_from_number: string | null
+          hs_call_to_number: string | null
+          hs_id: string | null
+          hs_timestamp: string | null
+          motivo: string | null
         }
         Relationships: []
       }
