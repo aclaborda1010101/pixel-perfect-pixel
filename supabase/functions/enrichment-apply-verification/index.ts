@@ -59,24 +59,46 @@ Deno.serve(async (req) => {
       });
     }
 
-    // APROBADA → upsert owner + building_owner + co-domicilios T8 + tarea Tecnofind
+    // Reglas T1-T10 desde enrichment_config (runtime, no hardcoded)
+    const { data: cfg } = await supabase.from("enrichment_config").select("reglas").limit(1).maybeSingle();
+    const reglas: Record<string, string> = cfg?.reglas ?? {};
+    const defaultTip = reglas["default"] ?? "T9";
+    const coDomTip = reglas["co_domicilio_sin_confirmar"] ?? "T8";
+    const fallecidoTip = reglas["fallecido"] ?? "T10";
+
+    // Heurística fallecido: "herederos de", "causahabientes", "fallecid"
+    const rawText = (job.datos?.raw?.nombre ?? "") + " " + (job.datos?.raw?.razon_social ?? "");
+    const esFallecido = /herederos de|causahabiente|fallecid/i.test(rawText);
+
+    const tipologiaAuto = esFallecido ? fallecidoTip : defaultTip;
+
     const payload = overrides ?? {
       nombre: job.titular_nombre,
       nif: job.datos?.inglobaly?.nif ?? job.titular_nif,
       fecha_nacimiento: job.datos?.inglobaly?.fecha_nacimiento ?? null,
       domicilio: job.datos?.inglobaly?.domicilios?.[0]?.direccion ?? null,
       cargo: job.datos?.cargo ?? null,
-      tipologia: job.datos?.tipologia ?? "T9",
+      tipologia: job.datos?.tipologia ?? tipologiaAuto,
       co_domicilios: job.datos?.inglobaly?.co_domicilios ?? [],
       pct: job.titular_pct,
     };
 
-    // 1) Owner principal
+    // 1) Owner principal: dedupe por NIF primero, fallback a nombre normalizado
     const ownerNombre = payload.nombre?.trim();
+    const nombreNorm = ownerNombre?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     let ownerId: string | null = null;
     if (ownerNombre) {
-      const { data: existing } = await supabase
-        .from("owners").select("id").ilike("nombre", ownerNombre).maybeSingle();
+      let existing: any = null;
+      if (payload.nif) {
+        const { data } = await supabase.from("owners").select("id")
+          .eq("metadatos->>nif", payload.nif).maybeSingle();
+        existing = data;
+      }
+      if (!existing) {
+        const { data } = await supabase.from("owners").select("id")
+          .ilike("nombre", ownerNombre).maybeSingle();
+        existing = data;
+      }
       if (existing) {
         ownerId = existing.id;
         await supabase.from("owners").update({
@@ -108,7 +130,7 @@ Deno.serve(async (req) => {
       }, { onConflict: "building_id,owner_id" });
     }
 
-    // 3) Co-domicilios → contactos T8 sin confirmar
+    // 3) Co-domicilios → contactos T8 sin confirmar (tipología desde reglas)
     let coCount = 0;
     for (const co of (payload.co_domicilios ?? [])) {
       const cname = (co.nombre || "").trim();
@@ -120,7 +142,7 @@ Deno.serve(async (req) => {
         const { data: ins } = await supabase.from("owners").insert({
           nombre: cname,
           metadatos: {
-            nif: co.nif, tipologia: "T8",
+            nif: co.nif, tipologia: coDomTip,
             subrole: "co_domicilio_sin_confirmar",
             co_domicilio_origen: job.id,
             fuente: "enrichment",
@@ -154,11 +176,21 @@ Deno.serve(async (req) => {
       aprobado_at: new Date().toISOString(), propuesta: payload,
     });
 
-    // 6) Avanzar a fase hubspot
+    // 6) Avanzar a fase hubspot y disparar escritura HubSpot
     await supabase.from("enrichment_jobs").update({
-      fase: "hubspot", estado: "ok",
-      datos: { ...job.datos, aplicado: { owner_id: ownerId, co_domicilios: coCount } },
+      fase: "hubspot", estado: "pendiente",
+      datos: {
+        ...job.datos,
+        aplicado: { owner_id: ownerId, co_domicilios: coCount },
+        aplicado_payload: { ...payload, owner_id: ownerId, tipologia: payload.tipologia ?? tipologiaAuto },
+      },
     }).eq("id", job_id);
+
+    fetch(`${SUPABASE_URL}/functions/v1/enrichment-write-hubspot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ job_id }),
+    }).catch((e) => console.warn("write-hubspot invoke:", e.message));
 
     return new Response(JSON.stringify({
       ok: true, action: "aprobada", owner_id: ownerId, co_domicilios: coCount,
