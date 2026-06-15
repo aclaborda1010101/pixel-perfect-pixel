@@ -231,20 +231,35 @@ async function handleDatoscif(supabase: any, job: Job) {
 
     try { await page.close(); } catch {}
 
-    if (!found || (!found.cif && !found.domicilio && (!found.administradores || !found.administradores.length))) {
+    if (!found) {
       await finishJob(supabase, job, {
         estado: "requiere_revision",
-        error: "datoscif: campos vacíos tras render",
-        datos: { ...job.datos, razon: "datoscif_vacio_o_no_existe" },
+        error: "datoscif: empresa no encontrada",
+        datos: { ...job.datos, razon: "datoscif_no_encontrado" },
       });
       return;
     }
-
     job.datos.datoscif = found;
-    // Materializar company + building_companies (idempotente)
-    const matRes = await materializeCompany(supabase, job, found);
-    job.datos.company_materializada = matRes;
-    pushTimeline(job, { fase: "datoscif", nota: "ok", payload: found, mat: matRes });
+    // Materializar SIEMPRE que tengamos CIF (idempotente)
+    if (found.cif || job.titular_nif) {
+      const matRes = await materializeCompany(supabase, job, found);
+      job.datos.company_materializada = matRes;
+    }
+    // Si faltan campos clave → requiere_revision (no marcar como OK)
+    const faltan: string[] = [];
+    if (!found.cif) faltan.push("cif");
+    if (!found.domicilio) faltan.push("domicilio");
+    if (!found.administradores || !found.administradores.length) faltan.push("administradores");
+    if (faltan.length) {
+      pushTimeline(job, { fase: "datoscif", nota: "incompleto", faltan, payload: found });
+      await finishJob(supabase, job, {
+        estado: "requiere_revision",
+        error: `datoscif: faltan campos ${faltan.join(",")}`,
+        datos: { ...job.datos, razon: "datoscif_campos_vacios", faltan },
+      });
+      return;
+    }
+    pushTimeline(job, { fase: "datoscif", nota: "ok", payload: found });
     await finishJob(supabase, job, { estado: "ok", fase: "verificacion", datos: job.datos });
   } catch (e: any) {
     await finishJob(supabase, job, {
