@@ -18,7 +18,7 @@ const cors = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
-const BATCH = 5;
+const BATCH = 8;
 const MAX_MS = 110_000;
 const MODEL = "google/gemini-2.5-flash";
 
@@ -89,25 +89,13 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
   const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
-  // Candidatas: con transcripción y sin post_call_scoring
-  const { data: pend, error } = await sb
-    .from("calls")
-    .select("id, comercial_email, duracion_seg, transcripcion, metadatos")
-    .not("transcripcion", "is", null)
-    .neq("transcripcion", "")
-    .order("fecha", { ascending: false })
-    .limit(200);
+  // Pendientes reales filtrando en BBDD (NOT metadatos ? 'post_call_scoring').
+  const { data: pend, error } = await sb.rpc("get_pending_scoring_calls", { _limit: BATCH });
   if (error) return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
-
-  // Re-score: incluir las que no tengan post_call_scoring O las que aún no tengan hits_total
-  // (formato antiguo previo al cambio de prompt centrado en hitos).
-  const queue = (pend ?? []).filter((c: any) => {
-    const s = c?.metadatos?.post_call_scoring;
-    if (!s) return true;
-    return typeof s.hits_total !== "number";
-  });
-  const batch = queue.slice(0, BATCH);
-  const remaining = Math.max(queue.length - BATCH, 0);
+  const batch = (pend ?? []) as any[];
+  const { data: totalPend } = await sb.rpc("count_pending_scoring_calls");
+  const totalPending = Number(totalPend ?? 0);
+  const remaining = Math.max(totalPending - batch.length, 0);
 
   const results: any[] = [];
   for (const c of batch as any[]) {
@@ -131,7 +119,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  if (remaining > 0 || queue.length > batch.length) {
+  if (remaining > 0) {
     fetch(`${SUPABASE_URL}/functions/v1/score-calls-historical`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },

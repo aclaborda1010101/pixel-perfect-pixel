@@ -4615,9 +4615,20 @@ export type Database = {
           n: number
         }[]
       }
+      count_pending_scoring_calls: { Args: never; Returns: number }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      get_pending_scoring_calls: {
+        Args: { _limit?: number }
+        Returns: {
+          comercial_email: string
+          duracion_seg: number
+          id: string
+          metadatos: Json
+          transcripcion: string
+        }[]
       }
       has_role: {
         Args: {
