@@ -642,6 +642,8 @@ export default function ComercialEdificios() {
   const filteredMias = apply(visibleMias);
   const filteredTodos = apply(rows);
 
+  const [showNewBuilding, setShowNewBuilding] = useState(false);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -650,6 +652,14 @@ export default function ComercialEdificios() {
         subtitle={`${mias.length} en tu cartera${todosRows.length ? ` · ${todosRows.length} edificios totales` : ""}`}
         actions={
           <div className="flex gap-2">
+          <Button
+            onClick={() => setShowNewBuilding(true)}
+            variant="gold"
+            size="sm"
+          >
+            <Plus className="h-3 w-3" />
+            Dar de alta nuevo edificio
+          </Button>
           <Button
             onClick={launchClusterRecompute}
             disabled={batchBusy}
