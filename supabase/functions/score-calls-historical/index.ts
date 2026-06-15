@@ -31,22 +31,32 @@ function durationBucket(sec: number | null | undefined): string {
   return "gt_90";
 }
 
-const PROMPT = `Eres analista de coach comercial inmobiliario en España. Recibes la TRANSCRIPCIÓN o NOTA POST-LLAMADA de una llamada del comercial al propietario. Tu tarea es decir QUÉ DATOS DEL SCORING consiguió el comercial DURANTE la llamada y CITAR LA FRASE LITERAL que lo prueba. NO inventes. Si un dato no se consiguió, marca conseguido=false y deja frase_prueba en cadena vacía.
+const PROMPT = `Eres analista de coach comercial inmobiliario en España. Recibes la TRANSCRIPCIÓN o NOTA POST-LLAMADA de una llamada del comercial al propietario. Tu única tarea es decir QUÉ HITOS DEL CHECKLIST consiguió el comercial y CITAR LA FRASE LITERAL que lo prueba. NO inventes. Si un hito no se consiguió, conseguido=false y frase_prueba=''.
+
+El SCORE de la llamada depende EXCLUSIVAMENTE de los hitos conseguidos. La duración de la llamada NO se evalúa aquí: es un dato diagnóstico aparte y NO debe influir en tu juicio.
+
+HITOS (4):
+1) tipologia: el comercial averigua qué tipo de propietario/propiedad es (particular, family office, fondo, herederos, inversor, gestor, etc.).
+2) que_le_mueve: motivación, dolor u objetivo del propietario (vender ya, rentabilizar, problemas con inquilinos, herencia, jubilación, reforma, etc.).
+3) info_edificio: cualquier dato concreto del edificio o su explotación: nº de copropietarios, plantas, viviendas, locales, alquileres vigentes, rentas, antigüedad, estado, derramas, intención de venta del bloque, etc.
+4) canal_abierto: el comercial obtiene un canal de seguimiento real (whatsapp confirmado, email, cita agendada, callback en fecha concreta, envío de info aceptado).
 
 Devuelve EXCLUSIVAMENTE este JSON:
 {
   "tipologia":      {"conseguido": true|false, "valor": "string libre o ''", "frase_prueba": "cita literal o ''"},
   "que_le_mueve":   {"conseguido": true|false, "valor": "motivación detectada o ''", "frase_prueba": "cita literal o ''"},
-  "info_edificio":  {"conseguido": true|false, "valor": "dato concreto del edificio o ''", "frase_prueba": "cita literal o ''"},
+  "info_edificio":  {"conseguido": true|false, "valor": "dato concreto o ''", "frase_prueba": "cita literal o ''", "sub":{"copropietarios": true|false, "alquileres": true|false, "otros": true|false}},
   "canal_abierto":  {"conseguido": true|false, "valor": "whatsapp|email|cita|callback|otro|''", "frase_prueba": "cita literal o ''"},
+  "hits_total": 0,
   "score_post_call": 0,
   "resumen": "1-2 frases neutras del resultado de la llamada"
 }
 
 REGLAS:
-- "frase_prueba" SIEMPRE cita literal extraída del texto (puede ser del comercial o del cliente). Si no hay, ''.
-- score_post_call = nº de datos conseguidos × 25 (0,25,50,75,100).
-- Si la llamada está sin contestación o el agente fue bloqueado por filtro, todos los datos van conseguido=false, score=0.
+- "frase_prueba" SIEMPRE cita literal extraída del texto. Si no hay, ''.
+- hits_total = nº de hitos con conseguido=true (0..4).
+- score_post_call = hits_total * 25 (0,25,50,75,100). Sin penalizaciones por duración.
+- Si la llamada está sin contestación, contestador o bloqueada por filtro: todos los hitos false, hits_total=0, score=0.
 - No añadas campos. No incluyas texto fuera del JSON.`;
 
 async function scoreCall(tx: string): Promise<any> {
