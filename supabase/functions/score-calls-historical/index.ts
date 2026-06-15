@@ -109,8 +109,12 @@ Deno.serve(async (req) => {
     const bucket = durationBucket(c.duracion_seg);
     try {
       const scoring = (c.transcripcion?.length ?? 0) < 50
-        ? { tipologia:{conseguido:false,valor:"",frase_prueba:""}, que_le_mueve:{conseguido:false,valor:"",frase_prueba:""}, info_edificio:{conseguido:false,valor:"",frase_prueba:""}, canal_abierto:{conseguido:false,valor:"",frase_prueba:""}, score_post_call: 0, resumen: "Sin transcripción suficiente." }
+        ? { tipologia:{conseguido:false,valor:"",frase_prueba:""}, que_le_mueve:{conseguido:false,valor:"",frase_prueba:""}, info_edificio:{conseguido:false,valor:"",frase_prueba:"",sub:{copropietarios:false,alquileres:false,otros:false}}, canal_abierto:{conseguido:false,valor:"",frase_prueba:""}, hits_total:0, score_post_call: 0, resumen: "Sin transcripción suficiente." }
         : await scoreCall(c.transcripcion);
+      // Recompute hits_total / score_post_call defensively from booleans
+      const hits = [scoring?.tipologia?.conseguido, scoring?.que_le_mueve?.conseguido, scoring?.info_edificio?.conseguido, scoring?.canal_abierto?.conseguido].filter(Boolean).length;
+      scoring.hits_total = hits;
+      scoring.score_post_call = hits * 25;
       const meta = { ...(c.metadatos ?? {}), post_call_scoring: scoring, duration_bucket: bucket, scored_at: new Date().toISOString(), scored_model: MODEL };
       await sb.from("calls").update({ metadatos: meta }).eq("id", c.id);
       results.push({ id: c.id, bucket, score: scoring.score_post_call ?? null });
