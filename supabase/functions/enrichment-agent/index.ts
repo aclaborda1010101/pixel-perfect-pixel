@@ -10,7 +10,20 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const BROWSER_WSS_URL = Deno.env.get("BROWSER_WSS_URL") ?? "";
+const RAW_BROWSER_WSS = Deno.env.get("BROWSER_WSS_URL") ?? "";
+// Browserless: /stealth/bql es BrowserQL (no Puppeteer). Para puppeteer-core
+// usar el endpoint base conservando el token.
+function toPuppeteerWss(raw: string): string {
+  if (!raw) return raw;
+  try {
+    const u = new URL(raw);
+    u.pathname = "/";
+    return u.toString().replace(/\/$/, "") + (u.search ? "" : "");
+  } catch {
+    return raw;
+  }
+}
+const BROWSER_WSS_URL = toPuppeteerWss(RAW_BROWSER_WSS);
 const INGLOBALY_USER = Deno.env.get("INGLOBALY_USER") ?? "";
 const INGLOBALY_PASS = Deno.env.get("INGLOBALY_PASS") ?? "";
 const BUCKET = "enrichment-evidence";
