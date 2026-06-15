@@ -1,74 +1,75 @@
-## Qué está pasando ahora mismo
+## Diagnóstico (datos reales)
 
-**1. "0 en cola" pero hay 2.935 pendientes reales.**
-La edge function `score-calls-historical` hace:
-```ts
-.select(...).not("transcripcion","is",null).order("fecha", desc).limit(200)
-```
-y luego filtra en memoria las que ya tienen `metadatos.post_call_scoring`. Como las 200 más recientes ya están scoreadas, el filtro devuelve `[]` → `queue_remaining = 0` y la self-reinvocación se detiene. Por eso el proceso quedó parado en 200/3.135.
+| Métrica | Valor |
+|---|---|
+| `hubspot_calls` totales en local | 5.914 |
+| Última sync de `calls` en `hubspot_sync_state` | **2026-05-10** (hace ~36 días) |
+| `hubspot_calls` con `hs_timestamp > 10-may` | **0** ← sync incremental parado |
+| `calls` locales totales / promovidas desde HS | 5.559 / 5.517 |
+| `hubspot_calls` **sin** `associated_contact_ids` | **367** (promote_calls las salta) |
+| Cohort 77 — edificios con `building_owners` | 73/77 (4 sin owner) |
+| Cohort 77 — owners distintos | 502 |
+| Cohort 77 — owners con `external_ids → hubspot:contact` | **405/502** (97 huérfanos) |
+| Cohort 77 — `calls` locales atadas | 509 (última 12-jun, vía `finalize_call_session`) |
 
-Comprobado en BBDD ahora mismo:
-- 3.135 llamadas con transcripción
-- 200 scoreadas
-- **2.935 pendientes reales** (con transcripción y sin `post_call_scoring`)
+Hay **tres fugas** que explican lo que ves:
 
-**2. "Hitos conseguidos · sin datos".**
-La página filtra `if (isComercial && user.email) rows = rows.filter(r => r.comercial === user.email)`. Tu rol es comercial y tu email de login no coincide con la columna `comercial` de la vista (que guarda el email del CRM, p.ej. `jesus.anzola@afflux.es`). Resultado: tabla vacía aunque la vista tiene datos.
-
-**3. Se perdieron heatmap y comparativa antiguos.** Los quitamos al reemplazar la página.
+1. **Sync de `hubspot_calls` parada desde 10-may** → toda llamada hecha en HubSpot después de esa fecha no entra al sistema. Solo entran las que se cierran a mano desde la app (`finalize_call_session`).
+2. **367 llamadas en HubSpot sin contacto asociado** → `promote_calls` las descarta porque no sabe a qué `owner` atarlas (solo mira `associated_contact_ids[0]`).
+3. **97 owners del cohort sin `external_ids` a su contacto de HubSpot** → aunque la llamada esté en `hubspot_calls`, no se enlaza con el owner correcto, por lo que no aparece bajo su edificio.
 
 ## Plan
 
-### A) Arreglar el scoring para que avance hasta agotar las 2.935
+### 1. Reanudar el sync de llamadas de HubSpot (cierra fuga #1)
+- Invocar `hubspot_sync_engagements` con `entities: ['calls']` y `reset: true` para forzar paginado completo y refrescar `total_synced`.
+- Trocear con `max_pages` y auto-reinvocación si el run inicial no agota la paginación; reportar `pages_fetched / upserted / failed` por iteración hasta que `cursor` quede vacío.
+- Verificar: `SELECT COUNT(*) FROM hubspot_calls WHERE hs_timestamp > '2026-05-10'` debe pasar de 0 a N>0.
 
-En `supabase/functions/score-calls-historical/index.ts`:
+### 2. Promover el delta a `calls` (cierra fuga #1 hacia la app)
+- Invocar `promote_calls` en bucle hasta que `promoted=0`.
+- Reportar `promoted / skipped_no_owner / skipped_existing / failed`.
 
-- Cambiar la query para **excluir en BBDD** las ya scoreadas, en vez de filtrar en memoria sobre las 200 más recientes:
-  ```ts
-  .not("transcripcion","is",null)
-  .neq("transcripcion","")
-  .or("metadatos.is.null,not(metadatos.cs.{\"post_call_scoring\":{}})")  // equivalente vía RPC si or() no soporta
-  ```
-  Si el operador `or` con `cs` no funciona limpio, crear una **vista o columna generada** `calls.score_pending boolean` o consultar vía `rpc` con SQL plano `WHERE NOT (metadatos ? 'post_call_scoring')`.
-- Aumentar `BATCH` a 8 y mantener self-reinvocación.
-- Devolver `queue_remaining` real (count total pendiente, no resto del fetch).
-- Mantener compatibilidad con el re-score de filas viejas que ya tienen scoring antiguo sin `hits_total`.
+### 3. Rescatar llamadas sin contacto (cierra fuga #2)
+Ampliar `promote_calls` con tres rutas de fallback **en este orden**, solo para filas donde el contacto principal no resuelve owner:
 
-### B) Mix de UI en `/productividad` (mantener nuevo + recuperar antiguo)
+```text
+a) associated_deal_ids[0] → external_ids(entity_type='deal') → deal → building → owner principal de ese building (building_owners ordenado por porcentaje/principal)
+b) hs_call_to_number / hs_call_from_number normalizado → owners.telefono
+c) hubspot_owner_id (comercial) + ventana temporal → última call_session abierta de ese comercial
+```
 
-Estructura final de la página:
+Cada fila promovida vía fallback marca `resumen` con `[hs:<id>][via:deal|tel|session]` para auditar. Si ninguna ruta resuelve, queda en `skipped_no_owner` y se vuelca a un view `v_hubspot_calls_huerfanas` para revisión manual.
 
-1. **Cabecera + acción "Reanalizar pendientes"** mostrando contadores reales:
-   `200 scoreadas · 2.935 pendientes · 3.135 con transcripción`.
-2. **KPIs globales de hitos** (los nuevos: hitos medios, score, %tipología/mueve/edif/canal). Ya están.
-3. **Tabs:**
-   - **Calidad por comercial (hitos)** — tabla de `v_productividad_comercial` (ya está).
-   - **Comparativa clásica** — la tabla antigua (calls, dur. media, conversión, sentiment+, ratio, score técnica, última) leyendo `calls` con `outcome/sentiment/tecnica_score`.
-   - **Heatmap día × hora** — los dos modos: "Cuándo llama" y "Cuándo convierte" (igual que antes).
-   - **Duración (diagnóstico)** — ya está.
-   - **Movimientos ganadores** — recuperar el bloque de tácticas y pivots (sobre `calls.pivot_moments` + `tacticas_usadas`).
-   - **Coach IA** — ya está.
-3. **Selector de comercial y rango** vuelve arriba (Todos / Comercial · 7d/30d/90d/365d), como antes. Aplica a la pestaña clásica, heatmap, movimientos y Coach IA. No aplica a la tabla de hitos (esa es agregada por la vista, sin filtrar por rango).
+### 4. Backfill de los 97 owners huérfanos del cohort (cierra fuga #3)
+- Ejecutar `backfill_orphan_contacts` limitado al cohort 77 (los 502 owners).
+- Para cada owner sin `external_ids`, buscar en `hubspot_contacts` por email exacto → teléfono normalizado → nombre+CIF; insertar en `external_ids`.
+- Tras el backfill, re-lanzar `promote_calls` (paso 2) para enganchar las calls que antes quedaban sueltas.
 
-### C) Arreglar el filtro vacío por rol
+### 5. Reporte por edificio del cohort
+Crear/actualizar `v_cohort77_calls_audit` con columnas:
 
-Quitar el `filter(r => r.comercial === user.email)` ingenuo. En su lugar:
-- Si `isComercial`, mapear `user.email → comercial_email` usando la tabla `calls` (igual que el mapa que ya cargamos para Coach IA). Si encontramos match → filtramos por ese email del CRM. Si no, mostramos todas las filas y un aviso ("no se pudo mapear tu cuenta a un comercial del CRM").
+| campo | descripción |
+|---|---|
+| building_id, direccion | id y calle |
+| owners_total / owners_con_hs | mapeo HS del owner |
+| calls_locales | `calls` atadas vía `building_owners → owner_id` |
+| hs_calls_esperadas | `hubspot_calls` cuyo contacto/deal/teléfono apunta a ese building |
+| gap | esperadas − locales |
+| ultima_call_local / ultima_call_hs | timestamps para detectar desfase |
 
-### D) Estado pendiente realista en el botón
+Tras los pasos 1–4 imprimir filas con `gap > 0` (deberían ser 0 o muy pocas).
 
-`Reanalizar pendientes` debe:
-- Llamar a `score-calls-historical` (igual).
-- Refrescar contador con `count(*) WHERE transcripcion <> '' AND NOT (metadatos ? 'post_call_scoring')` (no el total con transcripción).
+### 6. Tarea programada (prevención)
+- Confirmar/crear un cron diario que invoque `hubspot_sync_engagements({entities:['calls']})` + `promote_calls`. Si ya existía y está parado, reactivarlo y avisar.
 
-## Detalle técnico
+## Detalles técnicos
 
-- **Edge function fix prioridad**: si Supabase REST no permite filtrar `NOT (metadatos ? 'post_call_scoring')` desde el cliente, expondré una `rpc` SQL `get_pending_scoring_ids(limit int)` que devuelve IDs y la function los procesa por lote.
-- **Heatmap / comparativa / movimientos**: se reaprovecha la lógica que tenía la versión anterior de `Productividad.tsx` (la borrada en el último cambio). La traigo de vuelta dentro de las nuevas pestañas, sin tocar nada de hitos.
-- **Sin cambios de schema** salvo (opcionalmente) la `rpc` mencionada.
+- Archivos a tocar: `supabase/functions/promote_calls/index.ts` (fallbacks), nueva migración con `v_cohort77_calls_audit` y `v_hubspot_calls_huerfanas`. `hubspot_sync_engagements` y `backfill_orphan_contacts` se reutilizan tal cual.
+- Idempotencia conservada: `promote_calls` sigue marcando `[hs:<id>]` en `resumen`.
+- No se toca `calls` schema ni RLS; todo es inserción/lectura.
+- Reportes (counts, gap por edificio) en chat al terminar cada paso.
 
-## Qué NO se toca
-
-- Vistas `v_productividad_*` ya creadas: se mantienen.
-- Prompt de scoring por hitos: se mantiene (es lo bueno).
-- BaselineLlamadasCard: no se reintroduce salvo que lo pidas explícitamente (lo dejamos fuera porque era el panel "pre-sistema F3").
+## Qué NO hace este plan
+- No re-sincroniza notas/tareas (solo `calls`).
+- No reescribe el scoring de llamadas (eso ya está en marcha).
+- No crea owners nuevos: si una `hubspot_calls` no tiene contacto **ni** deal **ni** match por teléfono, queda listada en `v_hubspot_calls_huerfanas` para que tú decidas.
