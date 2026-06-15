@@ -420,28 +420,31 @@ async function handleInglobaly(supabase: any, job: Job) {
       await new Promise((r) => setTimeout(r, 800));
     }
 
-    // 1b. localizar selectores reales del formulario JSF
+    // 1b. localizar selectores reales del formulario JSF (botón puede ser <a onclick=mojarra.jsfcljs...>)
     await page.waitForSelector("input[type='password']", { timeout: 20000 });
     const sels = await page.evaluate(() => {
       const pwd = document.querySelector("input[type='password']") as HTMLInputElement | null;
       if (!pwd) return null;
-      const form = pwd.closest("form");
+      const form = pwd.closest("form") as HTMLFormElement | null;
       const userEl = form?.querySelector("input[type='text'], input:not([type]), input[type='email']") as HTMLInputElement | null;
-      // botón submit asociado: button/submit dentro del mismo form
+      // marcar botón con data-attr para click determinista por puppeteer
+      const re = /acceso|acceder|entrar|^login$|sign in|enter|enviar/i;
       let btn: HTMLElement | null =
         (form?.querySelector("button[type='submit'], input[type='submit']") as HTMLElement | null);
       if (!btn) {
-        const re = /acceso|acceder|entrar|login|sign in|enter/i;
         btn = (Array.from(form?.querySelectorAll("a,button,input[type='button']") || []) as HTMLElement[])
-          .find((e) => re.test((e as HTMLElement).innerText || (e as HTMLInputElement).value || "")) || null;
+          .find((e) => re.test(((e as HTMLElement).innerText || (e as HTMLInputElement).value || "").trim())) || null;
       }
+      if (btn) btn.setAttribute("data-eagent-btn", "1");
       const idForSel = (el: Element | null) =>
         el ? (el.id ? `#${CSS.escape(el.id)}` : (el.getAttribute("name") ? `${el.tagName.toLowerCase()}[name='${el.getAttribute("name")}']` : null)) : null;
       return {
         userSel: idForSel(userEl),
         passSel: idForSel(pwd),
-        btnSel: idForSel(btn),
-        btnText: btn ? ((btn as HTMLElement).innerText || (btn as HTMLInputElement).value || "") : null,
+        btnSel: btn ? "[data-eagent-btn='1']" : null,
+        btnTag: btn?.tagName.toLowerCase() || null,
+        btnText: btn ? ((btn as HTMLElement).innerText || (btn as HTMLInputElement).value || "").trim() : null,
+        btnOnclick: btn?.getAttribute("onclick") || null,
         formId: form?.id || null,
       };
     });
