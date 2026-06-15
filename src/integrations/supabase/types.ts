@@ -4528,6 +4528,7 @@ export type Database = {
           dur_desconocida: number | null
           dur_gt_90: number | null
           dur_lt_30: number | null
+          hitos_medios: number | null
           llamadas_scoreadas: number | null
           llamadas_total: number | null
           pct_canal_abierto: number | null
@@ -4538,14 +4539,33 @@ export type Database = {
         }
         Relationships: []
       }
+      v_productividad_comercial_semana: {
+        Row: {
+          comercial: string | null
+          dur_30_60: number | null
+          dur_60_90: number | null
+          dur_gt_90: number | null
+          dur_lt_30: number | null
+          hitos_medios: number | null
+          llamadas_scoreadas: number | null
+          llamadas_total: number | null
+          pct_canal_abierto: number | null
+          pct_info_edificio: number | null
+          pct_que_le_mueve: number | null
+          pct_tipologia: number | null
+          semana: string | null
+        }
+        Relationships: []
+      }
       v_productividad_global: {
         Row: {
           dur_30_60: number | null
           dur_60_90: number | null
-          dur_desconocida: number | null
           dur_gt_90: number | null
           dur_lt_30: number | null
+          hitos_medios: number | null
           llamadas_scoreadas: number | null
+          llamadas_total: number | null
           pct_canal_abierto: number | null
           pct_info_edificio: number | null
           pct_que_le_mueve: number | null
