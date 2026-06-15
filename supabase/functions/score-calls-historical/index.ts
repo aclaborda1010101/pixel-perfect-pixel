@@ -99,7 +99,13 @@ Deno.serve(async (req) => {
     .limit(200);
   if (error) return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
 
-  const queue = (pend ?? []).filter((c: any) => !(c.metadatos && c.metadatos.post_call_scoring));
+  // Re-score: incluir las que no tengan post_call_scoring O las que aún no tengan hits_total
+  // (formato antiguo previo al cambio de prompt centrado en hitos).
+  const queue = (pend ?? []).filter((c: any) => {
+    const s = c?.metadatos?.post_call_scoring;
+    if (!s) return true;
+    return typeof s.hits_total !== "number";
+  });
   const batch = queue.slice(0, BATCH);
   const remaining = Math.max(queue.length - BATCH, 0);
 
