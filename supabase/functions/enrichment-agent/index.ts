@@ -164,6 +164,48 @@ async function handleDatoscif(supabase: any, job: Job) {
         if (!text || text.length < 200 || /no encontrad|no existe|404/i.test(text.slice(0, 400))) {
           continue;
         }
+        // Extracción DOM: para cada label conocido, encontrar el valor en la celda/elemento contiguo
+        const labelMap = await page.evaluate(() => {
+          const LABELS = ["CIF","Domicilio Social","Domicilio","Capital Social","Capital","Objeto Social","Fecha de Constitución","Forma Jurídica"];
+          const out: Record<string, string[]> = {};
+          const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
+          const isLabel = (el: Element, label: string) => {
+            const t = norm((el as HTMLElement).innerText || el.textContent || "");
+            return t.toLowerCase() === label.toLowerCase() || t.toLowerCase().startsWith(label.toLowerCase() + " (");
+          };
+          const collect = (label: string, value: string) => {
+            if (!value) return;
+            const v = norm(value);
+            if (v.length < 2 || v.toLowerCase() === label.toLowerCase()) return;
+            out[label] = out[label] || [];
+            if (!out[label].includes(v)) out[label].push(v);
+          };
+          // Buscar en pares estándar dt/dd, th/td, label/value
+          for (const label of LABELS) {
+            // dt -> dd
+            for (const dt of Array.from(document.querySelectorAll("dt,th,strong,b,span.label,div.label"))) {
+              if (!isLabel(dt, label)) continue;
+              const dd = dt.nextElementSibling || (dt.parentElement && dt.parentElement.nextElementSibling);
+              if (dd) collect(label, (dd as HTMLElement).innerText || dd.textContent || "");
+            }
+            // tr con dos celdas: primera = label
+            for (const tr of Array.from(document.querySelectorAll("tr"))) {
+              const cells = tr.querySelectorAll("td,th");
+              if (cells.length >= 2 && isLabel(cells[0], label)) {
+                collect(label, (cells[1] as HTMLElement).innerText || cells[1].textContent || "");
+              }
+            }
+            // Bloques tipo card: <div>Label</div><div>Value</div>
+            for (const div of Array.from(document.querySelectorAll("div,p,li"))) {
+              const txt = norm((div as HTMLElement).innerText || "");
+              if (txt.toLowerCase().startsWith(label.toLowerCase() + ":")) {
+                collect(label, txt.slice(label.length + 1));
+              }
+            }
+          }
+          return out;
+        });
+        const pick = (k: string) => (labelMap[k] && labelMap[k][0]) || null;
         // Extracción por bloques de texto plano renderizado
         const grab = (re: RegExp): string | null => {
           const m = text.match(re);
