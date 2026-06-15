@@ -41,28 +41,16 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({} as any));
   const BATCH: number = Math.max(1, Math.min(20, Number(body?.batch ?? DEFAULT_BATCH)));
 
-  // Selección: cohorte = building_processing_status (los 77) que aún tengan
-  // algún subsistema vacío o no marcado como reprocesado con versión congelada.
-  const { data: pend } = await sb
-    .from("building_processing_status")
-    .select("building_id, error, current_phase, status")
-    .order("updated_at", { ascending: true })
-    .limit(200);
-
-  // Filtrar por estado real
+  // Selección rápida: los que NO tienen metricas_extra.reprocess_frozen_v1=true.
+  // Una sola query, sin sub-consultas N+1.
+  const { data: baRows } = await sb
+    .from("building_analysis")
+    .select("building_id, metricas_extra")
+    .limit(500);
   const ids: string[] = [];
-  for (const r of pend ?? []) {
-    const bid = (r as any).building_id;
-    const [{ count: nFac }, { count: nPat }, { data: ba }] = await Promise.all([
-      sb.from("facade_window_counts").select("building_id", { count: "exact", head: true }).eq("building_id", bid),
-      sb.from("patio_window_counts").select("building_id", { count: "exact", head: true }).eq("building_id", bid),
-      sb.from("building_analysis").select("n_escaleras_final, esquina, protegido_historicamente, metricas_extra").eq("building_id", bid).maybeSingle(),
-    ]);
-    const reprocesado = (ba as any)?.metricas_extra?.reprocess_frozen_v1 === true;
-    const sinFacade = (nFac ?? 0) === 0;
-    const sinPatio = (nPat ?? 0) === 0;
-    const sinEsc = (ba as any)?.n_escaleras_final == null;
-    if (sinFacade || sinPatio || sinEsc || !reprocesado) ids.push(bid);
+  for (const r of baRows ?? []) {
+    const mx = (r as any)?.metricas_extra ?? {};
+    if (mx?.reprocess_frozen_v1 !== true) ids.push((r as any).building_id);
     if (ids.length >= BATCH * 4) break;
   }
   const batch = ids.slice(0, BATCH);
