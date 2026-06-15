@@ -211,7 +211,10 @@ async function handleDatoscif(supabase: any, job: Job) {
           const m = text.match(re);
           return m ? m[1].trim().replace(/\s+/g, " ") : null;
         };
-        const cif = grab(/\b(?:CIF|NIF)\s*[:\-]?\s*([A-Z]\d{7}[A-Z0-9])\b/i);
+        const cifFromMap = pick("CIF");
+        const cif = (cifFromMap && /[A-Z]\d{7}[A-Z0-9]/i.test(cifFromMap)
+          ? cifFromMap.match(/[A-Z]\d{7}[A-Z0-9]/i)![0]
+          : null) || grab(/\b(?:CIF|NIF)\s*[:\-]?\s*([A-Z]\d{7}[A-Z0-9])\b/i);
         // Para domicilio, capital, objeto y fundación: aceptar saltos de línea entre etiqueta y valor
         const grabMulti = (re: RegExp): string | null => {
           const m = text.match(re);
@@ -221,19 +224,15 @@ async function handleDatoscif(supabase: any, job: Job) {
           if (v.length < 6 || /^(social|\(\d+\))/i.test(v)) return null;
           return v;
         };
-        const domicilio =
-          grabMulti(/Domicilio\s+social[^\n]*\n+\s*([^\n]{10,200})/i) ||
-          grabMulti(/Domicilio[^\n]*\n+\s*([^\n]{10,200})/i) ||
-          grabMulti(/Domicilio[^:\n]*[:\-]\s*([^\n]{10,200})/i);
-        const capital =
-          grabMulti(/Capital(?:\s+social)?[^\n]*\n+\s*([^\n]{2,80})/i) ||
-          grabMulti(/Capital(?:\s+social)?[^:\n]*[:\-]\s*([^\n]{2,80})/i);
-        const objeto =
-          grabMulti(/Objeto\s+social[^\n]*\n+\s*([^\n]{5,500})/i) ||
-          grabMulti(/Objeto\s+social[^:\n]*[:\-]\s*([^\n]{5,500})/i);
-        const fundacion =
-          grabMulti(/(?:Fecha\s+de\s+constituci[oó]n|Constituida)[^\n]*\n+\s*([^\n]{4,40})/i) ||
+        const domicilio = pick("Domicilio Social") || pick("Domicilio") ||
+          grabMulti(/Domicilio\s+social[^\n]*\n+\s*([^\n]{10,200})/i);
+        const capital = pick("Capital Social") || pick("Capital") ||
+          grabMulti(/Capital(?:\s+social)?[^\n]*\n+\s*([^\n]{2,80})/i);
+        const objeto = pick("Objeto Social") ||
+          grabMulti(/Objeto\s+social[^\n]*\n+\s*([^\n]{5,500})/i);
+        const fundacionRaw = pick("Fecha de Constitución") ||
           grab(/(?:Fecha\s+de\s+constituci[oó]n|Constituida)[^:\n]*[:\-]\s*([^\n]{4,40})/i);
+        const fundacion = fundacionRaw && /\d{2}\/\d{2}\/\d{4}|\d{4}/.test(fundacionRaw) ? fundacionRaw : null;
         // Administradores: bloque tras "Administrador" / "Organigrama" / "Cargos"
         const admins: { cargo: string | null; nombre: string }[] = [];
         const STOP = /VINCULACIONES|Empresas\s+relacionadas|Cuentas\s+anuales|Balance|Sector|Web|Email|Teléfono|©|Política/i;
