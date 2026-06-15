@@ -17,8 +17,8 @@ const cors = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const BATCH = 6;
-const MAX_MS = 110_000;
+const DEFAULT_BATCH = 10;
+const MAX_MS = 140_000;
 
 async function callFn(name: string, body: any) {
   try {
@@ -38,6 +38,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const t0 = Date.now();
   const sb = createClient(SUPABASE_URL, SERVICE_KEY);
+  const body = await req.json().catch(() => ({} as any));
+  const BATCH: number = Math.max(1, Math.min(20, Number(body?.batch ?? DEFAULT_BATCH)));
 
   // Selección: cohorte = building_processing_status (los 77) que aún tengan
   // algún subsistema vacío o no marcado como reprocesado con versión congelada.
@@ -61,7 +63,7 @@ Deno.serve(async (req) => {
     const sinPatio = (nPat ?? 0) === 0;
     const sinEsc = (ba as any)?.n_escaleras_final == null;
     if (sinFacade || sinPatio || sinEsc || !reprocesado) ids.push(bid);
-    if (ids.length >= BATCH * 6) break;
+    if (ids.length >= BATCH * 4) break;
   }
   const batch = ids.slice(0, BATCH);
   const remaining = Math.max(ids.length - BATCH, 0);
@@ -90,7 +92,7 @@ Deno.serve(async (req) => {
     fetch(`${SUPABASE_URL}/functions/v1/reprocess-cohort-77`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
-      body: "{}",
+      body: JSON.stringify({ batch: BATCH }),
     }).catch(() => {});
   }
 
