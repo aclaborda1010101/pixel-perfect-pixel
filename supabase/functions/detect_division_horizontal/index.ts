@@ -64,6 +64,7 @@ Deno.serve(async (req) => {
   let body: any = {}; try { body = await req.json(); } catch {}
   const dryRun = !!body.dry_run;
   const max = Number(body.max_buildings) || 500;
+  const offset = Number(body.offset) || 0;
 
   try {
     let ids: string[] = [];
@@ -83,7 +84,7 @@ Deno.serve(async (req) => {
       }
       ids = Array.from(seen).sort();
     }
-    const chunk = ids.slice(0, max);
+    const chunk = ids.slice(offset, offset + max);
     const results: any[] = [];
     let changed = 0, dhTrue = 0;
     for (const id of chunk) {
