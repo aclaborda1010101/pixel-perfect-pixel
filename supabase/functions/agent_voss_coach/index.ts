@@ -23,6 +23,10 @@ OBJETIVOS de la llamada (en orden, no negociables):
  2) Sacar la INFO MÍNIMA DE CATALOGACIÓN: tipología del propietario (T1..T10 o buyer_persona), qué le MUEVE (motor real), info del edificio (estado, copropietarios, alquileres, conflictos), abrir CANAL (WhatsApp opt-in o identificar un influenciador interno).
  3) Si hay HISTÓRICO de llamadas previas: RETOMAR desde donde se dejó; nunca arrancar de cero.
 
+REGLA DE CABECERA (no negociable): el usuario te pasa una CABECERA literal ("Primer contacto" o "Seguimiento · llamada nº N"). Adapta el plan:
+  - Si CABECERA = "Primer contacto" → guion de LLAMADA EN FRÍO PURA (apertura, pattern interrupt, pregunta orientada al no, sin asumir nada).
+  - Si CABECERA empieza por "Seguimiento" → NO uses apertura de frío. Apertura DEBE retomar lo último ("la última vez quedamos en…", "me decía usted que…"), citar UN dato concreto del histórico (objeción, dato del edificio, motor) y plantear el siguiente hito basado en los datos del CHECKLIST que TODAVÍA FALTAN. historico.resumen debe sintetizar QUÉ se habló en las llamadas previas (citando hechos concretos), QUÉ OBJECIONES salieron y QUÉ datos del checklist ya están conseguidos vs los que faltan.
+
 APERTURA obligatoria: gratitud breve + transparencia del origen del teléfono (Registro de la Propiedad / nota simple) + auditoría de acusaciones PERSONALIZADA al perfil real (edad, cuota %, situación del edificio) + pregunta orientada al NO. Nunca pedir reunión ni hablar de precio en la apertura.
 
 Etiquetas Voss reales según perfil (no inventar):
@@ -192,11 +196,73 @@ Deno.serve(async (req) => {
 
     // 2) Histórico de llamadas (solo en brief; en post viene la transcripción)
     let historico: any[] = [];
+    let historico_notas: any[] = [];
+    let historico_tasks: any[] = [];
+    let header = 'Primer contacto';
+    let n_previas = 0;
     if (owner_id) {
       const { data: cs } = await sb.from('calls')
         .select('id, fecha, outcome, sentiment, duracion_seg, resumen, objeciones, siguiente_accion, notas_post_llamada, transcripcion')
-        .eq('owner_id', owner_id).order('fecha', { ascending: false }).limit(5);
+        .eq('owner_id', owner_id).order('fecha', { ascending: false }).limit(12);
       historico = (cs || []).map(shortCall);
+
+      // Espejo HubSpot: contact_ids del owner
+      const { data: ex } = await sb.from('external_ids')
+        .select('provider_id').eq('entity_type', 'owner').eq('entity_id', owner_id).eq('provider', 'hubspot');
+      const hsContactIds = (ex || []).map((r: any) => String(r.provider_id)).filter(Boolean);
+      if (hsContactIds.length) {
+        const [{ data: hc }, { data: hn }, { data: ht }] = await Promise.all([
+          sb.from('hubspot_calls')
+            .select('hs_id, hs_call_title, hs_call_body, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp')
+            .overlaps('associated_contact_ids', hsContactIds)
+            .order('hs_timestamp', { ascending: false }).limit(12),
+          sb.from('hubspot_notes')
+            .select('hs_id, hs_note_body, hs_timestamp')
+            .overlaps('associated_contact_ids', hsContactIds)
+            .order('hs_timestamp', { ascending: false }).limit(20),
+          sb.from('hubspot_tasks')
+            .select('hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_timestamp')
+            .overlaps('associated_contact_ids', hsContactIds)
+            .order('hs_timestamp', { ascending: false }).limit(20),
+        ]);
+        // Dedupe calls por proximidad ±120s con histórico local
+        const localTs = historico.map((h: any) => +new Date(h.fecha || 0));
+        for (const k of hc || []) {
+          const t = +new Date(k.hs_timestamp || 0);
+          if (localTs.some((lt) => Math.abs(lt - t) < 120_000)) continue;
+          historico.push({
+            fecha: k.hs_timestamp,
+            outcome: k.hs_call_disposition || null,
+            direccion: k.hs_call_direction || null,
+            duracion_seg: k.hs_call_duration ? Math.round(Number(k.hs_call_duration) / 1000) : null,
+            resumen: k.hs_call_body ? String(k.hs_call_body).slice(0, 600) : null,
+            transcripcion: k.hs_call_transcription ? String(k.hs_call_transcription).slice(0, 4000) : null,
+            source: 'hubspot',
+          });
+        }
+        historico.sort((a: any, b: any) => +new Date(b.fecha || 0) - +new Date(a.fecha || 0));
+        historico = historico.slice(0, 12);
+
+        historico_notas = (hn || []).map((k: any) => ({
+          fecha: k.hs_timestamp,
+          texto: (k.hs_note_body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 800),
+        })).filter((n: any) => n.texto);
+        historico_tasks = (ht || []).map((k: any) => ({
+          fecha: k.hs_timestamp,
+          asunto: k.hs_task_subject || null,
+          status: k.hs_task_status || null,
+          texto: (k.hs_task_body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400),
+        }));
+      }
+
+      // ¿Cuántas llamadas con conversación real (no "no_contesta", con resumen/transcripción)?
+      n_previas = historico.filter((h: any) => {
+        const oc = (h.outcome || '').toString().toLowerCase();
+        if (oc.includes('no_contesta') || oc.includes('no answer')) return false;
+        const hasText = ((h.resumen || '').length + (h.transcripcion || '').length) > 30;
+        return hasText;
+      }).length;
+      header = n_previas === 0 ? 'Primer contacto' : `Seguimiento · llamada nº ${n_previas + 1}`;
     }
 
     // 3) RAG Voss
@@ -236,11 +302,20 @@ Deno.serve(async (req) => {
     // 4) Payload al modelo
     const userMsg = `MODO: ${mode}
 
+CABECERA (úsala literal en historico.resumen / contexto): ${header}
+NÚMERO DE LLAMADAS CON CONVERSACIÓN PREVIAS: ${n_previas}
+
 SNAPSHOT REAL (no inventes lo que no esté aquí):
 ${JSON.stringify(snapshot, null, 2)}
 
 HISTÓRICO DE LLAMADAS (${historico.length} previas):
 ${historico.length ? JSON.stringify(historico, null, 2) : '(sin histórico — PRIMER CONTACTO en frío)'}
+
+NOTAS HUBSPOT DEL CONTACTO (${historico_notas.length}):
+${historico_notas.length ? JSON.stringify(historico_notas, null, 2) : '(sin notas)'}
+
+TAREAS HUBSPOT DEL CONTACTO (${historico_tasks.length}):
+${historico_tasks.length ? JSON.stringify(historico_tasks, null, 2) : '(sin tareas)'}
 
 ${mode === 'post' ? `TRANSCRIPCIÓN A EVALUAR:\n${call_transcript || '(sin transcripción provista)'}\n` : ''}
 PLAYBOOK MEDIDO (tácticas con mejor tasa_exito para este perfil — PRIORÍZALAS y cítalas en por_que_funciona):
@@ -264,6 +339,9 @@ Devuelve el JSON estricto con la forma EXACTA del system.`;
       ai.playbook_priorizado = playbook.slice(0, 3).map((p: any) => ({
         tipo: p.tactica_tipo, tactica: p.tactica_texto, tasa_exito: p.tasa_exito, n_usos: p.n_usos,
       }));
+      // Inyecta header SIEMPRE (no depende del modelo)
+      ai.header = header;
+      ai.n_llamadas_previas = n_previas;
     }
 
     return new Response(JSON.stringify({
@@ -272,6 +350,10 @@ Devuelve el JSON estricto con la forma EXACTA del system.`;
       voss: ai,
       meta: {
         historico_count: historico.length,
+        historico_notas_count: historico_notas.length,
+        historico_tasks_count: historico_tasks.length,
+        header,
+        n_previas,
         fragments_count: fragments.length,
         playbook_count: playbook.length,
         datos_faltantes: snapshot.datos_faltantes,

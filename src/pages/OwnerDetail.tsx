@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sparkles, Building2, Boxes, Users2, Briefcase, FileText, PhoneCall, MessageSquare,
-  StickyNote, CheckSquare, ChevronDown, ArrowRight, ArrowLeft, Network,
+  StickyNote, CheckSquare, ChevronDown, ArrowRight, ArrowLeft, Network, Mail, CalendarClock,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Crumbs } from "@/components/common/Crumbs";
@@ -71,8 +71,14 @@ type Owner = {
 };
 
 type CommItem = {
-  id: string; kind: "call" | "whatsapp" | "note" | "task";
-  fecha: string; titulo: string; cuerpo: string; link?: string;
+  id: string;
+  kind: "call" | "whatsapp" | "note" | "task" | "email" | "meeting";
+  fecha: string;
+  titulo: string;
+  cuerpo: string;
+  link?: string;
+  source: "app" | "hubspot";
+  meta?: Record<string, any>;
 };
 
 export default function OwnerDetail() {
@@ -88,6 +94,11 @@ export default function OwnerDetail() {
   const [relations, setRelations] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [titulares, setTitulares] = useState<any[]>([]);
+  const [hsCalls, setHsCalls] = useState<any[]>([]);
+  const [hsNotes, setHsNotes] = useState<any[]>([]);
+  const [hsTasks, setHsTasks] = useState<any[]>([]);
+  const [hsEmails, setHsEmails] = useState<any[]>([]);
+  const [hsMeetings, setHsMeetings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [showEdif, setShowEdif] = useState(PAGE_SIZE);
@@ -100,7 +111,26 @@ export default function OwnerDetail() {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    const [o, c, w, n, a, as, bo, relA, relB, oc, ts] = await Promise.all([
+    // 1) Datos del owner + HubSpot contact ids para tirar del espejo
+    const exRes = await supabase
+      .from("external_ids")
+      .select("provider_id")
+      .eq("entity_type", "owner")
+      .eq("entity_id", id)
+      .eq("provider", "hubspot");
+    const hsContactIds = (exRes.data ?? []).map((r: any) => String(r.provider_id)).filter(Boolean);
+
+    const mirror = async (table: string, cols: string, orderCol: string) => {
+      if (hsContactIds.length === 0) return { data: [] as any[] };
+      return await (supabase as any)
+        .from(table)
+        .select(cols)
+        .overlaps("associated_contact_ids", hsContactIds)
+        .order(orderCol, { ascending: false, nullsFirst: false })
+        .limit(500);
+    };
+
+    const [o, c, w, n, a, as, bo, relA, relB, oc, ts, hC, hN, hT, hE, hM] = await Promise.all([
       supabase.from("owners").select("*").eq("id", id).maybeSingle(),
       supabase.from("calls").select("id, fecha, resumen, direccion, duracion_seg").eq("owner_id", id).order("fecha", { ascending: false }).limit(500),
       supabase.from("whatsapp_messages").select("id, enviado_at, created_at, cuerpo, status, direccion").eq("owner_id", id).order("created_at", { ascending: false }).limit(500),
@@ -114,6 +144,11 @@ export default function OwnerDetail() {
       supabase.from("nota_simple_titulares")
         .select("id, rol, porcentaje, cif_dni, nombre_extraido, nota_simple_id, nota:nota_simple_id(id, status, riesgo, processed_at, created_at, file_url, building_id, structured_json)")
         .eq("owner_id", id),
+      mirror("hubspot_calls", "id, hs_id, hs_call_title, hs_call_body, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_call_recording_url, hs_timestamp, hs_owner_id", "hs_timestamp"),
+      mirror("hubspot_notes", "id, hs_id, hs_note_body, hs_timestamp", "hs_timestamp"),
+      mirror("hubspot_tasks", "id, hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_task_type, hs_task_priority, hs_timestamp, hs_task_completion_date", "hs_timestamp"),
+      mirror("hubspot_emails", "id, hs_id, hs_email_subject, hs_email_text, hs_email_direction, hs_email_from_email, hs_email_to_email, hs_timestamp", "hs_timestamp"),
+      mirror("hubspot_meetings", "id, hs_id, hs_meeting_title, hs_meeting_body, hs_meeting_start_time, hs_meeting_outcome, hs_timestamp", "hs_timestamp"),
     ]);
     setOwner(o.data as Owner);
     setCalls(c.data ?? []); setWhats(w.data ?? []); setNotes(n.data ?? []);
@@ -123,6 +158,11 @@ export default function OwnerDetail() {
     setRelations([...relsOut, ...relsIn]);
     setCompanies(oc.data ?? []);
     setTitulares(ts.data ?? []);
+    setHsCalls((hC as any).data ?? []);
+    setHsNotes((hN as any).data ?? []);
+    setHsTasks((hT as any).data ?? []);
+    setHsEmails((hE as any).data ?? []);
+    setHsMeetings((hM as any).data ?? []);
     setLoading(false);
   }, [id]);
 
@@ -130,21 +170,78 @@ export default function OwnerDetail() {
 
   const comms: CommItem[] = useMemo(() => {
     const items: CommItem[] = [];
-    for (const c of calls) items.push({
-      id: `c-${c.id}`, kind: "call", fecha: c.fecha,
-      titulo: `Llamada ${c.direccion ?? ""}`.trim(), cuerpo: c.resumen ?? "(sin resumen)",
-      link: `/llamadas/${c.id}`,
-    });
+    // 1) Mirror HubSpot — fuente más rica (cuerpo/transcripción completos)
+    for (const k of hsCalls) {
+      const dur = k.hs_call_duration ? Math.round(Number(k.hs_call_duration) / 1000) : null;
+      const dirLbl = k.hs_call_direction ? String(k.hs_call_direction).toLowerCase().includes("out") ? "saliente" : "entrante" : "";
+      const head = [k.hs_call_title || "Llamada", dirLbl, dur != null ? `${dur}s` : "", k.hs_call_disposition || ""].filter(Boolean).join(" · ");
+      const body = [k.hs_call_transcription, k.hs_call_body].filter(Boolean).join("\n\n") || "(sin cuerpo)";
+      items.push({
+        id: `hc-${k.hs_id}`, kind: "call", fecha: k.hs_timestamp,
+        titulo: head, cuerpo: body, source: "hubspot",
+        link: k.hs_call_recording_url || undefined,
+        meta: { duration_s: dur, direction: dirLbl, disposition: k.hs_call_disposition, recording: k.hs_call_recording_url },
+      });
+    }
+    for (const k of hsNotes) {
+      items.push({
+        id: `hn-${k.hs_id}`, kind: "note", fecha: k.hs_timestamp,
+        titulo: "Nota HubSpot",
+        cuerpo: (k.hs_note_body || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "(vacía)",
+        source: "hubspot",
+      });
+    }
+    for (const k of hsTasks) {
+      items.push({
+        id: `ht-${k.hs_id}`, kind: "task", fecha: k.hs_timestamp ?? k.hs_task_completion_date,
+        titulo: `Tarea · ${k.hs_task_subject || k.hs_task_type || "—"} · ${k.hs_task_status || ""}`.trim(),
+        cuerpo: (k.hs_task_body || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "(sin detalle)",
+        source: "hubspot",
+        meta: { status: k.hs_task_status, priority: k.hs_task_priority },
+      });
+    }
+    for (const k of hsEmails) {
+      const dirLbl = k.hs_email_direction ? String(k.hs_email_direction).toLowerCase().includes("incoming") ? "entrante" : "saliente" : "";
+      items.push({
+        id: `he-${k.hs_id}`, kind: "email", fecha: k.hs_timestamp,
+        titulo: `Email · ${dirLbl} · ${k.hs_email_subject || "(sin asunto)"}`,
+        cuerpo: (k.hs_email_text || "").trim() || "(sin texto)",
+        source: "hubspot",
+        meta: { from: k.hs_email_from_email, to: k.hs_email_to_email, direction: dirLbl },
+      });
+    }
+    for (const k of hsMeetings) {
+      items.push({
+        id: `hm-${k.hs_id}`, kind: "meeting", fecha: k.hs_meeting_start_time ?? k.hs_timestamp,
+        titulo: `Reunión · ${k.hs_meeting_title || "—"} · ${k.hs_meeting_outcome || ""}`.trim(),
+        cuerpo: (k.hs_meeting_body || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "(sin detalle)",
+        source: "hubspot",
+      });
+    }
+
+    // 2) App local — dedupe contra mirror por proximidad temporal (±120s)
+    const mirrorCallTs = hsCalls.map((k) => +new Date(k.hs_timestamp || 0)).filter(Boolean);
+    for (const c of calls) {
+      const tsC = +new Date(c.fecha || 0);
+      const dup = mirrorCallTs.some((t) => Math.abs(t - tsC) < 120_000);
+      if (dup) continue;
+      items.push({
+        id: `c-${c.id}`, kind: "call", fecha: c.fecha, source: "app",
+        titulo: `Llamada ${c.direccion ?? ""}`.trim(),
+        cuerpo: c.resumen ?? "(sin resumen)",
+        link: `/llamadas/${c.id}`,
+      });
+    }
     for (const w of whats) items.push({
       id: `w-${w.id}`, kind: "whatsapp", fecha: w.enviado_at ?? w.created_at,
-      titulo: `WhatsApp · ${w.status ?? "—"}`, cuerpo: w.cuerpo ?? "",
+      titulo: `WhatsApp · ${w.status ?? "—"}`, cuerpo: w.cuerpo ?? "", source: "app",
     });
     for (const n of notes) items.push({
       id: `n-${n.id}`, kind: "note", fecha: n.created_at,
-      titulo: "Nota interna", cuerpo: n.texto ?? "",
+      titulo: "Nota interna", cuerpo: n.texto ?? "", source: "app",
     });
     return items.sort((a, b) => +new Date(b.fecha || 0) - +new Date(a.fecha || 0));
-  }, [calls, whats, notes]);
+  }, [calls, whats, notes, hsCalls, hsNotes, hsTasks, hsEmails, hsMeetings]);
 
   if (loading || !owner) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
@@ -402,14 +499,28 @@ export default function OwnerDetail() {
         {/* COMUNICACIONES */}
         <TabsContent value="comms" className="space-y-3">
           <WhatsappComposer ownerId={owner.id} ownerName={owner.nombre} />
+          {/* Contadores por tipo */}
+          <div className="flex flex-wrap gap-2">
+            {(["call","note","task","email","meeting","whatsapp"] as const).map((k) => {
+              const n = comms.filter((c) => c.kind === k).length;
+              if (n === 0) return null;
+              return <Badge key={k} variant="outline" className="text-[10px] uppercase">{k} · {n}</Badge>;
+            })}
+          </div>
           {comms.length === 0 ? (
             <EmptyState icon={MessageSquare} title="Sin comunicaciones" description="Las llamadas, WhatsApp, notas y tareas aparecerán aquí." />
           ) : (
             <Card>
               <ol className="divide-y divide-border-faint">
                 {comms.slice(0, showComms).map((c) => {
-                  const Icon = c.kind === "call" ? PhoneCall : c.kind === "whatsapp" ? MessageSquare : c.kind === "note" ? StickyNote : CheckSquare;
-                  const tone: any = c.kind === "whatsapp" ? "gold" : c.kind === "task" ? "warning" : "default";
+                  const Icon =
+                    c.kind === "call" ? PhoneCall :
+                    c.kind === "whatsapp" ? MessageSquare :
+                    c.kind === "note" ? StickyNote :
+                    c.kind === "email" ? Mail :
+                    c.kind === "meeting" ? CalendarClock :
+                    CheckSquare;
+                  const tone: any = c.kind === "whatsapp" ? "gold" : c.kind === "task" ? "warning" : c.kind === "email" ? "gold" : "default";
                   return (
                     <li key={c.id} className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-1/30">
                       <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] border border-border-faint bg-surface-1/40 text-muted-foreground">
@@ -418,12 +529,18 @@ export default function OwnerDetail() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <Chip tone={tone}>{c.kind}</Chip>
+                          <Chip>{c.source}</Chip>
                           <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{fmtDateTime(c.fecha)}</span>
                         </div>
                         <div className="mt-1 text-sm text-foreground">{c.titulo}</div>
-                        <div className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{c.cuerpo}</div>
+                        <details className="mt-0.5">
+                          <summary className="text-xs text-muted-foreground line-clamp-2 cursor-pointer whitespace-pre-wrap">{c.cuerpo}</summary>
+                          <div className="mt-2 whitespace-pre-wrap rounded border border-border-faint bg-surface-1/40 p-2 text-xs text-foreground">{c.cuerpo}</div>
+                        </details>
                       </div>
-                      {c.link && <Link to={c.link} className="shrink-0 text-xs text-gold hover:underline">Abrir →</Link>}
+                      {c.link && (c.link.startsWith("http")
+                        ? <a href={c.link} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-gold hover:underline">Abrir →</a>
+                        : <Link to={c.link} className="shrink-0 text-xs text-gold hover:underline">Abrir →</Link>)}
                     </li>
                   );
                 })}

@@ -61,7 +61,14 @@ export function VossCoachCard({
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <div>
           <Eyebrow><Quote className="mr-1 inline h-3 w-3" /> Coach Voss</Eyebrow>
-          <CardTitle>{mode === "brief" ? "Plan de llamada · Voss" : "Análisis post-llamada"}</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <span>{mode === "brief" ? "Plan de llamada · Voss" : "Análisis post-llamada"}</span>
+            {mode === "brief" && voss?.header && (
+              <Badge variant={String(voss.header).startsWith("Primer") ? "outline" : "gold"} className="text-[10px]">
+                {voss.header}
+              </Badge>
+            )}
+          </CardTitle>
         </div>
         <Button size="sm" variant="outline" onClick={load} disabled={busy}>
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
