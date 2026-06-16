@@ -369,7 +369,11 @@ export default function OwnerDetail() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        {b.cuota != null && <Badge variant="gold">{b.cuota}%</Badge>}
+                        {b.buildings?.division_horizontal ? (
+                          <Badge variant="outline" title="Edificio en división horizontal: el % real está por finca/vivienda">DH · % por finca</Badge>
+                        ) : (
+                          b.cuota != null && <Badge variant="gold" title="% sobre el edificio">{b.cuota}%</Badge>
+                        )}
                         <Badge variant="outline">{SUBROLE_LABEL[b.subrole] ?? b.subrole}</Badge>
                       </div>
                     </Link>
