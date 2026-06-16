@@ -20,6 +20,7 @@ const JOBS: Job[] = [
   { key: "reprocess", label: "Reprocesar cartera (cohorte 77)", fn: "reprocess-cohort-77", body: { batch: 10 }, desc: "Re-analiza con VLM los edificios pendientes. Lanzar una vez; se auto-trocea.", cost: "alto" },
   { key: "windows", label: "Recontar ventanas (cal9)", fn: "recount-windows-cal9", body: { limit: 50 }, desc: "Recuenta ventanas de fachada con el campeón actual.", cost: "alto" },
   { key: "facade-v2", label: "Recontar ventanas fachada v2 (VLM)", fn: "count-facade-windows-v2", body: { limit: 25 }, desc: "VLM multi-captura para fachadas dudosas.", cost: "alto" },
+  { key: "refetch-sv", label: "Re-capturar fotos Street View (cohorte 77)", fn: "batch-refetch-streetview-cohort77", desc: "Vuelve a pedir las 4 fotos SV de los 77 con la lógica corregida (sin el espejo +180°).", cost: "medio" },
   { key: "transcribe", label: "Transcribir llamadas pendientes", fn: "transcribe_call", desc: "Whisper sobre llamadas sin transcripción.", cost: "alto" },
   { key: "analyze", label: "Analizar llamadas pendientes", fn: "analyze_call", desc: "Scoring/análisis LLM de llamadas con transcripción.", cost: "alto" },
   { key: "learn", label: "Aprender de llamadas (playbook)", fn: "learn_from_calls", desc: "Actualiza call_playbook a partir de llamadas analizadas.", cost: "medio" },
