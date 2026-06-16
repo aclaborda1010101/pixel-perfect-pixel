@@ -17,12 +17,23 @@ const CALL_PROPS = [
   'hs_call_disposition', 'hs_call_duration', 'hs_call_recording_url',
   'hs_call_to_number', 'hs_call_from_number', 'hs_timestamp', 'hs_createdate',
   'hs_lastmodifieddate', 'hubspot_owner_id',
+  'hs_call_transcription', 'hs_call_source',
 ];
 const NOTE_PROPS = ['hs_note_body', 'hs_timestamp', 'hs_createdate', 'hs_lastmodifieddate'];
 const TASK_PROPS = [
   'hs_task_subject', 'hs_task_body', 'hs_task_status', 'hs_task_priority',
   'hs_task_type', 'hs_timestamp', 'hs_task_completion_date', 'hs_createdate',
   'hs_lastmodifieddate',
+];
+const MEETING_PROPS = [
+  'hs_meeting_title', 'hs_meeting_body', 'hs_meeting_start_time', 'hs_meeting_end_time',
+  'hs_meeting_outcome', 'hs_meeting_location', 'hs_timestamp', 'hs_createdate',
+  'hs_lastmodifieddate', 'hubspot_owner_id',
+];
+const EMAIL_PROPS = [
+  'hs_email_subject', 'hs_email_text', 'hs_email_html', 'hs_email_direction',
+  'hs_email_status', 'hs_email_from_email', 'hs_email_to_email', 'hs_timestamp',
+  'hs_createdate', 'hs_lastmodifieddate', 'hubspot_owner_id',
 ];
 const CONTACT_PROPS = ['firstname', 'lastname', 'email', 'phone'];
 
@@ -134,6 +145,8 @@ function callMirrorRow(e: any, associatedContactIds: string[], existing?: any): 
     hs_call_disposition: p.hs_call_disposition || null,
     hs_call_duration: intOrNull(p.hs_call_duration),
     hs_call_recording_url: p.hs_call_recording_url || null,
+    hs_call_transcription: p.hs_call_transcription || null,
+    hs_call_source: p.hs_call_source || null,
     hs_call_to_number: p.hs_call_to_number || null,
     hs_call_from_number: p.hs_call_from_number || null,
     hs_timestamp: tsOrNull(p.hs_timestamp),
@@ -175,6 +188,49 @@ function taskMirrorRow(e: any, associatedContactIds: string[], existing?: any): 
     hs_task_completion_date: tsOrNull(p.hs_task_completion_date),
     hs_createdate: tsOrNull(p.hs_createdate ?? e.createdAt),
     hs_lastmodifieddate: tsOrNull(p.hs_lastmodifieddate ?? e.updatedAt),
+    associated_contact_ids: uniq([...(existing?.associated_contact_ids || []), ...associatedContactIds]),
+    associated_deal_ids: existing?.associated_deal_ids || [],
+    raw: { ...(existing?.raw || {}), live_batch: e },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function meetingMirrorRow(e: any, associatedContactIds: string[], existing?: any): Record<string, unknown> {
+  const p = e.properties || {};
+  return {
+    hs_id: String(e.id),
+    hs_meeting_title: p.hs_meeting_title || null,
+    hs_meeting_body: p.hs_meeting_body || null,
+    hs_meeting_start_time: tsOrNull(p.hs_meeting_start_time),
+    hs_meeting_end_time: tsOrNull(p.hs_meeting_end_time),
+    hs_meeting_outcome: p.hs_meeting_outcome || null,
+    hs_meeting_location: p.hs_meeting_location || null,
+    hs_timestamp: tsOrNull(p.hs_timestamp),
+    hs_createdate: tsOrNull(p.hs_createdate ?? e.createdAt),
+    hs_lastmodifieddate: tsOrNull(p.hs_lastmodifieddate ?? e.updatedAt),
+    hs_owner_id: p.hubspot_owner_id || null,
+    associated_contact_ids: uniq([...(existing?.associated_contact_ids || []), ...associatedContactIds]),
+    associated_deal_ids: existing?.associated_deal_ids || [],
+    raw: { ...(existing?.raw || {}), live_batch: e },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function emailMirrorRow(e: any, associatedContactIds: string[], existing?: any): Record<string, unknown> {
+  const p = e.properties || {};
+  return {
+    hs_id: String(e.id),
+    hs_email_subject: p.hs_email_subject || null,
+    hs_email_text: p.hs_email_text || null,
+    hs_email_html: p.hs_email_html || null,
+    hs_email_direction: p.hs_email_direction || null,
+    hs_email_status: p.hs_email_status || null,
+    hs_email_from_email: p.hs_email_from_email || null,
+    hs_email_to_email: p.hs_email_to_email || null,
+    hs_timestamp: tsOrNull(p.hs_timestamp),
+    hs_createdate: tsOrNull(p.hs_createdate ?? e.createdAt),
+    hs_lastmodifieddate: tsOrNull(p.hs_lastmodifieddate ?? e.updatedAt),
+    hs_owner_id: p.hubspot_owner_id || null,
     associated_contact_ids: uniq([...(existing?.associated_contact_ids || []), ...associatedContactIds]),
     associated_deal_ids: existing?.associated_deal_ids || [],
     raw: { ...(existing?.raw || {}), live_batch: e },
@@ -378,7 +434,7 @@ Deno.serve(async (req) => {
       supabase,
       'hubspot_calls',
       idsByType.calls,
-      'hs_id, associated_contact_ids, associated_deal_ids, raw, hs_call_title, hs_call_body, hs_call_direction, hs_call_duration, hs_call_recording_url, hs_timestamp, hs_createdate, hs_lastmodifieddate, hs_call_to_number, hs_call_from_number, hs_owner_id',
+      'hs_id, associated_contact_ids, associated_deal_ids, raw, hs_call_title, hs_call_body, hs_call_direction, hs_call_duration, hs_call_recording_url, hs_call_transcription, hs_call_source, hs_timestamp, hs_createdate, hs_lastmodifieddate, hs_call_to_number, hs_call_from_number, hs_owner_id',
     );
     const existingNotes = await fetchExistingByHsId(
       supabase,
@@ -389,6 +445,8 @@ Deno.serve(async (req) => {
     const existingTasks = includeGlobalTasks
       ? await fetchExistingByHsId(supabase, 'hubspot_tasks', idsByType.tasks, 'hs_id, associated_contact_ids, associated_deal_ids, raw')
       : new Map<string, any>();
+    const existingMeetings = await fetchExistingByHsId(supabase, 'hubspot_meetings', idsByType.meetings, 'hs_id, associated_contact_ids, associated_deal_ids, raw');
+    const existingEmails = await fetchExistingByHsId(supabase, 'hubspot_emails', idsByType.emails, 'hs_id, associated_contact_ids, associated_deal_ids, raw');
 
     const appCallsBefore = await fetchAppCallsForOwners(supabase, uniq(Array.from(contactToOwner.values())));
     const appNotesBefore = await fetchAppNotesForOwners(supabase, uniq(Array.from(contactToOwner.values())));
@@ -437,46 +495,79 @@ Deno.serve(async (req) => {
     let mirrorCallsUpserted = 0;
     let mirrorNotesUpserted = 0;
     let mirrorTasksUpserted = 0;
+    let mirrorMeetingsUpserted = 0;
+    let mirrorEmailsUpserted = 0;
     let callsPromoted = 0;
     let notesPromoted = 0;
+    let callsUpdatedTranscript = 0;
 
     if (doSync) {
       const callsToRead = idsByType.calls;
       const notesToRead = idsByType.notes;
       const tasksToRead = includeGlobalTasks ? idsByType.tasks : [];
 
-      const [callObjs, noteObjs, taskObjs] = await Promise.all([
+      const meetingsToRead = idsByType.meetings;
+      const emailsToRead = idsByType.emails;
+      const [callObjs, noteObjs, taskObjs, meetingObjs, emailObjs] = await Promise.all([
         callsToRead.length ? batchReadObjects('calls', callsToRead, CALL_PROPS) : Promise.resolve([]),
         notesToRead.length ? batchReadObjects('notes', notesToRead, NOTE_PROPS) : Promise.resolve([]),
         tasksToRead.length ? batchReadObjects('tasks', tasksToRead, TASK_PROPS) : Promise.resolve([]),
+        meetingsToRead.length ? batchReadObjects('meetings', meetingsToRead, MEETING_PROPS) : Promise.resolve([]),
+        emailsToRead.length ? batchReadObjects('emails', emailsToRead, EMAIL_PROPS) : Promise.resolve([]),
       ]);
 
       const callRows = callObjs.map((o) => callMirrorRow(o, engagementToContacts.calls.get(String(o.id)) || [], existingCalls.get(String(o.id))));
       const noteRows = noteObjs.map((o) => noteMirrorRow(o, engagementToContacts.notes.get(String(o.id)) || [], existingNotes.get(String(o.id))));
       const taskRows = taskObjs.map((o) => taskMirrorRow(o, engagementToContacts.tasks.get(String(o.id)) || [], existingTasks.get(String(o.id))));
+      const meetingRows = meetingObjs.map((o) => meetingMirrorRow(o, engagementToContacts.meetings.get(String(o.id)) || [], existingMeetings.get(String(o.id))));
+      const emailRows = emailObjs.map((o) => emailMirrorRow(o, engagementToContacts.emails.get(String(o.id)) || [], existingEmails.get(String(o.id))));
       mirrorCallsUpserted = await upsertRows(supabase, 'hubspot_calls', callRows);
       mirrorNotesUpserted = await upsertRows(supabase, 'hubspot_notes', noteRows);
       if (taskRows.length) mirrorTasksUpserted = await upsertRows(supabase, 'hubspot_tasks', taskRows);
+      if (meetingRows.length) mirrorMeetingsUpserted = await upsertRows(supabase, 'hubspot_meetings', meetingRows);
+      if (emailRows.length) mirrorEmailsUpserted = await upsertRows(supabase, 'hubspot_emails', emailRows);
 
       const existingAppCalls = new Set(appCallHsIdsBefore);
+      const appCallByHsId = new Map<string, any>();
+      for (const c of appCallsBefore) {
+        const h = hsIdFromCall(c);
+        if (h) appCallByHsId.set(h, c);
+      }
       const callInserts: any[] = [];
+      const callUpdates: Array<{ id: string; patch: any }> = [];
       for (const r of callRows) {
         const hsId = String(r.hs_id);
-        if (existingAppCalls.has(hsId)) continue;
         const cids = (r.associated_contact_ids || []) as string[];
         const ownerId = cids.map((cid) => contactToOwner.get(String(cid))).find(Boolean);
         if (!ownerId) continue;
         const title = String(r.hs_call_title || '').trim();
+        const transcript = String(r.hs_call_transcription || '').trim();
         const bodyText = cleanHtml(String(r.hs_call_body || ''));
+        const fullText = [transcript, bodyText].filter(Boolean).join('\n\n').trim();
+        if (existingAppCalls.has(hsId)) {
+          // Si ya existe pero falta transcripción y ahora HubSpot la tiene, actualizar
+          const ex = appCallByHsId.get(hsId);
+          if (ex && fullText && !ex.transcripcion) {
+            callUpdates.push({
+              id: ex.id,
+              patch: {
+                transcripcion: fullText,
+                transcripcion_url: r.hs_call_recording_url || ex.metadatos?.transcripcion_url || null,
+                metadatos: { ...(ex.metadatos || {}), hs_id: hsId, hubspot_call_id: hsId, has_transcript: !!transcript, backfilled_at: new Date().toISOString() },
+              },
+            });
+          }
+          continue;
+        }
         callInserts.push({
           owner_id: ownerId,
           direccion: dirOf(String(r.hs_call_direction || '')),
           duracion_seg: r.hs_call_duration == null ? null : Math.round(Number(r.hs_call_duration || 0) / 1000),
-          transcripcion: bodyText || null,
+          transcripcion: fullText || null,
           transcripcion_url: r.hs_call_recording_url || null,
           fecha: r.hs_timestamp || r.hs_createdate || new Date().toISOString(),
           resumen: `[hs:${hsId}]${title ? ' ' + title : ''}`.slice(0, 4000),
-          metadatos: { source: 'hubspot_live_reconcile', hs_id: hsId, hubspot_call_id: hsId, associated_contact_ids: cids, synced_at: new Date().toISOString() },
+          metadatos: { source: 'hubspot_live_reconcile', hs_id: hsId, hubspot_call_id: hsId, has_transcript: !!transcript, associated_contact_ids: cids, synced_at: new Date().toISOString() },
         });
         existingAppCalls.add(hsId);
       }
@@ -484,6 +575,11 @@ Deno.serve(async (req) => {
         const { error } = await supabase.from('calls').insert(rowsChunk);
         if (error) throw error;
         callsPromoted += rowsChunk.length;
+      }
+      for (const u of callUpdates) {
+        const { error } = await supabase.from('calls').update(u.patch).eq('id', u.id);
+        if (error) throw error;
+        callsUpdatedTranscript++;
       }
 
       const existingAppNotes = new Set(appNoteHsIdsBefore);
@@ -530,6 +626,9 @@ Deno.serve(async (req) => {
         app_notes_after: afterNotes,
         notes_added_app: afterNotes - r.app_notes_before,
         notes_gap_after_vs_hubspot: r.hubspot_notes_live - afterNotes,
+        mirror_tasks_after: uniq(cids.flatMap((cid) => (assocByType.tasks.get(cid) || []))).filter((id) => existingTasks.has(id) || (existingTasks.size === 0)).length,
+        mirror_meetings_after: uniq(cids.flatMap((cid) => (assocByType.meetings.get(cid) || []))).length,
+        mirror_emails_after: uniq(cids.flatMap((cid) => (assocByType.emails.get(cid) || []))).length,
       };
     }).sort((a, b) => (b.calls_added_app + b.notes_added_app) - (a.calls_added_app + a.notes_added_app));
 
@@ -569,7 +668,16 @@ Deno.serve(async (req) => {
         app_calls: appCallsBefore.length,
         app_notes: appNotesBefore.length,
       },
-      synced: { mirror_calls_upserted: mirrorCallsUpserted, mirror_notes_upserted: mirrorNotesUpserted, mirror_tasks_upserted: mirrorTasksUpserted, calls_promoted: callsPromoted, notes_promoted: notesPromoted },
+      synced: {
+        mirror_calls_upserted: mirrorCallsUpserted,
+        mirror_notes_upserted: mirrorNotesUpserted,
+        mirror_tasks_upserted: mirrorTasksUpserted,
+        mirror_meetings_upserted: mirrorMeetingsUpserted,
+        mirror_emails_upserted: mirrorEmailsUpserted,
+        calls_promoted: callsPromoted,
+        notes_promoted: notesPromoted,
+        calls_transcript_backfilled: callsUpdatedTranscript,
+      },
       after: {
         mirror_calls: existingCallsAfter.size,
         mirror_notes: existingNotesAfter.size,

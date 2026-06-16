@@ -2349,9 +2349,11 @@ export type Database = {
           hs_call_duration: number | null
           hs_call_from_number: string | null
           hs_call_recording_url: string | null
+          hs_call_source: string | null
           hs_call_status: string | null
           hs_call_title: string | null
           hs_call_to_number: string | null
+          hs_call_transcription: string | null
           hs_createdate: string | null
           hs_id: string
           hs_lastmodifieddate: string | null
@@ -2371,9 +2373,11 @@ export type Database = {
           hs_call_duration?: number | null
           hs_call_from_number?: string | null
           hs_call_recording_url?: string | null
+          hs_call_source?: string | null
           hs_call_status?: string | null
           hs_call_title?: string | null
           hs_call_to_number?: string | null
+          hs_call_transcription?: string | null
           hs_createdate?: string | null
           hs_id: string
           hs_lastmodifieddate?: string | null
@@ -2393,9 +2397,11 @@ export type Database = {
           hs_call_duration?: number | null
           hs_call_from_number?: string | null
           hs_call_recording_url?: string | null
+          hs_call_source?: string | null
           hs_call_status?: string | null
           hs_call_title?: string | null
           hs_call_to_number?: string | null
+          hs_call_transcription?: string | null
           hs_createdate?: string | null
           hs_id?: string
           hs_lastmodifieddate?: string | null
@@ -2491,6 +2497,66 @@ export type Database = {
         }
         Relationships: []
       }
+      hubspot_emails: {
+        Row: {
+          associated_contact_ids: string[] | null
+          associated_deal_ids: string[] | null
+          created_at: string
+          hs_createdate: string | null
+          hs_email_direction: string | null
+          hs_email_from_email: string | null
+          hs_email_html: string | null
+          hs_email_status: string | null
+          hs_email_subject: string | null
+          hs_email_text: string | null
+          hs_email_to_email: string | null
+          hs_id: string
+          hs_lastmodifieddate: string | null
+          hs_owner_id: string | null
+          hs_timestamp: string | null
+          raw: Json | null
+          updated_at: string
+        }
+        Insert: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_createdate?: string | null
+          hs_email_direction?: string | null
+          hs_email_from_email?: string | null
+          hs_email_html?: string | null
+          hs_email_status?: string | null
+          hs_email_subject?: string | null
+          hs_email_text?: string | null
+          hs_email_to_email?: string | null
+          hs_id: string
+          hs_lastmodifieddate?: string | null
+          hs_owner_id?: string | null
+          hs_timestamp?: string | null
+          raw?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_createdate?: string | null
+          hs_email_direction?: string | null
+          hs_email_from_email?: string | null
+          hs_email_html?: string | null
+          hs_email_status?: string | null
+          hs_email_subject?: string | null
+          hs_email_text?: string | null
+          hs_email_to_email?: string | null
+          hs_id?: string
+          hs_lastmodifieddate?: string | null
+          hs_owner_id?: string | null
+          hs_timestamp?: string | null
+          raw?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hubspot_list_memberships: {
         Row: {
           added_at: string | null
@@ -2557,6 +2623,63 @@ export type Database = {
           size?: number | null
           updated_at?: string
           updated_at_hs?: string | null
+        }
+        Relationships: []
+      }
+      hubspot_meetings: {
+        Row: {
+          associated_contact_ids: string[] | null
+          associated_deal_ids: string[] | null
+          created_at: string
+          hs_createdate: string | null
+          hs_id: string
+          hs_lastmodifieddate: string | null
+          hs_meeting_body: string | null
+          hs_meeting_end_time: string | null
+          hs_meeting_location: string | null
+          hs_meeting_outcome: string | null
+          hs_meeting_start_time: string | null
+          hs_meeting_title: string | null
+          hs_owner_id: string | null
+          hs_timestamp: string | null
+          raw: Json | null
+          updated_at: string
+        }
+        Insert: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_createdate?: string | null
+          hs_id: string
+          hs_lastmodifieddate?: string | null
+          hs_meeting_body?: string | null
+          hs_meeting_end_time?: string | null
+          hs_meeting_location?: string | null
+          hs_meeting_outcome?: string | null
+          hs_meeting_start_time?: string | null
+          hs_meeting_title?: string | null
+          hs_owner_id?: string | null
+          hs_timestamp?: string | null
+          raw?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          associated_contact_ids?: string[] | null
+          associated_deal_ids?: string[] | null
+          created_at?: string
+          hs_createdate?: string | null
+          hs_id?: string
+          hs_lastmodifieddate?: string | null
+          hs_meeting_body?: string | null
+          hs_meeting_end_time?: string | null
+          hs_meeting_location?: string | null
+          hs_meeting_outcome?: string | null
+          hs_meeting_start_time?: string | null
+          hs_meeting_title?: string | null
+          hs_owner_id?: string | null
+          hs_timestamp?: string | null
+          raw?: Json | null
+          updated_at?: string
         }
         Relationships: []
       }
