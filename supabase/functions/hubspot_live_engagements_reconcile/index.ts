@@ -587,7 +587,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = error instanceof Error ? error.message : JSON.stringify(error);
     console.error('[hubspot_live_engagements_reconcile] error', msg);
     return new Response(JSON.stringify({ ok: false, error: msg }), {
       status: 200,
