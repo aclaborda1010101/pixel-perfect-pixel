@@ -95,6 +95,17 @@ export function HubspotPanel() {
     }
   }
 
+  async function syncAll() {
+    setRunning("all");
+    try {
+      await supabase.functions.invoke("hubspot_sync_deals", { body: {} });
+      await supabase.functions.invoke("hubspot_sync_contacts", { body: {} });
+      await loadHealth();
+    } finally {
+      setRunning(null);
+    }
+  }
+
   useEffect(() => { loadHealth(); }, []);
 
   const dealsState = health?.states?.find((s) => s.entity === "deals");
@@ -159,22 +170,16 @@ export function HubspotPanel() {
           </div>
         )}
 
-        {/* Sync controls */}
-        <div className="grid gap-3 md:grid-cols-2">
-          <SyncEntityCard
-            label="Deals → Edificios"
-            state={dealsState}
-            running={running === "deals"}
-            onSync={() => runSync("deals", false)}
-            onReset={() => runSync("deals", true)}
-          />
-          <SyncEntityCard
-            label="Contacts → Propietarios"
-            state={contactsState}
-            running={running === "contacts"}
-            onSync={() => runSync("contacts", false)}
-            onReset={() => runSync("contacts", true)}
-          />
+        {/* Sync único */}
+        <div className="flex flex-col items-start gap-2 rounded-md border border-border-faint p-4">
+          <div className="text-sm font-medium text-foreground">Sincronizar con HubSpot</div>
+          <p className="text-xs text-muted-foreground">
+            Trae deals (→ edificios) y contacts (→ propietarios) en orden. Último deals: {fmt(dealsState?.last_run_at ?? null)} · contacts: {fmt(contactsState?.last_run_at ?? null)}.
+          </p>
+          <Button size="sm" variant="gold" onClick={syncAll} disabled={!!running}>
+            <RefreshCw className={`mr-1 h-3 w-3 ${running ? "animate-spin" : ""}`} />
+            {running ? "Sincronizando…" : "Sincronizar ahora"}
+          </Button>
         </div>
 
         {/* Logs */}
@@ -202,47 +207,3 @@ export function HubspotPanel() {
   );
 }
 
-function SyncEntityCard({
-  label, state, running, onSync, onReset,
-}: {
-  label: string;
-  state: SyncState | undefined;
-  running: boolean;
-  onSync: () => void;
-  onReset: () => void;
-}) {
-  return (
-    <div className="rounded-md border border-border-faint p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-medium text-foreground">{label}</div>
-        <div className="flex items-center gap-1.5">
-          <StatusDot status={state?.last_run_status} />
-          <span className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-            {state?.last_run_status ?? "idle"}
-          </span>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-sm">
-        <div><Eyebrow>Sincronizados</Eyebrow><div className="font-mono text-foreground">{state?.total_synced ?? 0}</div></div>
-        <div><Eyebrow>Último run</Eyebrow><div className="font-mono text-foreground">{fmt(state?.last_run_at ?? null)}</div></div>
-      </div>
-      {state?.cursor && (
-        <div className="mt-2 rounded bg-warning/10 p-2 text-[11px] text-warning-foreground">
-          Quedan páginas pendientes (cursor activo). Vuelve a pulsar “Sincronizar” para continuar.
-        </div>
-      )}
-      {state?.last_error && (
-        <div className="mt-2 rounded bg-destructive/10 p-2 text-[11px] text-destructive">{state.last_error}</div>
-      )}
-      <div className="mt-3 flex gap-2">
-        <Button size="sm" variant="gold" onClick={onSync} disabled={running}>
-          <RefreshCw className={`mr-1 h-3 w-3 ${running ? "animate-spin" : ""}`} />
-          {running ? "Sincronizando…" : (state?.cursor ? "Continuar sync" : "Sincronizar")}
-        </Button>
-        <Button size="sm" variant="outline" onClick={onReset} disabled={running}>
-          Reiniciar cursor
-        </Button>
-      </div>
-    </div>
-  );
-}

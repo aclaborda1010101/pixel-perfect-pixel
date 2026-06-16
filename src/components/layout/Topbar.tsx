@@ -1,4 +1,4 @@
-import { Moon, Sun, Languages, Monitor, Check, Menu, LogOut, Shield, Users, Map, Sparkles } from "lucide-react";
+import { Moon, Sun, Languages, Monitor, Check, Menu, LogOut, Users, Map, Sparkles } from "lucide-react";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
