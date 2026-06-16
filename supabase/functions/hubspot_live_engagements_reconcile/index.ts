@@ -17,12 +17,23 @@ const CALL_PROPS = [
   'hs_call_disposition', 'hs_call_duration', 'hs_call_recording_url',
   'hs_call_to_number', 'hs_call_from_number', 'hs_timestamp', 'hs_createdate',
   'hs_lastmodifieddate', 'hubspot_owner_id',
+  'hs_call_transcription', 'hs_call_source',
 ];
 const NOTE_PROPS = ['hs_note_body', 'hs_timestamp', 'hs_createdate', 'hs_lastmodifieddate'];
 const TASK_PROPS = [
   'hs_task_subject', 'hs_task_body', 'hs_task_status', 'hs_task_priority',
   'hs_task_type', 'hs_timestamp', 'hs_task_completion_date', 'hs_createdate',
   'hs_lastmodifieddate',
+];
+const MEETING_PROPS = [
+  'hs_meeting_title', 'hs_meeting_body', 'hs_meeting_start_time', 'hs_meeting_end_time',
+  'hs_meeting_outcome', 'hs_meeting_location', 'hs_timestamp', 'hs_createdate',
+  'hs_lastmodifieddate', 'hubspot_owner_id',
+];
+const EMAIL_PROPS = [
+  'hs_email_subject', 'hs_email_text', 'hs_email_html', 'hs_email_direction',
+  'hs_email_status', 'hs_email_from_email', 'hs_email_to_email', 'hs_timestamp',
+  'hs_createdate', 'hs_lastmodifieddate', 'hubspot_owner_id',
 ];
 const CONTACT_PROPS = ['firstname', 'lastname', 'email', 'phone'];
 
@@ -134,6 +145,8 @@ function callMirrorRow(e: any, associatedContactIds: string[], existing?: any): 
     hs_call_disposition: p.hs_call_disposition || null,
     hs_call_duration: intOrNull(p.hs_call_duration),
     hs_call_recording_url: p.hs_call_recording_url || null,
+    hs_call_transcription: p.hs_call_transcription || null,
+    hs_call_source: p.hs_call_source || null,
     hs_call_to_number: p.hs_call_to_number || null,
     hs_call_from_number: p.hs_call_from_number || null,
     hs_timestamp: tsOrNull(p.hs_timestamp),
@@ -175,6 +188,49 @@ function taskMirrorRow(e: any, associatedContactIds: string[], existing?: any): 
     hs_task_completion_date: tsOrNull(p.hs_task_completion_date),
     hs_createdate: tsOrNull(p.hs_createdate ?? e.createdAt),
     hs_lastmodifieddate: tsOrNull(p.hs_lastmodifieddate ?? e.updatedAt),
+    associated_contact_ids: uniq([...(existing?.associated_contact_ids || []), ...associatedContactIds]),
+    associated_deal_ids: existing?.associated_deal_ids || [],
+    raw: { ...(existing?.raw || {}), live_batch: e },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function meetingMirrorRow(e: any, associatedContactIds: string[], existing?: any): Record<string, unknown> {
+  const p = e.properties || {};
+  return {
+    hs_id: String(e.id),
+    hs_meeting_title: p.hs_meeting_title || null,
+    hs_meeting_body: p.hs_meeting_body || null,
+    hs_meeting_start_time: tsOrNull(p.hs_meeting_start_time),
+    hs_meeting_end_time: tsOrNull(p.hs_meeting_end_time),
+    hs_meeting_outcome: p.hs_meeting_outcome || null,
+    hs_meeting_location: p.hs_meeting_location || null,
+    hs_timestamp: tsOrNull(p.hs_timestamp),
+    hs_createdate: tsOrNull(p.hs_createdate ?? e.createdAt),
+    hs_lastmodifieddate: tsOrNull(p.hs_lastmodifieddate ?? e.updatedAt),
+    hs_owner_id: p.hubspot_owner_id || null,
+    associated_contact_ids: uniq([...(existing?.associated_contact_ids || []), ...associatedContactIds]),
+    associated_deal_ids: existing?.associated_deal_ids || [],
+    raw: { ...(existing?.raw || {}), live_batch: e },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function emailMirrorRow(e: any, associatedContactIds: string[], existing?: any): Record<string, unknown> {
+  const p = e.properties || {};
+  return {
+    hs_id: String(e.id),
+    hs_email_subject: p.hs_email_subject || null,
+    hs_email_text: p.hs_email_text || null,
+    hs_email_html: p.hs_email_html || null,
+    hs_email_direction: p.hs_email_direction || null,
+    hs_email_status: p.hs_email_status || null,
+    hs_email_from_email: p.hs_email_from_email || null,
+    hs_email_to_email: p.hs_email_to_email || null,
+    hs_timestamp: tsOrNull(p.hs_timestamp),
+    hs_createdate: tsOrNull(p.hs_createdate ?? e.createdAt),
+    hs_lastmodifieddate: tsOrNull(p.hs_lastmodifieddate ?? e.updatedAt),
+    hs_owner_id: p.hubspot_owner_id || null,
     associated_contact_ids: uniq([...(existing?.associated_contact_ids || []), ...associatedContactIds]),
     associated_deal_ids: existing?.associated_deal_ids || [],
     raw: { ...(existing?.raw || {}), live_batch: e },
