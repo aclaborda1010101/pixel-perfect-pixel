@@ -3594,6 +3594,68 @@ export type Database = {
           },
         ]
       }
+      owner_merge_audit: {
+        Row: {
+          canonical_owner_id: string
+          created_at: string
+          details: Json
+          id: string
+          merged_owner_id: string
+          name_norm: string | null
+          nif: string | null
+          reason: string | null
+        }
+        Insert: {
+          canonical_owner_id: string
+          created_at?: string
+          details?: Json
+          id?: string
+          merged_owner_id: string
+          name_norm?: string | null
+          nif?: string | null
+          reason?: string | null
+        }
+        Update: {
+          canonical_owner_id?: string
+          created_at?: string
+          details?: Json
+          id?: string
+          merged_owner_id?: string
+          name_norm?: string | null
+          nif?: string | null
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_merge_audit_canonical_owner_id_fkey"
+            columns: ["canonical_owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_merge_audit_canonical_owner_id_fkey"
+            columns: ["canonical_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_merge_audit_canonical_owner_id_fkey"
+            columns: ["canonical_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_merge_audit_canonical_owner_id_fkey"
+            columns: ["canonical_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       owner_relations: {
         Row: {
           created_at: string
@@ -3698,6 +3760,7 @@ export type Database = {
           email: string | null
           id: string
           last_synced_at: string | null
+          merged_into: string | null
           metadatos: Json
           nombre: string
           notas_breves: string | null
@@ -3715,6 +3778,7 @@ export type Database = {
           email?: string | null
           id?: string
           last_synced_at?: string | null
+          merged_into?: string | null
           metadatos?: Json
           nombre: string
           notas_breves?: string | null
@@ -3732,6 +3796,7 @@ export type Database = {
           email?: string | null
           id?: string
           last_synced_at?: string | null
+          merged_into?: string | null
           metadatos?: Json
           nombre?: string
           notas_breves?: string | null
@@ -3742,7 +3807,36 @@ export type Database = {
           telefono?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "owners_merged_into_fkey"
+            columns: ["merged_into"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owners_merged_into_fkey"
+            columns: ["merged_into"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owners_merged_into_fkey"
+            columns: ["merged_into"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owners_merged_into_fkey"
+            columns: ["merged_into"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
       }
       parcel_geometry_cache: {
         Row: {
@@ -4919,6 +5013,7 @@ export type Database = {
               source: string
             }[]
           }
+      merge_duplicate_owners: { Args: { p_dry_run?: boolean }; Returns: Json }
       normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
       normalize_pct_propiedad: {
@@ -4981,6 +5076,10 @@ export type Database = {
           structured_json: Json
           total_count: number
         }[]
+      }
+      recompute_building_owner_metrics: {
+        Args: { p_building_ids?: string[] }
+        Returns: Json
       }
       rpc_inversores_paginated:
         | {
