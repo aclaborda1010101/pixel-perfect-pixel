@@ -28,6 +28,8 @@ const JOBS: Job[] = [
   { key: "coach", label: "Informe coach semanal", fn: "generate_coach_report", desc: "Reporte LLM para el equipo.", cost: "medio" },
   { key: "sync-calls", label: "Re-sincronizar llamadas HubSpot → sesiones", fn: "sync_hubspot_calls_to_sessions", desc: "Cierra sesiones abiertas vinculándolas a llamadas HS. Puede disparar voss_coach (LLM) si hay sesiones que cerrar.", cost: "medio" },
   { key: "enrich", label: "Iniciar enriquecimiento", fn: "enrichment-pipeline-start", desc: "Pipeline de enriquecimiento HubSpot.", cost: "medio" },
+  { key: "detect-dh", label: "Detectar división horizontal", fn: "detect_division_horizontal", body: { max_buildings: 500 }, desc: "Marca buildings.division_horizontal=true cuando hay ≥2 fincas registrales distintas en sus notas simples. Sin IA.", cost: "bajo" },
+  { key: "recompute-cuotas", label: "Recalcular cuotas de propietarios", fn: "recompute_building_owner_cuotas", body: { max_buildings: 500 }, desc: "Corrige building_owners.cuota: NULL en edificios DH (la verdad está por finca) y derivada desde notas en los demás. Marca inconsistentes (Σ≠100%). Lanzar tras 'Detectar DH'.", cost: "bajo" },
 ];
 
 export function JobsManualPanel() {
