@@ -668,7 +668,16 @@ Deno.serve(async (req) => {
         app_calls: appCallsBefore.length,
         app_notes: appNotesBefore.length,
       },
-      synced: { mirror_calls_upserted: mirrorCallsUpserted, mirror_notes_upserted: mirrorNotesUpserted, mirror_tasks_upserted: mirrorTasksUpserted, calls_promoted: callsPromoted, notes_promoted: notesPromoted },
+      synced: {
+        mirror_calls_upserted: mirrorCallsUpserted,
+        mirror_notes_upserted: mirrorNotesUpserted,
+        mirror_tasks_upserted: mirrorTasksUpserted,
+        mirror_meetings_upserted: mirrorMeetingsUpserted,
+        mirror_emails_upserted: mirrorEmailsUpserted,
+        calls_promoted: callsPromoted,
+        notes_promoted: notesPromoted,
+        calls_transcript_backfilled: callsUpdatedTranscript,
+      },
       after: {
         mirror_calls: existingCallsAfter.size,
         mirror_notes: existingNotesAfter.size,
