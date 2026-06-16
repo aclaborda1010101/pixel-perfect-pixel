@@ -209,6 +209,10 @@ export default function BuildingDetail() {
   const totalCuota = bos.reduce((a, r) => a + (pctOf(r) ?? 0), 0);
   const personas = bos;
   const empresas = bcs;
+  const isDH = !!building.division_horizontal;
+  // En DH agrupamos titulares por nota (cada nota = una finca/vivienda)
+  const fincas = useMemoFincas(notas);
+  const cuotaInconsistente = !isDH && totalCuota > 100.5;
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -250,9 +254,21 @@ export default function BuildingDetail() {
           <p className="mt-1 text-xs text-muted-foreground">titulares jurídicos</p>
         </CardContent></Card>
         <Card><CardContent className="p-5">
-          <Eyebrow>Cuota total</Eyebrow>
-          <div className="mt-2"><MetricValue size="lg" unit="%">{totalCuota.toFixed(0)}</MetricValue></div>
-          <p className="mt-1 text-xs text-muted-foreground">sumatorio cuotas</p>
+          {isDH ? (
+            <>
+              <Eyebrow>Viviendas / fincas</Eyebrow>
+              <div className="mt-2"><MetricValue size="lg">{fincas.length || notas.length}</MetricValue></div>
+              <p className="mt-1 text-xs text-muted-foreground">edificio en división horizontal</p>
+            </>
+          ) : (
+            <>
+              <Eyebrow>Cuota total</Eyebrow>
+              <div className="mt-2"><MetricValue size="lg" unit="%">{totalCuota.toFixed(0)}</MetricValue></div>
+              <p className={cn("mt-1 text-xs", cuotaInconsistente ? "text-destructive" : "text-muted-foreground")}>
+                {cuotaInconsistente ? "⚠ inconsistente — revisar notas" : "sumatorio cuotas"}
+              </p>
+            </>
+          )}
         </CardContent></Card>
         <Card><CardContent className="p-5">
           <Eyebrow>Hipotecas activas</Eyebrow>
