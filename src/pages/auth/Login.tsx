@@ -33,7 +33,7 @@ export default function Login() {
     if (!session) return;
     // Espera a resolver el rol antes de redirigir (evita parpadeo al dashboard admin)
     if (roleLoading) return;
-    const target = role === "comercial_zona" ? "/comercial" : from;
+    const target = role === "comercial_zona" ? "/comercial" : role === "whatsapp" ? "/whatsapp" : from;
     navigate(target, { replace: true });
   }, [session, role, roleLoading, from, navigate]);
 
