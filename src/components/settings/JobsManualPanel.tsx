@@ -1,0 +1,83 @@
+import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Eyebrow } from "@/components/common/Eyebrow";
+import { Badge } from "@/components/ui/badge";
+import { Play, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+
+type Job = {
+  key: string;
+  label: string;
+  fn: string;
+  body?: Record<string, unknown>;
+  desc: string;
+  cost: "alto" | "medio" | "bajo";
+};
+
+const JOBS: Job[] = [
+  { key: "reprocess", label: "Reprocesar cartera (cohorte 77)", fn: "reprocess-cohort-77", body: { batch: 10 }, desc: "Re-analiza con VLM los edificios pendientes. Lanzar una vez; se auto-trocea.", cost: "alto" },
+  { key: "windows", label: "Recontar ventanas (cal9)", fn: "recount-windows-cal9", body: { limit: 50 }, desc: "Recuenta ventanas de fachada con el campeón actual.", cost: "alto" },
+  { key: "facade-v2", label: "Recontar ventanas fachada v2 (VLM)", fn: "count-facade-windows-v2", body: { limit: 25 }, desc: "VLM multi-captura para fachadas dudosas.", cost: "alto" },
+  { key: "transcribe", label: "Transcribir llamadas pendientes", fn: "transcribe_call", desc: "Whisper sobre llamadas sin transcripción.", cost: "alto" },
+  { key: "analyze", label: "Analizar llamadas pendientes", fn: "analyze_call", desc: "Scoring/análisis LLM de llamadas con transcripción.", cost: "alto" },
+  { key: "learn", label: "Aprender de llamadas (playbook)", fn: "learn_from_calls", desc: "Actualiza call_playbook a partir de llamadas analizadas.", cost: "medio" },
+  { key: "embeddings", label: "Generar embeddings pendientes", fn: "generate_embeddings", desc: "Embeddings para knowledge_chunks sin vector.", cost: "medio" },
+  { key: "coach", label: "Informe coach semanal", fn: "generate_coach_report", desc: "Reporte LLM para el equipo.", cost: "medio" },
+  { key: "sync-calls", label: "Re-sincronizar llamadas HubSpot → sesiones", fn: "sync_hubspot_calls_to_sessions", desc: "Cierra sesiones abiertas vinculándolas a llamadas HS. Puede disparar voss_coach (LLM) si hay sesiones que cerrar.", cost: "medio" },
+  { key: "enrich", label: "Iniciar enriquecimiento", fn: "enrichment-pipeline-start", desc: "Pipeline de enriquecimiento HubSpot.", cost: "medio" },
+];
+
+export function JobsManualPanel() {
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+
+  const run = async (job: Job) => {
+    setBusy((s) => ({ ...s, [job.key]: true }));
+    try {
+      const { data, error } = await supabase.functions.invoke(job.fn, { body: job.body ?? {} });
+      if (error) throw error;
+      toast.success(`${job.label}: lanzado`, { description: typeof data === "object" ? JSON.stringify(data).slice(0, 160) : String(data ?? "OK") });
+    } catch (e: any) {
+      toast.error(`${job.label}: error`, { description: String(e?.message ?? e).slice(0, 200) });
+    } finally {
+      setBusy((s) => ({ ...s, [job.key]: false }));
+    }
+  };
+
+  const costBadge = (c: Job["cost"]) => {
+    const cls = c === "alto" ? "border-red-500/40 text-red-400" : c === "medio" ? "border-amber-500/40 text-amber-400" : "border-emerald-500/40 text-emerald-400";
+    return <Badge variant="outline" className={cls}>{c.toUpperCase()}</Badge>;
+  };
+
+  return (
+    <Card className="md:col-span-2">
+      <CardHeader>
+        <Eyebrow><Play className="mr-1 inline h-3 w-3" /> Jobs · Bajo demanda</Eyebrow>
+        <CardTitle>Lanzar procesos manualmente</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Todo lo que consume IA se lanza desde aquí. Los cron automáticos de IA están deshabilitados para controlar gasto.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-2">
+          {JOBS.map((j) => (
+            <div key={j.key} className="flex items-start justify-between gap-3 rounded border border-border/50 bg-surface-1 p-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">{j.label}</span>
+                  {costBadge(j.cost)}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">{j.desc}</p>
+              </div>
+              <Button size="sm" variant="outline" disabled={!!busy[j.key]} onClick={() => run(j)}>
+                {busy[j.key] ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                <span className="ml-1">Lanzar</span>
+              </Button>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
