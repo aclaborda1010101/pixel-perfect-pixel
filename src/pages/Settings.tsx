@@ -7,21 +7,10 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { Languages, Palette, User, Users } from "lucide-react";
 import { HubspotPanel } from "@/components/settings/HubspotPanel";
-import { RolesPanel } from "@/components/settings/RolesPanel";
-import { BuildingAssignmentsPanel } from "@/components/settings/BuildingAssignmentsPanel";
-import { AnalisisIAPanel } from "@/components/settings/AnalisisIAPanel";
-import { SubZonasPanel } from "@/components/settings/SubZonasPanel";
-import { AprendizajePanel } from "@/components/settings/AprendizajePanel";
-import { KnowledgeBasePanel } from "@/components/settings/KnowledgeBasePanel";
-import { PlaybookPanel } from "@/components/settings/PlaybookPanel";
-import { EnrichmentConfigPanel } from "@/components/settings/EnrichmentConfigPanel";
-import { JobsManualPanel } from "@/components/settings/JobsManualPanel";
-import { useCurrentRole } from "@/hooks/useCurrentRole";
 
 export default function Settings() {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
-  const { isAdmin } = useCurrentRole();
   return (
     <div className="space-y-6">
       <PageHeader
@@ -31,15 +20,6 @@ export default function Settings() {
       />
       <div className="grid gap-4 md:grid-cols-2">
         <HubspotPanel />
-        {isAdmin && <RolesPanel />}
-        {isAdmin && <BuildingAssignmentsPanel />}
-        <AnalisisIAPanel />
-        {isAdmin && <SubZonasPanel />}
-        {isAdmin && <AprendizajePanel />}
-        {isAdmin && <KnowledgeBasePanel />}
-        {isAdmin && <PlaybookPanel />}
-        {isAdmin && <EnrichmentConfigPanel />}
-        {isAdmin && <JobsManualPanel />}
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>
