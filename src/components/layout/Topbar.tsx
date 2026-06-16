@@ -1,4 +1,4 @@
-import { Moon, Sun, Languages, Monitor, Check, Menu, LogOut } from "lucide-react";
+import { Moon, Sun, Languages, Monitor, Check, Menu, LogOut, Users, Map, Sparkles } from "lucide-react";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,7 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { usePageTitle } from "./PageTitleContext";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { toast } from "sonner";
 
 const UUID_RE =
@@ -68,6 +69,7 @@ export function Topbar() {
   const crumbs = useCrumbs(title);
   const { isMobile, setOpenMobile } = useSidebar();
   const { user, signOut } = useAuth();
+  const { isAdmin } = useCurrentRole();
   const navigate = useNavigate();
 
   const fullName = (user?.user_metadata as { full_name?: string } | undefined)?.full_name
@@ -188,9 +190,24 @@ export function Topbar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {user ? (
-              <DropdownMenuItem onClick={handleLogout}>
-                <LogOut className="mr-2 h-4 w-4" /> Cerrar sesión
-              </DropdownMenuItem>
+              <>
+                {isAdmin && (
+                  <>
+                    <DropdownMenuItem onClick={() => navigate("/admin/equipo")}>
+                      <Users className="mr-2 h-4 w-4" /> Admin · Equipo
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/admin/zonas")}>
+                      <Map className="mr-2 h-4 w-4" /> Admin · Zonas
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/admin/ia")}>
+                      <Sparkles className="mr-2 h-4 w-4" /> Admin · IA
+                    </DropdownMenuItem>
+                  </>
+                )}
+                <DropdownMenuItem onClick={handleLogout}>
+                  <LogOut className="mr-2 h-4 w-4" /> Cerrar sesión
+                </DropdownMenuItem>
+              </>
             ) : (
               <DropdownMenuItem onClick={() => navigate("/login")}>
                 Iniciar sesión

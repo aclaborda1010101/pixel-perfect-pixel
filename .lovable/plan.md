@@ -1,57 +1,43 @@
-## Qué pasa
+## Plan: ejecutar recálculo + simplificar Settings
 
-Tienes razón: Settings se ha convertido en un panel de control de fábrica con ~10 tarjetas admin, cada una con 4-12 botones de "lanzar". Eso no es una pantalla de usuario, es una consola de operaciones mía. Mezcla tres cosas distintas:
+### Paso 1 — Ejecutar `recompute_building_owner_cuotas` (sandbox)
+Sin tocar UI. Lanzo la función contra los ~571 edificios con owners y devuelvo:
+- Totales: `dh` (cuotas → NULL), `no_dh` (derivadas de nota), `inconsistentes` (Σ≠100±1).
+- Sample antes/después de los 5 edificios que tenían Σ>1000% (P.º Mtnez Campos 60, Zurbano 57, etc.).
+- Validación: los 32 edificios con Σ>105% deben quedar saneados o marcados `cuota_inconsistente`.
 
-1. **Cosas de usuario** (idioma, tema, cuenta, equipo, HubSpot connect, roles, asignaciones de edificios).
-2. **Configuración real** (sub‑zonas, playbook, knowledge base, enrichment config, parámetros de IA).
-3. **Operaciones internas** (lanzar reprocesos, recontar ventanas, transcribir llamadas, detectar DH, recalcular cuotas, demos end‑to‑end, batches de catastro/imagery/vision, etc.) — esto NO debería verlo nadie, ni siquiera tú como admin.
+### Paso 2 — Simplificar `src/pages/Settings.tsx`
+Settings se queda con **5 tarjetas** y nada más:
+- Cuenta · Equipo · HubSpot (estado + un único botón "Sincronizar ahora") · Idioma · Apariencia.
 
-## Propuesta
+Quito de Settings los imports y render de: `RolesPanel`, `BuildingAssignmentsPanel`, `AnalisisIAPanel`, `SubZonasPanel`, `AprendizajePanel`, `KnowledgeBasePanel`, `PlaybookPanel`, `EnrichmentConfigPanel`, `JobsManualPanel`.
 
-### Paso 1 — Yo ejecuto ahora lo que está pendiente
-Sin tocar UI, lanzo los dos jobs nuevos contra la BD actual y te devuelvo números:
-- `detect_division_horizontal` (max 500) → cuántos edificios pasan a DH=true.
-- `recompute_building_owner_cuotas` (max 500) → cuántas cuotas se anulan (DH), cuántas se recalculan, cuántas quedan marcadas `cuota_inconsistente`.
-- Re‑validación: los casos absurdos previos (P.º Martínez Campos 23 = 25.200%, Zurbano 57 = 400%) deben quedar saneados.
+Los componentes **NO se borran**, solo dejan de renderizarse en Settings.
 
-Solo lectura para ti: te paso el JSON resumen y un sample de 5 edificios antes/después.
+### Paso 3 — Mover admin a rutas `/admin/*`
+Nuevas páginas (cada una monta los paneles existentes, sin reescribir lógica):
+- `/admin/equipo` → `RolesPanel` + `BuildingAssignmentsPanel`.
+- `/admin/zonas` → `SubZonasPanel`.
+- `/admin/ia` → tabs con `PlaybookPanel`, `KnowledgeBasePanel`, `AprendizajePanel`, `EnrichmentConfigPanel`, `AnalisisIAPanel`.
+- `/admin/_ops` → `JobsManualPanel` (ruta sin enlace en menú; existe para que yo la abra cuando me pidas un job).
 
-### Paso 2 — Simplificar Settings (lo que vas a ver)
-Settings se queda en **5 tarjetas** y nada más:
+Todas con gate `isAdmin` vía `ProtectedRoute`. Registradas en `src/App.tsx`.
 
-```
-┌─────────────────────┬─────────────────────┐
-│ Cuenta              │ Equipo              │
-├─────────────────────┼─────────────────────┤
-│ Idioma              │ Apariencia          │
-├─────────────────────┴─────────────────────┤
-│ HubSpot (estado conexión + última sync)   │
-└───────────────────────────────────────────┘
-```
+### Paso 4 — Acceso desde el avatar
+En `Topbar` (avatar arriba-derecha), si `isAdmin` añado un menú "Admin" con enlaces a `/admin/equipo`, `/admin/zonas`, `/admin/ia`. `/admin/_ops` queda oculto.
 
-Eso es todo. Sin botones de "lanzar nada".
+### Paso 5 — HubSpot: un solo botón
+En `HubspotPanel` reemplazo los múltiples botones de sync por uno: "Sincronizar ahora" que invoca en orden las funciones existentes (owners → companies → contacts → deals → engagements → calls → notes → tasks → meetings). Sin cambios en las edge functions.
 
-### Paso 3 — Mover lo admin de configuración a su sitio
-- **Roles de usuario** y **Asignaciones de edificios** → nueva ruta `/admin/equipo` (un solo sitio, no dos tarjetas).
-- **Sub‑zonas**, **Calles comerciales** → `/admin/zonas`.
-- **Playbook**, **Knowledge base**, **Aprendizaje IA**, **Enrichment config** → `/admin/ia` (una pantalla con tabs).
+### Lo que NO toco
+- Edge functions (lógica intacta).
+- Gate `isAdmin`.
+- Lógica de negocio (DH, cuotas, scoring, jobs).
+- Los paneles admin en sí (sólo cambian de sitio).
 
-Acceso solo desde el avatar arriba‑derecha → "Admin" (solo visible si `isAdmin`). Settings deja de ser la papelera de todo.
+### Detalles técnicos
+- Archivos nuevos: `src/pages/admin/Equipo.tsx`, `Zonas.tsx`, `IA.tsx`, `Ops.tsx`.
+- Editados: `src/pages/Settings.tsx`, `src/App.tsx`, `src/components/layout/Topbar.tsx`, `src/components/settings/HubspotPanel.tsx`.
+- Sin migraciones de BD.
 
-### Paso 4 — Esconder por completo "Jobs manuales" y "Análisis IA & Catastro"
-Estas son MIS herramientas, no tuyas. Se mueven a `/admin/_ops` (ruta no enlazada en ningún menú; existe para que yo la abra cuando me pides "lanza X"). En su lugar, en cualquier sitio donde antes había un botón de "lanzar reproceso", aparece una nota:
-
-> "Si necesitas reprocesar esta cartera, pídemelo en el chat."
-
-Yo lo lanzo desde el sandbox y te devuelvo resultado. Cero botones de IA al alcance del cursor (= cero gasto accidental, cero ansiedad de pantalla).
-
-### Paso 5 — "Continuar sincronización HubSpot"
-Eso debe ser **automático** (cron ya existente) o como mucho un único botón "Sincronizar ahora" en la tarjeta HubSpot. Los 6-8 botones distintos de sync (edificios, owners, calls, emails, notes, tasks, meetings…) se colapsan en uno solo que hace todo en orden.
-
-## Lo que NO voy a hacer
-- No borro las edge functions ni los paneles, solo los desmonto de Settings y los muevo a `/admin/_ops` (para que tú no los veas pero yo los pueda invocar).
-- No quito el gate `isAdmin`.
-- No toco lógica de negocio: jobs, scoring, DH, cuotas, todo sigue funcionando igual.
-
-## Pregunta única antes de empezar
-¿Empiezo por **Paso 1** (ejecuto DH + recálculo cuotas ahora y te paso números) y luego en el mismo turno hago Pasos 2-4 (simplificar Settings + mover admin)? ¿O prefieres ver primero los números y decides después si simplifico Settings?
+¿Procedo?

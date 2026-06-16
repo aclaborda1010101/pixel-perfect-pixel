@@ -46,6 +46,10 @@ const ComercialCuenta = lazy(() => import("./pages/comercial/Cuenta"));
 const AdminRankingComercial = lazy(() => import("./pages/admin/RankingComercial"));
 const AdminProteccionValidation = lazy(() => import("./pages/admin/ProteccionValidationQueue"));
 const Enriquecimiento = lazy(() => import("./pages/Enriquecimiento"));
+const AdminEquipo = lazy(() => import("./pages/admin/Equipo"));
+const AdminZonas = lazy(() => import("./pages/admin/Zonas"));
+const AdminIA = lazy(() => import("./pages/admin/IA"));
+const AdminOps = lazy(() => import("./pages/admin/Ops"));
 
 // React Query: cachea datos entre navegaciones. Volver a una vista ya cargada es instantáneo.
 const queryClient = new QueryClient({
@@ -129,6 +133,10 @@ const App = () => (
                 <Route path="/comercial/cuenta" element={<ComercialCuenta />} />
                 <Route path="/admin/ranking" element={<AdminRankingComercial />} />
                 <Route path="/admin/proteccion-pgoum" element={<AdminProteccionValidation />} />
+                <Route path="/admin/equipo" element={<AdminEquipo />} />
+                <Route path="/admin/zonas" element={<AdminZonas />} />
+                <Route path="/admin/ia" element={<AdminIA />} />
+                <Route path="/admin/_ops" element={<AdminOps />} />
                 <Route path="/enriquecimiento" element={<Enriquecimiento />} />
               </Route>
               <Route path="*" element={<NotFound />} />
