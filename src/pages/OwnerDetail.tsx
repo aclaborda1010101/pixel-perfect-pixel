@@ -236,10 +236,16 @@ export default function OwnerDetail() {
       id: `w-${w.id}`, kind: "whatsapp", fecha: w.enviado_at ?? w.created_at,
       titulo: `WhatsApp · ${w.status ?? "—"}`, cuerpo: w.cuerpo ?? "", source: "app",
     });
-    for (const n of notes) items.push({
-      id: `n-${n.id}`, kind: "note", fecha: n.created_at,
-      titulo: "Nota interna", cuerpo: n.texto ?? "", source: "app",
-    });
+    // Dedupe notas locales que ya están en el espejo HubSpot (prefijo [hs_note:<id>])
+    const mirrorNoteIds = new Set(hsNotes.map((k) => String(k.hs_id)));
+    for (const n of notes) {
+      const m = (n.texto || "").match(/^\s*\[hs_note:(\d+)\]/);
+      if (m && mirrorNoteIds.has(m[1])) continue;
+      items.push({
+        id: `n-${n.id}`, kind: "note", fecha: n.created_at,
+        titulo: "Nota interna", cuerpo: n.texto ?? "", source: "app",
+      });
+    }
     return items.sort((a, b) => +new Date(b.fecha || 0) - +new Date(a.fecha || 0));
   }, [calls, whats, notes, hsCalls, hsNotes, hsTasks, hsEmails, hsMeetings]);
 
