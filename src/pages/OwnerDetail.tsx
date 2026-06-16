@@ -137,7 +137,7 @@ export default function OwnerDetail() {
       supabase.from("notes").select("*").eq("owner_id", id).order("created_at", { ascending: false }).limit(500),
       supabase.from("next_actions").select("*").eq("owner_id", id).order("vencimiento", { ascending: true, nullsFirst: false }).limit(100),
       supabase.from("assets").select("*").eq("owner_id", id).limit(500),
-      supabase.from("building_owners").select("building_id, cuota, subrole, rol_notas, buildings:building_id(id, direccion, ciudad)").eq("owner_id", id),
+      supabase.from("building_owners").select("building_id, cuota, subrole, rol_notas, buildings:building_id(id, direccion, ciudad, division_horizontal)").eq("owner_id", id),
       supabase.from("owner_relations").select("id, relation_type, percentage, notes, source, owner_b:owner_b_id(id, nombre)").eq("owner_a_id", id),
       supabase.from("owner_relations").select("id, relation_type, percentage, notes, source, owner_a:owner_a_id(id, nombre)").eq("owner_b_id", id),
       supabase.from("owner_companies").select("id, role, percentage, source, company:company_id(id, nombre, cif)").eq("owner_id", id),
