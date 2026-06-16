@@ -3,6 +3,7 @@ import {
   Inbox, FileText, PhoneCall,
   MessageSquare, Megaphone, ListChecks, BarChart3,
   Settings as SettingsIcon, Search, CheckSquare, UserCircle,
+  MessagesSquare,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -45,6 +46,7 @@ export function AppSidebar() {
   const queryClient = useQueryClient();
   const { role } = useCurrentRole();
   const isComercial = role === "comercial_zona";
+  const isWhatsapp = role === "whatsapp";
 
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
@@ -53,7 +55,9 @@ export function AppSidebar() {
   // Hover/focus → precarga el chunk de la ruta y los datos de su primera página.
   const handlePrefetch = (path: string) => prefetchRoute(path, queryClient);
 
-  const operativa: Item[] = isComercial ? [
+  const operativa: Item[] = isWhatsapp ? [
+    { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
+  ] : isComercial ? [
     { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
     { url: "/comercial/edificios", label: t.nav.buildings, icon: Building2 },
     { url: "/comercial/tareas", label: "Tareas", icon: CheckSquare },
@@ -63,7 +67,7 @@ export function AppSidebar() {
     { url: "/propietarios", label: t.nav.owners, icon: Users },
     { url: "/inversores", label: t.nav.investors, icon: TrendingUp },
   ];
-  const captacion: Item[] = isComercial ? [] : [
+  const captacion: Item[] = isComercial || isWhatsapp ? [] : [
     { url: "/leads", label: t.nav.leads, icon: Inbox },
     { url: "/notas-simples", label: t.nav.notasSimples, icon: FileText },
     { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
@@ -72,15 +76,16 @@ export function AppSidebar() {
     { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
   ] : [];
-  const ia: Item[] = isComercial ? [
+  const ia: Item[] = isWhatsapp ? [] : isComercial ? [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
   ] : [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
+    { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
     { url: "/mensajes", label: t.nav.mensajes, icon: Megaphone },
     { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
   ];
-  const cuenta: Item[] = isComercial ? [
+  const cuenta: Item[] = isWhatsapp ? [] : isComercial ? [
     { url: "/comercial/cuenta", label: "Mi cuenta", icon: UserCircle },
   ] : [
     { url: "/admin/proteccion-pgoum", label: "Validación PGOUM", icon: CheckSquare },
@@ -180,12 +185,12 @@ export function AppSidebar() {
         )}
       </SidebarHeader>
       <SidebarContent className="bg-sidebar">
-        {renderGroup(isComercial ? "Operativa" : t.nav.groupOperativa, operativa)}
-        {isComercial
+        {renderGroup(isWhatsapp ? "WhatsApp" : isComercial ? "Operativa" : t.nav.groupOperativa, operativa)}
+        {isWhatsapp ? null : isComercial
           ? renderGroup("Mi trabajo", miTrabajo)
           : renderGroup(t.nav.groupCaptacion, captacion)}
-        {renderGroup(isComercial ? "Herramientas" : t.nav.groupIA, ia)}
-        {renderGroup(isComercial ? "Cuenta" : t.nav.groupCuenta, cuenta)}
+        {isWhatsapp ? null : renderGroup(isComercial ? "Herramientas" : t.nav.groupIA, ia)}
+        {isWhatsapp ? null : renderGroup(isComercial ? "Cuenta" : t.nav.groupCuenta, cuenta)}
       </SidebarContent>
     </Sidebar>
   );
