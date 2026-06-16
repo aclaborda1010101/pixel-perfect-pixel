@@ -170,8 +170,27 @@ export default function OwnerDetail() {
 
   const comms: CommItem[] = useMemo(() => {
     const items: CommItem[] = [];
+    // Dedupe HubSpot mirror arrays por hs_id (una misma entidad puede venir
+    // asociada varias veces al propietario y duplicarse en el timeline).
+    const uniqByHsId = <T extends { hs_id?: string | number | null }>(arr: T[]): T[] => {
+      const seen = new Set<string>();
+      const out: T[] = [];
+      for (const r of arr) {
+        const k = r?.hs_id != null ? String(r.hs_id) : "";
+        if (!k) { out.push(r); continue; }
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(r);
+      }
+      return out;
+    };
+    const hsCallsU = uniqByHsId(hsCalls);
+    const hsNotesU = uniqByHsId(hsNotes);
+    const hsTasksU = uniqByHsId(hsTasks);
+    const hsEmailsU = uniqByHsId(hsEmails);
+    const hsMeetingsU = uniqByHsId(hsMeetings);
     // 1) Mirror HubSpot — fuente más rica (cuerpo/transcripción completos)
-    for (const k of hsCalls) {
+    for (const k of hsCallsU) {
       const dur = k.hs_call_duration ? Math.round(Number(k.hs_call_duration) / 1000) : null;
       const dirLbl = k.hs_call_direction ? String(k.hs_call_direction).toLowerCase().includes("out") ? "saliente" : "entrante" : "";
       const head = [k.hs_call_title || "Llamada", dirLbl, dur != null ? `${dur}s` : "", k.hs_call_disposition || ""].filter(Boolean).join(" · ");
@@ -183,7 +202,7 @@ export default function OwnerDetail() {
         meta: { duration_s: dur, direction: dirLbl, disposition: k.hs_call_disposition, recording: k.hs_call_recording_url },
       });
     }
-    for (const k of hsNotes) {
+    for (const k of hsNotesU) {
       items.push({
         id: `hn-${k.hs_id}`, kind: "note", fecha: k.hs_timestamp,
         titulo: "Nota HubSpot",
@@ -191,7 +210,7 @@ export default function OwnerDetail() {
         source: "hubspot",
       });
     }
-    for (const k of hsTasks) {
+    for (const k of hsTasksU) {
       items.push({
         id: `ht-${k.hs_id}`, kind: "task", fecha: k.hs_timestamp ?? k.hs_task_completion_date,
         titulo: `Tarea · ${k.hs_task_subject || k.hs_task_type || "—"} · ${k.hs_task_status || ""}`.trim(),
@@ -200,7 +219,7 @@ export default function OwnerDetail() {
         meta: { status: k.hs_task_status, priority: k.hs_task_priority },
       });
     }
-    for (const k of hsEmails) {
+    for (const k of hsEmailsU) {
       const dirLbl = k.hs_email_direction ? String(k.hs_email_direction).toLowerCase().includes("incoming") ? "entrante" : "saliente" : "";
       items.push({
         id: `he-${k.hs_id}`, kind: "email", fecha: k.hs_timestamp,
@@ -210,7 +229,7 @@ export default function OwnerDetail() {
         meta: { from: k.hs_email_from_email, to: k.hs_email_to_email, direction: dirLbl },
       });
     }
-    for (const k of hsMeetings) {
+    for (const k of hsMeetingsU) {
       items.push({
         id: `hm-${k.hs_id}`, kind: "meeting", fecha: k.hs_meeting_start_time ?? k.hs_timestamp,
         titulo: `Reunión · ${k.hs_meeting_title || "—"} · ${k.hs_meeting_outcome || ""}`.trim(),
@@ -220,7 +239,7 @@ export default function OwnerDetail() {
     }
 
     // 2) App local — dedupe contra mirror por proximidad temporal (±120s)
-    const mirrorCallTs = hsCalls.map((k) => +new Date(k.hs_timestamp || 0)).filter(Boolean);
+    const mirrorCallTs = hsCallsU.map((k) => +new Date(k.hs_timestamp || 0)).filter(Boolean);
     for (const c of calls) {
       const tsC = +new Date(c.fecha || 0);
       const dup = mirrorCallTs.some((t) => Math.abs(t - tsC) < 120_000);
@@ -237,7 +256,7 @@ export default function OwnerDetail() {
       titulo: `WhatsApp · ${w.status ?? "—"}`, cuerpo: w.cuerpo ?? "", source: "app",
     });
     // Dedupe notas locales que ya están en el espejo HubSpot (prefijo [hs_note:<id>])
-    const mirrorNoteIds = new Set(hsNotes.map((k) => String(k.hs_id)));
+    const mirrorNoteIds = new Set(hsNotesU.map((k) => String(k.hs_id)));
     for (const n of notes) {
       const m = (n.texto || "").match(/^\s*\[hs_note:(\d+)\]/);
       if (m && mirrorNoteIds.has(m[1])) continue;
