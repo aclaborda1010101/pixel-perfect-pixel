@@ -87,16 +87,6 @@ const App = () => (
               <Route path="/login" element={<Login />} />
               <Route path="/recuperar" element={<RecoverPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
-              <Route
-                path="/whatsapp"
-                element={
-                  <ProtectedRoute>
-                    <Suspense fallback={<RouteFallback />}>
-                      <WhatsappDashboard />
-                    </Suspense>
-                  </ProtectedRoute>
-                }
-              />
               <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/propietarios" element={<Owners />} />
@@ -149,6 +139,7 @@ const App = () => (
                 <Route path="/admin/ia" element={<AdminIA />} />
                 <Route path="/admin/_ops" element={<AdminOps />} />
                 <Route path="/enriquecimiento" element={<Enriquecimiento />} />
+                <Route path="/whatsapp" element={<WhatsappDashboard />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
