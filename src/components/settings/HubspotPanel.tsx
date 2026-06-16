@@ -84,17 +84,6 @@ export function HubspotPanel() {
     }
   }
 
-  async function runSync(entity: "deals" | "contacts", reset = false) {
-    setRunning(entity);
-    try {
-      const fn = entity === "deals" ? "hubspot_sync_deals" : "hubspot_sync_contacts";
-      await supabase.functions.invoke(fn, { body: { reset } });
-      await loadHealth();
-    } finally {
-      setRunning(null);
-    }
-  }
-
   async function syncAll() {
     setRunning("all");
     try {
