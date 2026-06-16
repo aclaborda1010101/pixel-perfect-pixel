@@ -25,9 +25,21 @@ async function processBuilding(sb: any, buildingId: string, dryRun: boolean) {
     if (k) keys.add(k); else withoutKey++;
   }
   const nFincas = keys.size;
-  // DH si hay >=2 fincas distintas con identificador claro
-  const isDH = nFincas >= 2;
-  const evidence = { n_notas: (notas ?? []).length, n_fincas_distintas: nFincas, sin_identificador: withoutKey };
+  // Señal adicional: si la suma de cuotas de building_owners supera 105%, el edificio
+  // es DH casi con seguridad (cada cuota es % de su finca, no del edificio).
+  const { data: bo } = await sb.from('building_owners')
+    .select('cuota').eq('building_id', buildingId).not('cuota', 'is', null);
+  const sumCuota = (bo ?? []).reduce((s: number, r: any) => s + Number(r.cuota || 0), 0);
+  const cuotaExcedida = sumCuota > 105;
+  // DH si hay >=2 fincas distintas con identificador claro, o cuota total absurda
+  const isDH = nFincas >= 2 || cuotaExcedida;
+  const evidence = {
+    n_notas: (notas ?? []).length,
+    n_fincas_distintas: nFincas,
+    sin_identificador: withoutKey,
+    sum_cuota: Math.round(sumCuota * 10) / 10,
+    cuota_excedida: cuotaExcedida,
+  };
 
   const { data: b } = await sb.from('buildings')
     .select('id, division_horizontal, metadatos').eq('id', buildingId).maybeSingle();
@@ -52,6 +64,7 @@ Deno.serve(async (req) => {
   let body: any = {}; try { body = await req.json(); } catch {}
   const dryRun = !!body.dry_run;
   const max = Number(body.max_buildings) || 500;
+  const offset = Number(body.offset) || 0;
 
   try {
     let ids: string[] = [];
@@ -71,7 +84,7 @@ Deno.serve(async (req) => {
       }
       ids = Array.from(seen).sort();
     }
-    const chunk = ids.slice(0, max);
+    const chunk = ids.slice(offset, offset + max);
     const results: any[] = [];
     let changed = 0, dhTrue = 0;
     for (const id of chunk) {

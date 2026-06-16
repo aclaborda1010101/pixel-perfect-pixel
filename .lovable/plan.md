@@ -1,67 +1,57 @@
-## Problema confirmado (números reales)
+## Qué pasa
 
-- 12 de 56 edificios con `building_owners.cuota` rellena suman **>100 %** (varios al **400 %**, uno a **25.200 %** en P.º Martínez Campos 23).
-- Patrón claro: `sum_cuotas ≈ 100 × nº notas_simples`. Causa raíz: `link_notas_simples` escribe `cuota = porcentaje` del titular en `building_owners` **una vez por cada nota_simple** (cada finca registral), tratando un % "de mi piso" como si fuera "% del edificio".
-- La detección de **división horizontal** está rota: solo 1 edificio en toda la base tiene `division_horizontal = true`, cuando muchos tienen 4-36 notas distintas (claramente DH).
+Tienes razón: Settings se ha convertido en un panel de control de fábrica con ~10 tarjetas admin, cada una con 4-12 botones de "lanzar". Eso no es una pantalla de usuario, es una consola de operaciones mía. Mezcla tres cosas distintas:
 
-## Modelo correcto
+1. **Cosas de usuario** (idioma, tema, cuenta, equipo, HubSpot connect, roles, asignaciones de edificios).
+2. **Configuración real** (sub‑zonas, playbook, knowledge base, enrichment config, parámetros de IA).
+3. **Operaciones internas** (lanzar reprocesos, recontar ventanas, transcribir llamadas, detectar DH, recalcular cuotas, demos end‑to‑end, batches de catastro/imagery/vision, etc.) — esto NO debería verlo nadie, ni siquiera tú como admin.
 
-| Caso | Verdad de ownership | Donde vive |
-|---|---|---|
-| **Sin DH** (1 finca registral) | cuota = % del edificio. Σ owners = 100 %. | `building_owners.cuota` |
-| **Con DH** (N viviendas / fincas) | cuota es % **de una finca concreta**, no del edificio. | `nota_simple_titulares.porcentaje` (ya vinculado a `nota_simple_id`, una nota = una finca) |
+## Propuesta
 
-`building_owners.cuota` en edificios DH no debe usarse como % del edificio — o se deja NULL, o se calcula como ponderación por superficie/valor de finca (futuro).
+### Paso 1 — Yo ejecuto ahora lo que está pendiente
+Sin tocar UI, lanzo los dos jobs nuevos contra la BD actual y te devuelvo números:
+- `detect_division_horizontal` (max 500) → cuántos edificios pasan a DH=true.
+- `recompute_building_owner_cuotas` (max 500) → cuántas cuotas se anulan (DH), cuántas se recalculan, cuántas quedan marcadas `cuota_inconsistente`.
+- Re‑validación: los casos absurdos previos (P.º Martínez Campos 23 = 25.200%, Zurbano 57 = 400%) deben quedar saneados.
 
-## Alcance del fix (troceado, bajo demanda, autónomo)
+Solo lectura para ti: te paso el JSON resumen y un sample de 5 edificios antes/después.
 
-### Bloque 1 — Detección de DH (corregir flag)
-- Función `detect_division_horizontal` (edge, manual + parametrizable): marca `buildings.division_horizontal = true` cuando se cumpla **al menos uno**:
-  - ≥ 2 `notas_simples` con distinto `structured_json.finca_registral` o distinta `refcatastral` de finca,
-  - o catastro indica >1 subparcela/unidad constructiva con uso residencial,
-  - o `numero_propietarios` provisto por usuario > nº fincas detectables = 1 (heurística débil, solo log).
-- Solo escribe si hay evidencia ≥ moderada; en duda → deja `false` y añade `metadatos.dh_needs_review = true`.
+### Paso 2 — Simplificar Settings (lo que vas a ver)
+Settings se queda en **5 tarjetas** y nada más:
 
-### Bloque 2 — Recalcular `building_owners.cuota`
-- Función `recompute_building_owner_cuotas` (edge, idempotente, por building o batch):
-  - **Si DH=true** → `cuota = NULL` para todas las filas del building y `metadatos.cuota_source = 'dh_por_finca'`. La verdad queda en `nota_simple_titulares`.
-  - **Si DH=false** → re-derivar desde `nota_simple_titulares` agrupando por owner: tomar el `porcentaje` (debería ser igual en todas las notas si solo hay 1 finca; si hay varias, promediar o coger la nota más reciente y avisar).
-  - Marcar `metadatos.cuota_inconsistente = true` si Σ owners ≠ 100 ± 1 % en edificios sin DH.
+```
+┌─────────────────────┬─────────────────────┐
+│ Cuenta              │ Equipo              │
+├─────────────────────┼─────────────────────┤
+│ Idioma              │ Apariencia          │
+├─────────────────────┴─────────────────────┤
+│ HubSpot (estado conexión + última sync)   │
+└───────────────────────────────────────────┘
+```
 
-### Bloque 3 — Parar la sangría en `link_notas_simples`
-- Antes de escribir `cuota` en `building_owners`, mirar `buildings.division_horizontal`:
-  - DH=true → no escribir `cuota` (queda NULL); seguir manteniendo `nota_simple_titulares`.
-  - DH=false → escribir solo si no existe ya; si existe y difiere, no sobre-escribir, registrar en `metadatos.cuota_pending_review`.
+Eso es todo. Sin botones de "lanzar nada".
 
-### Bloque 4 — UI
-- **`BuildingDetail.tsx`**:
-  - Si `division_horizontal === true`:
-    - Sustituir KPI "Cuota total" por **"Viviendas / fincas"** (= nº de notas distintas).
-    - Nueva sección "**Propiedad por vivienda**": agrupada por nota_simple (ubicación/finca registral), lista de titulares con su % y rol. No mostrar `cuota` del edificio.
-    - Badge "División horizontal" ya existe — mantener.
-  - Si `division_horizontal === false`:
-    - Mantener KPI "Cuota total" pero con aviso visual cuando Σ > 100,5 % ("Cuotas inconsistentes — revisar notas").
-- **`OwnerDetail.tsx`**: en la lista de edificios del owner, si el edificio es DH mostrar `"% sobre vivienda X"` o `"varias fincas"` en lugar del `cuota` plano. Si no es DH, comportamiento actual.
-- **`AssetDetail.tsx`**: ya muestra owners con cuota; añadir cabecera "% sobre esta vivienda" cuando el edificio sea DH.
-- Ningún cambio en `detect_influencers` en este bloque (ya usa cuota cap-ada al 0,4 y bonos; con cuotas NULL en DH simplemente puntúa por rol/calls — aceptable de momento; nota para futuro: ponderar por superficie de finca).
+### Paso 3 — Mover lo admin de configuración a su sitio
+- **Roles de usuario** y **Asignaciones de edificios** → nueva ruta `/admin/equipo` (un solo sitio, no dos tarjetas).
+- **Sub‑zonas**, **Calles comerciales** → `/admin/zonas`.
+- **Playbook**, **Knowledge base**, **Aprendizaje IA**, **Enrichment config** → `/admin/ia` (una pantalla con tabs).
 
-### Bloque 5 — Validación con datos reales
-- Ejecutar Bloque 1 + Bloque 2 sobre toda la base, dimensionar:
-  - cuántos edificios pasan a DH=true,
-  - cuántos quedan con `cuota_inconsistente`,
-  - confirmar que P.º Martínez Campos 23 (sum=25.200 %) y Zurbano 57 (400 %) ya no muestran cifras absurdas.
-- Validar 3 casos: 1 edificio DH con muchas notas, 1 sin DH con cuota correcta, 1 sin DH con cuota inconsistente.
+Acceso solo desde el avatar arriba‑derecha → "Admin" (solo visible si `isAdmin`). Settings deja de ser la papelera de todo.
 
-## Lo que NO se toca
-- `nota_simple_titulares` (ya tiene el dato correcto por finca).
-- `assets` (no hay assets sembrados para los edificios afectados; el modelo de "vivienda" hoy es la `nota_simple`).
-- Cálculo de score/cluster del edificio.
-- `agent_voss_coach` / timeline (intactos).
+### Paso 4 — Esconder por completo "Jobs manuales" y "Análisis IA & Catastro"
+Estas son MIS herramientas, no tuyas. Se mueven a `/admin/_ops` (ruta no enlazada en ningún menú; existe para que yo la abra cuando me pides "lanza X"). En su lugar, en cualquier sitio donde antes había un botón de "lanzar reproceso", aparece una nota:
 
-## Detalles técnicos
-- Nuevas funciones edge: `detect_division_horizontal`, `recompute_building_owner_cuotas` (ambas aceptan `{ building_id? , dry_run?, max_buildings? }`, devuelven `{ processed, changed, sample }`).
-- Edit en `supabase/functions/link_notas_simples/index.ts`: gate del `INSERT` en `building_owners` por `division_horizontal`.
-- Migración: añadir columnas `metadatos.cuota_source`, `metadatos.cuota_inconsistente` (van dentro del `metadatos jsonb` existente, sin DDL nueva). Si quieres trazabilidad estricta, añadir `building_owners.cuota_inconsistente boolean` — opcional.
-- Botones en Settings (Jobs manuales) para disparar Bloque 1, Bloque 2 y un "fix completo" encadenado.
+> "Si necesitas reprocesar esta cartera, pídemelo en el chat."
 
-¿Lo ejecuto entero o prefieres empezar por el Bloque 1+2 (corrige datos sin tocar UI) y validar números antes de los bloques 3-4?
+Yo lo lanzo desde el sandbox y te devuelvo resultado. Cero botones de IA al alcance del cursor (= cero gasto accidental, cero ansiedad de pantalla).
+
+### Paso 5 — "Continuar sincronización HubSpot"
+Eso debe ser **automático** (cron ya existente) o como mucho un único botón "Sincronizar ahora" en la tarjeta HubSpot. Los 6-8 botones distintos de sync (edificios, owners, calls, emails, notes, tasks, meetings…) se colapsan en uno solo que hace todo en orden.
+
+## Lo que NO voy a hacer
+- No borro las edge functions ni los paneles, solo los desmonto de Settings y los muevo a `/admin/_ops` (para que tú no los veas pero yo los pueda invocar).
+- No quito el gate `isAdmin`.
+- No toco lógica de negocio: jobs, scoring, DH, cuotas, todo sigue funcionando igual.
+
+## Pregunta única antes de empezar
+¿Empiezo por **Paso 1** (ejecuto DH + recálculo cuotas ahora y te paso números) y luego en el mismo turno hago Pasos 2-4 (simplificar Settings + mover admin)? ¿O prefieres ver primero los números y decides después si simplifico Settings?
