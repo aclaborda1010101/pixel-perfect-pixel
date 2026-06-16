@@ -27,8 +27,8 @@ Deno.serve(async (req) => {
     const isAdmin = (roles ?? []).some((r: any) => r.role === "admin");
     if (!isAdmin) return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const email = "whatsapp@aflux.es";
-    const password = "1234";
+    const email = "whatsapp@afflux.es";
+    const password = "Afflux2026!";
 
     // Buscar si ya existe
     let userId: string | null = null;
@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
 
     // Asignar rol whatsapp (reemplazar)
     await admin.from("user_roles").delete().eq("user_id", userId);
-    await admin.from("user_roles").insert({ user_id: userId, role: "whatsapp" });
+    await admin.from("user_roles").insert({ user_id: userId, role: "whatsapp" as any });
 
     return new Response(JSON.stringify({ ok: true, user_id: userId, email }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
