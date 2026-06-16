@@ -4553,6 +4553,417 @@ export type Database = {
         }
         Relationships: []
       }
+      wa_ai_jobs: {
+        Row: {
+          attempts: number
+          conversation_id: string
+          created_at: string
+          error: string | null
+          id: string
+          run_after: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          conversation_id: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          run_after?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          conversation_id?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          run_after?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_ai_jobs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "wa_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wa_bot_config: {
+        Row: {
+          active_hours: Json
+          extract_fields: Json
+          forbidden: Json
+          goals: Json
+          id: string
+          is_active: boolean
+          off_hours_message: string | null
+          persona: string
+          reply_delay_max: number
+          reply_delay_min: number
+          tone: string
+          updated_at: string
+        }
+        Insert: {
+          active_hours?: Json
+          extract_fields?: Json
+          forbidden?: Json
+          goals?: Json
+          id?: string
+          is_active?: boolean
+          off_hours_message?: string | null
+          persona?: string
+          reply_delay_max?: number
+          reply_delay_min?: number
+          tone?: string
+          updated_at?: string
+        }
+        Update: {
+          active_hours?: Json
+          extract_fields?: Json
+          forbidden?: Json
+          goals?: Json
+          id?: string
+          is_active?: boolean
+          off_hours_message?: string | null
+          persona?: string
+          reply_delay_max?: number
+          reply_delay_min?: number
+          tone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      wa_campaign_targets: {
+        Row: {
+          campaign_id: string
+          contact_id: string | null
+          created_at: string
+          id: string
+          metadata: Json
+          name: string | null
+          phone: string
+          replied_at: string | null
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          campaign_id: string
+          contact_id?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          name?: string | null
+          phone: string
+          replied_at?: string | null
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          campaign_id?: string
+          contact_id?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          name?: string | null
+          phone?: string
+          replied_at?: string | null
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_campaign_targets_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "wa_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wa_campaign_targets_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "wa_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wa_campaigns: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          metadata: Json
+          name: string
+          qualified_count: number
+          replied_count: number
+          scheduled_at: string | null
+          sent_count: number
+          status: string
+          target_count: number
+          template: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          metadata?: Json
+          name: string
+          qualified_count?: number
+          replied_count?: number
+          scheduled_at?: string | null
+          sent_count?: number
+          status?: string
+          target_count?: number
+          template: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          metadata?: Json
+          name?: string
+          qualified_count?: number
+          replied_count?: number
+          scheduled_at?: string | null
+          sent_count?: number
+          status?: string
+          target_count?: number
+          template?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      wa_contacts: {
+        Row: {
+          created_at: string
+          id: string
+          jid: string | null
+          last_message_at: string | null
+          lead_id: string | null
+          metadata: Json
+          name: string | null
+          phone: string
+          sentiment: string | null
+          stage: string
+          tags: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          jid?: string | null
+          last_message_at?: string | null
+          lead_id?: string | null
+          metadata?: Json
+          name?: string | null
+          phone: string
+          sentiment?: string | null
+          stage?: string
+          tags?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          jid?: string | null
+          last_message_at?: string | null
+          lead_id?: string | null
+          metadata?: Json
+          name?: string | null
+          phone?: string
+          sentiment?: string | null
+          stage?: string
+          tags?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_contacts_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wa_contacts_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_contacts_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_contacts_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
+      wa_conversations: {
+        Row: {
+          ai_enabled: boolean
+          campaign_id: string | null
+          contact_id: string
+          created_at: string
+          id: string
+          last_message_at: string | null
+          qualification: Json
+          status: string
+          summary: string | null
+          unread_count: number
+          updated_at: string
+        }
+        Insert: {
+          ai_enabled?: boolean
+          campaign_id?: string | null
+          contact_id: string
+          created_at?: string
+          id?: string
+          last_message_at?: string | null
+          qualification?: Json
+          status?: string
+          summary?: string | null
+          unread_count?: number
+          updated_at?: string
+        }
+        Update: {
+          ai_enabled?: boolean
+          campaign_id?: string | null
+          contact_id?: string
+          created_at?: string
+          id?: string
+          last_message_at?: string | null
+          qualification?: Json
+          status?: string
+          summary?: string | null
+          unread_count?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_conversations_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "wa_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wa_instances: {
+        Row: {
+          created_at: string
+          id: string
+          instance_name: string
+          last_seen_at: string | null
+          metadata: Json
+          owner_jid: string | null
+          phone_number: string | null
+          qr_base64: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          instance_name: string
+          last_seen_at?: string | null
+          metadata?: Json
+          owner_jid?: string | null
+          phone_number?: string | null
+          qr_base64?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          instance_name?: string
+          last_seen_at?: string | null
+          metadata?: Json
+          owner_jid?: string | null
+          phone_number?: string | null
+          qr_base64?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      wa_messages: {
+        Row: {
+          ai_generated: boolean
+          contact_id: string
+          content: string | null
+          conversation_id: string
+          created_at: string
+          direction: string
+          evolution_message_id: string | null
+          id: string
+          media_url: string | null
+          metadata: Json
+          status: string
+          type: string
+        }
+        Insert: {
+          ai_generated?: boolean
+          contact_id: string
+          content?: string | null
+          conversation_id: string
+          created_at?: string
+          direction: string
+          evolution_message_id?: string | null
+          id?: string
+          media_url?: string | null
+          metadata?: Json
+          status?: string
+          type?: string
+        }
+        Update: {
+          ai_generated?: boolean
+          contact_id?: string
+          content?: string | null
+          conversation_id?: string
+          created_at?: string
+          direction?: string
+          evolution_message_id?: string | null
+          id?: string
+          media_url?: string | null
+          metadata?: Json
+          status?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_messages_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "wa_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wa_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "wa_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_messages: {
         Row: {
           building_id: string | null
@@ -5097,6 +5508,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      has_whatsapp_access: { Args: { _user_id: string }; Returns: boolean }
       madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
       match_building_fuzzy: {
         Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
