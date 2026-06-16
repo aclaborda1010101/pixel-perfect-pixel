@@ -5271,6 +5271,7 @@ export type Database = {
         | "captacion"
         | "comercial_zona"
         | "prevalificacion"
+        | "whatsapp"
       asset_status:
         | "prospecto"
         | "en_estudio"
@@ -5479,6 +5480,7 @@ export const Constants = {
         "captacion",
         "comercial_zona",
         "prevalificacion",
+        "whatsapp",
       ],
       asset_status: [
         "prospecto",
