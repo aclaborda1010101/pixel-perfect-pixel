@@ -404,6 +404,48 @@ export default function BuildingDetail() {
             </Button>
             <AddOwnerToBuildingDialog buildingId={id} existingOwnerIds={existingOwnerIds} onAdded={load} />
           </div>
+          {isDH && fincas.length > 0 && (
+            <Card>
+              <CardHeader>
+                <Eyebrow>División horizontal · propiedad por vivienda</Eyebrow>
+                <CardTitle>Titulares por finca ({fincas.length})</CardTitle>
+                <p className="text-xs text-muted-foreground">El % de cada titular es <strong>sobre su finca</strong>, no sobre el edificio.</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {fincas.map((f) => {
+                  const sumF = (f.titulares ?? []).reduce((a: number, t: any) => a + (Number(t.porcentaje) || 0), 0);
+                  const inc = sumF > 0 && (sumF < 99 || sumF > 101);
+                  return (
+                    <div key={f.nota_id} className="rounded-[6px] border border-border-faint p-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-foreground">
+                            {f.ubicacion ?? `Finca ${f.numero ?? "—"}`}
+                          </div>
+                          <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                            {f.numero ? `Nº ${f.numero}` : "sin nº"}{f.registro ? ` · ${f.registro}` : ""}
+                          </div>
+                        </div>
+                        <Badge variant={inc ? "destructive" : "outline"} title="Suma % de la finca">{Number(sumF.toFixed(2))}%</Badge>
+                      </div>
+                      {(f.titulares ?? []).length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Sin titulares en la nota.</p>
+                      ) : (
+                        <ul className="divide-y divide-border-faint">
+                          {f.titulares.map((t: any, i: number) => (
+                            <li key={i} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                              <span className="truncate">{t.nombre ?? "—"}{t.rol ? <span className="ml-2 font-mono text-[10px] uppercase text-muted-foreground">{t.rol}</span> : null}</span>
+                              <Badge variant="gold">{t.porcentaje != null ? `${t.porcentaje}%` : "—"}</Badge>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
           {personas.length === 0 ? (
             <EmptyState icon={Users} title="Sin propietarios físicos" description="Añade propietarios con su rol y cuota." />
           ) : (
