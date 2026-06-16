@@ -6,7 +6,7 @@ import { hubspotFetch, corsHeaders } from '../_shared/hubspot.ts';
 
 const ASSOC_BATCH = 100;
 const READ_BATCH = 100;
-const DB_BATCH = 500;
+const DB_BATCH = 75;
 
 type EngType = 'calls' | 'notes' | 'tasks' | 'meetings' | 'emails';
 
