@@ -307,14 +307,18 @@ Deno.serve(async (req) => {
     if (boErr) throw boErr;
     const ownerIds = uniq((localBos || []).map((r: any) => r.owner_id));
 
-    const { data: ownerExt, error: extErr } = await supabase
-      .from('external_ids')
-      .select('entity_id, provider_id')
-      .eq('entity_type', 'owner')
-      .eq('provider', 'hubspot')
-      .eq('provider_object_type', 'contact')
-      .in('entity_id', ownerIds.length ? ownerIds : ['00000000-0000-0000-0000-000000000000']);
-    if (extErr) throw extErr;
+    const ownerExt: any[] = [];
+    for (const idsChunk of chunk(ownerIds, DB_BATCH)) {
+      const { data, error: extErr } = await supabase
+        .from('external_ids')
+        .select('entity_id, provider_id')
+        .eq('entity_type', 'owner')
+        .eq('provider', 'hubspot')
+        .eq('provider_object_type', 'contact')
+        .in('entity_id', idsChunk);
+      if (extErr) throw extErr;
+      ownerExt.push(...(data || []));
+    }
 
     const contactToOwner = new Map<string, string>();
     const ownerToContacts = new Map<string, string[]>();
