@@ -1,75 +1,67 @@
-## Diagnóstico (datos reales)
+## Problema confirmado (números reales)
 
-| Métrica | Valor |
-|---|---|
-| `hubspot_calls` totales en local | 5.914 |
-| Última sync de `calls` en `hubspot_sync_state` | **2026-05-10** (hace ~36 días) |
-| `hubspot_calls` con `hs_timestamp > 10-may` | **0** ← sync incremental parado |
-| `calls` locales totales / promovidas desde HS | 5.559 / 5.517 |
-| `hubspot_calls` **sin** `associated_contact_ids` | **367** (promote_calls las salta) |
-| Cohort 77 — edificios con `building_owners` | 73/77 (4 sin owner) |
-| Cohort 77 — owners distintos | 502 |
-| Cohort 77 — owners con `external_ids → hubspot:contact` | **405/502** (97 huérfanos) |
-| Cohort 77 — `calls` locales atadas | 509 (última 12-jun, vía `finalize_call_session`) |
+- 12 de 56 edificios con `building_owners.cuota` rellena suman **>100 %** (varios al **400 %**, uno a **25.200 %** en P.º Martínez Campos 23).
+- Patrón claro: `sum_cuotas ≈ 100 × nº notas_simples`. Causa raíz: `link_notas_simples` escribe `cuota = porcentaje` del titular en `building_owners` **una vez por cada nota_simple** (cada finca registral), tratando un % "de mi piso" como si fuera "% del edificio".
+- La detección de **división horizontal** está rota: solo 1 edificio en toda la base tiene `division_horizontal = true`, cuando muchos tienen 4-36 notas distintas (claramente DH).
 
-Hay **tres fugas** que explican lo que ves:
+## Modelo correcto
 
-1. **Sync de `hubspot_calls` parada desde 10-may** → toda llamada hecha en HubSpot después de esa fecha no entra al sistema. Solo entran las que se cierran a mano desde la app (`finalize_call_session`).
-2. **367 llamadas en HubSpot sin contacto asociado** → `promote_calls` las descarta porque no sabe a qué `owner` atarlas (solo mira `associated_contact_ids[0]`).
-3. **97 owners del cohort sin `external_ids` a su contacto de HubSpot** → aunque la llamada esté en `hubspot_calls`, no se enlaza con el owner correcto, por lo que no aparece bajo su edificio.
+| Caso | Verdad de ownership | Donde vive |
+|---|---|---|
+| **Sin DH** (1 finca registral) | cuota = % del edificio. Σ owners = 100 %. | `building_owners.cuota` |
+| **Con DH** (N viviendas / fincas) | cuota es % **de una finca concreta**, no del edificio. | `nota_simple_titulares.porcentaje` (ya vinculado a `nota_simple_id`, una nota = una finca) |
 
-## Plan
+`building_owners.cuota` en edificios DH no debe usarse como % del edificio — o se deja NULL, o se calcula como ponderación por superficie/valor de finca (futuro).
 
-### 1. Reanudar el sync de llamadas de HubSpot (cierra fuga #1)
-- Invocar `hubspot_sync_engagements` con `entities: ['calls']` y `reset: true` para forzar paginado completo y refrescar `total_synced`.
-- Trocear con `max_pages` y auto-reinvocación si el run inicial no agota la paginación; reportar `pages_fetched / upserted / failed` por iteración hasta que `cursor` quede vacío.
-- Verificar: `SELECT COUNT(*) FROM hubspot_calls WHERE hs_timestamp > '2026-05-10'` debe pasar de 0 a N>0.
+## Alcance del fix (troceado, bajo demanda, autónomo)
 
-### 2. Promover el delta a `calls` (cierra fuga #1 hacia la app)
-- Invocar `promote_calls` en bucle hasta que `promoted=0`.
-- Reportar `promoted / skipped_no_owner / skipped_existing / failed`.
+### Bloque 1 — Detección de DH (corregir flag)
+- Función `detect_division_horizontal` (edge, manual + parametrizable): marca `buildings.division_horizontal = true` cuando se cumpla **al menos uno**:
+  - ≥ 2 `notas_simples` con distinto `structured_json.finca_registral` o distinta `refcatastral` de finca,
+  - o catastro indica >1 subparcela/unidad constructiva con uso residencial,
+  - o `numero_propietarios` provisto por usuario > nº fincas detectables = 1 (heurística débil, solo log).
+- Solo escribe si hay evidencia ≥ moderada; en duda → deja `false` y añade `metadatos.dh_needs_review = true`.
 
-### 3. Rescatar llamadas sin contacto (cierra fuga #2)
-Ampliar `promote_calls` con tres rutas de fallback **en este orden**, solo para filas donde el contacto principal no resuelve owner:
+### Bloque 2 — Recalcular `building_owners.cuota`
+- Función `recompute_building_owner_cuotas` (edge, idempotente, por building o batch):
+  - **Si DH=true** → `cuota = NULL` para todas las filas del building y `metadatos.cuota_source = 'dh_por_finca'`. La verdad queda en `nota_simple_titulares`.
+  - **Si DH=false** → re-derivar desde `nota_simple_titulares` agrupando por owner: tomar el `porcentaje` (debería ser igual en todas las notas si solo hay 1 finca; si hay varias, promediar o coger la nota más reciente y avisar).
+  - Marcar `metadatos.cuota_inconsistente = true` si Σ owners ≠ 100 ± 1 % en edificios sin DH.
 
-```text
-a) associated_deal_ids[0] → external_ids(entity_type='deal') → deal → building → owner principal de ese building (building_owners ordenado por porcentaje/principal)
-b) hs_call_to_number / hs_call_from_number normalizado → owners.telefono
-c) hubspot_owner_id (comercial) + ventana temporal → última call_session abierta de ese comercial
-```
+### Bloque 3 — Parar la sangría en `link_notas_simples`
+- Antes de escribir `cuota` en `building_owners`, mirar `buildings.division_horizontal`:
+  - DH=true → no escribir `cuota` (queda NULL); seguir manteniendo `nota_simple_titulares`.
+  - DH=false → escribir solo si no existe ya; si existe y difiere, no sobre-escribir, registrar en `metadatos.cuota_pending_review`.
 
-Cada fila promovida vía fallback marca `resumen` con `[hs:<id>][via:deal|tel|session]` para auditar. Si ninguna ruta resuelve, queda en `skipped_no_owner` y se vuelca a un view `v_hubspot_calls_huerfanas` para revisión manual.
+### Bloque 4 — UI
+- **`BuildingDetail.tsx`**:
+  - Si `division_horizontal === true`:
+    - Sustituir KPI "Cuota total" por **"Viviendas / fincas"** (= nº de notas distintas).
+    - Nueva sección "**Propiedad por vivienda**": agrupada por nota_simple (ubicación/finca registral), lista de titulares con su % y rol. No mostrar `cuota` del edificio.
+    - Badge "División horizontal" ya existe — mantener.
+  - Si `division_horizontal === false`:
+    - Mantener KPI "Cuota total" pero con aviso visual cuando Σ > 100,5 % ("Cuotas inconsistentes — revisar notas").
+- **`OwnerDetail.tsx`**: en la lista de edificios del owner, si el edificio es DH mostrar `"% sobre vivienda X"` o `"varias fincas"` en lugar del `cuota` plano. Si no es DH, comportamiento actual.
+- **`AssetDetail.tsx`**: ya muestra owners con cuota; añadir cabecera "% sobre esta vivienda" cuando el edificio sea DH.
+- Ningún cambio en `detect_influencers` en este bloque (ya usa cuota cap-ada al 0,4 y bonos; con cuotas NULL en DH simplemente puntúa por rol/calls — aceptable de momento; nota para futuro: ponderar por superficie de finca).
 
-### 4. Backfill de los 97 owners huérfanos del cohort (cierra fuga #3)
-- Ejecutar `backfill_orphan_contacts` limitado al cohort 77 (los 502 owners).
-- Para cada owner sin `external_ids`, buscar en `hubspot_contacts` por email exacto → teléfono normalizado → nombre+CIF; insertar en `external_ids`.
-- Tras el backfill, re-lanzar `promote_calls` (paso 2) para enganchar las calls que antes quedaban sueltas.
+### Bloque 5 — Validación con datos reales
+- Ejecutar Bloque 1 + Bloque 2 sobre toda la base, dimensionar:
+  - cuántos edificios pasan a DH=true,
+  - cuántos quedan con `cuota_inconsistente`,
+  - confirmar que P.º Martínez Campos 23 (sum=25.200 %) y Zurbano 57 (400 %) ya no muestran cifras absurdas.
+- Validar 3 casos: 1 edificio DH con muchas notas, 1 sin DH con cuota correcta, 1 sin DH con cuota inconsistente.
 
-### 5. Reporte por edificio del cohort
-Crear/actualizar `v_cohort77_calls_audit` con columnas:
-
-| campo | descripción |
-|---|---|
-| building_id, direccion | id y calle |
-| owners_total / owners_con_hs | mapeo HS del owner |
-| calls_locales | `calls` atadas vía `building_owners → owner_id` |
-| hs_calls_esperadas | `hubspot_calls` cuyo contacto/deal/teléfono apunta a ese building |
-| gap | esperadas − locales |
-| ultima_call_local / ultima_call_hs | timestamps para detectar desfase |
-
-Tras los pasos 1–4 imprimir filas con `gap > 0` (deberían ser 0 o muy pocas).
-
-### 6. Tarea programada (prevención)
-- Confirmar/crear un cron diario que invoque `hubspot_sync_engagements({entities:['calls']})` + `promote_calls`. Si ya existía y está parado, reactivarlo y avisar.
+## Lo que NO se toca
+- `nota_simple_titulares` (ya tiene el dato correcto por finca).
+- `assets` (no hay assets sembrados para los edificios afectados; el modelo de "vivienda" hoy es la `nota_simple`).
+- Cálculo de score/cluster del edificio.
+- `agent_voss_coach` / timeline (intactos).
 
 ## Detalles técnicos
+- Nuevas funciones edge: `detect_division_horizontal`, `recompute_building_owner_cuotas` (ambas aceptan `{ building_id? , dry_run?, max_buildings? }`, devuelven `{ processed, changed, sample }`).
+- Edit en `supabase/functions/link_notas_simples/index.ts`: gate del `INSERT` en `building_owners` por `division_horizontal`.
+- Migración: añadir columnas `metadatos.cuota_source`, `metadatos.cuota_inconsistente` (van dentro del `metadatos jsonb` existente, sin DDL nueva). Si quieres trazabilidad estricta, añadir `building_owners.cuota_inconsistente boolean` — opcional.
+- Botones en Settings (Jobs manuales) para disparar Bloque 1, Bloque 2 y un "fix completo" encadenado.
 
-- Archivos a tocar: `supabase/functions/promote_calls/index.ts` (fallbacks), nueva migración con `v_cohort77_calls_audit` y `v_hubspot_calls_huerfanas`. `hubspot_sync_engagements` y `backfill_orphan_contacts` se reutilizan tal cual.
-- Idempotencia conservada: `promote_calls` sigue marcando `[hs:<id>]` en `resumen`.
-- No se toca `calls` schema ni RLS; todo es inserción/lectura.
-- Reportes (counts, gap por edificio) en chat al terminar cada paso.
-
-## Qué NO hace este plan
-- No re-sincroniza notas/tareas (solo `calls`).
-- No reescribe el scoring de llamadas (eso ya está en marcha).
-- No crea owners nuevos: si una `hubspot_calls` no tiene contacto **ni** deal **ni** match por teléfono, queda listada en `v_hubspot_calls_huerfanas` para que tú decidas.
+¿Lo ejecuto entero o prefieres empezar por el Bloque 1+2 (corrige datos sin tocar UI) y validar números antes de los bloques 3-4?

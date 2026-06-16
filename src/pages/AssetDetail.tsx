@@ -96,7 +96,11 @@ export default function AssetDetail() {
                   {building && (
                     <div>
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <Eyebrow>Todos los propietarios del edificio</Eyebrow>
+                          <Eyebrow>
+                            {building.division_horizontal
+                              ? "Propietarios del edificio (% real por vivienda)"
+                              : "Todos los propietarios del edificio"}
+                          </Eyebrow>
                         <Link to={`/edificios/${building.id}`} className="font-mono text-[10px] uppercase tracking-eyebrow text-gold hover:underline">Gestionar →</Link>
                       </div>
                       {buildingOwners.length === 0 ? (
@@ -113,7 +117,11 @@ export default function AssetDetail() {
                                   <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{r.owners?.email ?? r.owners?.telefono ?? "—"}</div>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  {r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>}
+                                  {building.division_horizontal ? (
+                                    <Badge variant="outline" title="División horizontal: ver % por finca en la ficha del edificio">DH</Badge>
+                                  ) : (
+                                    r.cuota != null && <Badge variant="gold">{r.cuota}%</Badge>
+                                  )}
                                   <Badge variant="outline">{SUBROLE_LABEL[r.subrole] ?? r.subrole}</Badge>
                                 </div>
                               </Link>

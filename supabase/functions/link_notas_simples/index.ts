@@ -317,6 +317,11 @@ Deno.serve(async (req) => {
 
       // 4) Vincular a building (idempotente)
       if (buildingId && !dryRun) {
+        // Comprobar si el edificio tiene división horizontal (DH): en ese caso,
+        // building_owners.cuota NO debe llevar el % de una sola finca.
+        const { data: bdh } = await sb.from('buildings')
+          .select('division_horizontal').eq('id', buildingId).maybeSingle();
+        const isDH = !!bdh?.division_horizontal;
         for (const r of resolved) {
           if (r.kind === "owner") {
             const { data: ex } = await sb.from("building_owners")
@@ -329,9 +334,13 @@ Deno.serve(async (req) => {
                 building_id: buildingId,
                 owner_id: r.id,
                 subrole,
-                cuota: r.porcentaje,
+                cuota: isDH ? null : r.porcentaje,
                 rol_notas: r.rol,
-                metadatos: { source: "nota_simple", nota_simple_id: nota.id },
+                metadatos: {
+                  source: "nota_simple",
+                  nota_simple_id: nota.id,
+                  cuota_source: isDH ? "dh_por_finca" : "derived_from_nota_simple",
+                },
               });
               if (!error) stats.building_owners_upserted++;
             }
@@ -347,7 +356,7 @@ Deno.serve(async (req) => {
                 building_id: buildingId,
                 company_id: r.id,
                 role,
-                percentage: r.porcentaje,
+                percentage: isDH ? null : r.porcentaje,
                 source: "nota_simple",
                 metadatos: { nota_simple_id: nota.id },
               });

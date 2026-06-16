@@ -209,6 +209,22 @@ export default function BuildingDetail() {
   const totalCuota = bos.reduce((a, r) => a + (pctOf(r) ?? 0), 0);
   const personas = bos;
   const empresas = bcs;
+  const isDH = !!building.division_horizontal;
+  // En DH cada nota_simple = una finca/vivienda
+  const fincas = notas.map((n: any) => {
+    const f = n.structured_json?.finca ?? {};
+    const tits = (n.structured_json?.titulares ?? []) as any[];
+    return {
+      nota_id: n.id,
+      numero: f.numero ?? null,
+      registro: f.registro ?? null,
+      ref_catastral: f.ref_catastral ?? null,
+      ubicacion: n.structured_json?.ubicacion ?? n.structured_json?.descripcion ?? null,
+      titulares: tits,
+      file_url: n.file_url,
+    };
+  });
+  const cuotaInconsistente = !isDH && totalCuota > 100.5;
 
   return (
     <div className="w-full min-w-0 space-y-6">
@@ -250,9 +266,21 @@ export default function BuildingDetail() {
           <p className="mt-1 text-xs text-muted-foreground">titulares jurídicos</p>
         </CardContent></Card>
         <Card><CardContent className="p-5">
-          <Eyebrow>Cuota total</Eyebrow>
-          <div className="mt-2"><MetricValue size="lg" unit="%">{totalCuota.toFixed(0)}</MetricValue></div>
-          <p className="mt-1 text-xs text-muted-foreground">sumatorio cuotas</p>
+          {isDH ? (
+            <>
+              <Eyebrow>Viviendas / fincas</Eyebrow>
+              <div className="mt-2"><MetricValue size="lg">{fincas.length || notas.length}</MetricValue></div>
+              <p className="mt-1 text-xs text-muted-foreground">edificio en división horizontal</p>
+            </>
+          ) : (
+            <>
+              <Eyebrow>Cuota total</Eyebrow>
+              <div className="mt-2"><MetricValue size="lg" unit="%">{totalCuota.toFixed(0)}</MetricValue></div>
+              <p className={cn("mt-1 text-xs", cuotaInconsistente ? "text-destructive" : "text-muted-foreground")}>
+                {cuotaInconsistente ? "⚠ inconsistente — revisar notas" : "sumatorio cuotas"}
+              </p>
+            </>
+          )}
         </CardContent></Card>
         <Card><CardContent className="p-5">
           <Eyebrow>Hipotecas activas</Eyebrow>
@@ -376,6 +404,48 @@ export default function BuildingDetail() {
             </Button>
             <AddOwnerToBuildingDialog buildingId={id} existingOwnerIds={existingOwnerIds} onAdded={load} />
           </div>
+          {isDH && fincas.length > 0 && (
+            <Card>
+              <CardHeader>
+                <Eyebrow>División horizontal · propiedad por vivienda</Eyebrow>
+                <CardTitle>Titulares por finca ({fincas.length})</CardTitle>
+                <p className="text-xs text-muted-foreground">El % de cada titular es <strong>sobre su finca</strong>, no sobre el edificio.</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {fincas.map((f) => {
+                  const sumF = (f.titulares ?? []).reduce((a: number, t: any) => a + (Number(t.porcentaje) || 0), 0);
+                  const inc = sumF > 0 && (sumF < 99 || sumF > 101);
+                  return (
+                    <div key={f.nota_id} className="rounded-[6px] border border-border-faint p-3">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-foreground">
+                            {f.ubicacion ?? `Finca ${f.numero ?? "—"}`}
+                          </div>
+                          <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                            {f.numero ? `Nº ${f.numero}` : "sin nº"}{f.registro ? ` · ${f.registro}` : ""}
+                          </div>
+                        </div>
+                        <Badge variant={inc ? "destructive" : "outline"} title="Suma % de la finca">{Number(sumF.toFixed(2))}%</Badge>
+                      </div>
+                      {(f.titulares ?? []).length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Sin titulares en la nota.</p>
+                      ) : (
+                        <ul className="divide-y divide-border-faint">
+                          {f.titulares.map((t: any, i: number) => (
+                            <li key={i} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                              <span className="truncate">{t.nombre ?? "—"}{t.rol ? <span className="ml-2 font-mono text-[10px] uppercase text-muted-foreground">{t.rol}</span> : null}</span>
+                              <Badge variant="gold">{t.porcentaje != null ? `${t.porcentaje}%` : "—"}</Badge>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
           {personas.length === 0 ? (
             <EmptyState icon={Users} title="Sin propietarios físicos" description="Añade propietarios con su rol y cuota." />
           ) : (
