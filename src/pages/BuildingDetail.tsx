@@ -210,8 +210,20 @@ export default function BuildingDetail() {
   const personas = bos;
   const empresas = bcs;
   const isDH = !!building.division_horizontal;
-  // En DH agrupamos titulares por nota (cada nota = una finca/vivienda)
-  const fincas = useMemoFincas(notas);
+  // En DH cada nota_simple = una finca/vivienda
+  const fincas = notas.map((n: any) => {
+    const f = n.structured_json?.finca ?? {};
+    const tits = (n.structured_json?.titulares ?? []) as any[];
+    return {
+      nota_id: n.id,
+      numero: f.numero ?? null,
+      registro: f.registro ?? null,
+      ref_catastral: f.ref_catastral ?? null,
+      ubicacion: n.structured_json?.ubicacion ?? n.structured_json?.descripcion ?? null,
+      titulares: tits,
+      file_url: n.file_url,
+    };
+  });
   const cuotaInconsistente = !isDH && totalCuota > 100.5;
 
   return (
