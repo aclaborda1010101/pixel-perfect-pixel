@@ -15,6 +15,7 @@ import { AprendizajePanel } from "@/components/settings/AprendizajePanel";
 import { KnowledgeBasePanel } from "@/components/settings/KnowledgeBasePanel";
 import { PlaybookPanel } from "@/components/settings/PlaybookPanel";
 import { EnrichmentConfigPanel } from "@/components/settings/EnrichmentConfigPanel";
+import { JobsManualPanel } from "@/components/settings/JobsManualPanel";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 
 export default function Settings() {
@@ -38,6 +39,7 @@ export default function Settings() {
         {isAdmin && <KnowledgeBasePanel />}
         {isAdmin && <PlaybookPanel />}
         {isAdmin && <EnrichmentConfigPanel />}
+        {isAdmin && <JobsManualPanel />}
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>
