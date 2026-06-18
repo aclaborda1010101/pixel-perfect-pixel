@@ -93,16 +93,14 @@ Deno.serve(async (req) => {
         unread_count: fromMe ? 0 : ((existingConv as any)?.unread_count ?? 0) + 1,
       }).eq("id", convId!);
 
-      // si entrante y bot activo → encolar respuesta IA
-      if (!fromMe && aiEnabled) {
-        const { data: cfg } = await admin.from("wa_bot_config").select("reply_delay_min, reply_delay_max").limit(1).maybeSingle();
-        const min = cfg?.reply_delay_min ?? 4;
-        const max = cfg?.reply_delay_max ?? 22;
-        const delay = Math.floor(min + Math.random() * Math.max(1, max - min));
-        const runAfter = new Date(Date.now() + delay * 1000).toISOString();
-        await admin.from("wa_ai_jobs").insert({ conversation_id: convId, run_after: runAfter });
-
-        // disparar wa_ai_reply en background sin esperar
+      // Solo respondemos a entrantes y solo si el bot está activo y no estamos en handoff.
+      const stage = (contact as any)?.stage;
+      if (!fromMe && aiEnabled && stage !== "handoff") {
+        await admin.from("wa_ai_jobs").insert({
+          conversation_id: convId,
+          run_after: new Date().toISOString(),
+        });
+        // wa_ai_reply aplica el delay humano, presence typing y división en 1-3 mensajes.
         fetch(`${SUPABASE_URL}/functions/v1/wa_ai_reply`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
