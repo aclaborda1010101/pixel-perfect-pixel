@@ -383,7 +383,7 @@ function ResumenView({ tiles, conversations, instance, onOpenInbox, onConnect }:
 }
 
 /* ─────────── Inbox ─────────── */
-function InboxView({ conversations, messages, selectedConv, setSelectedConv, draft, setDraft, sendMessage, toggleAi }: any) {
+function InboxView({ conversations, messages, selectedConv, setSelectedConv, draft, setDraft, sendMessage, toggleAi, regenerateSummary }: any) {
   const current = (conversations as any[]).find((c: any) => c.id === selectedConv);
   const isHandoff = current?.wa_contacts?.stage === "handoff";
   const qual = (current?.qualification ?? {}) as Record<string, any>;
@@ -531,6 +531,28 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
                 <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Stage</div>
                 <div className="mt-1 text-sm font-medium text-foreground">{current.wa_contacts?.stage ?? "nuevo"}</div>
               </div>
+
+              <div className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                    <FileText className="mr-1 inline h-3 w-3" /> Resumen
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => regenerateSummary(current.id)}>
+                    <Sparkles className="h-3 w-3" /> Regenerar
+                  </Button>
+                </div>
+                <div className="mt-1 whitespace-pre-line text-xs text-foreground/90">
+                  {current.summary
+                    ? current.summary
+                    : <span className="italic text-muted-foreground/70">Aún no hay resumen. Se genera tras propuestas de llamada, handoff o ≥6 mensajes nuevos.</span>}
+                </div>
+                {current.summary_updated_at && (
+                  <div className="mt-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                    Actualizado: {new Date(current.summary_updated_at).toLocaleString("es")}
+                  </div>
+                )}
+              </div>
+
               <ul className="space-y-2">
                 {QUAL_FIELDS.map((f) => {
                   const v = qual[f.key];
@@ -553,6 +575,276 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/* ─────────── Histórico ─────────── */
+const STAGES_ALL = ["todos", "nuevo", "conversando", "cualificado", "caliente", "handoff", "cerrado"];
+const QUAL_FIELDS_HIST: { key: string; label: string }[] = [
+  { key: "nombre_apellidos",         label: "Nombre y apellidos" },
+  { key: "gestiona_edificio",        label: "Gestiona el edificio" },
+  { key: "tiene_cuadro_rentas",      label: "Cuadro de rentas / vencimientos" },
+  { key: "vive_en_edificio",         label: "Vive en el edificio" },
+  { key: "relacion_copropietarios",  label: "Relación con copropietarios" },
+];
+
+function HistoricoView({ conversations, messages, selectedConv, setSelectedConv, regenerateSummary, toggleAi }: any) {
+  const [stageFilter, setStageFilter] = useState<string>("todos");
+  const [q, setQ] = useState("");
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return (conversations as any[]).filter((c) => {
+      const stage = c.wa_contacts?.stage ?? "nuevo";
+      if (stageFilter !== "todos" && stage !== stageFilter) return false;
+      if (!term) return true;
+      const hay = `${c.wa_contacts?.name ?? ""} ${c.wa_contacts?.phone ?? ""}`.toLowerCase();
+      return hay.includes(term);
+    });
+  }, [conversations, stageFilter, q]);
+
+  const current = (conversations as any[]).find((c: any) => c.id === selectedConv);
+
+  return (
+    <div className="grid grid-cols-12 gap-4">
+      {/* Lista + filtros */}
+      <Card className="col-span-12 lg:col-span-5">
+        <CardHeader className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <Eyebrow>Histórico</Eyebrow>
+              <CardTitle className="text-base">{filtered.length} · conversaciones</CardTitle>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o teléfono…" className="pl-8" />
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {STAGES_ALL.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStageFilter(s)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-eyebrow transition-colors",
+                    stageFilter === s
+                      ? "border-gold bg-gold/10 text-gold"
+                      : "border-border-faint text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="max-h-[60vh] overflow-y-auto p-0">
+          <ul className="divide-y divide-border-faint">
+            {filtered.length === 0 && (
+              <li className="px-5 py-8 text-sm text-muted-foreground">Sin resultados.</li>
+            )}
+            {filtered.map((c: any) => {
+              const stage = c.wa_contacts?.stage ?? "nuevo";
+              const snippet = (c.summary ?? "").split("\n").slice(0, 2).join(" ").slice(0, 140);
+              return (
+                <li
+                  key={c.id}
+                  onClick={() => setSelectedConv(c.id)}
+                  className={cn(
+                    "cursor-pointer px-5 py-3 transition-colors hover:bg-surface-1/40",
+                    selectedConv === c.id && "bg-surface-1/60 border-l-2 border-gold",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-foreground">
+                      {c.wa_contacts?.name ?? c.wa_contacts?.phone ?? "—"}
+                    </span>
+                    <Badge
+                      variant={stage === "handoff" ? "destructive" : "outline"}
+                      className="px-1.5 py-0 text-[9px] uppercase"
+                    >
+                      {stage === "handoff" && <AlertTriangle className="mr-0.5 h-2.5 w-2.5" />}
+                      {stage}
+                    </Badge>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                    <span>{c.wa_contacts?.phone ?? "—"}</span>
+                    <span>·</span>
+                    <span>{c.last_message_at ? new Date(c.last_message_at).toLocaleString("es") : "—"}</span>
+                  </div>
+                  {snippet && (
+                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{snippet}</p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      </Card>
+
+      {/* Ficha */}
+      <div className="col-span-12 space-y-4 lg:col-span-7">
+        {!current && (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              Selecciona una conversación para ver el histórico completo.
+            </CardContent>
+          </Card>
+        )}
+        {current && (
+          <ConversationDetail
+            conv={current}
+            messages={messages}
+            regenerateSummary={regenerateSummary}
+            toggleAi={toggleAi}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ConversationDetail({ conv, messages, regenerateSummary, toggleAi }: any) {
+  const isHandoff = conv.wa_contacts?.stage === "handoff";
+  const qual = (conv.qualification ?? {}) as Record<string, any>;
+  return (
+    <>
+      {/* Cabecera + handoff */}
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <Eyebrow>Conversación</Eyebrow>
+            <CardTitle className="truncate text-lg">
+              {conv.wa_contacts?.name ?? conv.wa_contacts?.phone ?? "—"}
+            </CardTitle>
+            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+              {conv.wa_contacts?.phone} · stage: {conv.wa_contacts?.stage ?? "nuevo"}
+              {conv.created_at && <> · abierta {new Date(conv.created_at).toLocaleDateString("es")}</>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+            Bot
+            <Switch checked={conv.ai_enabled ?? true} onCheckedChange={() => toggleAi(conv.id, conv.ai_enabled)} />
+          </div>
+        </CardHeader>
+        {isHandoff && (
+          <CardContent className="pt-0">
+            <div className="flex items-start gap-2 rounded-[6px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
+              <div>
+                <div className="font-semibold text-destructive">⚠️ Requiere humano</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  {conv.handoff_reason ?? "El bot se ha pausado automáticamente. Retoma la conversación manualmente."}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Resumen */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <Eyebrow><FileText className="mr-1 inline h-3 w-3" /> Resumen</Eyebrow>
+            <CardTitle className="text-base">Qué sabemos de este lead</CardTitle>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => regenerateSummary(conv.id)}>
+            <Sparkles className="h-3.5 w-3.5" /> Regenerar resumen
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {conv.summary ? (
+            <p className="whitespace-pre-line text-sm leading-relaxed text-foreground/90">{conv.summary}</p>
+          ) : (
+            <p className="text-sm italic text-muted-foreground">
+              Todavía no hay resumen para esta conversación. Se genera automáticamente cuando el bot propone llamada, salta el handoff a humano o se acumulan 6 mensajes nuevos. También puedes generarlo ahora con el botón "Regenerar resumen".
+            </p>
+          )}
+          {conv.summary_updated_at && (
+            <div className="mt-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+              Actualizado: {new Date(conv.summary_updated_at).toLocaleString("es")}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 5 datos */}
+      <Card>
+        <CardHeader>
+          <Eyebrow>Datos extraídos</Eyebrow>
+          <CardTitle className="text-base">Cualificación del propietario</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {QUAL_FIELDS_HIST.map((f) => {
+              const v = qual[f.key];
+              const has = v !== undefined && v !== null && v !== "";
+              return (
+                <li
+                  key={f.key}
+                  className={cn(
+                    "flex items-start gap-2 rounded-[6px] border px-3 py-2",
+                    has ? "border-border-faint bg-surface-1/30" : "border-dashed border-border-faint/60 bg-transparent",
+                  )}
+                >
+                  {has
+                    ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                    : <XIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />}
+                  <div className="min-w-0">
+                    <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{f.label}</div>
+                    <div className={cn("mt-0.5 text-sm", has ? "text-foreground" : "italic text-muted-foreground/60")}>
+                      {has ? String(v) : "Falta"}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      </Card>
+
+      {/* Histórico completo */}
+      <Card>
+        <CardHeader>
+          <Eyebrow>Histórico</Eyebrow>
+          <CardTitle className="text-base">Mensajes ({(messages as any[]).length})</CardTitle>
+        </CardHeader>
+        <CardContent className="max-h-[55vh] space-y-2 overflow-y-auto">
+          {(messages as any[]).length === 0 && (
+            <p className="text-sm text-muted-foreground">Sin mensajes aún.</p>
+          )}
+          {(messages as any[]).map((m: any) => {
+            if (m.type === "system") {
+              return (
+                <div key={m.id} className="my-2 flex justify-center">
+                  <div className="max-w-[85%] rounded-[6px] border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
+                    {m.content}
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={m.id} className={cn("flex", m.direction === "out" ? "justify-end" : "justify-start")}>
+                <div className={cn(
+                  "max-w-[78%] rounded-[6px] border px-3 py-2 text-sm",
+                  m.direction === "out"
+                    ? "border-gold/30 bg-gold/10 text-foreground"
+                    : "border-border-faint bg-surface-1/60 text-foreground",
+                )}>
+                  {m.content}
+                  <div className="mt-1 flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                    {new Date(m.created_at).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}
+                    {m.ai_generated && <span className="text-gold">· bot</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
