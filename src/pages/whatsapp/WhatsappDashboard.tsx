@@ -14,15 +14,16 @@ import { toast } from "sonner";
 import {
   Loader2, QrCode, Send, Bot, Phone, Power,
   MessagesSquare, UserPlus, Activity, Target, ArrowRight,
-  TrendingUp, RefreshCw, AlertTriangle,
+  TrendingUp, RefreshCw, AlertTriangle, History, Search, FileText, Check, X as XIcon, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type SubView = "resumen" | "inbox" | "pipeline" | "conexion" | "bot";
+type SubView = "resumen" | "inbox" | "historico" | "pipeline" | "conexion" | "bot";
 
 const SUB_NAV: { id: SubView; label: string; icon: any }[] = [
   { id: "resumen",  label: "Resumen",  icon: Activity },
   { id: "inbox",    label: "Inbox",    icon: MessagesSquare },
+  { id: "historico",label: "Histórico",icon: History },
   { id: "pipeline", label: "Pipeline", icon: Target },
   { id: "conexion", label: "Conexión", icon: Phone },
   { id: "bot",      label: "Bot",      icon: Bot },
@@ -49,9 +50,9 @@ export default function WhatsappDashboard() {
     refetchInterval: 5000,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_conversations" as any) as any)
-        .select("id, status, last_message_at, unread_count, ai_enabled, qualification, wa_contacts(phone, name, stage)")
+        .select("id, status, last_message_at, unread_count, ai_enabled, qualification, summary, summary_updated_at, handoff_reason, created_at, wa_contacts(phone, name, stage)")
         .order("last_message_at", { ascending: false, nullsFirst: false })
-        .limit(100);
+        .limit(500);
       return data ?? [];
     },
   });
@@ -155,6 +156,14 @@ export default function WhatsappDashboard() {
     qc.invalidateQueries({ queryKey: ["wa:conversations"] });
   }
 
+  async function regenerateSummary(convId: string) {
+    const t = toast.loading("Regenerando resumen…");
+    const { error } = await supabase.functions.invoke("wa_summarize", { body: { conversation_id: convId, force: true } });
+    toast.dismiss(t);
+    if (error) toast.error(error.message); else toast.success("Resumen actualizado");
+    qc.invalidateQueries({ queryKey: ["wa:conversations"] });
+  }
+
   async function saveCfg(patch: any) {
     if (!cfg?.id) return;
     await (supabase.from("wa_bot_config" as any) as any).update(patch).eq("id", cfg.id);
@@ -244,6 +253,18 @@ export default function WhatsappDashboard() {
           draft={draft}
           setDraft={setDraft}
           sendMessage={sendMessage}
+          toggleAi={toggleAi}
+          regenerateSummary={regenerateSummary}
+        />
+      )}
+
+      {view === "historico" && (
+        <HistoricoView
+          conversations={conversations ?? []}
+          messages={messages ?? []}
+          selectedConv={selectedConv}
+          setSelectedConv={setSelectedConv}
+          regenerateSummary={regenerateSummary}
           toggleAi={toggleAi}
         />
       )}
