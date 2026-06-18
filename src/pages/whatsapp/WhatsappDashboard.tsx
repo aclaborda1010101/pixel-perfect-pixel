@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import {
   Loader2, QrCode, Send, Bot, Phone, Power,
   MessagesSquare, UserPlus, Activity, Target, ArrowRight,
-  TrendingUp, RefreshCw,
+  TrendingUp, RefreshCw, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -62,13 +62,27 @@ export default function WhatsappDashboard() {
     refetchInterval: 3000,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_messages" as any) as any)
-        .select("id, direction, content, created_at, ai_generated")
+        .select("id, direction, content, created_at, ai_generated, type, metadata")
         .eq("conversation_id", selectedConv)
         .order("created_at", { ascending: true })
         .limit(200);
       return data ?? [];
     },
   });
+  // Realtime: avisar al comercial si una conversación pasa a handoff
+  useEffect(() => {
+    const ch = supabase
+      .channel("wa-handoff-watch")
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "wa_contacts" }, (payload: any) => {
+        if (payload?.new?.stage === "handoff" && payload?.old?.stage !== "handoff") {
+          toast.warning(`⚠️ Requiere humano: ${payload.new.name ?? payload.new.phone}`, { duration: 10000 });
+          qc.invalidateQueries({ queryKey: ["wa:conversations"] });
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [qc]);
+
 
   const { data: cfg } = useQuery({
     queryKey: ["wa:cfg"],
