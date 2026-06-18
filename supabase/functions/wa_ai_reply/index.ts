@@ -326,6 +326,13 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
       await admin.from("wa_contacts").update({ stage: "cualificado" }).eq("id", contact.id);
     }
 
+    // Resumen: en momentos clave (propuesta de reunión) o cuando haya ≥6 mensajes nuevos
+    fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/wa_summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+      body: JSON.stringify({ conversation_id, force: !!parsed.propose_meeting }),
+    }).catch(() => {});
+
     return new Response(JSON.stringify({
       ok: true, sent: replyMsgs.length, qualification_update: cleanQu, propose_meeting: !!parsed.propose_meeting,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
