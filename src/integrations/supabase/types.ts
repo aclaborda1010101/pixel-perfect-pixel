@@ -4821,11 +4821,14 @@ export type Database = {
           campaign_id: string | null
           contact_id: string
           created_at: string
+          handoff_reason: string | null
           id: string
           last_message_at: string | null
           qualification: Json
           status: string
           summary: string | null
+          summary_msg_count: number
+          summary_updated_at: string | null
           unread_count: number
           updated_at: string
         }
@@ -4834,11 +4837,14 @@ export type Database = {
           campaign_id?: string | null
           contact_id: string
           created_at?: string
+          handoff_reason?: string | null
           id?: string
           last_message_at?: string | null
           qualification?: Json
           status?: string
           summary?: string | null
+          summary_msg_count?: number
+          summary_updated_at?: string | null
           unread_count?: number
           updated_at?: string
         }
@@ -4847,11 +4853,14 @@ export type Database = {
           campaign_id?: string | null
           contact_id?: string
           created_at?: string
+          handoff_reason?: string | null
           id?: string
           last_message_at?: string | null
           qualification?: Json
           status?: string
           summary?: string | null
+          summary_msg_count?: number
+          summary_updated_at?: string | null
           unread_count?: number
           updated_at?: string
         }
