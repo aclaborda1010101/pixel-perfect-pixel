@@ -364,9 +364,18 @@ function ResumenView({ tiles, conversations, instance, onOpenInbox, onConnect }:
 /* ─────────── Inbox ─────────── */
 function InboxView({ conversations, messages, selectedConv, setSelectedConv, draft, setDraft, sendMessage, toggleAi }: any) {
   const current = (conversations as any[]).find((c: any) => c.id === selectedConv);
+  const isHandoff = current?.wa_contacts?.stage === "handoff";
+  const qual = (current?.qualification ?? {}) as Record<string, any>;
+  const QUAL_FIELDS: { key: string; label: string }[] = [
+    { key: "nombre_apellidos",         label: "Nombre y apellidos" },
+    { key: "gestiona_edificio",        label: "Gestiona el edificio" },
+    { key: "tiene_cuadro_rentas",      label: "Cuadro de rentas" },
+    { key: "vive_en_edificio",         label: "Vive en el edificio" },
+    { key: "relacion_copropietarios",  label: "Relación copropietarios" },
+  ];
   return (
     <div className="grid grid-cols-12 gap-4">
-      <Card className="col-span-12 lg:col-span-4">
+      <Card className="col-span-12 lg:col-span-3">
         <CardHeader>
           <Eyebrow>Conversaciones</Eyebrow>
           <CardTitle className="text-lg">{conversations.length} · activas</CardTitle>
@@ -389,7 +398,14 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
                   <span className="truncate text-sm font-medium text-foreground">
                     {c.wa_contacts?.name ?? c.wa_contacts?.phone}
                   </span>
-                  {c.ai_enabled && <Bot className="h-3 w-3 text-gold" />}
+                  <div className="flex shrink-0 items-center gap-1">
+                    {c.wa_contacts?.stage === "handoff" && (
+                      <Badge variant="destructive" className="px-1.5 py-0 text-[9px] uppercase">
+                        <AlertTriangle className="mr-0.5 h-2.5 w-2.5" /> humano
+                      </Badge>
+                    )}
+                    {c.ai_enabled && c.wa_contacts?.stage !== "handoff" && <Bot className="h-3 w-3 text-gold" />}
+                  </div>
                 </div>
                 <div className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                   {c.wa_contacts?.stage ?? "nuevo"} · {c.last_message_at ? new Date(c.last_message_at).toLocaleString("es") : "—"}
@@ -400,7 +416,7 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
         </CardContent>
       </Card>
 
-      <Card className="col-span-12 flex max-h-[64vh] flex-col lg:col-span-8">
+      <Card className="col-span-12 flex max-h-[64vh] flex-col lg:col-span-6">
         <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-border-faint">
           <div className="min-w-0 space-y-0.5">
             <Eyebrow>Conversación</Eyebrow>
@@ -419,28 +435,50 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
           )}
         </CardHeader>
         <CardContent className="flex flex-1 flex-col overflow-hidden p-0">
+          {isHandoff && (
+            <div className="flex items-start gap-2 border-b border-destructive/40 bg-destructive/10 px-5 py-3 text-sm text-destructive-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
+              <div>
+                <div className="font-semibold text-destructive">⚠️ Requiere humano</div>
+                <div className="text-xs text-muted-foreground">
+                  El bot se ha pausado automáticamente. Retoma la conversación manualmente; cuando termines, puedes reactivar el bot con el toggle superior.
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex-1 space-y-2 overflow-y-auto px-5 py-4">
             {!current && (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 Selecciona una conversación de la izquierda
               </div>
             )}
-            {(messages as any[]).map((m: any) => (
-              <div key={m.id} className={cn("flex", m.direction === "out" ? "justify-end" : "justify-start")}>
-                <div className={cn(
-                  "max-w-[75%] rounded-[6px] border px-3 py-2 text-sm",
-                  m.direction === "out"
-                    ? "border-gold/30 bg-gold/10 text-foreground"
-                    : "border-border-faint bg-surface-1/60 text-foreground",
-                )}>
-                  {m.content}
-                  <div className="mt-1 flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                    {new Date(m.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
-                    {m.ai_generated && <span className="text-gold">· bot</span>}
+            {(messages as any[]).map((m: any) => {
+              if (m.type === "system") {
+                return (
+                  <div key={m.id} className="my-2 flex justify-center">
+                    <div className="max-w-[85%] rounded-[6px] border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
+                      {m.content}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={m.id} className={cn("flex", m.direction === "out" ? "justify-end" : "justify-start")}>
+                  <div className={cn(
+                    "max-w-[75%] rounded-[6px] border px-3 py-2 text-sm",
+                    m.direction === "out"
+                      ? "border-gold/30 bg-gold/10 text-foreground"
+                      : "border-border-faint bg-surface-1/60 text-foreground",
+                  )}>
+                    {m.content}
+                    <div className="mt-1 flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                      {new Date(m.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
+                      {m.ai_generated && <span className="text-gold">· bot</span>}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {current && (
             <div className="flex gap-2 border-t border-border-faint p-3">
@@ -452,6 +490,44 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
               />
               <Button onClick={sendMessage} variant="gold"><Send className="h-4 w-4" /></Button>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Panel lateral derecho con cualificación en vivo */}
+      <Card className="col-span-12 lg:col-span-3">
+        <CardHeader>
+          <Eyebrow>Cualificación</Eyebrow>
+          <CardTitle className="text-base">Datos en vivo</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {!current && (
+            <p className="text-xs text-muted-foreground">Selecciona una conversación para ver los datos extraídos.</p>
+          )}
+          {current && (
+            <>
+              <div className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+                <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Stage</div>
+                <div className="mt-1 text-sm font-medium text-foreground">{current.wa_contacts?.stage ?? "nuevo"}</div>
+              </div>
+              <ul className="space-y-2">
+                {QUAL_FIELDS.map((f) => {
+                  const v = qual[f.key];
+                  const has = v !== undefined && v !== null && v !== "";
+                  return (
+                    <li key={f.key} className="rounded-[6px] border border-border-faint bg-surface-1/30 px-3 py-2">
+                      <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{f.label}</div>
+                      <div className={cn("mt-0.5 text-sm", has ? "text-foreground" : "text-muted-foreground/60 italic")}>
+                        {has ? String(v) : "—"}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="pt-1 text-[10px] text-muted-foreground">
+                Los campos se rellenan automáticamente cuando la persona los menciona; el bot no los vuelve a preguntar.
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
