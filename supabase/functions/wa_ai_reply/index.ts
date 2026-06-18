@@ -97,7 +97,8 @@ Deno.serve(async (req) => {
     // 1) HANDOFF: si el lead pregunta por bot/IA, se enfada o pide humano → parar y avisar.
     const handoff = detectHandoff(lastInText);
     if (handoff.hit) {
-      await admin.from("wa_conversations").update({ ai_enabled: false }).eq("id", conversation_id);
+      const reason = `Detectado patrón "${handoff.reason}" en: "${lastInText.slice(0, 160)}"`;
+      await admin.from("wa_conversations").update({ ai_enabled: false, handoff_reason: reason }).eq("id", conversation_id);
       await admin.from("wa_contacts").update({ stage: "handoff" }).eq("id", contact.id);
       await admin.from("wa_messages").insert({
         conversation_id,
@@ -110,6 +111,12 @@ Deno.serve(async (req) => {
       });
       await admin.from("wa_ai_jobs").update({ status: "done", updated_at: new Date().toISOString() })
         .eq("conversation_id", conversation_id).eq("status", "pending");
+      // Forzar resumen tras handoff
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/wa_summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ conversation_id, force: true }),
+      }).catch(() => {});
       return new Response(JSON.stringify({ ok: true, handoff: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
