@@ -50,8 +50,23 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ ok: true, skip: "group" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const fromMe: boolean = !!(msg?.key?.fromMe ?? msg?.fromMe);
-      const text: string = msg?.message?.conversation
-        ?? msg?.message?.extendedTextMessage?.text
+      const m = msg?.message ?? {};
+      const audioMsg = m.audioMessage ?? m.pttMessage ?? null;
+      const imageMsg = m.imageMessage ?? null;
+      const docMsg = m.documentMessage ?? m.documentWithCaptionMessage?.message?.documentMessage ?? null;
+      const videoMsg = m.videoMessage ?? null;
+
+      let mediaKind: "audio" | "image" | "document" | "video" | null = null;
+      let mediaCaption = "";
+      let mediaMimetype: string | null = null;
+      let mediaFilename: string | null = null;
+      if (audioMsg) { mediaKind = "audio"; mediaMimetype = audioMsg.mimetype ?? null; }
+      else if (imageMsg) { mediaKind = "image"; mediaCaption = imageMsg.caption ?? ""; mediaMimetype = imageMsg.mimetype ?? null; }
+      else if (docMsg) { mediaKind = "document"; mediaCaption = docMsg.caption ?? ""; mediaMimetype = docMsg.mimetype ?? null; mediaFilename = docMsg.fileName ?? docMsg.title ?? null; }
+      else if (videoMsg) { mediaKind = "video"; mediaCaption = videoMsg.caption ?? ""; mediaMimetype = videoMsg.mimetype ?? null; }
+
+      const text: string = m.conversation
+        ?? m.extendedTextMessage?.text
         ?? msg?.body
         ?? msg?.text
         ?? "";
@@ -77,16 +92,29 @@ Deno.serve(async (req) => {
       }
 
       // message
-      await admin.from("wa_messages").insert({
+      const msgType = mediaKind ?? "text";
+      const initialContent = mediaKind
+        ? (mediaCaption || "")
+        : text;
+      const mediaMeta = mediaKind ? {
+        media: {
+          kind: mediaKind,
+          mimetype: mediaMimetype,
+          filename: mediaFilename,
+          caption: mediaCaption || null,
+          processing: fromMe ? "skipped" : "pending",
+        },
+      } : {};
+      const { data: insertedMsg } = await admin.from("wa_messages").insert({
         conversation_id: convId,
         contact_id: contact!.id,
         direction: fromMe ? "out" : "in",
-        type: "text",
-        content: text,
+        type: msgType,
+        content: initialContent,
         evolution_message_id: evoId,
         ai_generated: false,
-        metadata: { raw: msg },
-      });
+        metadata: { raw: msg, ...mediaMeta },
+      }).select("id").single();
 
       await admin.from("wa_conversations").update({
         last_message_at: new Date().toISOString(),
@@ -100,12 +128,20 @@ Deno.serve(async (req) => {
           conversation_id: convId,
           run_after: new Date().toISOString(),
         });
-        // wa_ai_reply aplica el delay humano, presence typing y división en 1-3 mensajes.
-        fetch(`${SUPABASE_URL}/functions/v1/wa_ai_reply`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
-          body: JSON.stringify({ conversation_id: convId }),
-        }).catch(() => {});
+        if (mediaKind && mediaKind !== "video") {
+          // Procesar el media primero; al terminar, esa función dispara wa_ai_reply.
+          fetch(`${SUPABASE_URL}/functions/v1/wa_process_incoming_media`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
+            body: JSON.stringify({ message_id: insertedMsg?.id, conversation_id: convId }),
+          }).catch(() => {});
+        } else {
+          fetch(`${SUPABASE_URL}/functions/v1/wa_ai_reply`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
+            body: JSON.stringify({ conversation_id: convId }),
+          }).catch(() => {});
+        }
       }
 
       return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
     const { data: cfg } = await admin.from("wa_bot_config").select("*").limit(1).maybeSingle();
     const { data: history } = await admin
       .from("wa_messages")
-      .select("direction, content, type, created_at")
+      .select("direction, content, type, created_at, metadata")
       .eq("conversation_id", conversation_id)
       .order("created_at", { ascending: true })
       .limit(60);
@@ -93,6 +93,15 @@ Deno.serve(async (req) => {
     const realHistory = (history ?? []).filter((m: any) => m.type !== "system" && m.content);
     const lastIn = [...realHistory].reverse().find((m: any) => m.direction === "in");
     const lastInText: string = lastIn?.content ?? "";
+
+    // Si el último mensaje entrante es multimedia aún no procesado, NO respondemos.
+    // wa_process_incoming_media disparará wa_ai_reply al terminar.
+    const lastInMeta = (lastIn as any)?.metadata?.media;
+    if (lastInMeta && lastInMeta.processing === "pending") {
+      return new Response(JSON.stringify({ ok: true, skip: "media pending" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // 1) HANDOFF: si el lead pregunta por bot/IA, se enfada o pide humano → parar y avisar.
     const handoff = detectHandoff(lastInText);
@@ -199,6 +208,11 @@ OBJETIVO DE LA CONVERSACIÓN:
 ${goals.map((g) => `- ${g}`).join("\n")}
 Cuando haya algo de rapport y al menos 1-2 datos, propón de forma natural una breve llamada o visita con el equipo. Sin forzar.
 
+MULTIMEDIA:
+- Si en el historial ves mensajes que empiezan por "🎤 Audio (transcrito):", "🖼️ Imagen (descripción):" o "📄 Documento (resumen):", esos son mensajes REALES del lead que tú ya has "escuchado/visto". Trátalos como información válida que la persona te ha dado.
+- NUNCA digas "no puedo escuchar audios" ni pidas que repita por escrito; ya tienes la transcripción.
+- NO repitas una pregunta cuya respuesta esté ya en una transcripción o descripción anterior. Si el dato ya aparece, dalo por sabido y avanza.
+
 DATOS QUE NECESITAS IR SACANDO (encajados en la charla, NO como cuestionario, y SOLO si no los tienes ya):
 ${extractFields.map((f) => `- ${f}`).join("\n")}
 
@@ -264,6 +278,23 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
       });
     }
 
+    // Anti-duplicado: si el bot acaba de mandar literalmente lo mismo en los últimos 5 minutos,
+    // no repitas. Evita los bucles "Da la sensación de que..." vistos en producción.
+    const recentOuts = realHistory
+      .filter((m: any) => m.direction === "out")
+      .slice(-6)
+      .map((m: any) => String(m.content || "").trim().toLowerCase());
+    const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+    const filteredReply = replyMsgs.filter((m) => !recentOuts.includes(norm(m)));
+    if (filteredReply.length === 0) {
+      await admin.from("wa_ai_jobs").update({ status: "skipped_dup", updated_at: new Date().toISOString() })
+        .eq("conversation_id", conversation_id).eq("status", "pending");
+      return new Response(JSON.stringify({ ok: true, skip: "duplicate of recent reply" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const finalReplies = filteredReply;
+
     // Merge qualification (sin sobrescribir lo ya conocido, solo añadir nuevos)
     const qu = parsed.qualification_update ?? {};
     const allowed = ["nombre_apellidos", "gestiona_edificio", "tiene_cuadro_rentas", "vive_en_edificio", "relacion_copropietarios"];
@@ -283,10 +314,10 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
     const minS = (cfg as any)?.reply_delay_min ?? 8;
     const maxS = (cfg as any)?.reply_delay_max ?? 45;
     const totalMs = Math.floor((minS + Math.random() * Math.max(1, maxS - minS)) * 1000);
-    const perMsg = Math.floor(totalMs / replyMsgs.length);
+    const perMsg = Math.floor(totalMs / Math.max(1, finalReplies.length));
 
-    for (let i = 0; i < replyMsgs.length; i++) {
-      const m = replyMsgs[i];
+    for (let i = 0; i < finalReplies.length; i++) {
+      const m = finalReplies[i];
       const typingMs = Math.max(1500, Math.min(perMsg - 600, 12000));
       await sendPresence(contact.phone, typingMs);
       await sleep(typingMs);
@@ -304,12 +335,12 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
         ai_generated: true,
         metadata: {
           model: "google/gemini-3-flash-preview",
-          part: i + 1, of: replyMsgs.length,
+          part: i + 1, of: finalReplies.length,
           qualification_update: cleanQu,
           propose_meeting: !!parsed.propose_meeting,
         },
       });
-      if (i < replyMsgs.length - 1) await sleep(700 + Math.floor(Math.random() * 1600));
+      if (i < finalReplies.length - 1) await sleep(700 + Math.floor(Math.random() * 1600));
     }
 
     await admin.from("wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversation_id);
@@ -334,7 +365,7 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
     }).catch(() => {});
 
     return new Response(JSON.stringify({
-      ok: true, sent: replyMsgs.length, qualification_update: cleanQu, propose_meeting: !!parsed.propose_meeting,
+      ok: true, sent: finalReplies.length, qualification_update: cleanQu, propose_meeting: !!parsed.propose_meeting,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e?.message ?? String(e) }), {
