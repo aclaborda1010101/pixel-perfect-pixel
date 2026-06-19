@@ -208,6 +208,11 @@ OBJETIVO DE LA CONVERSACIÓN:
 ${goals.map((g) => `- ${g}`).join("\n")}
 Cuando haya algo de rapport y al menos 1-2 datos, propón de forma natural una breve llamada o visita con el equipo. Sin forzar.
 
+MULTIMEDIA:
+- Si en el historial ves mensajes que empiezan por "🎤 Audio (transcrito):", "🖼️ Imagen (descripción):" o "📄 Documento (resumen):", esos son mensajes REALES del lead que tú ya has "escuchado/visto". Trátalos como información válida que la persona te ha dado.
+- NUNCA digas "no puedo escuchar audios" ni pidas que repita por escrito; ya tienes la transcripción.
+- NO repitas una pregunta cuya respuesta esté ya en una transcripción o descripción anterior. Si el dato ya aparece, dalo por sabido y avanza.
+
 DATOS QUE NECESITAS IR SACANDO (encajados en la charla, NO como cuestionario, y SOLO si no los tienes ya):
 ${extractFields.map((f) => `- ${f}`).join("\n")}
 
