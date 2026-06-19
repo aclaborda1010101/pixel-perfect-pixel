@@ -80,7 +80,7 @@ export default function WhatsappDashboard() {
     refetchInterval: 5000,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_conversations" as any) as any)
-        .select("id, status, last_message_at, unread_count, ai_enabled, qualification, summary, summary_updated_at, handoff_reason, created_at, wa_contacts(phone, name, stage)")
+        .select("id, contact_id, status, last_message_at, unread_count, ai_enabled, qualification, summary, summary_updated_at, handoff_reason, created_at, wa_contacts(id, phone, name, stage)")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .limit(500);
       return data ?? [];
@@ -182,7 +182,21 @@ export default function WhatsappDashboard() {
   }
 
   async function toggleAi(convId: string, current: boolean) {
-    await (supabase.from("wa_conversations" as any) as any).update({ ai_enabled: !current }).eq("id", convId);
+    const next = !current;
+    // Al reactivar el bot, limpiamos también el handoff_reason y devolvemos al contacto
+    // a "conversando" si estaba en "handoff", para que wa_ai_reply vuelva a contestar.
+    await (supabase.from("wa_conversations" as any) as any)
+      .update(next ? { ai_enabled: true, handoff_reason: null } : { ai_enabled: false })
+      .eq("id", convId);
+    if (next) {
+      const conv = (conversations ?? []).find((c: any) => c.id === convId);
+      const contactId = conv?.contact_id ?? conv?.wa_contacts?.id;
+      if (conv?.wa_contacts?.stage === "handoff" && contactId) {
+        await (supabase.from("wa_contacts" as any) as any)
+          .update({ stage: "conversando" })
+          .eq("id", contactId);
+      }
+    }
     qc.invalidateQueries({ queryKey: ["wa:conversations"] });
   }
 
