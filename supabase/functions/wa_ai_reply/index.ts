@@ -309,7 +309,7 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
     const minS = (cfg as any)?.reply_delay_min ?? 8;
     const maxS = (cfg as any)?.reply_delay_max ?? 45;
     const totalMs = Math.floor((minS + Math.random() * Math.max(1, maxS - minS)) * 1000);
-    const perMsg = Math.floor(totalMs / replyMsgs.length);
+    const perMsg = Math.floor(totalMs / Math.max(1, finalReplies.length));
 
     for (let i = 0; i < finalReplies.length; i++) {
       const m = finalReplies[i];
