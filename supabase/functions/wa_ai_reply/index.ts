@@ -103,33 +103,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 1) HANDOFF: si el lead pregunta por bot/IA, se enfada o pide humano → parar y avisar.
-    const handoff = detectHandoff(lastInText);
-    if (handoff.hit) {
-      const reason = `Detectado patrón "${handoff.reason}" en: "${lastInText.slice(0, 160)}"`;
-      await admin.from("wa_conversations").update({ ai_enabled: false, handoff_reason: reason }).eq("id", conversation_id);
-      await admin.from("wa_contacts").update({ stage: "handoff" }).eq("id", contact.id);
-      await admin.from("wa_messages").insert({
-        conversation_id,
-        contact_id: contact.id,
-        direction: "out",
-        type: "system",
-        content: "⚠️ Handoff automático: el lead pregunta por humano/bot, está incómodo o pide parar. Bot pausado, pendiente de comercial.",
-        ai_generated: false,
-        metadata: { handoff: true, trigger: lastInText.slice(0, 240), pattern: handoff.reason },
-      });
-      await admin.from("wa_ai_jobs").update({ status: "done", updated_at: new Date().toISOString() })
-        .eq("conversation_id", conversation_id).eq("status", "pending");
-      // Forzar resumen tras handoff
-      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/wa_summarize`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-        body: JSON.stringify({ conversation_id, force: true }),
-      }).catch(() => {});
-      return new Response(JSON.stringify({ ok: true, handoff: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // 1) HANDOFF AUTOMÁTICO DESACTIVADO: el bot ya no se pausa solo aunque el lead
+    //    pregunte por humano/IA o esté incómodo. Solo se pausa con el toggle manual
+    //    desde /whatsapp (ai_enabled = false), comprobado más arriba.
 
     // 2) ACTIVE HOURS (Europe/Madrid)
     const ah = (cfg as any)?.active_hours ?? { from: "09:00", to: "21:00" };
