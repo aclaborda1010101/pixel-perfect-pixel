@@ -834,7 +834,7 @@ function ConversationDetail({ conv, messages, regenerateSummary, toggleAi }: any
                     ? "border-gold/30 bg-gold/10 text-foreground"
                     : "border-border-faint bg-surface-1/60 text-foreground",
                 )}>
-                  {m.content}
+                    <MessageBody m={m} />
                   <div className="mt-1 flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
                     {new Date(m.created_at).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}
                     {m.ai_generated && <span className="text-gold">· bot</span>}
