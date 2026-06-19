@@ -21,6 +21,35 @@ import { cn } from "@/lib/utils";
 
 type SubView = "resumen" | "inbox" | "historico" | "pipeline" | "conexion" | "bot";
 
+function MessageBody({ m }: { m: any }) {
+  const media = m?.metadata?.media;
+  const kind = media?.kind ?? (m.type !== "text" ? m.type : null);
+  if (!kind) {
+    return <div className="whitespace-pre-line">{m.content}</div>;
+  }
+  const status = media?.processing;
+  const Icon = kind === "audio" ? Mic : kind === "image" ? ImageIcon : FileType2;
+  const label =
+    kind === "audio" ? "Audio" :
+    kind === "image" ? "Imagen" :
+    kind === "document" ? (media?.filename ?? "Documento") :
+    kind;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+        <Icon className="h-3 w-3" />
+        <span>{label}</span>
+        {status === "pending" && <span className="text-gold">· procesando…</span>}
+        {status === "failed" && <span className="text-destructive">· error</span>}
+        {status === "done" && <span className="text-success">· procesado</span>}
+      </div>
+      <div className="whitespace-pre-line text-[13px] leading-snug">
+        {m.content || <span className="italic text-muted-foreground/70">Sin contenido aún</span>}
+      </div>
+    </div>
+  );
+}
+
 const SUB_NAV: { id: SubView; label: string; icon: any }[] = [
   { id: "resumen",  label: "Resumen",  icon: Activity },
   { id: "inbox",    label: "Inbox",    icon: MessagesSquare },
