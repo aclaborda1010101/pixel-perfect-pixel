@@ -287,14 +287,25 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
     }
 
     // 4) TIEMPOS HUMANOS: delay total + presence typing + 1-3 mensajes con micro pausas
-    const minS = (cfg as any)?.reply_delay_min ?? 8;
-    const maxS = (cfg as any)?.reply_delay_max ?? 45;
+    // Si la conversación está activa (último saliente del bot < 5 min), respondemos rápido.
+    // Si es primer contacto / lleva tiempo fría, mantenemos el delay humano largo.
+    const lastOut = [...realHistory].reverse().find((m: any) => m.direction === "out");
+    const lastOutAgeMs = lastOut?.created_at ? (Date.now() - new Date(lastOut.created_at).getTime()) : Infinity;
+    const isActive = lastOutAgeMs < 5 * 60 * 1000;
+    const minS = isActive
+      ? ((cfg as any)?.reply_delay_active_min ?? 3)
+      : ((cfg as any)?.reply_delay_min ?? 8);
+    const maxS = isActive
+      ? ((cfg as any)?.reply_delay_active_max ?? 10)
+      : ((cfg as any)?.reply_delay_max ?? 45);
     const totalMs = Math.floor((minS + Math.random() * Math.max(1, maxS - minS)) * 1000);
     const perMsg = Math.floor(totalMs / Math.max(1, finalReplies.length));
 
     for (let i = 0; i < finalReplies.length; i++) {
       const m = finalReplies[i];
-      const typingMs = Math.max(1500, Math.min(perMsg - 600, 12000));
+      const typingMs = isActive
+        ? Math.max(800, Math.min(perMsg - 400, 6000))
+        : Math.max(1500, Math.min(perMsg - 600, 12000));
       await sendPresence(contact.phone, typingMs);
       await sleep(typingMs);
       const sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
@@ -316,7 +327,11 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
           propose_meeting: !!parsed.propose_meeting,
         },
       });
-      if (i < finalReplies.length - 1) await sleep(700 + Math.floor(Math.random() * 1600));
+      if (i < finalReplies.length - 1) {
+        await sleep(isActive
+          ? 300 + Math.floor(Math.random() * 600)
+          : 700 + Math.floor(Math.random() * 1600));
+      }
     }
 
     await admin.from("wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversation_id);

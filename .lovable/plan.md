@@ -1,35 +1,34 @@
-Plan para arreglar el fallo del bot de WhatsApp sin tocar el resto del CRM:
+## Objetivo
+Que el bot responda rápido cuando ya estás en plena conversación, pero mantenga el "delay humano" largo solo en el primer contacto.
 
-1. Capturar multimedia entrante en el webhook
-- Actualizar `evolution_webhook` para detectar mensajes entrantes de tipo audio, imagen y documento/PDF, no solo texto.
-- Guardar el mensaje en `wa_messages` con `type` correcto (`audio`, `image`, `document`) y metadatos del payload original.
-- Si entra multimedia, dejarlo marcado como `processing` y lanzar un procesamiento antes de encolar respuesta del bot.
+## Cambio único: `supabase/functions/wa_ai_reply/index.ts`
 
-2. Procesar audios, imágenes y documentos
-- Crear una edge function `wa_process_incoming_media`.
-- Para audios: descargar el contenido desde Evolution, transcribirlo con Lovable AI Speech-to-Text y guardar la transcripción en `content`.
-- Para imágenes/PDF/documentos: analizar el archivo con Lovable AI multimodal y guardar una descripción útil en castellano, orientada a detectar datos del lead/edificio.
-- Guardar estado y errores en `metadata.media_processing`, sin romper mensajes antiguos.
+En el bloque "TIEMPOS HUMANOS" (líneas ~289-299), calcular el delay en función de si la conversación está **activa** o **fría**:
 
-3. Bloquear respuestas hasta tener el contenido procesado
-- Cambiar `wa_ai_reply` para que ignore/posponga conversaciones con el último entrante multimedia aún sin procesar.
-- Así Lucía no volverá a preguntar lo mismo porque el audio “parecía vacío”.
-- Cuando termine el procesamiento, lanzar entonces `wa_ai_reply` con el texto transcrito/descrito ya dentro del historial.
+- **Conversación activa** = existe un mensaje saliente del bot en los últimos 5 minutos (mirar `realHistory` o consultar `wa_messages`).
+- **Conversación fría / primer contacto** = no hay saliente reciente.
 
-4. Hacer que Lucía use transcripciones como contexto real
-- Ajustar el prompt de `wa_ai_reply` para indicar que mensajes tipo audio/imagen/documento ya procesados cuentan como historial válido.
-- Reforzar que no repita preguntas si la respuesta ya aparece en una transcripción o documento.
-- Mantener el flujo solo entrante: no campañas, no plantillas, no inicio automático de conversación.
+Lógica:
 
-5. Reducir duplicados del bot
-- Añadir una protección contra jobs/respuestas duplicadas cuando llegan varios webhooks o audios seguidos.
-- Antes de responder, comprobar el último mensaje saliente del bot y evitar repetir exactamente la misma pregunta/frase en una ventana corta.
+```text
+if (conversación activa) {
+  minS = cfg.reply_delay_active_min ?? 3
+  maxS = cfg.reply_delay_active_max ?? 10
+} else {
+  minS = cfg.reply_delay_min ?? 8         // se mantiene
+  maxS = cfg.reply_delay_max ?? 45        // se mantiene
+}
+```
 
-6. Mostrar multimedia en `/whatsapp`
-- Ampliar la query de mensajes para traer `media_url`/metadata.
-- Renderizar burbujas profesionales para audio, imagen y documento: estado “procesando”, transcripción/descripción cuando exista, y error si falla.
-- Mantener el diseño actual del módulo WhatsApp.
+El typing por mensaje también se acorta proporcionalmente: `typingMs = clamp(perMsg - 400, 800, 6000)` cuando está activa, manteniendo el clamp actual (1500–12000) cuando está fría.
 
-7. Validación final
-- Revisar que el flujo sigue siendo: lead escribe primero -> webhook guarda -> procesa si hay multimedia -> bot responde solo si procede.
-- Confirmar explícitamente que no se envía ninguna plantilla saliente automática en este flujo.
+Las micro-pausas entre mensajes parten (700–2300 ms) → cuando está activa, 300–900 ms.
+
+## Lo que NO cambia
+- `reply_delay_min` / `reply_delay_max` de `wa_bot_config` siguen siendo el delay de "primer contacto".
+- Sin migración: se usan defaults en código (`3` y `10` segundos) para la ventana activa; si más adelante quieres exponerlos en config los añadimos.
+- Nada del resto del flujo (handoff manual, anti-duplicados, multimedia, resumen) se toca.
+
+## Resultado esperado
+- Primer mensaje del lead → el bot tarda 8–45 s como hasta ahora (suena natural y da margen al multimedia).
+- Mientras el lead está respondiendo en vivo → el bot contesta en 3–10 s, sin minutos muertos.
