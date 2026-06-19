@@ -15,6 +15,7 @@ import {
   Loader2, QrCode, Send, Bot, Phone, Power,
   MessagesSquare, UserPlus, Activity, Target, ArrowRight,
   TrendingUp, RefreshCw, AlertTriangle, History, Search, FileText, Check, X as XIcon, Sparkles,
+  Mic, Image as ImageIcon, FileType2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
