@@ -492,7 +492,7 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
                       ? "border-gold/30 bg-gold/10 text-foreground"
                       : "border-border-faint bg-surface-1/60 text-foreground",
                   )}>
-                    {m.content}
+                    <MessageBody m={m} />
                     <div className="mt-1 flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
                       {new Date(m.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
                       {m.ai_generated && <span className="text-gold">· bot</span>}
