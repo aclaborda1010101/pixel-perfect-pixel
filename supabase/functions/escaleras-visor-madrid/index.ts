@@ -262,65 +262,60 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     // 3. Buscar dirección. La caja de búsqueda habitual del Visor IDEAM es un input con placeholder/aria que contiene "buscar".
     const variants = normalizeDireccionForVisor(b.direccion);
     let searched = false; let usedQuery = "";
+    // Abrir el panel lateral "Búsqueda" (icono jimu) — el input no aparece hasta que se abre.
+    await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll("[title]"));
+      for (const el of els) {
+        const t = (el.getAttribute("title") || "").toLowerCase();
+        if (t.includes("búsqueda") || t.includes("busqueda")) { (el as HTMLElement).click(); return; }
+      }
+    });
+    await sleep(2000);
     for (const q of variants) {
       const ok = await page.evaluate((qq: string) => {
-        const inputs = Array.from(document.querySelectorAll("input"));
-        const target = inputs.find((i) => {
-          const t = ((i as HTMLInputElement).type || "text").toLowerCase();
-          if (!["text","search",""].includes(t)) return false;
-          const ph = ((i as HTMLInputElement).placeholder || "").toLowerCase();
-          const ar = (i.getAttribute("aria-label") || "").toLowerCase();
-          const id = (i.id || "").toLowerCase();
-          return ph.includes("buscar") || ph.includes("dirección") || ar.includes("buscar") || id.includes("search") || id.includes("buscar");
-        }) as HTMLInputElement | undefined;
+        const target = (document.querySelector('#esri_dijit_Search_0_input') as HTMLInputElement | null)
+          || (document.querySelector('input.searchInput') as HTMLInputElement | null)
+          || (Array.from(document.querySelectorAll('input')).find((i) => {
+            const ph = ((i as HTMLInputElement).placeholder || '').toLowerCase();
+            return ph.includes('buscar');
+          }) as HTMLInputElement | undefined);
         if (!target) return false;
         target.focus();
         target.value = qq;
-        target.dispatchEvent(new Event("input", { bubbles: true }));
-        target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "x" }));
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: qq.slice(-1) }));
         return true;
       }, q);
       if (!ok) continue;
-      await sleep(1500);
-      // Selecciona la primera opción del autocompletado
+      await sleep(2500);
       const picked = await page.evaluate(() => {
-        const candidates = Array.from(document.querySelectorAll("li,div,a,span"))
-          .filter((el) => {
-            const r = (el as HTMLElement).getBoundingClientRect();
-            const t = (el.textContent ?? "").trim();
-            return r.width > 50 && r.height > 10 && t.length > 4 && t.length < 200;
-          });
-        const list = candidates.find((el) => {
-          const cls = (el.getAttribute("class") || "").toLowerCase();
-          const role = (el.getAttribute("role") || "").toLowerCase();
-          return cls.includes("autocomplete") || cls.includes("suggest") || cls.includes("result") || role.includes("option");
-        });
-        if (list) { (list as HTMLElement).click(); return true; }
+        const li = document.querySelector('.searchMenu li, .suggestionsMenu li, .esriSuggestList li') as HTMLElement | null;
+        if (li) { li.click(); return true; }
         return false;
       });
       if (picked) { searched = true; usedQuery = q; break; }
     }
     log({ step: "buscar_direccion", ok: searched, note: usedQuery });
     if (!searched) return { ok: false, ...result, motivo: "no_se_pudo_buscar_direccion", steps };
-    await sleep(2000);
+    await sleep(5000);
 
-    // 4. Activar herramienta info (i) y click parcela
+    // 4. Activar herramienta "Identificación de Entidades" y click parcela en el centro del mapa
     const infoActivado = await page.evaluate(() => {
-      const els = Array.from(document.querySelectorAll("button,a,div,span,img"));
+      const els = Array.from(document.querySelectorAll('[title]'));
       const info = els.find((e) => {
-        const t = ((e.getAttribute("title") || "") + " " + (e.getAttribute("aria-label") || "") + " " + (e.getAttribute("alt") || "")).toLowerCase();
-        return t.includes("información") || t.includes("informacion") || /\binfo\b/.test(t);
+        const t = (e.getAttribute('title') || '').toLowerCase();
+        return t.includes('identificación de entidades') || t.includes('identificacion de entidades');
       });
       if (info) { (info as HTMLElement).click(); return true; }
       return false;
     });
     log({ step: "info_tool", ok: infoActivado });
-    await sleep(800);
+    await sleep(1500);
 
-    // Click en el centro del mapa
+    // El pin de la búsqueda queda centrado; click justo al centro del mapa.
     const vp = page.viewport();
     await page.mouse.click(Math.floor(vp.width / 2), Math.floor(vp.height / 2));
-    await sleep(2500);
+    await sleep(4000);
 
     // 5. Click "Ordenación: N" (con hook por si abre popup)
     await installPopupHook(page);
