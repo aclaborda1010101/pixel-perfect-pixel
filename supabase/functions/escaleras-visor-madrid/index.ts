@@ -72,26 +72,31 @@ async function rasterizePdf(buf: Uint8Array, maxPages = 4, scale = 4): Promise<U
 
 const VLM_PROMPT = (catalogo: string | null, calle: string, numero: string | null) => `Eres un experto en lectura de planos catastrales de Madrid (Catálogo PG97).
 
-En este croquis "Análisis de la Edificación" del Catálogo PG97 verás la MANZANA entera con varias parcelas rotuladas por Nº de Catálogo.
+En este croquis "Análisis de la Edificación" del Catálogo PG97 verás la MANZANA entera con varias parcelas rotuladas por Nº de Catálogo y las CALLES rotuladas alrededor (en los lados de la manzana).
 
 TAREA: localiza ÚNICAMENTE la parcela con:
 - Nº de Catálogo: ${catalogo ?? "(desconocido — usa el número de policía)"}
 - Calle: ${calle}
 - Nº de policía: ${numero ?? "(desconocido)"}
 
-Dentro de los límites de ESA parcela cuenta las CAJAS DE ESCALERA.
+Sobre ESA parcela:
+(a) Cuenta sus CAJAS DE ESCALERA dentro de sus límites.
+    - CAJA DE ESCALERA = recuadro con PELDAÑOS dibujados (líneas paralelas finas, a veces dos tramos con meseta, a veces envolviendo el hueco del ascensor que es un cuadradito). Dos tramos con meseta de UNA misma caja = 1 escalera, NO 2.
+    - PATIO de luces = recuadro con una X (aspa). NO es escalera, anótalo en patios_vistos.
+    - NO cuentes núcleos de parcelas vecinas.
+(b) Determina a qué CALLES da la parcela: mira qué lados de la parcela limitan con vías ROTULADAS en el plano. Devuélvelas tal y como aparecen escritas (ej: "Calle de Serrano", "Calle de Goya"). Si solo da a una calle, devuelve esa única calle.
 
-REGLAS:
-- CAJA DE ESCALERA = recuadro con PELDAÑOS dibujados (líneas paralelas finas, a veces en dos tramos alrededor de una meseta, a veces envolviendo el hueco del ascensor que es un cuadradito). Dos tramos con meseta de UNA misma caja = 1 escalera, NO 2.
-- PATIO de luces = recuadro con una X (aspa). NO es escalera, NO lo cuentes (pero anota patios_vistos).
-- NO cuentes núcleos de parcelas vecinas.
+es_esquina = true si la parcela limita con DOS o más calles distintas rotuladas; false si solo da a una.
 
 Devuelve JSON estricto:
 {
   "n_escaleras": <int>,
   "confianza": <0..1>,
   "patios_vistos": <int>,
-  "razonamiento": "<explica brevemente cómo identificaste la parcela y dónde está cada caja>"
+  "calles_frente": [<string>, ...],
+  "es_esquina": <bool>,
+  "confianza_esquina": <0..1>,
+  "razonamiento": "<explica brevemente cómo identificaste la parcela, dónde está cada caja y a qué calles da>"
 }`;
 
 async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: any; modelo_usado: string; modelo_fallback: boolean; raw: any; lastErr: string | null }> {
@@ -149,6 +154,112 @@ async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: a
   }
 
   return { parsed, modelo_usado, modelo_fallback, raw: llm_raw, lastErr };
+}
+
+// ---------- AGENTE CON VISIÓN ----------
+// visionAsk: pasa imágenes (URLs públicas o data: URLs) + prompt al gateway y exige JSON.
+async function visionAsk(images: string[], prompt: string, opts?: { maxTokens?: number }): Promise<{ parsed: any; modelo_usado: string; lastErr: string | null }> {
+  const primary = "google/gemini-3.1-pro-preview";
+  const fallback = "google/gemini-2.5-pro";
+  const buildPayload = (model: string) => ({
+    model,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+      ],
+    }],
+    response_format: { type: "json_object" },
+    ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+  });
+  let lastErr: string | null = null;
+  for (const model of [primary, fallback]) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify(buildPayload(model)),
+        });
+        if (r.status === 429 || r.status === 402) { lastErr = `gateway ${r.status} (${model})`; await sleep(1500 * (attempt + 1)); continue; }
+        const j = await r.json();
+        const txt = j?.choices?.[0]?.message?.content ?? "";
+        try { return { parsed: JSON.parse(txt), modelo_usado: model, lastErr: null }; }
+        catch { lastErr = `JSON inválido (${model}): ${txt.slice(0, 120)}`; }
+      } catch (e) { lastErr = `${model}: ${String((e as Error).message ?? e)}`; await sleep(1500); }
+    }
+  }
+  return { parsed: null, modelo_usado: primary, lastErr };
+}
+
+// visionAct: agente bucle screenshot→VLM→ejecuta. Devuelve { ok, log, attempts }.
+type VisionActLog = { attempt: number; action: string; x?: number; y?: number; text?: string; reason: string }[];
+async function visionAct(page: any, objetivo: string, opts?: { maxAttempts?: number; viewport?: { w: number; h: number }; postClickWaitMs?: number }) {
+  const maxAttempts = opts?.maxAttempts ?? 6;
+  const vw = opts?.viewport?.w ?? 1280;
+  const vh = opts?.viewport?.h ?? 900;
+  const wait = opts?.postClickWaitMs ?? 1800;
+  const log: VisionActLog = [];
+  for (let i = 0; i < maxAttempts; i++) {
+    let b64: string;
+    try {
+      b64 = await page.screenshot({ encoding: "base64", type: "png", clip: { x: 0, y: 0, width: vw, height: vh } });
+    } catch (e) {
+      log.push({ attempt: i, action: "screenshot_fail", reason: String((e as Error).message ?? e) });
+      return { ok: false, log };
+    }
+    const dataUrl = `data:image/png;base64,${b64}`;
+    const prompt = `Eres un agente que opera un visor web (Visor Urbanístico de Madrid). Tienes una captura de ${vw}x${vh} px (origen 0,0 arriba-izquierda).
+
+OBJETIVO: ${objetivo}
+
+Decide UNA acción para acercarte al objetivo. Coordenadas en píxeles ENTEROS dentro del rango [0,${vw}) x [0,${vh}).
+
+Acciones posibles (devuelve UNA):
+- {"action":"click","x":<int>,"y":<int>,"reason":"..."}
+- {"action":"type","x":<int>,"y":<int>,"text":"<texto>","reason":"..."}  (clica primero, luego escribe)
+- {"action":"scroll","x":<int>,"y":<int>,"deltaY":<int>,"reason":"..."}
+- {"action":"done","reason":"objetivo cumplido"}
+- {"action":"fail","reason":"no se puede cumplir"}
+
+Devuelve SOLO el JSON, sin texto extra.`;
+    const r = await visionAsk([dataUrl], prompt, { maxTokens: 400 });
+    if (!r.parsed) {
+      log.push({ attempt: i, action: "vlm_fail", reason: r.lastErr ?? "vlm sin respuesta" });
+      return { ok: false, log };
+    }
+    const a = r.parsed as any;
+    const action = String(a.action ?? "").toLowerCase();
+    const reason = String(a.reason ?? "").slice(0, 240);
+    const x = Math.max(0, Math.min(vw - 1, Number.parseInt(String(a.x ?? 0), 10) || 0));
+    const y = Math.max(0, Math.min(vh - 1, Number.parseInt(String(a.y ?? 0), 10) || 0));
+    log.push({ attempt: i, action, x, y, text: a.text, reason });
+    if (action === "done") return { ok: true, log };
+    if (action === "fail") return { ok: false, log };
+    try {
+      if (action === "click") {
+        await page.mouse.click(x, y);
+      } else if (action === "type") {
+        await page.mouse.click(x, y);
+        await sleep(300);
+        if (a.text) await page.keyboard.type(String(a.text), { delay: 25 });
+      } else if (action === "scroll") {
+        const dy = Number.parseInt(String(a.deltaY ?? 300), 10) || 300;
+        await page.mouse.move(x, y);
+        await page.mouse.wheel({ deltaY: dy });
+      } else {
+        log.push({ attempt: i, action: "unknown", reason: `acción no soportada: ${action}` });
+        return { ok: false, log };
+      }
+    } catch (e) {
+      log.push({ attempt: i, action: "exec_fail", reason: String((e as Error).message ?? e) });
+      return { ok: false, log };
+    }
+    await sleep(wait);
+  }
+  log.push({ attempt: maxAttempts, action: "timeout", reason: "max attempts alcanzado" });
+  return { ok: false, log };
 }
 
 // Recolector global de URLs vistas en red (peticiones de la página principal y de
