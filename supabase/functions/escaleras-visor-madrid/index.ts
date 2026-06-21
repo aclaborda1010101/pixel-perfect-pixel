@@ -330,11 +330,18 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
         }
       });
       await sleep(1500);
-      // diagnóstico: lista de inputs visibles
-      const diag = await page.evaluate(() => {
-        const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
-        return inputs.map((i) => ({ id: i.id, cls: i.className, ph: i.placeholder, type: i.type, vis: i.getBoundingClientRect().width > 0 })).slice(0, 12);
-      });
+      // diagnóstico: lista de frames + inputs por frame
+      const frames = page.frames();
+      const diag: any[] = [];
+      for (const fr of frames) {
+        try {
+          const inputs = await fr.evaluate(() => {
+            const arr = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+            return arr.map((i) => ({ id: i.id, cls: (i.className || "").slice(0, 40), ph: i.placeholder, type: i.type })).slice(0, 8);
+          });
+          diag.push({ url: fr.url().slice(0, 80), n: inputs.length, inputs });
+        } catch (_) { diag.push({ url: fr.url().slice(0, 80), n: -1 }); }
+      }
       for (const q of variants) {
         const typed = await page.evaluate((qq: string) => {
           const candidates = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
