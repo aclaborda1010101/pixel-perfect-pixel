@@ -303,6 +303,16 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
 
     // 1. Visor
     await page.goto("https://servpub.madrid.es/IDEAM_WBGEOPORTAL/visor_din.iam?clave=VSURB", { waitUntil: "networkidle2", timeout: 60000 });
+    // Espera a que el WebAppBuilder termine de cargar (el loader desaparece)
+    try {
+      await page.waitForFunction(() => {
+        const ld = document.getElementById("main-loading");
+        if (!ld) return true;
+        const cs = getComputedStyle(ld);
+        return cs.display === "none" || cs.visibility === "hidden" || ld.offsetHeight === 0;
+      }, { timeout: 60000, polling: 1000 });
+    } catch (_) { /* sigue, el diag lo confirma */ }
+    await sleep(2000);
     const pageDiag = await page.evaluate(() => ({
       url: location.href,
       title: document.title,
