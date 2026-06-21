@@ -351,11 +351,14 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       const diag: any[] = [];
       for (const fr of frames) {
         try {
-          const inputs = await fr.evaluate(() => {
+          const info = await fr.evaluate(() => {
             const arr = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
-            return arr.map((i) => ({ id: i.id, cls: (i.className || "").slice(0, 40), ph: i.placeholder, type: i.type })).slice(0, 8);
+            const inputs = arr.map((i) => ({ id: i.id, cls: (i.className || "").slice(0, 40), ph: i.placeholder, type: i.type })).slice(0, 8);
+            const titles = Array.from(document.querySelectorAll("[title]")).map((e) => e.getAttribute("title")).filter(Boolean).slice(0, 30);
+            const widgets = Array.from(document.querySelectorAll(".jimu-widget,[class*=widget-]")).map((e) => (e.className || "").toString().slice(0, 60)).slice(0, 20);
+            return { inputs, titles, widgets };
           });
-          diag.push({ url: fr.url().slice(0, 80), n: inputs.length, inputs });
+          diag.push({ url: fr.url().slice(0, 80), n: info.inputs.length, inputs: info.inputs, titles: info.titles, widgets: info.widgets });
         } catch (_) { diag.push({ url: fr.url().slice(0, 80), n: -1 }); }
       }
       for (const q of variants) {
