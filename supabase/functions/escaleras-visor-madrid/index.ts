@@ -296,8 +296,10 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
   try {
     browser = await puppeteer.connect({ browserWSEndpoint: BROWSER_WSS_URL });
     page = await browser.newPage();
-    page.setDefaultTimeout(30000);
+    page.setDefaultTimeout(45000);
     await page.setViewport({ width: 1400, height: 900 });
+
+    const recorder = await attachUrlRecorder(browser, page);
 
     // 1. Visor
     await page.goto("https://servpub.madrid.es/IDEAM_WBGEOPORTAL/visor_din.iam?clave=VSURB", { waitUntil: "networkidle2", timeout: 45000 });
@@ -353,6 +355,15 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     if (!searched) return { ok: false, ...result, motivo: "no_se_pudo_buscar_direccion", steps };
     await sleep(5000);
 
+    // El Visor abre a veces un popup "Resultado" tras el autocompletado. Ciérralo.
+    await recorder.closeExtraPages();
+    // Cualquier botón "cerrar" del modal Resultado que quede en la página
+    await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll<HTMLElement>('[title="Cerrar"],.dijitDialogCloseIcon,.jimu-icon-close'));
+      for (const b of btns) { const r = b.getBoundingClientRect(); if (r.width > 0) b.click(); }
+    });
+    await sleep(800);
+
     // 4. Activar herramienta "Identificación de Entidades" y click parcela en el centro del mapa
     const infoActivado = await page.evaluate(() => {
       const els = Array.from(document.querySelectorAll('[title]'));
@@ -371,32 +382,41 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     await page.mouse.click(Math.floor(vp.width / 2), Math.floor(vp.height / 2));
     await sleep(4000);
 
-    // 5. Click "Ordenación: N" (con hook por si abre popup)
-    await installPopupHook(page);
-    let ordenacionClick = await clickByText(page, "ordenación");
-    if (!ordenacionClick) ordenacionClick = await clickByText(page, "ordenacion");
+    // 5. Click "Ordenación: N" (intercepción por red — abre popup nativo)
+    recorder.reset();
+    let ordenacionClick = await clickOrdenacionLink(page);
+    if (!ordenacionClick) {
+      // fallback por texto
+      ordenacionClick = await clickByText(page, "ordenación") || await clickByText(page, "ordenacion");
+    }
     log({ step: "click_ordenacion", ok: ordenacionClick });
-    let popup = await getPopupUrl(page, 5000);
-    if (popup) { await page.goto(popup, { waitUntil: "networkidle2", timeout: 30000 }); }
-    else { await sleep(2000); }
+    if (!ordenacionClick) { result.motivo = "no_click_ordenacion"; return { ok: false, ...result, steps }; }
+    const ordenacionUrl = await recorder.waitFor(/infoUrbanisticaVigenteIndex/i, 15000);
+    log({ step: "url_ordenacion", ok: !!ordenacionUrl, note: ordenacionUrl?.slice(0, 140) });
+    if (!ordenacionUrl) { result.motivo = "no_se_capturo_url_ordenacion"; return { ok: false, ...result, steps }; }
+    await recorder.closeExtraPages();
+    await page.goto(ordenacionUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await sleep(1500);
 
     // 6. Pestaña Protección del Patrimonio → Catálogo PG97
-    await installPopupHook(page);
     let proteccion = await clickByText(page, "protección del patrimonio");
     if (!proteccion) proteccion = await clickByText(page, "proteccion del patrimonio");
     if (!proteccion) proteccion = await clickByText(page, "patrimonio");
     log({ step: "tab_proteccion", ok: proteccion });
     await sleep(1500);
 
-    await installPopupHook(page);
+    recorder.reset();
     const pg97 = await clickByText(page, "catálogo pg97") || await clickByText(page, "catalogo pg97") || await clickByText(page, "pg97");
     log({ step: "click_pg97", ok: pg97 });
     if (!pg97) {
       result.motivo = "sin catalogo pg97 / no protegido por esta via";
       return { ok: true, ...result, steps };
     }
-    popup = await getPopupUrl(page, 8000);
-    if (popup) await page.goto(popup, { waitUntil: "networkidle2", timeout: 30000 });
+    const pg97Url = await recorder.waitFor(/infoPg97\.iam/i, 15000);
+    log({ step: "url_pg97", ok: !!pg97Url, note: pg97Url?.slice(0, 140) });
+    if (!pg97Url) { result.motivo = "no_se_capturo_url_pg97"; return { ok: false, ...result, steps }; }
+    await recorder.closeExtraPages();
+    await page.goto(pg97Url, { waitUntil: "domcontentloaded", timeout: 45000 });
     await sleep(1500);
 
     // Extraer Nº Catálogo, Manzana, Grado del HTML
@@ -414,19 +434,21 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     result.catalogo = meta.catalogo; result.manzana = meta.manzana; result.grado = meta.grado;
     log({ step: "meta_pg97", ok: !!meta.catalogo, detail: meta });
 
-    // 7. Click "Análisis de la Edificación" → captura URL del PDF (no abrir pestaña)
-    await installPopupHook(page);
+    // 7. Click "Análisis de la Edificación" → captura URL del PDF por red, NO navegues
+    recorder.reset();
     const anedif = await clickByText(page, "análisis de la edificación") || await clickByText(page, "analisis de la edificacion") || await clickByText(page, "análisis de la edif") || await clickByText(page, "analisis de la edif");
     log({ step: "click_anedif", ok: anedif });
     if (!anedif) {
       result.motivo = "sin catalogo pg97 / no protegido por esta via";
       return { ok: true, ...result, steps };
     }
-    const pdfUrl = await getPopupUrl(page, 10000);
+    const pdfUrl = await recorder.waitFor(/getDocumento.*tipoDoc=ANEDIF/i, 15000)
+      ?? await recorder.waitFor(/getDocumento/i, 5000);
     if (!pdfUrl) {
       result.motivo = "no_pdf_url_capturada";
       return { ok: false, ...result, steps };
     }
+    await recorder.closeExtraPages();
     result.doc_url = pdfUrl;
     log({ step: "pdf_url", ok: true, note: pdfUrl.slice(0, 120) });
 
