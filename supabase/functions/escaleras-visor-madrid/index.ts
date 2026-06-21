@@ -213,9 +213,10 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     }
   }
 
-  const rc14 = (b.refcatastral || "").trim();
+  const rcRaw = (b.refcatastral || "").trim();
+  const rc14 = rcRaw.length >= 14 ? rcRaw.slice(0, 14) : rcRaw;
   if (!rc14 || rc14.length !== 14) {
-    return { ok: false, ...result, motivo: `rc_invalida: '${rc14}'`, steps: (log({ step: "rc_check", ok: false, note: rc14 }), steps) };
+    return { ok: false, ...result, motivo: `rc_invalida: '${rcRaw}'`, steps: (log({ step: "rc_check", ok: false, note: rcRaw }), steps) };
   }
 
   // 1. Coordenadas
