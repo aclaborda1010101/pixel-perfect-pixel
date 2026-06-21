@@ -302,8 +302,15 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     const recorder = await attachUrlRecorder(browser, page);
 
     // 1. Visor
-    await page.goto("https://servpub.madrid.es/IDEAM_WBGEOPORTAL/visor_din.iam?clave=VSURB", { waitUntil: "networkidle2", timeout: 45000 });
-    log({ step: "visor_loaded", ok: true });
+    await page.goto("https://servpub.madrid.es/IDEAM_WBGEOPORTAL/visor_din.iam?clave=VSURB", { waitUntil: "networkidle2", timeout: 60000 });
+    const pageDiag = await page.evaluate(() => ({
+      url: location.href,
+      title: document.title,
+      bodyLen: (document.body?.innerText || "").length,
+      bodyHead: (document.body?.innerText || "").slice(0, 300),
+      iframes: Array.from(document.querySelectorAll("iframe")).map((f) => (f as HTMLIFrameElement).src).slice(0, 5),
+    }));
+    log({ step: "visor_loaded", ok: true, note: JSON.stringify(pageDiag).slice(0, 500) });
 
     // 2. Aceptar aviso modal (puede tardar en aparecer)
     await sleep(1500);
