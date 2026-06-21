@@ -390,7 +390,7 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
         // (no podemos detectarlo facilmente; seguimos al siguiente variant si no)
       }
       if (!searched) {
-        log({ step: `buscar_attempt_${attempt}`, ok: false, note: JSON.stringify(diag).slice(0, 500) });
+        log({ step: `buscar_attempt_${attempt}`, ok: false, note: JSON.stringify(diag).slice(0, 1500) });
         await sleep(2000);
       }
     }
