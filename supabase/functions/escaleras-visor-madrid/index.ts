@@ -306,9 +306,8 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     const pageDiag = await page.evaluate(() => ({
       url: location.href,
       title: document.title,
-      bodyLen: (document.body?.innerText || "").length,
-      bodyHead: (document.body?.innerText || "").slice(0, 300),
-      iframes: Array.from(document.querySelectorAll("iframe")).map((f) => (f as HTMLIFrameElement).src).slice(0, 5),
+      bodyHTML: (document.body?.outerHTML || "").slice(0, 600),
+      iframes: Array.from(document.querySelectorAll("iframe")).map((f) => ({ src: (f as HTMLIFrameElement).src, id: f.id, name: (f as HTMLIFrameElement).name, hasSrcdoc: !!(f as HTMLIFrameElement).srcdoc })).slice(0, 5),
     }));
     log({ step: "visor_loaded", ok: true, note: JSON.stringify(pageDiag).slice(0, 500) });
 
