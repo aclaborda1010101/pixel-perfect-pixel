@@ -15,6 +15,7 @@ export function AnalisisIASection({ buildingId }: { buildingId: string }) {
   const { data: analysis } = useBuildingAnalysis(buildingId);
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [busyVisor, setBusyVisor] = useState(false);
 
   const hasData = !!analysis?.analysis;
   const running = status?.status === "running";
@@ -44,6 +45,30 @@ export function AnalisisIASection({ buildingId }: { buildingId: string }) {
   ];
 
   const a = analysis?.analysis;
+
+  const triggerVisor = async () => {
+    setBusyVisor(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("escaleras-visor-madrid", {
+        body: { building_id: buildingId, force: true },
+      });
+      if (error) throw error;
+      const r = (data as any)?.results?.[0] ?? data;
+      if (r?.n_escaleras_visor != null) {
+        toast.success(`Visor PG97: ${r.n_escaleras_visor} escalera(s) · conf ${Number(r.confianza ?? 0).toFixed(2)}${r.catalogo ? ` · Cat. ${r.catalogo}` : ""}`);
+      } else if (r?.motivo) {
+        toast.message(`Visor PG97: ${r.motivo}`);
+      } else {
+        toast.error(`Visor PG97 falló: ${r?.error ?? "sin resultado"}`);
+      }
+      qc.invalidateQueries({ queryKey: ["building_analysis", buildingId] });
+      qc.invalidateQueries({ queryKey: ["comercial:edificio", buildingId] });
+    } catch (e: any) {
+      toast.error("Error Visor: " + (e?.message ?? String(e)));
+    } finally {
+      setBusyVisor(false);
+    }
+  };
 
   return (
     <Card>
@@ -112,6 +137,39 @@ export function AnalisisIASection({ buildingId }: { buildingId: string }) {
                 ))}
               </div>
             )}
+
+            {/* Visor PG97 — escaleras autoritativas (Catálogo PG97 Madrid) */}
+            <div className="mt-3 rounded-md border border-border-faint bg-surface-1 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Visor PG97 · Análisis de la Edificación</div>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                    <span className="font-medium">
+                      {a?.n_escaleras_visor != null ? `${a.n_escaleras_visor} escalera${a.n_escaleras_visor === 1 ? "" : "s"}` : "—"}
+                    </span>
+                    {a?.escaleras_visor_confianza != null && (
+                      <span className="text-xs text-muted-foreground">conf. {Number(a.escaleras_visor_confianza).toFixed(2)}</span>
+                    )}
+                    {a?.escaleras_visor_catalogo && (
+                      <span className="text-xs text-muted-foreground">Catálogo {a.escaleras_visor_catalogo}</span>
+                    )}
+                    {a?.escaleras_visor_grado && (
+                      <span className="text-xs text-muted-foreground">Grado {a.escaleras_visor_grado}</span>
+                    )}
+                  </div>
+                  {a?.escaleras_visor_raw?.razonamiento && (
+                    <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{a.escaleras_visor_raw.razonamiento}</p>
+                  )}
+                  {a?.escaleras_visor_raw?.motivo && a?.n_escaleras_visor == null && (
+                    <p className="mt-1 text-[11px] text-muted-foreground italic">{a.escaleras_visor_raw.motivo}</p>
+                  )}
+                </div>
+                <Button size="sm" variant="outline" onClick={triggerVisor} disabled={busyVisor}>
+                  {busyVisor ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  <span className="ml-1">{a?.n_escaleras_visor != null ? "Re-detectar" : "Detectar"}</span>
+                </Button>
+              </div>
+            </div>
           </>
         ) : (
           <div className="text-sm text-muted-foreground">
