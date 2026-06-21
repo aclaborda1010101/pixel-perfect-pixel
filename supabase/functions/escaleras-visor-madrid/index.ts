@@ -536,34 +536,31 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       const t0 = Date.now();
       let inputReady = false;
       while (Date.now() - t0 < waitedMs) {
-        // re-dismiss splash si reapareció
+        // re-dismiss splash si reapareció — SOLO operaciones seguras (no click textual, evita detached frame)
         try {
           await page.evaluate(() => {
-            try { localStorage.setItem("splashScreen_doNotShowAgain", "true"); } catch (_) {}
-            const cbs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
-            for (const cb of cbs) {
-              const lbl = (cb.closest("label")?.textContent || cb.parentElement?.textContent || "").toLowerCase();
-              if ((lbl.includes("no mostrar") || lbl.includes("do not show") || lbl.includes("not show again")) && !cb.checked) cb.click();
-            }
-            const xs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialogCloseIcon,.jimu-icon-close,[title="Cerrar"],[aria-label="Close"]'));
-            for (const x of xs) { const r = x.getBoundingClientRect(); if (r.width > 0 && r.height > 0) (x as HTMLElement).click(); }
-            // click textual aceptar/entendido/...
-            const NEEDLES = ["aceptar", "acepto", "entendido", "continuar", "de acuerdo"];
-            const isVisible = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-            const all = Array.from(document.querySelectorAll("a,button,span,div,td,li"));
-            for (const el of all) {
-              const t = (el.textContent ?? "").trim().toLowerCase();
-              if (t.length < 40 && NEEDLES.some((n) => t === n || t.startsWith(n)) && isVisible(el)) { (el as HTMLElement).click(); break; }
-            }
-            // ocultar overlays restantes
-            document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"],.jimu-dialog,.splash,.dijitDialogUnderlay').forEach((d) => {
-              if (d.offsetWidth > 100 && d.offsetHeight > 50) {
-                d.style.setProperty("display", "none", "important");
-                d.style.setProperty("pointer-events", "none", "important");
+            // Marca checkbox "no mostrar" SOLO si está dentro de un diálogo visible
+            const dialogsRoots = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"],.jimu-dialog,.splash')).filter((d) => d.offsetWidth > 100 && d.offsetHeight > 50);
+            for (const dlg of dialogsRoots) {
+              dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((cb) => {
+                const lbl = (cb.closest("label")?.textContent || cb.parentElement?.textContent || "").toLowerCase();
+                if ((lbl.includes("no mostrar") || lbl.includes("do not show") || lbl.includes("not show again")) && !cb.checked) cb.click();
+              });
+              // Click solo en X de cierre DENTRO del diálogo
+              dlg.querySelectorAll<HTMLElement>('.dijitDialogCloseIcon,.jimu-icon-close,[title="Cerrar"],[aria-label="Close"]').forEach((x) => {
+                const r = x.getBoundingClientRect(); if (r.width > 0 && r.height > 0) (x as HTMLElement).click();
+              });
+              // Click solo en BUTTON dentro del diálogo cuyo texto sea aceptar/entendido/continuar
+              const NEEDLES = ["aceptar", "acepto", "entendido", "continuar", "de acuerdo"];
+              const btns = Array.from(dlg.querySelectorAll<HTMLElement>('button,[role="button"],.dijitButton'));
+              for (const b of btns) {
+                const t = (b.textContent ?? "").trim().toLowerCase();
+                const r = b.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0 && NEEDLES.some((n) => t === n || t.startsWith(n))) { (b as HTMLElement).click(); break; }
               }
-            });
+            }
           });
-        } catch (_) {}
+        } catch (_) { /* frame puede estar detached momentáneamente; sigue */ }
         try { await page.keyboard.press("Escape"); } catch (_) {}
         // ¿hay input de búsqueda visible?
         inputReady = await page.evaluate(() => {
