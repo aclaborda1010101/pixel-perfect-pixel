@@ -452,21 +452,132 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     }));
     log({ step: "visor_loaded", ok: true, note: JSON.stringify(pageDiag).slice(0, 500) });
 
-    // 2. Aceptar aviso(s) modal(es) — puede haber 1 o 2 splash. Usa selectores y, si quedan modales, visión.
+    // 2. Aceptar aviso(s) modal(es) — puede haber 1 o 2 splash. Estrategia agresiva por selectores.
     await sleep(1500);
-    for (let i = 0; i < 8; i++) {
-      const did = await clickByText(page, "aceptar") || await clickByText(page, "acepto");
+    // Pre-marca el splash como visto para futuras cargas (si el visor lo respeta)
+    try {
+      await page.evaluate(() => {
+        try { localStorage.setItem("splashScreen_doNotShowAgain", "true"); } catch (_) {}
+        try { localStorage.setItem("splash_screen_do_not_show_again", "true"); } catch (_) {}
+      });
+    } catch (_) {}
+    const NEEDLES = ["aceptar", "acepto", "entendido", "continuar", "de acuerdo", "ok"];
+    for (let i = 0; i < 14; i++) {
+      let did = false;
+      // 2a. Marca cualquier checkbox "no mostrar de nuevo / do not show again"
+      try {
+        await page.evaluate(() => {
+          const cbs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+          for (const cb of cbs) {
+            const lbl = (cb.closest("label")?.textContent || cb.parentElement?.textContent || "").toLowerCase();
+            if ((lbl.includes("no mostrar") || lbl.includes("do not show") || lbl.includes("not show again")) && !cb.checked) {
+              cb.click();
+            }
+          }
+        });
+      } catch (_) {}
+      // 2b. Click X de dijit / jimu / role=dialog
+      try {
+        const closed = await page.evaluate(() => {
+          const xs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialogCloseIcon,.jimu-icon-close,[title="Cerrar"],[aria-label="Close"]'));
+          let n = 0;
+          for (const x of xs) {
+            const r = x.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) { (x as HTMLElement).click(); n++; }
+          }
+          return n;
+        });
+        if (closed > 0) did = true;
+      } catch (_) {}
+      // 2c. Click texto Aceptar/Acepto/Entendido/Continuar/...
+      for (const n of NEEDLES) {
+        if (await clickByText(page, n)) { did = true; break; }
+      }
+      // 2d. Tecla Escape
+      try { await page.keyboard.press("Escape"); } catch (_) {}
       if (!did) break;
-      await sleep(900);
+      await sleep(800);
     }
-    // Si todavía hay un splash visible (no hay widgets clicables), pide a la visión que lo cierre.
-    const stillModal = await page.evaluate(() => {
-      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"],.jimu-dialog,.splash'));
-      return dialogs.some((d) => d.offsetWidth > 100 && d.offsetHeight > 50 && getComputedStyle(d).display !== "none");
+    await sleep(1200);
+    // Si todavía hay un splash visible bloqueando, fuerza su retirada (último recurso).
+    const stillModalAfter = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"],.jimu-dialog,.splash,.dijitDialogUnderlay'));
+      const blockers = dialogs.filter((d) => d.offsetWidth > 100 && d.offsetHeight > 50 && getComputedStyle(d).display !== "none");
+      return { count: blockers.length, texts: blockers.map((d) => (d.innerText || "").slice(0, 160)) };
     });
-    log({ step: "modal_aceptar", ok: !stillModal, note: stillModal ? "queda modal — vision fallback" : "limpio" });
+    let stillModal = stillModalAfter.count > 0;
+    if (stillModal) {
+      // Forzar ocultado del overlay/dialog para no bloquear los clics del usuario virtual.
+      await page.evaluate(() => {
+        const sel = '.dijitDialog,[role="dialog"],.jimu-dialog,.splash,.dijitDialogUnderlay';
+        document.querySelectorAll<HTMLElement>(sel).forEach((d) => {
+          if (d.offsetWidth > 100 && d.offsetHeight > 50) {
+            d.style.setProperty("display", "none", "important");
+            d.style.setProperty("visibility", "hidden", "important");
+            d.style.setProperty("pointer-events", "none", "important");
+          }
+        });
+      });
+      await sleep(600);
+      stillModal = await page.evaluate(() => {
+        const dialogs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"],.jimu-dialog,.splash'));
+        return dialogs.some((d) => d.offsetWidth > 100 && d.offsetHeight > 50 && getComputedStyle(d).display !== "none");
+      });
+    }
+    log({ step: "modal_aceptar", ok: !stillModal, note: stillModal ? `queda modal: ${JSON.stringify(stillModalAfter.texts).slice(0,200)}` : "limpio" });
     if (stillModal) {
       await runVision("Cierra cualquier aviso/splash/modal pulsando 'Aceptar', 'Acepto', 'Cerrar' o la X de cierre. Cuando NO quede ningún diálogo modal en pantalla y se vea el mapa con los iconos de widgets en la esquina, devuelve done.", { maxAttempts: 5 });
+    }
+
+    // 2.bis Espera ACTIVA a que la app WAB termine de cargar widgets (search input visible).
+    // La splash de bienvenida aparece tarde — durante esta espera, re-dismisseamos cada 1.5s.
+    {
+      const waitedMs = 35000;
+      const t0 = Date.now();
+      let inputReady = false;
+      while (Date.now() - t0 < waitedMs) {
+        // re-dismiss splash si reapareció — SOLO operaciones seguras (no click textual, evita detached frame)
+        try {
+          await page.evaluate(() => {
+            // Marca checkbox "no mostrar" SOLO si está dentro de un diálogo visible
+            const dialogsRoots = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"],.jimu-dialog,.splash')).filter((d) => d.offsetWidth > 100 && d.offsetHeight > 50);
+            for (const dlg of dialogsRoots) {
+              dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((cb) => {
+                const lbl = (cb.closest("label")?.textContent || cb.parentElement?.textContent || "").toLowerCase();
+                if ((lbl.includes("no mostrar") || lbl.includes("do not show") || lbl.includes("not show again")) && !cb.checked) cb.click();
+              });
+              // Click solo en X de cierre DENTRO del diálogo
+              dlg.querySelectorAll<HTMLElement>('.dijitDialogCloseIcon,.jimu-icon-close,[title="Cerrar"],[aria-label="Close"]').forEach((x) => {
+                const r = x.getBoundingClientRect(); if (r.width > 0 && r.height > 0) (x as HTMLElement).click();
+              });
+              // Click solo en BUTTON dentro del diálogo cuyo texto sea aceptar/entendido/continuar
+              const NEEDLES = ["aceptar", "acepto", "entendido", "continuar", "de acuerdo"];
+              const btns = Array.from(dlg.querySelectorAll<HTMLElement>('button,[role="button"],.dijitButton'));
+              for (const b of btns) {
+                const t = (b.textContent ?? "").trim().toLowerCase();
+                const r = b.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0 && NEEDLES.some((n) => t === n || t.startsWith(n))) { (b as HTMLElement).click(); break; }
+              }
+            }
+          });
+        } catch (_) { /* frame puede estar detached momentáneamente; sigue */ }
+        try { await page.keyboard.press("Escape"); } catch (_) {}
+        // ¿hay input de búsqueda visible?
+        inputReady = await page.evaluate(() => {
+          const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+          const visible = (i: HTMLInputElement) => { const r = i.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+          return inputs.some((i) =>
+            visible(i) && (
+              i.id === "esri_dijit_Search_0_input" ||
+              (i.className || "").toLowerCase().includes("searchinput") ||
+              ((i.placeholder || "").toLowerCase()).includes("buscar")
+            )
+          );
+        });
+        if (inputReady) break;
+        await sleep(1500);
+      }
+      log({ step: "search_input_ready", ok: inputReady, note: inputReady ? `tras ${Date.now() - t0}ms` : "no apareció en 35s" });
     }
 
     // 3. Buscar dirección — primero por selectores nativos; si falla, agente con visión.
