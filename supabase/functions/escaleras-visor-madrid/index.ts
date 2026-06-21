@@ -151,32 +151,67 @@ async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: a
   return { parsed, modelo_usado, modelo_fallback, raw: llm_raw, lastErr };
 }
 
-// Hook window.open en la pestaña actual: tras cualquier click que abra popup,
-// la URL queda en window.__lastVisorPopup. Hay que reinstalarlo después de cada navigate.
-async function installPopupHook(page: any) {
-  await page.evaluate(() => {
-    // @ts-ignore
-    window.__lastVisorPopup = null;
-    // @ts-ignore
-    window.open = function (url: string) {
-      try {
-        // @ts-ignore
-        window.__lastVisorPopup = url;
-      } catch (_e) { /* ignore */ }
-      return { closed: false, close() {}, focus() {}, location: { href: url } } as any;
-    };
-  });
-}
+// Recolector global de URLs vistas en red (peticiones de la página principal y de
+// cualquier popup que el Visor abra con window.open). Independiente de cómo se
+// dispare la navegación: cubre popup nativo, navegación in-place y XHR/fetch.
+type UrlRecorder = {
+  urls: string[];
+  reset: () => void;
+  waitFor: (regex: RegExp, timeoutMs?: number) => Promise<string | null>;
+  closeExtraPages: () => Promise<void>;
+};
 
-async function getPopupUrl(page: any, timeoutMs = 8000): Promise<string | null> {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeoutMs) {
-    // @ts-ignore
-    const u: string | null = await page.evaluate(() => (window as any).__lastVisorPopup ?? null);
-    if (u) return u;
-    await sleep(250);
-  }
-  return null;
+async function attachUrlRecorder(browser: any, page: any): Promise<UrlRecorder> {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const rec = (u: string | undefined | null) => {
+    if (!u) return;
+    if (seen.has(u)) return;
+    seen.add(u);
+    urls.push(u);
+  };
+
+  page.on("request", (r: any) => { try { rec(r.url()); } catch (_) {} });
+  page.on("framenavigated", (f: any) => { try { rec(f.url()); } catch (_) {} });
+  page.on("popup", (p: any) => {
+    try { rec(p.url()); } catch (_) {}
+    try { p.on("request", (r: any) => { try { rec(r.url()); } catch (_) {} }); } catch (_) {}
+    try { p.on("framenavigated", (f: any) => { try { rec(f.url()); } catch (_) {} }); } catch (_) {}
+  });
+  // puppeteer: nuevas pestañas vía targetcreated
+  try {
+    browser.on("targetcreated", async (target: any) => {
+      try {
+        const p = await target.page();
+        if (!p || p === page) return;
+        rec(p.url());
+        p.on("request", (r: any) => { try { rec(r.url()); } catch (_) {} });
+        p.on("framenavigated", (f: any) => { try { rec(f.url()); } catch (_) {} });
+      } catch (_) {}
+    });
+  } catch (_) {}
+
+  return {
+    urls,
+    reset() { urls.length = 0; seen.clear(); },
+    async waitFor(regex: RegExp, timeoutMs = 12000) {
+      const t0 = Date.now();
+      while (Date.now() - t0 < timeoutMs) {
+        const hit = urls.find((u) => regex.test(u));
+        if (hit) return hit;
+        await sleep(250);
+      }
+      return null;
+    },
+    async closeExtraPages() {
+      try {
+        const pages = await browser.pages();
+        for (const p of pages) {
+          if (p !== page) { try { await p.close(); } catch (_) {} }
+        }
+      } catch (_) {}
+    },
+  };
 }
 
 // Click en cualquier elemento cuyo texto contenga `needle` (case-insensitive).
@@ -197,6 +232,25 @@ async function clickByText(page: any, needle: string): Promise<boolean> {
     }
     return false;
   }, needle);
+}
+
+// Click en el <a title="...formulario de detalle..."> de "Ordenación: N"
+async function clickOrdenacionLink(page: any): Promise<boolean> {
+  return await page.evaluate(() => {
+    const isVisible = (el: Element) => {
+      const r = (el as HTMLElement).getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>("a[title]"));
+    for (const a of links) {
+      const t = (a.getAttribute("title") || "").toLowerCase();
+      if (t.includes("formulario de detalle") && isVisible(a)) {
+        a.click();
+        return true;
+      }
+    }
+    return false;
+  });
 }
 
 // ---------- procesa un edificio ----------
