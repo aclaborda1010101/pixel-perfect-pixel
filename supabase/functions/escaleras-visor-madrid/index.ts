@@ -676,7 +676,14 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     result.confianza = Number.isFinite(conf) ? conf : null;
     result.razonamiento = String(vlm.parsed.razonamiento ?? "").slice(0, 4000);
     result.patios_vistos = Number.isFinite(Number(vlm.parsed.patios_vistos)) ? Number(vlm.parsed.patios_vistos) : null;
-    log({ step: "vlm_ok", ok: true, note: `n=${result.n_escaleras_visor} conf=${result.confianza}` });
+    // Esquina + calles_frente
+    const callesArr = Array.isArray(vlm.parsed.calles_frente) ? (vlm.parsed.calles_frente as any[]).map((c) => String(c)).slice(0, 6) : [];
+    result.calles_frente_visor = callesArr.length ? callesArr : null;
+    if (typeof vlm.parsed.es_esquina === "boolean") result.es_esquina_visor = vlm.parsed.es_esquina;
+    else if (callesArr.length) result.es_esquina_visor = callesArr.length >= 2;
+    const cesq = Number.parseFloat(String(vlm.parsed.confianza_esquina ?? 0));
+    result.esquina_visor_confianza = Number.isFinite(cesq) ? cesq : null;
+    log({ step: "vlm_ok", ok: true, note: `n=${result.n_escaleras_visor} conf=${result.confianza} esq=${result.es_esquina_visor} calles=${callesArr.join("|")}` });
 
     // 11. Persistir en building_analysis (upsert por building_id)
     const patch: any = {
@@ -687,6 +694,9 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       escaleras_visor_grado: result.grado,
       escaleras_visor_source: "pg97_analisis_edificacion",
       escaleras_visor_at: new Date().toISOString(),
+      es_esquina_visor: result.es_esquina_visor,
+      calles_frente_visor: result.calles_frente_visor,
+      esquina_visor_confianza: result.esquina_visor_confianza,
       escaleras_visor_raw: {
         razonamiento: result.razonamiento,
         patios_vistos: result.patios_vistos,
@@ -696,7 +706,10 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
         doc_url: result.doc_url,
         modelo_usado: result.modelo_usado,
         modelo_fallback: vlm.modelo_fallback,
-        prompt_v: 1,
+        prompt_v: 2,
+        es_esquina: result.es_esquina_visor,
+        calles_frente: result.calles_frente_visor,
+        confianza_esquina: result.esquina_visor_confianza,
         steps,
       },
     };
