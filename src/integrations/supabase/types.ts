@@ -242,11 +242,13 @@ export type Database = {
           anotaciones_plano: Json | null
           aviso_ventanas: string | null
           building_id: string
+          calles_frente_visor: Json | null
           confidence: number | null
           confidence_ventanas: number | null
           created_at: string
           densidad_ventanas_fachada: number | null
           edificio_reformado: boolean | null
+          es_esquina_visor: boolean | null
           escaleras_needs_review: boolean
           escaleras_visor_at: string | null
           escaleras_visor_catalogo: string | null
@@ -255,6 +257,7 @@ export type Database = {
           escaleras_visor_raw: Json | null
           escaleras_visor_source: string | null
           esquina: boolean | null
+          esquina_visor_confianza: number | null
           fachada_lineal_total_m: number | null
           formula_ventanas_patio: string | null
           gestion_profesional: boolean | null
@@ -312,11 +315,13 @@ export type Database = {
           anotaciones_plano?: Json | null
           aviso_ventanas?: string | null
           building_id: string
+          calles_frente_visor?: Json | null
           confidence?: number | null
           confidence_ventanas?: number | null
           created_at?: string
           densidad_ventanas_fachada?: number | null
           edificio_reformado?: boolean | null
+          es_esquina_visor?: boolean | null
           escaleras_needs_review?: boolean
           escaleras_visor_at?: string | null
           escaleras_visor_catalogo?: string | null
@@ -325,6 +330,7 @@ export type Database = {
           escaleras_visor_raw?: Json | null
           escaleras_visor_source?: string | null
           esquina?: boolean | null
+          esquina_visor_confianza?: number | null
           fachada_lineal_total_m?: number | null
           formula_ventanas_patio?: string | null
           gestion_profesional?: boolean | null
@@ -382,11 +388,13 @@ export type Database = {
           anotaciones_plano?: Json | null
           aviso_ventanas?: string | null
           building_id?: string
+          calles_frente_visor?: Json | null
           confidence?: number | null
           confidence_ventanas?: number | null
           created_at?: string
           densidad_ventanas_fachada?: number | null
           edificio_reformado?: boolean | null
+          es_esquina_visor?: boolean | null
           escaleras_needs_review?: boolean
           escaleras_visor_at?: string | null
           escaleras_visor_catalogo?: string | null
@@ -395,6 +403,7 @@ export type Database = {
           escaleras_visor_raw?: Json | null
           escaleras_visor_source?: string | null
           esquina?: boolean | null
+          esquina_visor_confianza?: number | null
           fachada_lineal_total_m?: number | null
           formula_ventanas_patio?: string | null
           gestion_profesional?: boolean | null

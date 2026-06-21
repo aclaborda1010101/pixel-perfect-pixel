@@ -72,26 +72,31 @@ async function rasterizePdf(buf: Uint8Array, maxPages = 4, scale = 4): Promise<U
 
 const VLM_PROMPT = (catalogo: string | null, calle: string, numero: string | null) => `Eres un experto en lectura de planos catastrales de Madrid (Catálogo PG97).
 
-En este croquis "Análisis de la Edificación" del Catálogo PG97 verás la MANZANA entera con varias parcelas rotuladas por Nº de Catálogo.
+En este croquis "Análisis de la Edificación" del Catálogo PG97 verás la MANZANA entera con varias parcelas rotuladas por Nº de Catálogo y las CALLES rotuladas alrededor (en los lados de la manzana).
 
 TAREA: localiza ÚNICAMENTE la parcela con:
 - Nº de Catálogo: ${catalogo ?? "(desconocido — usa el número de policía)"}
 - Calle: ${calle}
 - Nº de policía: ${numero ?? "(desconocido)"}
 
-Dentro de los límites de ESA parcela cuenta las CAJAS DE ESCALERA.
+Sobre ESA parcela:
+(a) Cuenta sus CAJAS DE ESCALERA dentro de sus límites.
+    - CAJA DE ESCALERA = recuadro con PELDAÑOS dibujados (líneas paralelas finas, a veces dos tramos con meseta, a veces envolviendo el hueco del ascensor que es un cuadradito). Dos tramos con meseta de UNA misma caja = 1 escalera, NO 2.
+    - PATIO de luces = recuadro con una X (aspa). NO es escalera, anótalo en patios_vistos.
+    - NO cuentes núcleos de parcelas vecinas.
+(b) Determina a qué CALLES da la parcela: mira qué lados de la parcela limitan con vías ROTULADAS en el plano. Devuélvelas tal y como aparecen escritas (ej: "Calle de Serrano", "Calle de Goya"). Si solo da a una calle, devuelve esa única calle.
 
-REGLAS:
-- CAJA DE ESCALERA = recuadro con PELDAÑOS dibujados (líneas paralelas finas, a veces en dos tramos alrededor de una meseta, a veces envolviendo el hueco del ascensor que es un cuadradito). Dos tramos con meseta de UNA misma caja = 1 escalera, NO 2.
-- PATIO de luces = recuadro con una X (aspa). NO es escalera, NO lo cuentes (pero anota patios_vistos).
-- NO cuentes núcleos de parcelas vecinas.
+es_esquina = true si la parcela limita con DOS o más calles distintas rotuladas; false si solo da a una.
 
 Devuelve JSON estricto:
 {
   "n_escaleras": <int>,
   "confianza": <0..1>,
   "patios_vistos": <int>,
-  "razonamiento": "<explica brevemente cómo identificaste la parcela y dónde está cada caja>"
+  "calles_frente": [<string>, ...],
+  "es_esquina": <bool>,
+  "confianza_esquina": <0..1>,
+  "razonamiento": "<explica brevemente cómo identificaste la parcela, dónde está cada caja y a qué calles da>"
 }`;
 
 async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: any; modelo_usado: string; modelo_fallback: boolean; raw: any; lastErr: string | null }> {
@@ -149,6 +154,117 @@ async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: a
   }
 
   return { parsed, modelo_usado, modelo_fallback, raw: llm_raw, lastErr };
+}
+
+// ---------- AGENTE CON VISIÓN ----------
+// visionAsk: pasa imágenes (URLs públicas o data: URLs) + prompt al gateway y exige JSON.
+async function visionAsk(images: string[], prompt: string, opts?: { maxTokens?: number; primary?: string; fallback?: string }): Promise<{ parsed: any; modelo_usado: string; lastErr: string | null }> {
+  const primary = opts?.primary ?? "google/gemini-3.1-pro-preview";
+  const fallback = opts?.fallback ?? "google/gemini-2.5-pro";
+  const buildPayload = (model: string) => ({
+    model,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+      ],
+    }],
+    response_format: { type: "json_object" },
+    ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+  });
+  let lastErr: string | null = null;
+  for (const model of [primary, fallback]) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify(buildPayload(model)),
+        });
+        if (r.status === 429 || r.status === 402) { lastErr = `gateway ${r.status} (${model})`; await sleep(1500 * (attempt + 1)); continue; }
+        const j = await r.json();
+        const txt = j?.choices?.[0]?.message?.content ?? "";
+        try { return { parsed: JSON.parse(txt), modelo_usado: model, lastErr: null }; }
+        catch { lastErr = `JSON inválido (${model}): ${txt.slice(0, 120)}`; }
+      } catch (e) { lastErr = `${model}: ${String((e as Error).message ?? e)}`; await sleep(1500); }
+    }
+  }
+  return { parsed: null, modelo_usado: primary, lastErr };
+}
+
+// visionAct: agente bucle screenshot→VLM→ejecuta. Devuelve { ok, log, attempts }.
+type VisionActLog = { attempt: number; action: string; x?: number; y?: number; text?: string; reason: string }[];
+async function visionAct(page: any, objetivo: string, opts?: { maxAttempts?: number; viewport?: { w: number; h: number }; postClickWaitMs?: number }) {
+  const maxAttempts = opts?.maxAttempts ?? 6;
+  const vw = opts?.viewport?.w ?? 1280;
+  const vh = opts?.viewport?.h ?? 900;
+  const wait = opts?.postClickWaitMs ?? 1800;
+  const log: VisionActLog = [];
+  for (let i = 0; i < maxAttempts; i++) {
+    let b64: string;
+    try {
+      b64 = await page.screenshot({ encoding: "base64", type: "png", clip: { x: 0, y: 0, width: vw, height: vh } });
+    } catch (e) {
+      log.push({ attempt: i, action: "screenshot_fail", reason: String((e as Error).message ?? e) });
+      return { ok: false, log };
+    }
+    const dataUrl = `data:image/png;base64,${b64}`;
+    const prompt = `Eres un agente que opera un visor web (Visor Urbanístico de Madrid). Tienes una captura de ${vw}x${vh} px (origen 0,0 arriba-izquierda).
+
+OBJETIVO: ${objetivo}
+
+Decide UNA acción para acercarte al objetivo. Coordenadas en píxeles ENTEROS dentro del rango [0,${vw}) x [0,${vh}).
+
+Acciones posibles (devuelve UNA):
+- {"action":"click","x":<int>,"y":<int>,"reason":"..."}
+- {"action":"type","x":<int>,"y":<int>,"text":"<texto>","reason":"..."}  (clica primero, luego escribe)
+- {"action":"scroll","x":<int>,"y":<int>,"deltaY":<int>,"reason":"..."}
+- {"action":"done","reason":"objetivo cumplido"}
+- {"action":"fail","reason":"no se puede cumplir"}
+
+Devuelve SOLO el JSON, sin texto extra.`;
+    // Para el bucle agente usamos modelos Flash (más baratos). Pro queda para el croquis.
+    const r = await visionAsk([dataUrl], prompt, {
+      maxTokens: 400,
+      primary: "google/gemini-3-flash-preview",
+      fallback: "google/gemini-2.5-flash",
+    });
+    if (!r.parsed) {
+      log.push({ attempt: i, action: "vlm_fail", reason: r.lastErr ?? "vlm sin respuesta" });
+      return { ok: false, log };
+    }
+    const a = r.parsed as any;
+    const action = String(a.action ?? "").toLowerCase();
+    const reason = String(a.reason ?? "").slice(0, 240);
+    const x = Math.max(0, Math.min(vw - 1, Number.parseInt(String(a.x ?? 0), 10) || 0));
+    const y = Math.max(0, Math.min(vh - 1, Number.parseInt(String(a.y ?? 0), 10) || 0));
+    log.push({ attempt: i, action, x, y, text: a.text, reason });
+    if (action === "done") return { ok: true, log };
+    if (action === "fail") return { ok: false, log };
+    try {
+      if (action === "click") {
+        await page.mouse.click(x, y);
+      } else if (action === "type") {
+        await page.mouse.click(x, y);
+        await sleep(300);
+        if (a.text) await page.keyboard.type(String(a.text), { delay: 25 });
+      } else if (action === "scroll") {
+        const dy = Number.parseInt(String(a.deltaY ?? 300), 10) || 300;
+        await page.mouse.move(x, y);
+        await page.mouse.wheel({ deltaY: dy });
+      } else {
+        log.push({ attempt: i, action: "unknown", reason: `acción no soportada: ${action}` });
+        return { ok: false, log };
+      }
+    } catch (e) {
+      log.push({ attempt: i, action: "exec_fail", reason: String((e as Error).message ?? e) });
+      return { ok: false, log };
+    }
+    await sleep(wait);
+  }
+  log.push({ attempt: maxAttempts, action: "timeout", reason: "max attempts alcanzado" });
+  return { ok: false, log };
 }
 
 // Recolector global de URLs vistas en red (peticiones de la página principal y de
@@ -291,15 +407,30 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     doc_url: null as string | null,
     motivo: null as string | null,
     modelo_usado: null as string | null,
+    es_esquina_visor: null as boolean | null,
+    calles_frente_visor: null as string[] | null,
+    esquina_visor_confianza: null as number | null,
+    last_vision_objective: null as string | null,
+    last_vision_log: null as any,
   };
 
   try {
     browser = await puppeteer.connect({ browserWSEndpoint: BROWSER_WSS_URL });
     page = await browser.newPage();
     page.setDefaultTimeout(45000);
-    await page.setViewport({ width: 1400, height: 900 });
+    await page.setViewport({ width: 1280, height: 900 });
+    const VW = 1280, VH = 900;
 
     const recorder = await attachUrlRecorder(browser, page);
+
+    // Helper para registrar el último objetivo de visionAct (útil para reportar fallos)
+    const runVision = async (objetivo: string, opts?: any) => {
+      result.last_vision_objective = objetivo;
+      const r = await visionAct(page, objetivo, { viewport: { w: VW, h: VH }, ...(opts ?? {}) });
+      result.last_vision_log = r.log;
+      log({ step: `vision:${objetivo.slice(0, 60)}`, ok: r.ok, note: JSON.stringify(r.log).slice(0, 600) });
+      return r;
+    };
 
     // 1. Visor
     await page.goto("https://servpub.madrid.es/IDEAM_WBGEOPORTAL/visor_din.iam?clave=VSURB", { waitUntil: "networkidle2", timeout: 60000 });
@@ -321,94 +452,85 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     }));
     log({ step: "visor_loaded", ok: true, note: JSON.stringify(pageDiag).slice(0, 500) });
 
-    // 2. Aceptar aviso modal (puede tardar en aparecer)
+    // 2. Aceptar aviso(s) modal(es) — puede haber 1 o 2 splash. Usa selectores y, si quedan modales, visión.
     await sleep(1500);
-    let accepted = false;
-    for (let i = 0; i < 6 && !accepted; i++) {
-      accepted = await clickByText(page, "aceptar");
-      if (!accepted) accepted = await clickByText(page, "acepto");
-      if (!accepted) await sleep(700);
+    for (let i = 0; i < 8; i++) {
+      const did = await clickByText(page, "aceptar") || await clickByText(page, "acepto");
+      if (!did) break;
+      await sleep(900);
     }
-    log({ step: "modal_aceptar", ok: accepted });
+    // Si todavía hay un splash visible (no hay widgets clicables), pide a la visión que lo cierre.
+    const stillModal = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"],.jimu-dialog,.splash'));
+      return dialogs.some((d) => d.offsetWidth > 100 && d.offsetHeight > 50 && getComputedStyle(d).display !== "none");
+    });
+    log({ step: "modal_aceptar", ok: !stillModal, note: stillModal ? "queda modal — vision fallback" : "limpio" });
+    if (stillModal) {
+      await runVision("Cierra cualquier aviso/splash/modal pulsando 'Aceptar', 'Acepto', 'Cerrar' o la X de cierre. Cuando NO quede ningún diálogo modal en pantalla y se vea el mapa con los iconos de widgets en la esquina, devuelve done.", { maxAttempts: 5 });
+    }
 
-    // 3. Buscar dirección. La caja de búsqueda habitual del Visor IDEAM es un input con placeholder/aria que contiene "buscar".
+    // 3. Buscar dirección — primero por selectores nativos; si falla, agente con visión.
     const variants = normalizeDireccionForVisor(b.direccion);
     let searched = false; let usedQuery = "";
-    // Espera y abre el panel Búsqueda si existe; el input puede ya estar en la barra superior.
-    await sleep(3000);
-    for (let attempt = 0; attempt < 4 && !searched; attempt++) {
-      // intenta abrir panel búsqueda (idempotente)
-      await page.evaluate(() => {
-        const els = Array.from(document.querySelectorAll("[title]"));
-        for (const el of els) {
-          const t = (el.getAttribute("title") || "").toLowerCase();
-          if (t.includes("búsqueda") || t.includes("busqueda")) { (el as HTMLElement).click(); return; }
-        }
+    await sleep(2500);
+    // Intenta selectores rápidos
+    for (const q of variants) {
+      const typed = await page.evaluate((qq: string) => {
+        const candidates = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+        const visible = (i: HTMLInputElement) => i.getBoundingClientRect().width > 0;
+        const target = candidates.find((i) => i.id === "esri_dijit_Search_0_input" && visible(i))
+          || candidates.find((i) => (i.className || "").toLowerCase().includes("searchinput") && visible(i))
+          || candidates.find((i) => ((i.placeholder || "").toLowerCase()).includes("buscar") && visible(i));
+        if (!target) return false;
+        target.focus();
+        target.value = qq;
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: qq.slice(-1) }));
+        return true;
+      }, q);
+      if (!typed) continue;
+      await sleep(2500);
+      const picked = await page.evaluate(() => {
+        const li = document.querySelector(".searchMenu li, .suggestionsMenu li, .esriSuggestList li, [class*=suggest] li") as HTMLElement | null;
+        if (li) { li.click(); return true; }
+        return false;
       });
-      await sleep(1500);
-      // diagnóstico: lista de frames + inputs por frame
-      const frames = page.frames();
-      const diag: any[] = [];
-      for (const fr of frames) {
-        try {
-          const info = await fr.evaluate(() => {
-            const arr = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
-            const inputs = arr.map((i) => ({ id: i.id, cls: (i.className || "").slice(0, 40), ph: i.placeholder, type: i.type })).slice(0, 8);
-            const titles = Array.from(document.querySelectorAll("[title]")).map((e) => e.getAttribute("title")).filter(Boolean).slice(0, 30);
-            const widgets = Array.from(document.querySelectorAll(".jimu-widget,[class*=widget-]")).map((e) => (e.className || "").toString().slice(0, 60)).slice(0, 20);
-            return { inputs, titles, widgets };
-          });
-          diag.push({ url: fr.url().slice(0, 80), n: info.inputs.length, inputs: info.inputs, titles: info.titles, widgets: info.widgets });
-        } catch (_) { diag.push({ url: fr.url().slice(0, 80), n: -1 }); }
-      }
-      for (const q of variants) {
-        const typed = await page.evaluate((qq: string) => {
-          const candidates = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
-          const target = candidates.find((i) => i.id === "esri_dijit_Search_0_input")
-            || candidates.find((i) => (i.className || "").toLowerCase().includes("searchinput"))
-            || candidates.find((i) => ((i.placeholder || "").toLowerCase()).includes("buscar"))
-            || candidates.find((i) => i.type === "text" && i.getBoundingClientRect().width > 80);
-          if (!target) return false;
-          target.focus();
-          target.value = qq;
-          target.dispatchEvent(new Event("input", { bubbles: true }));
-          target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: qq.slice(-1) }));
-          return true;
-        }, q);
-        if (!typed) continue;
-        await sleep(3000);
-        const picked = await page.evaluate(() => {
-          const li = document.querySelector(".searchMenu li, .suggestionsMenu li, .esriSuggestList li, .searchMenu .menuItem, [class*=suggest] li") as HTMLElement | null;
-          if (li) { li.click(); return true; }
-          return false;
-        });
-        if (picked) { searched = true; usedQuery = q; break; }
-        // Si no hay suggestions, prueba Enter
-        try { await page.keyboard.press("Enter"); } catch (_) {}
-        await sleep(2500);
-        // si el mapa hizo zoom hay un pin → consideramos searched=true heurísticamente
-        // (no podemos detectarlo facilmente; seguimos al siguiente variant si no)
-      }
-      if (!searched) {
-        log({ step: `buscar_attempt_${attempt}`, ok: false, note: JSON.stringify(diag).slice(0, 1500) });
-        await sleep(2000);
+      if (picked) { searched = true; usedQuery = q; break; }
+      try { await page.keyboard.press("Enter"); } catch (_) {}
+      await sleep(2500);
+    }
+    // Fallback con visión
+    if (!searched) {
+      const dirText = variants[0] ?? b.direccion;
+      const r1 = await runVision(`Abre el widget de búsqueda (icono de lupa, normalmente arriba-derecha o en la barra de widgets). Cuando aparezca una caja de texto donde se pueda escribir, devuelve done.`, { maxAttempts: 4 });
+      if (r1.ok) {
+        const r2 = await runVision(`Escribe la dirección "${dirText}" en la caja de búsqueda y selecciona la primera sugerencia que coincida con esa dirección en Madrid (haz click en el item del autocompletado). Cuando el mapa haga zoom y aparezca un pin centrado en la parcela buscada, devuelve done.`, { maxAttempts: 6, postClickWaitMs: 2500 });
+        searched = r2.ok;
+        usedQuery = dirText;
       }
     }
     log({ step: "buscar_direccion", ok: searched, note: usedQuery });
-    if (!searched) return { ok: false, ...result, motivo: "no_se_pudo_buscar_direccion", steps };
-    await sleep(5000);
+    if (!searched) { result.motivo = "no_se_pudo_buscar_direccion"; return { ok: false, ...result, steps }; }
+    await sleep(4000);
 
     // El Visor abre a veces un popup "Resultado" tras el autocompletado. Ciérralo.
     await recorder.closeExtraPages();
-    // Cualquier botón "cerrar" del modal Resultado que quede en la página
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll<HTMLElement>('[title="Cerrar"],.dijitDialogCloseIcon,.jimu-icon-close'));
       for (const b of btns) { const r = b.getBoundingClientRect(); if (r.width > 0) b.click(); }
     });
     await sleep(800);
+    // Si todavía hay un popup tipo "Resultado" tapando el mapa, ciérralo con visión.
+    const blocking = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"]'));
+      return dialogs.some((d) => d.offsetWidth > 200 && d.offsetHeight > 100 && getComputedStyle(d).display !== "none");
+    });
+    if (blocking) {
+      await runVision("Cierra el popup llamado 'Resultado' (o cualquier diálogo que tape el mapa) pulsando su X o botón Cerrar. Cuando se vea el mapa libre, devuelve done.", { maxAttempts: 3 });
+    }
 
     // 4. Activar herramienta "Identificación de Entidades" y click parcela en el centro del mapa
-    const infoActivado = await page.evaluate(() => {
+    let infoActivado = await page.evaluate(() => {
       const els = Array.from(document.querySelectorAll('[title]'));
       const info = els.find((e) => {
         const t = (e.getAttribute('title') || '').toLowerCase();
@@ -417,20 +539,35 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       if (info) { (info as HTMLElement).click(); return true; }
       return false;
     });
+    if (!infoActivado) {
+      const r = await runVision("Activa la herramienta 'Identificación de Entidades' (icono de la 'i' de información, normalmente entre los widgets de la barra de herramientas). Cuando el cursor esté en modo identificar (suele cambiar el icono activo), devuelve done.", { maxAttempts: 4 });
+      infoActivado = r.ok;
+    }
     log({ step: "info_tool", ok: infoActivado });
     await sleep(1500);
 
-    // El pin de la búsqueda queda centrado; click justo al centro del mapa.
-    const vp = page.viewport();
-    await page.mouse.click(Math.floor(vp.width / 2), Math.floor(vp.height / 2));
+    // El pin queda centrado; click en el centro del viewport.
+    await page.mouse.click(Math.floor(VW / 2), Math.floor(VH / 2));
     await sleep(4000);
+    // Si no aparece el panel "Identificación" con resultados, intenta con visión clicar la parcela del pin.
+    const hasIdent = await page.evaluate(() => {
+      const txt = (document.body?.innerText || "").toLowerCase();
+      return txt.includes("ordenación") || txt.includes("ordenacion");
+    });
+    if (!hasIdent) {
+      await runVision("Tras buscar la dirección, hay un PIN rojo/azul centrado en el mapa señalando la parcela. Con la herramienta de Identificación ya activa, haz click EXACTAMENTE sobre la parcela del pin (en el polígono del edificio, no en la calle). Cuando aparezca un panel lateral con campos como 'Ordenación: ...', devuelve done.", { maxAttempts: 4, postClickWaitMs: 2500 });
+    }
 
-    // 5. Click "Ordenación: N" (intercepción por red — abre popup nativo)
+    // 5. Click "Ordenación: N" (intercepción por red — abre popup nativo).
     recorder.reset();
     let ordenacionClick = await clickOrdenacionLink(page);
     if (!ordenacionClick) {
       // fallback por texto
       ordenacionClick = await clickByText(page, "ordenación") || await clickByText(page, "ordenacion");
+    }
+    if (!ordenacionClick) {
+      const r = await runVision("En el panel lateral 'Identificación de Entidades' verás un campo 'Ordenación: <número>' donde el número es un enlace. Haz click EN ESE NÚMERO/ENLACE de Ordenación (no en otros campos). Cuando se abra una nueva ficha de detalle, devuelve done.", { maxAttempts: 4 });
+      ordenacionClick = r.ok;
     }
     log({ step: "click_ordenacion", ok: ordenacionClick });
     if (!ordenacionClick) { result.motivo = "no_click_ordenacion"; return { ok: false, ...result, steps }; }
@@ -544,7 +681,14 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     result.confianza = Number.isFinite(conf) ? conf : null;
     result.razonamiento = String(vlm.parsed.razonamiento ?? "").slice(0, 4000);
     result.patios_vistos = Number.isFinite(Number(vlm.parsed.patios_vistos)) ? Number(vlm.parsed.patios_vistos) : null;
-    log({ step: "vlm_ok", ok: true, note: `n=${result.n_escaleras_visor} conf=${result.confianza}` });
+    // Esquina + calles_frente
+    const callesArr = Array.isArray(vlm.parsed.calles_frente) ? (vlm.parsed.calles_frente as any[]).map((c) => String(c)).slice(0, 6) : [];
+    result.calles_frente_visor = callesArr.length ? callesArr : null;
+    if (typeof vlm.parsed.es_esquina === "boolean") result.es_esquina_visor = vlm.parsed.es_esquina;
+    else if (callesArr.length) result.es_esquina_visor = callesArr.length >= 2;
+    const cesq = Number.parseFloat(String(vlm.parsed.confianza_esquina ?? 0));
+    result.esquina_visor_confianza = Number.isFinite(cesq) ? cesq : null;
+    log({ step: "vlm_ok", ok: true, note: `n=${result.n_escaleras_visor} conf=${result.confianza} esq=${result.es_esquina_visor} calles=${callesArr.join("|")}` });
 
     // 11. Persistir en building_analysis (upsert por building_id)
     const patch: any = {
@@ -555,6 +699,9 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       escaleras_visor_grado: result.grado,
       escaleras_visor_source: "pg97_analisis_edificacion",
       escaleras_visor_at: new Date().toISOString(),
+      es_esquina_visor: result.es_esquina_visor,
+      calles_frente_visor: result.calles_frente_visor,
+      esquina_visor_confianza: result.esquina_visor_confianza,
       escaleras_visor_raw: {
         razonamiento: result.razonamiento,
         patios_vistos: result.patios_vistos,
@@ -564,7 +711,10 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
         doc_url: result.doc_url,
         modelo_usado: result.modelo_usado,
         modelo_fallback: vlm.modelo_fallback,
-        prompt_v: 1,
+        prompt_v: 2,
+        es_esquina: result.es_esquina_visor,
+        calles_frente: result.calles_frente_visor,
+        confianza_esquina: result.esquina_visor_confianza,
         steps,
       },
     };
