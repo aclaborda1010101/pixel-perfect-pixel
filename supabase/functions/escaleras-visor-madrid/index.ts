@@ -151,32 +151,67 @@ async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: a
   return { parsed, modelo_usado, modelo_fallback, raw: llm_raw, lastErr };
 }
 
-// Hook window.open en la pestaña actual: tras cualquier click que abra popup,
-// la URL queda en window.__lastVisorPopup. Hay que reinstalarlo después de cada navigate.
-async function installPopupHook(page: any) {
-  await page.evaluate(() => {
-    // @ts-ignore
-    window.__lastVisorPopup = null;
-    // @ts-ignore
-    window.open = function (url: string) {
-      try {
-        // @ts-ignore
-        window.__lastVisorPopup = url;
-      } catch (_e) { /* ignore */ }
-      return { closed: false, close() {}, focus() {}, location: { href: url } } as any;
-    };
-  });
-}
+// Recolector global de URLs vistas en red (peticiones de la página principal y de
+// cualquier popup que el Visor abra con window.open). Independiente de cómo se
+// dispare la navegación: cubre popup nativo, navegación in-place y XHR/fetch.
+type UrlRecorder = {
+  urls: string[];
+  reset: () => void;
+  waitFor: (regex: RegExp, timeoutMs?: number) => Promise<string | null>;
+  closeExtraPages: () => Promise<void>;
+};
 
-async function getPopupUrl(page: any, timeoutMs = 8000): Promise<string | null> {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeoutMs) {
-    // @ts-ignore
-    const u: string | null = await page.evaluate(() => (window as any).__lastVisorPopup ?? null);
-    if (u) return u;
-    await sleep(250);
-  }
-  return null;
+async function attachUrlRecorder(browser: any, page: any): Promise<UrlRecorder> {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const rec = (u: string | undefined | null) => {
+    if (!u) return;
+    if (seen.has(u)) return;
+    seen.add(u);
+    urls.push(u);
+  };
+
+  page.on("request", (r: any) => { try { rec(r.url()); } catch (_) {} });
+  page.on("framenavigated", (f: any) => { try { rec(f.url()); } catch (_) {} });
+  page.on("popup", (p: any) => {
+    try { rec(p.url()); } catch (_) {}
+    try { p.on("request", (r: any) => { try { rec(r.url()); } catch (_) {} }); } catch (_) {}
+    try { p.on("framenavigated", (f: any) => { try { rec(f.url()); } catch (_) {} }); } catch (_) {}
+  });
+  // puppeteer: nuevas pestañas vía targetcreated
+  try {
+    browser.on("targetcreated", async (target: any) => {
+      try {
+        const p = await target.page();
+        if (!p || p === page) return;
+        rec(p.url());
+        p.on("request", (r: any) => { try { rec(r.url()); } catch (_) {} });
+        p.on("framenavigated", (f: any) => { try { rec(f.url()); } catch (_) {} });
+      } catch (_) {}
+    });
+  } catch (_) {}
+
+  return {
+    urls,
+    reset() { urls.length = 0; seen.clear(); },
+    async waitFor(regex: RegExp, timeoutMs = 12000) {
+      const t0 = Date.now();
+      while (Date.now() - t0 < timeoutMs) {
+        const hit = urls.find((u) => regex.test(u));
+        if (hit) return hit;
+        await sleep(250);
+      }
+      return null;
+    },
+    async closeExtraPages() {
+      try {
+        const pages = await browser.pages();
+        for (const p of pages) {
+          if (p !== page) { try { await p.close(); } catch (_) {} }
+        }
+      } catch (_) {}
+    },
+  };
 }
 
 // Click en cualquier elemento cuyo texto contenga `needle` (case-insensitive).
@@ -197,6 +232,25 @@ async function clickByText(page: any, needle: string): Promise<boolean> {
     }
     return false;
   }, needle);
+}
+
+// Click en el <a title="...formulario de detalle..."> de "Ordenación: N"
+async function clickOrdenacionLink(page: any): Promise<boolean> {
+  return await page.evaluate(() => {
+    const isVisible = (el: Element) => {
+      const r = (el as HTMLElement).getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>("a[title]"));
+    for (const a of links) {
+      const t = (a.getAttribute("title") || "").toLowerCase();
+      if (t.includes("formulario de detalle") && isVisible(a)) {
+        a.click();
+        return true;
+      }
+    }
+    return false;
+  });
 }
 
 // ---------- procesa un edificio ----------
@@ -242,12 +296,30 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
   try {
     browser = await puppeteer.connect({ browserWSEndpoint: BROWSER_WSS_URL });
     page = await browser.newPage();
-    page.setDefaultTimeout(30000);
+    page.setDefaultTimeout(45000);
     await page.setViewport({ width: 1400, height: 900 });
 
+    const recorder = await attachUrlRecorder(browser, page);
+
     // 1. Visor
-    await page.goto("https://servpub.madrid.es/IDEAM_WBGEOPORTAL/visor_din.iam?clave=VSURB", { waitUntil: "networkidle2", timeout: 45000 });
-    log({ step: "visor_loaded", ok: true });
+    await page.goto("https://servpub.madrid.es/IDEAM_WBGEOPORTAL/visor_din.iam?clave=VSURB", { waitUntil: "networkidle2", timeout: 60000 });
+    // Espera a que el WebAppBuilder termine de cargar (el loader desaparece)
+    try {
+      await page.waitForFunction(() => {
+        const ld = document.getElementById("main-loading");
+        if (!ld) return true;
+        const cs = getComputedStyle(ld);
+        return cs.display === "none" || cs.visibility === "hidden" || ld.offsetHeight === 0;
+      }, { timeout: 60000, polling: 1000 });
+    } catch (_) { /* sigue, el diag lo confirma */ }
+    await sleep(8000);
+    const pageDiag = await page.evaluate(() => ({
+      url: location.href,
+      title: document.title,
+      bodyHTML: (document.body?.outerHTML || "").slice(0, 600),
+      iframes: Array.from(document.querySelectorAll("iframe")).map((f) => ({ src: (f as HTMLIFrameElement).src, id: f.id, name: (f as HTMLIFrameElement).name, hasSrcdoc: !!(f as HTMLIFrameElement).srcdoc })).slice(0, 5),
+    }));
+    log({ step: "visor_loaded", ok: true, note: JSON.stringify(pageDiag).slice(0, 500) });
 
     // 2. Aceptar aviso modal (puede tardar en aparecer)
     await sleep(1500);
@@ -262,42 +334,78 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     // 3. Buscar dirección. La caja de búsqueda habitual del Visor IDEAM es un input con placeholder/aria que contiene "buscar".
     const variants = normalizeDireccionForVisor(b.direccion);
     let searched = false; let usedQuery = "";
-    // Abrir el panel lateral "Búsqueda" (icono jimu) — el input no aparece hasta que se abre.
-    await page.evaluate(() => {
-      const els = Array.from(document.querySelectorAll("[title]"));
-      for (const el of els) {
-        const t = (el.getAttribute("title") || "").toLowerCase();
-        if (t.includes("búsqueda") || t.includes("busqueda")) { (el as HTMLElement).click(); return; }
-      }
-    });
-    await sleep(2000);
-    for (const q of variants) {
-      const ok = await page.evaluate((qq: string) => {
-        const target = (document.querySelector('#esri_dijit_Search_0_input') as HTMLInputElement | null)
-          || (document.querySelector('input.searchInput') as HTMLInputElement | null)
-          || (Array.from(document.querySelectorAll('input')).find((i) => {
-            const ph = ((i as HTMLInputElement).placeholder || '').toLowerCase();
-            return ph.includes('buscar');
-          }) as HTMLInputElement | undefined);
-        if (!target) return false;
-        target.focus();
-        target.value = qq;
-        target.dispatchEvent(new Event('input', { bubbles: true }));
-        target.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: qq.slice(-1) }));
-        return true;
-      }, q);
-      if (!ok) continue;
-      await sleep(2500);
-      const picked = await page.evaluate(() => {
-        const li = document.querySelector('.searchMenu li, .suggestionsMenu li, .esriSuggestList li') as HTMLElement | null;
-        if (li) { li.click(); return true; }
-        return false;
+    // Espera y abre el panel Búsqueda si existe; el input puede ya estar en la barra superior.
+    await sleep(3000);
+    for (let attempt = 0; attempt < 4 && !searched; attempt++) {
+      // intenta abrir panel búsqueda (idempotente)
+      await page.evaluate(() => {
+        const els = Array.from(document.querySelectorAll("[title]"));
+        for (const el of els) {
+          const t = (el.getAttribute("title") || "").toLowerCase();
+          if (t.includes("búsqueda") || t.includes("busqueda")) { (el as HTMLElement).click(); return; }
+        }
       });
-      if (picked) { searched = true; usedQuery = q; break; }
+      await sleep(1500);
+      // diagnóstico: lista de frames + inputs por frame
+      const frames = page.frames();
+      const diag: any[] = [];
+      for (const fr of frames) {
+        try {
+          const info = await fr.evaluate(() => {
+            const arr = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+            const inputs = arr.map((i) => ({ id: i.id, cls: (i.className || "").slice(0, 40), ph: i.placeholder, type: i.type })).slice(0, 8);
+            const titles = Array.from(document.querySelectorAll("[title]")).map((e) => e.getAttribute("title")).filter(Boolean).slice(0, 30);
+            const widgets = Array.from(document.querySelectorAll(".jimu-widget,[class*=widget-]")).map((e) => (e.className || "").toString().slice(0, 60)).slice(0, 20);
+            return { inputs, titles, widgets };
+          });
+          diag.push({ url: fr.url().slice(0, 80), n: info.inputs.length, inputs: info.inputs, titles: info.titles, widgets: info.widgets });
+        } catch (_) { diag.push({ url: fr.url().slice(0, 80), n: -1 }); }
+      }
+      for (const q of variants) {
+        const typed = await page.evaluate((qq: string) => {
+          const candidates = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+          const target = candidates.find((i) => i.id === "esri_dijit_Search_0_input")
+            || candidates.find((i) => (i.className || "").toLowerCase().includes("searchinput"))
+            || candidates.find((i) => ((i.placeholder || "").toLowerCase()).includes("buscar"))
+            || candidates.find((i) => i.type === "text" && i.getBoundingClientRect().width > 80);
+          if (!target) return false;
+          target.focus();
+          target.value = qq;
+          target.dispatchEvent(new Event("input", { bubbles: true }));
+          target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: qq.slice(-1) }));
+          return true;
+        }, q);
+        if (!typed) continue;
+        await sleep(3000);
+        const picked = await page.evaluate(() => {
+          const li = document.querySelector(".searchMenu li, .suggestionsMenu li, .esriSuggestList li, .searchMenu .menuItem, [class*=suggest] li") as HTMLElement | null;
+          if (li) { li.click(); return true; }
+          return false;
+        });
+        if (picked) { searched = true; usedQuery = q; break; }
+        // Si no hay suggestions, prueba Enter
+        try { await page.keyboard.press("Enter"); } catch (_) {}
+        await sleep(2500);
+        // si el mapa hizo zoom hay un pin → consideramos searched=true heurísticamente
+        // (no podemos detectarlo facilmente; seguimos al siguiente variant si no)
+      }
+      if (!searched) {
+        log({ step: `buscar_attempt_${attempt}`, ok: false, note: JSON.stringify(diag).slice(0, 1500) });
+        await sleep(2000);
+      }
     }
     log({ step: "buscar_direccion", ok: searched, note: usedQuery });
     if (!searched) return { ok: false, ...result, motivo: "no_se_pudo_buscar_direccion", steps };
     await sleep(5000);
+
+    // El Visor abre a veces un popup "Resultado" tras el autocompletado. Ciérralo.
+    await recorder.closeExtraPages();
+    // Cualquier botón "cerrar" del modal Resultado que quede en la página
+    await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll<HTMLElement>('[title="Cerrar"],.dijitDialogCloseIcon,.jimu-icon-close'));
+      for (const b of btns) { const r = b.getBoundingClientRect(); if (r.width > 0) b.click(); }
+    });
+    await sleep(800);
 
     // 4. Activar herramienta "Identificación de Entidades" y click parcela en el centro del mapa
     const infoActivado = await page.evaluate(() => {
@@ -317,32 +425,41 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     await page.mouse.click(Math.floor(vp.width / 2), Math.floor(vp.height / 2));
     await sleep(4000);
 
-    // 5. Click "Ordenación: N" (con hook por si abre popup)
-    await installPopupHook(page);
-    let ordenacionClick = await clickByText(page, "ordenación");
-    if (!ordenacionClick) ordenacionClick = await clickByText(page, "ordenacion");
+    // 5. Click "Ordenación: N" (intercepción por red — abre popup nativo)
+    recorder.reset();
+    let ordenacionClick = await clickOrdenacionLink(page);
+    if (!ordenacionClick) {
+      // fallback por texto
+      ordenacionClick = await clickByText(page, "ordenación") || await clickByText(page, "ordenacion");
+    }
     log({ step: "click_ordenacion", ok: ordenacionClick });
-    let popup = await getPopupUrl(page, 5000);
-    if (popup) { await page.goto(popup, { waitUntil: "networkidle2", timeout: 30000 }); }
-    else { await sleep(2000); }
+    if (!ordenacionClick) { result.motivo = "no_click_ordenacion"; return { ok: false, ...result, steps }; }
+    const ordenacionUrl = await recorder.waitFor(/infoUrbanisticaVigenteIndex/i, 15000);
+    log({ step: "url_ordenacion", ok: !!ordenacionUrl, note: ordenacionUrl?.slice(0, 140) });
+    if (!ordenacionUrl) { result.motivo = "no_se_capturo_url_ordenacion"; return { ok: false, ...result, steps }; }
+    await recorder.closeExtraPages();
+    await page.goto(ordenacionUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await sleep(1500);
 
     // 6. Pestaña Protección del Patrimonio → Catálogo PG97
-    await installPopupHook(page);
     let proteccion = await clickByText(page, "protección del patrimonio");
     if (!proteccion) proteccion = await clickByText(page, "proteccion del patrimonio");
     if (!proteccion) proteccion = await clickByText(page, "patrimonio");
     log({ step: "tab_proteccion", ok: proteccion });
     await sleep(1500);
 
-    await installPopupHook(page);
+    recorder.reset();
     const pg97 = await clickByText(page, "catálogo pg97") || await clickByText(page, "catalogo pg97") || await clickByText(page, "pg97");
     log({ step: "click_pg97", ok: pg97 });
     if (!pg97) {
       result.motivo = "sin catalogo pg97 / no protegido por esta via";
       return { ok: true, ...result, steps };
     }
-    popup = await getPopupUrl(page, 8000);
-    if (popup) await page.goto(popup, { waitUntil: "networkidle2", timeout: 30000 });
+    const pg97Url = await recorder.waitFor(/infoPg97\.iam/i, 15000);
+    log({ step: "url_pg97", ok: !!pg97Url, note: pg97Url?.slice(0, 140) });
+    if (!pg97Url) { result.motivo = "no_se_capturo_url_pg97"; return { ok: false, ...result, steps }; }
+    await recorder.closeExtraPages();
+    await page.goto(pg97Url, { waitUntil: "domcontentloaded", timeout: 45000 });
     await sleep(1500);
 
     // Extraer Nº Catálogo, Manzana, Grado del HTML
@@ -360,19 +477,21 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     result.catalogo = meta.catalogo; result.manzana = meta.manzana; result.grado = meta.grado;
     log({ step: "meta_pg97", ok: !!meta.catalogo, detail: meta });
 
-    // 7. Click "Análisis de la Edificación" → captura URL del PDF (no abrir pestaña)
-    await installPopupHook(page);
+    // 7. Click "Análisis de la Edificación" → captura URL del PDF por red, NO navegues
+    recorder.reset();
     const anedif = await clickByText(page, "análisis de la edificación") || await clickByText(page, "analisis de la edificacion") || await clickByText(page, "análisis de la edif") || await clickByText(page, "analisis de la edif");
     log({ step: "click_anedif", ok: anedif });
     if (!anedif) {
       result.motivo = "sin catalogo pg97 / no protegido por esta via";
       return { ok: true, ...result, steps };
     }
-    const pdfUrl = await getPopupUrl(page, 10000);
+    const pdfUrl = await recorder.waitFor(/getDocumento.*tipoDoc=ANEDIF/i, 15000)
+      ?? await recorder.waitFor(/getDocumento/i, 5000);
     if (!pdfUrl) {
       result.motivo = "no_pdf_url_capturada";
       return { ok: false, ...result, steps };
     }
+    await recorder.closeExtraPages();
     result.doc_url = pdfUrl;
     log({ step: "pdf_url", ok: true, note: pdfUrl.slice(0, 120) });
 
