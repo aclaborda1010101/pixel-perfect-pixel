@@ -312,7 +312,7 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
         return cs.display === "none" || cs.visibility === "hidden" || ld.offsetHeight === 0;
       }, { timeout: 60000, polling: 1000 });
     } catch (_) { /* sigue, el diag lo confirma */ }
-    await sleep(2000);
+    await sleep(8000);
     const pageDiag = await page.evaluate(() => ({
       url: location.href,
       title: document.title,
