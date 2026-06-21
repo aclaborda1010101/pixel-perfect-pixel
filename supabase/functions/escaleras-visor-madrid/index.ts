@@ -158,9 +158,9 @@ async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: a
 
 // ---------- AGENTE CON VISIÓN ----------
 // visionAsk: pasa imágenes (URLs públicas o data: URLs) + prompt al gateway y exige JSON.
-async function visionAsk(images: string[], prompt: string, opts?: { maxTokens?: number }): Promise<{ parsed: any; modelo_usado: string; lastErr: string | null }> {
-  const primary = "google/gemini-3.1-pro-preview";
-  const fallback = "google/gemini-2.5-pro";
+async function visionAsk(images: string[], prompt: string, opts?: { maxTokens?: number; primary?: string; fallback?: string }): Promise<{ parsed: any; modelo_usado: string; lastErr: string | null }> {
+  const primary = opts?.primary ?? "google/gemini-3.1-pro-preview";
+  const fallback = opts?.fallback ?? "google/gemini-2.5-pro";
   const buildPayload = (model: string) => ({
     model,
     messages: [{
@@ -224,7 +224,12 @@ Acciones posibles (devuelve UNA):
 - {"action":"fail","reason":"no se puede cumplir"}
 
 Devuelve SOLO el JSON, sin texto extra.`;
-    const r = await visionAsk([dataUrl], prompt, { maxTokens: 400 });
+    // Para el bucle agente usamos modelos Flash (más baratos). Pro queda para el croquis.
+    const r = await visionAsk([dataUrl], prompt, {
+      maxTokens: 400,
+      primary: "google/gemini-3-flash-preview",
+      fallback: "google/gemini-2.5-flash",
+    });
     if (!r.parsed) {
       log.push({ attempt: i, action: "vlm_fail", reason: r.lastErr ?? "vlm sin respuesta" });
       return { ok: false, log };
