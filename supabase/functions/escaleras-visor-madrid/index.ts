@@ -402,15 +402,30 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     doc_url: null as string | null,
     motivo: null as string | null,
     modelo_usado: null as string | null,
+    es_esquina_visor: null as boolean | null,
+    calles_frente_visor: null as string[] | null,
+    esquina_visor_confianza: null as number | null,
+    last_vision_objective: null as string | null,
+    last_vision_log: null as any,
   };
 
   try {
     browser = await puppeteer.connect({ browserWSEndpoint: BROWSER_WSS_URL });
     page = await browser.newPage();
     page.setDefaultTimeout(45000);
-    await page.setViewport({ width: 1400, height: 900 });
+    await page.setViewport({ width: 1280, height: 900 });
+    const VW = 1280, VH = 900;
 
     const recorder = await attachUrlRecorder(browser, page);
+
+    // Helper para registrar el último objetivo de visionAct (útil para reportar fallos)
+    const runVision = async (objetivo: string, opts?: any) => {
+      result.last_vision_objective = objetivo;
+      const r = await visionAct(page, objetivo, { viewport: { w: VW, h: VH }, ...(opts ?? {}) });
+      result.last_vision_log = r.log;
+      log({ step: `vision:${objetivo.slice(0, 60)}`, ok: r.ok, note: JSON.stringify(r.log).slice(0, 600) });
+      return r;
+    };
 
     // 1. Visor
     await page.goto("https://servpub.madrid.es/IDEAM_WBGEOPORTAL/visor_din.iam?clave=VSURB", { waitUntil: "networkidle2", timeout: 60000 });
@@ -432,94 +447,85 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     }));
     log({ step: "visor_loaded", ok: true, note: JSON.stringify(pageDiag).slice(0, 500) });
 
-    // 2. Aceptar aviso modal (puede tardar en aparecer)
+    // 2. Aceptar aviso(s) modal(es) — puede haber 1 o 2 splash. Usa selectores y, si quedan modales, visión.
     await sleep(1500);
-    let accepted = false;
-    for (let i = 0; i < 6 && !accepted; i++) {
-      accepted = await clickByText(page, "aceptar");
-      if (!accepted) accepted = await clickByText(page, "acepto");
-      if (!accepted) await sleep(700);
+    for (let i = 0; i < 8; i++) {
+      const did = await clickByText(page, "aceptar") || await clickByText(page, "acepto");
+      if (!did) break;
+      await sleep(900);
     }
-    log({ step: "modal_aceptar", ok: accepted });
+    // Si todavía hay un splash visible (no hay widgets clicables), pide a la visión que lo cierre.
+    const stillModal = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"],.jimu-dialog,.splash'));
+      return dialogs.some((d) => d.offsetWidth > 100 && d.offsetHeight > 50 && getComputedStyle(d).display !== "none");
+    });
+    log({ step: "modal_aceptar", ok: !stillModal, note: stillModal ? "queda modal — vision fallback" : "limpio" });
+    if (stillModal) {
+      await runVision("Cierra cualquier aviso/splash/modal pulsando 'Aceptar', 'Acepto', 'Cerrar' o la X de cierre. Cuando NO quede ningún diálogo modal en pantalla y se vea el mapa con los iconos de widgets en la esquina, devuelve done.", { maxAttempts: 5 });
+    }
 
-    // 3. Buscar dirección. La caja de búsqueda habitual del Visor IDEAM es un input con placeholder/aria que contiene "buscar".
+    // 3. Buscar dirección — primero por selectores nativos; si falla, agente con visión.
     const variants = normalizeDireccionForVisor(b.direccion);
     let searched = false; let usedQuery = "";
-    // Espera y abre el panel Búsqueda si existe; el input puede ya estar en la barra superior.
-    await sleep(3000);
-    for (let attempt = 0; attempt < 4 && !searched; attempt++) {
-      // intenta abrir panel búsqueda (idempotente)
-      await page.evaluate(() => {
-        const els = Array.from(document.querySelectorAll("[title]"));
-        for (const el of els) {
-          const t = (el.getAttribute("title") || "").toLowerCase();
-          if (t.includes("búsqueda") || t.includes("busqueda")) { (el as HTMLElement).click(); return; }
-        }
+    await sleep(2500);
+    // Intenta selectores rápidos
+    for (const q of variants) {
+      const typed = await page.evaluate((qq: string) => {
+        const candidates = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+        const visible = (i: HTMLInputElement) => i.getBoundingClientRect().width > 0;
+        const target = candidates.find((i) => i.id === "esri_dijit_Search_0_input" && visible(i))
+          || candidates.find((i) => (i.className || "").toLowerCase().includes("searchinput") && visible(i))
+          || candidates.find((i) => ((i.placeholder || "").toLowerCase()).includes("buscar") && visible(i));
+        if (!target) return false;
+        target.focus();
+        target.value = qq;
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: qq.slice(-1) }));
+        return true;
+      }, q);
+      if (!typed) continue;
+      await sleep(2500);
+      const picked = await page.evaluate(() => {
+        const li = document.querySelector(".searchMenu li, .suggestionsMenu li, .esriSuggestList li, [class*=suggest] li") as HTMLElement | null;
+        if (li) { li.click(); return true; }
+        return false;
       });
-      await sleep(1500);
-      // diagnóstico: lista de frames + inputs por frame
-      const frames = page.frames();
-      const diag: any[] = [];
-      for (const fr of frames) {
-        try {
-          const info = await fr.evaluate(() => {
-            const arr = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
-            const inputs = arr.map((i) => ({ id: i.id, cls: (i.className || "").slice(0, 40), ph: i.placeholder, type: i.type })).slice(0, 8);
-            const titles = Array.from(document.querySelectorAll("[title]")).map((e) => e.getAttribute("title")).filter(Boolean).slice(0, 30);
-            const widgets = Array.from(document.querySelectorAll(".jimu-widget,[class*=widget-]")).map((e) => (e.className || "").toString().slice(0, 60)).slice(0, 20);
-            return { inputs, titles, widgets };
-          });
-          diag.push({ url: fr.url().slice(0, 80), n: info.inputs.length, inputs: info.inputs, titles: info.titles, widgets: info.widgets });
-        } catch (_) { diag.push({ url: fr.url().slice(0, 80), n: -1 }); }
-      }
-      for (const q of variants) {
-        const typed = await page.evaluate((qq: string) => {
-          const candidates = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
-          const target = candidates.find((i) => i.id === "esri_dijit_Search_0_input")
-            || candidates.find((i) => (i.className || "").toLowerCase().includes("searchinput"))
-            || candidates.find((i) => ((i.placeholder || "").toLowerCase()).includes("buscar"))
-            || candidates.find((i) => i.type === "text" && i.getBoundingClientRect().width > 80);
-          if (!target) return false;
-          target.focus();
-          target.value = qq;
-          target.dispatchEvent(new Event("input", { bubbles: true }));
-          target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: qq.slice(-1) }));
-          return true;
-        }, q);
-        if (!typed) continue;
-        await sleep(3000);
-        const picked = await page.evaluate(() => {
-          const li = document.querySelector(".searchMenu li, .suggestionsMenu li, .esriSuggestList li, .searchMenu .menuItem, [class*=suggest] li") as HTMLElement | null;
-          if (li) { li.click(); return true; }
-          return false;
-        });
-        if (picked) { searched = true; usedQuery = q; break; }
-        // Si no hay suggestions, prueba Enter
-        try { await page.keyboard.press("Enter"); } catch (_) {}
-        await sleep(2500);
-        // si el mapa hizo zoom hay un pin → consideramos searched=true heurísticamente
-        // (no podemos detectarlo facilmente; seguimos al siguiente variant si no)
-      }
-      if (!searched) {
-        log({ step: `buscar_attempt_${attempt}`, ok: false, note: JSON.stringify(diag).slice(0, 1500) });
-        await sleep(2000);
+      if (picked) { searched = true; usedQuery = q; break; }
+      try { await page.keyboard.press("Enter"); } catch (_) {}
+      await sleep(2500);
+    }
+    // Fallback con visión
+    if (!searched) {
+      const dirText = variants[0] ?? b.direccion;
+      const r1 = await runVision(`Abre el widget de búsqueda (icono de lupa, normalmente arriba-derecha o en la barra de widgets). Cuando aparezca una caja de texto donde se pueda escribir, devuelve done.`, { maxAttempts: 4 });
+      if (r1.ok) {
+        const r2 = await runVision(`Escribe la dirección "${dirText}" en la caja de búsqueda y selecciona la primera sugerencia que coincida con esa dirección en Madrid (haz click en el item del autocompletado). Cuando el mapa haga zoom y aparezca un pin centrado en la parcela buscada, devuelve done.`, { maxAttempts: 6, postClickWaitMs: 2500 });
+        searched = r2.ok;
+        usedQuery = dirText;
       }
     }
     log({ step: "buscar_direccion", ok: searched, note: usedQuery });
-    if (!searched) return { ok: false, ...result, motivo: "no_se_pudo_buscar_direccion", steps };
-    await sleep(5000);
+    if (!searched) { result.motivo = "no_se_pudo_buscar_direccion"; return { ok: false, ...result, steps }; }
+    await sleep(4000);
 
     // El Visor abre a veces un popup "Resultado" tras el autocompletado. Ciérralo.
     await recorder.closeExtraPages();
-    // Cualquier botón "cerrar" del modal Resultado que quede en la página
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll<HTMLElement>('[title="Cerrar"],.dijitDialogCloseIcon,.jimu-icon-close'));
       for (const b of btns) { const r = b.getBoundingClientRect(); if (r.width > 0) b.click(); }
     });
     await sleep(800);
+    // Si todavía hay un popup tipo "Resultado" tapando el mapa, ciérralo con visión.
+    const blocking = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('.dijitDialog,[role="dialog"]'));
+      return dialogs.some((d) => d.offsetWidth > 200 && d.offsetHeight > 100 && getComputedStyle(d).display !== "none");
+    });
+    if (blocking) {
+      await runVision("Cierra el popup llamado 'Resultado' (o cualquier diálogo que tape el mapa) pulsando su X o botón Cerrar. Cuando se vea el mapa libre, devuelve done.", { maxAttempts: 3 });
+    }
 
     // 4. Activar herramienta "Identificación de Entidades" y click parcela en el centro del mapa
-    const infoActivado = await page.evaluate(() => {
+    let infoActivado = await page.evaluate(() => {
       const els = Array.from(document.querySelectorAll('[title]'));
       const info = els.find((e) => {
         const t = (e.getAttribute('title') || '').toLowerCase();
@@ -528,20 +534,35 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       if (info) { (info as HTMLElement).click(); return true; }
       return false;
     });
+    if (!infoActivado) {
+      const r = await runVision("Activa la herramienta 'Identificación de Entidades' (icono de la 'i' de información, normalmente entre los widgets de la barra de herramientas). Cuando el cursor esté en modo identificar (suele cambiar el icono activo), devuelve done.", { maxAttempts: 4 });
+      infoActivado = r.ok;
+    }
     log({ step: "info_tool", ok: infoActivado });
     await sleep(1500);
 
-    // El pin de la búsqueda queda centrado; click justo al centro del mapa.
-    const vp = page.viewport();
-    await page.mouse.click(Math.floor(vp.width / 2), Math.floor(vp.height / 2));
+    // El pin queda centrado; click en el centro del viewport.
+    await page.mouse.click(Math.floor(VW / 2), Math.floor(VH / 2));
     await sleep(4000);
+    // Si no aparece el panel "Identificación" con resultados, intenta con visión clicar la parcela del pin.
+    const hasIdent = await page.evaluate(() => {
+      const txt = (document.body?.innerText || "").toLowerCase();
+      return txt.includes("ordenación") || txt.includes("ordenacion");
+    });
+    if (!hasIdent) {
+      await runVision("Tras buscar la dirección, hay un PIN rojo/azul centrado en el mapa señalando la parcela. Con la herramienta de Identificación ya activa, haz click EXACTAMENTE sobre la parcela del pin (en el polígono del edificio, no en la calle). Cuando aparezca un panel lateral con campos como 'Ordenación: ...', devuelve done.", { maxAttempts: 4, postClickWaitMs: 2500 });
+    }
 
-    // 5. Click "Ordenación: N" (intercepción por red — abre popup nativo)
+    // 5. Click "Ordenación: N" (intercepción por red — abre popup nativo).
     recorder.reset();
     let ordenacionClick = await clickOrdenacionLink(page);
     if (!ordenacionClick) {
       // fallback por texto
       ordenacionClick = await clickByText(page, "ordenación") || await clickByText(page, "ordenacion");
+    }
+    if (!ordenacionClick) {
+      const r = await runVision("En el panel lateral 'Identificación de Entidades' verás un campo 'Ordenación: <número>' donde el número es un enlace. Haz click EN ESE NÚMERO/ENLACE de Ordenación (no en otros campos). Cuando se abra una nueva ficha de detalle, devuelve done.", { maxAttempts: 4 });
+      ordenacionClick = r.ok;
     }
     log({ step: "click_ordenacion", ok: ordenacionClick });
     if (!ordenacionClick) { result.motivo = "no_click_ordenacion"; return { ok: false, ...result, steps }; }
