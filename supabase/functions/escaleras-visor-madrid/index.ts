@@ -318,38 +318,55 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     // 3. Buscar dirección. La caja de búsqueda habitual del Visor IDEAM es un input con placeholder/aria que contiene "buscar".
     const variants = normalizeDireccionForVisor(b.direccion);
     let searched = false; let usedQuery = "";
-    // Abrir el panel lateral "Búsqueda" (icono jimu) — el input no aparece hasta que se abre.
-    await page.evaluate(() => {
-      const els = Array.from(document.querySelectorAll("[title]"));
-      for (const el of els) {
-        const t = (el.getAttribute("title") || "").toLowerCase();
-        if (t.includes("búsqueda") || t.includes("busqueda")) { (el as HTMLElement).click(); return; }
-      }
-    });
-    await sleep(2000);
-    for (const q of variants) {
-      const ok = await page.evaluate((qq: string) => {
-        const target = (document.querySelector('#esri_dijit_Search_0_input') as HTMLInputElement | null)
-          || (document.querySelector('input.searchInput') as HTMLInputElement | null)
-          || (Array.from(document.querySelectorAll('input')).find((i) => {
-            const ph = ((i as HTMLInputElement).placeholder || '').toLowerCase();
-            return ph.includes('buscar');
-          }) as HTMLInputElement | undefined);
-        if (!target) return false;
-        target.focus();
-        target.value = qq;
-        target.dispatchEvent(new Event('input', { bubbles: true }));
-        target.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: qq.slice(-1) }));
-        return true;
-      }, q);
-      if (!ok) continue;
-      await sleep(2500);
-      const picked = await page.evaluate(() => {
-        const li = document.querySelector('.searchMenu li, .suggestionsMenu li, .esriSuggestList li') as HTMLElement | null;
-        if (li) { li.click(); return true; }
-        return false;
+    // Espera y abre el panel Búsqueda si existe; el input puede ya estar en la barra superior.
+    await sleep(3000);
+    for (let attempt = 0; attempt < 4 && !searched; attempt++) {
+      // intenta abrir panel búsqueda (idempotente)
+      await page.evaluate(() => {
+        const els = Array.from(document.querySelectorAll("[title]"));
+        for (const el of els) {
+          const t = (el.getAttribute("title") || "").toLowerCase();
+          if (t.includes("búsqueda") || t.includes("busqueda")) { (el as HTMLElement).click(); return; }
+        }
       });
-      if (picked) { searched = true; usedQuery = q; break; }
+      await sleep(1500);
+      // diagnóstico: lista de inputs visibles
+      const diag = await page.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+        return inputs.map((i) => ({ id: i.id, cls: i.className, ph: i.placeholder, type: i.type, vis: i.getBoundingClientRect().width > 0 })).slice(0, 12);
+      });
+      for (const q of variants) {
+        const typed = await page.evaluate((qq: string) => {
+          const candidates = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+          const target = candidates.find((i) => i.id === "esri_dijit_Search_0_input")
+            || candidates.find((i) => (i.className || "").toLowerCase().includes("searchinput"))
+            || candidates.find((i) => ((i.placeholder || "").toLowerCase()).includes("buscar"))
+            || candidates.find((i) => i.type === "text" && i.getBoundingClientRect().width > 80);
+          if (!target) return false;
+          target.focus();
+          target.value = qq;
+          target.dispatchEvent(new Event("input", { bubbles: true }));
+          target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: qq.slice(-1) }));
+          return true;
+        }, q);
+        if (!typed) continue;
+        await sleep(3000);
+        const picked = await page.evaluate(() => {
+          const li = document.querySelector(".searchMenu li, .suggestionsMenu li, .esriSuggestList li, .searchMenu .menuItem, [class*=suggest] li") as HTMLElement | null;
+          if (li) { li.click(); return true; }
+          return false;
+        });
+        if (picked) { searched = true; usedQuery = q; break; }
+        // Si no hay suggestions, prueba Enter
+        try { await page.keyboard.press("Enter"); } catch (_) {}
+        await sleep(2500);
+        // si el mapa hizo zoom hay un pin → consideramos searched=true heurísticamente
+        // (no podemos detectarlo facilmente; seguimos al siguiente variant si no)
+      }
+      if (!searched) {
+        log({ step: `buscar_attempt_${attempt}`, ok: false, detail: diag });
+        await sleep(2000);
+      }
     }
     log({ step: "buscar_direccion", ok: searched, note: usedQuery });
     if (!searched) return { ok: false, ...result, motivo: "no_se_pudo_buscar_direccion", steps };
