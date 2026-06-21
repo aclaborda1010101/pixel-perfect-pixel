@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      _fn_backups: {
+        Row: {
+          created_at: string | null
+          definition: string | null
+          fn_name: string | null
+          id: number
+          note: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          definition?: string | null
+          fn_name?: string | null
+          id?: number
+          note?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          definition?: string | null
+          fn_name?: string | null
+          id?: number
+          note?: string | null
+        }
+        Relationships: []
+      }
+      _p0_snapshot: {
+        Row: {
+          cluster_antes: string | null
+          direccion: string | null
+          flag_antes: boolean | null
+          id: string | null
+          score_antes: number | null
+        }
+        Insert: {
+          cluster_antes?: string | null
+          direccion?: string | null
+          flag_antes?: boolean | null
+          id?: string | null
+          score_antes?: number | null
+        }
+        Update: {
+          cluster_antes?: string | null
+          direccion?: string | null
+          flag_antes?: boolean | null
+          id?: string | null
+          score_antes?: number | null
+        }
+        Relationships: []
+      }
       agent_runs: {
         Row: {
           agent_name: string
