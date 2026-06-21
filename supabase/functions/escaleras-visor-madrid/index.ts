@@ -28,7 +28,7 @@ async function getMupdf() {
   return _mupdf;
 }
 
-async function rasterizePdf(buf: Uint8Array, maxPages = 2, scale = 4): Promise<Uint8Array[]> {
+async function rasterizePdf(buf: Uint8Array, maxPages = 1, scale = 3): Promise<Uint8Array[]> {
   const mupdf = await getMupdf();
   const doc = mupdf.Document.openDocument(buf, "application/pdf");
   const n = Math.min(doc.countPages(), maxPages);
@@ -276,7 +276,7 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
   // 4. Render + subir páginas a storage para el VLM
   let pages: Uint8Array[];
   try {
-    pages = await rasterizePdf(pdfBuf, 2, 4);
+    pages = await rasterizePdf(pdfBuf, 1, 3);
   } catch (e: any) {
     log({ step: "rasterize", ok: false, note: String(e?.message ?? e) }); return { ok: false, ...result, motivo: "raster_error", steps };
   }
