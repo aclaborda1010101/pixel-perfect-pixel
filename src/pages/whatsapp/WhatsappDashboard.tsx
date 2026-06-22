@@ -609,63 +609,162 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
       {/* Panel lateral derecho con cualificación en vivo */}
       <Card className="col-span-12 lg:col-span-3">
         <CardHeader>
-          <Eyebrow>Cualificación</Eyebrow>
+          <Eyebrow>Ficha del lead</Eyebrow>
           <CardTitle className="text-base">Datos en vivo</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           {!current && (
-            <p className="text-xs text-muted-foreground">Selecciona una conversación para ver los datos extraídos.</p>
+            <p className="text-xs text-muted-foreground">Selecciona una conversación para ver la ficha.</p>
           )}
           {current && (
-            <>
-              <div className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
-                <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Stage</div>
-                <div className="mt-1 text-sm font-medium text-foreground">{current.wa_contacts?.stage ?? "nuevo"}</div>
-              </div>
-
-              <div className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-                    <FileText className="mr-1 inline h-3 w-3" /> Resumen
-                  </div>
-                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => regenerateSummary(current.id)}>
-                    <Sparkles className="h-3 w-3" /> Regenerar
-                  </Button>
-                </div>
-                <div className="mt-1 whitespace-pre-line text-xs text-foreground/90">
-                  {current.summary
-                    ? current.summary
-                    : <span className="italic text-muted-foreground/70">Aún no hay resumen. Se genera tras propuestas de llamada, handoff o ≥6 mensajes nuevos.</span>}
-                </div>
-                {current.summary_updated_at && (
-                  <div className="mt-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                    Actualizado: {new Date(current.summary_updated_at).toLocaleString("es")}
-                  </div>
-                )}
-              </div>
-
-              <ul className="space-y-2">
-                {QUAL_FIELDS.map((f) => {
-                  const v = qual[f.key];
-                  const has = v !== undefined && v !== null && v !== "";
-                  return (
-                    <li key={f.key} className="rounded-[6px] border border-border-faint bg-surface-1/30 px-3 py-2">
-                      <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{f.label}</div>
-                      <div className={cn("mt-0.5 text-sm", has ? "text-foreground" : "text-muted-foreground/60 italic")}>
-                        {has ? String(v) : "—"}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="pt-1 text-[10px] text-muted-foreground">
-                Los campos se rellenan automáticamente cuando la persona los menciona; el bot no los vuelve a preguntar.
-              </div>
-            </>
+            <LeadCard current={current} qual={qual} regenerateSummary={regenerateSummary} setRol={setRol} />
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/* ─────────── Ficha del lead (panel derecho del Inbox) ─────────── */
+function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
+  const stage = current.wa_contacts?.stage ?? "nuevo";
+  const stageColor =
+    stage === "handoff" ? "border-destructive/40 bg-destructive/10 text-destructive" :
+    stage === "caliente" || stage === "cualificado" ? "border-gold/40 bg-gold/10 text-gold" :
+    "border-border-faint bg-surface-1/40 text-foreground";
+
+  const SiNo = ({ v }: { v: any }) => {
+    if (v === "si" || v === true)  return <span className="text-success">✅ Sí</span>;
+    if (v === "no" || v === false) return <span className="text-destructive">⚠ No</span>;
+    if (v == null || v === "")     return <span className="italic text-muted-foreground/60">—</span>;
+    return <span className="text-foreground">{String(v)}</span>;
+  };
+  const Text = ({ v }: { v: any }) => {
+    const has = v != null && v !== "";
+    return <span className={cn(has ? "text-foreground" : "italic text-muted-foreground/60")}>{has ? String(v) : "—"}</span>;
+  };
+
+  const SectionHeader = ({ icon: Icon, label }: any) => (
+    <div className="mb-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+      <Icon className="h-3 w-3" /> {label}
+    </div>
+  );
+  const Row = ({ label, children }: any) => (
+    <div className="flex items-baseline justify-between gap-3 py-1">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span className="text-right text-xs">{children}</span>
+    </div>
+  );
+
+  const pendientes: string[] = [];
+  if (!qual.nombre_apellidos)        pendientes.push("Nombre y apellidos");
+  if (qual.gestiona_edificio == null) pendientes.push("Gestiona el edificio");
+  if (qual.vive_en_edificio == null) pendientes.push("Vive en el edificio");
+  if (!qual.relacion_copropietarios) pendientes.push("Vínculo con la propiedad");
+  if (qual.tiene_cuadro_rentas == null) pendientes.push("Cuadro de rentas");
+
+  return (
+    <>
+      {/* IDENTIDAD */}
+      <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+        <SectionHeader icon={IdCard} label="Identidad" />
+        <div className="text-sm font-medium text-foreground">
+          {qual.nombre_apellidos || current.wa_contacts?.name || current.wa_contacts?.phone || "—"}
+        </div>
+        <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{current.wa_contacts?.phone ?? "—"}</div>
+        <div className="mt-2 flex items-center gap-2">
+          <span className={cn("rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow", stageColor)}>
+            {stage}
+          </span>
+          {current.rol_source === "ia" && (
+            <span className="rounded-full border border-gold/30 bg-gold/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/80">
+              <Sparkles className="mr-0.5 inline h-2.5 w-2.5" /> IA{current.rol_confianza ? ` · ${Math.round(current.rol_confianza * 100)}%` : ""}
+            </span>
+          )}
+          {current.rol_source === "manual" && (
+            <span className="rounded-full border border-border-faint bg-surface-1/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+              Manual
+            </span>
+          )}
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-2">
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Rol</div>
+            <Select value={current.rol_owner ?? ""} onValueChange={(v) => setRol(current.id, { rol_owner: v })}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sin clasificar" /></SelectTrigger>
+              <SelectContent>
+                {ROL_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Subrol</div>
+            <Select value={current.subrol_owner ?? ""} onValueChange={(v) => setRol(current.id, { subrol_owner: v })}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectContent>
+                {SUBROL_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </section>
+
+      {/* VÍNCULO CON LA PROPIEDAD */}
+      <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+        <SectionHeader icon={Users} label="Vínculo con la propiedad" />
+        <Row label="Gestiona el edificio"><SiNo v={qual.gestiona_edificio} /></Row>
+        <Row label="Vive en el edificio"><SiNo v={qual.vive_en_edificio} /></Row>
+        <Row label="Relación familiar"><Text v={qual.relacion_copropietarios} /></Row>
+      </section>
+
+      {/* DATOS COMERCIALES */}
+      <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+        <SectionHeader icon={Briefcase} label="Datos comerciales" />
+        <Row label="Cuadro de rentas / vencimientos"><SiNo v={qual.tiene_cuadro_rentas} /></Row>
+        <Row label="Último mensaje">
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {current.last_message_at ? new Date(current.last_message_at).toLocaleString("es") : "—"}
+          </span>
+        </Row>
+      </section>
+
+      {/* RESUMEN IA */}
+      <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+            <FileText className="h-3 w-3" /> Resumen IA · próximo paso
+          </div>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => regenerateSummary(current.id)}>
+            <Sparkles className="h-3 w-3" /> Regenerar
+          </Button>
+        </div>
+        <div className="whitespace-pre-line text-xs text-foreground/90">
+          {current.summary
+            ? current.summary
+            : <span className="italic text-muted-foreground/70">Aún no hay resumen. Se genera tras propuestas de llamada, handoff o ≥6 mensajes nuevos.</span>}
+        </div>
+        {current.summary_updated_at && (
+          <div className="mt-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+            Actualizado: {new Date(current.summary_updated_at).toLocaleString("es")}
+          </div>
+        )}
+      </section>
+
+      {pendientes.length > 0 && (
+        <details className="rounded-[6px] border border-dashed border-border-faint bg-surface-1/20 p-3">
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+            Campos pendientes · {pendientes.length}
+          </summary>
+          <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+            {pendientes.map((p) => <li key={p}>· {p}</li>)}
+          </ul>
+        </details>
+      )}
+    </>
   );
 }
 
