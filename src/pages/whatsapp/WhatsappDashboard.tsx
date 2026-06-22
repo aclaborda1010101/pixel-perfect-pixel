@@ -247,6 +247,13 @@ export default function WhatsappDashboard() {
     qc.invalidateQueries({ queryKey: ["wa:conversations"] });
   }
 
+  async function setRol(convId: string, patch: { rol_owner?: string | null; subrol_owner?: string | null }) {
+    const update: any = { ...patch, rol_source: "manual" };
+    await (supabase.from("wa_conversations" as any) as any).update(update).eq("id", convId);
+    qc.invalidateQueries({ queryKey: ["wa:conversations"] });
+    toast.success("Rol actualizado");
+  }
+
   async function saveCfg(patch: any) {
     if (!cfg?.id) return;
     await (supabase.from("wa_bot_config" as any) as any).update(patch).eq("id", cfg.id);
@@ -338,6 +345,7 @@ export default function WhatsappDashboard() {
           sendMessage={sendMessage}
           toggleAi={toggleAi}
           regenerateSummary={regenerateSummary}
+          setRol={setRol}
         />
       )}
 
