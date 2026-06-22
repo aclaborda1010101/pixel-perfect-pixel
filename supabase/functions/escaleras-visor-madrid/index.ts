@@ -44,6 +44,39 @@ async function rasterizePdf(buf: Uint8Array, maxPages = 1, scale = 3): Promise<U
   return out;
 }
 
+// Renderiza la primera página completa y devuelve PNG + bounds base (escala 1)
+async function renderFullPage(buf: Uint8Array, scale: number): Promise<{ png: Uint8Array; W: number; H: number }> {
+  const mupdf = await getMupdf();
+  const doc = mupdf.Document.openDocument(buf, "application/pdf");
+  const page = doc.loadPage(0);
+  const b = page.getBounds();
+  const W = b[2] - b[0], H = b[3] - b[1];
+  const pix = page.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false, true);
+  const png = pix.asPNG();
+  pix.destroy(); page.destroy(); doc.destroy();
+  return { png, W, H };
+}
+
+// Renderiza SOLO una región (en coords normalizadas 0..1 sobre la página) a PNG, a la escala dada.
+async function renderRegion(buf: Uint8Array, nx0: number, ny0: number, nx1: number, ny1: number, scale: number): Promise<Uint8Array> {
+  const mupdf = await getMupdf();
+  const doc = mupdf.Document.openDocument(buf, "application/pdf");
+  const page = doc.loadPage(0);
+  const b = page.getBounds();
+  const W = b[2] - b[0], H = b[3] - b[1];
+  const rx0 = b[0] + nx0 * W, ry0 = b[1] + ny0 * H, rx1 = b[0] + nx1 * W, ry1 = b[1] + ny1 * H;
+  const S = scale;
+  const pixBbox = [Math.floor(rx0 * S), Math.floor(ry0 * S), Math.ceil(rx1 * S), Math.ceil(ry1 * S)];
+  const pix = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, pixBbox, false);
+  pix.clear(255);
+  const dev = new mupdf.DrawDevice([1, 0, 0, 1, 0, 0], pix);
+  page.run(dev, [S, 0, 0, S, 0, 0]);
+  dev.close();
+  const png = pix.asPNG();
+  pix.destroy(); page.destroy(); doc.destroy();
+  return png;
+}
+
 // ---------- Coordenadas ----------
 
 type XY = { x: number; y: number; source: string };
@@ -108,34 +141,23 @@ function parsePg97Html(html: string): Pg97Meta {
 
 // ---------- VLM ----------
 
-const VLM_PROMPT = (catalogo: string | null, calle: string, numero: string | null) => `Eres un experto en lectura de planos catastrales de Madrid (Catálogo PG97).
+const VLM_PROMPT_LOCATE = (catalogo: string | null, calle: string, numero: string | null) => `Eres un experto en lectura de planos catastrales de Madrid (Catálogo PG97). El croquis "Análisis de la Edificación" muestra una MANZANA con varias parcelas rotuladas por Nº de Catálogo y las CALLES rotuladas alrededor.
 
-En este croquis "Análisis de la Edificación" del Catálogo PG97 verás la MANZANA entera con varias parcelas rotuladas por Nº de Catálogo y las CALLES rotuladas alrededor (en los lados de la manzana).
+TAREA: localiza la parcela rotulada con Nº de Catálogo ${catalogo ?? "(desconocido)"} (calle ${calle}, nº ${numero ?? "?"}).
+(a) Devuelve el bounding box [x0,y0,x1,y1] en coordenadas NORMALIZADAS 0..1 (origen arriba-izquierda, x derecha, y abajo) ajustado a los LÍMITES de ESA parcela.
+(b) ¿A qué calles rotuladas da esa parcela? Devuelve los nombres tal como aparecen ("Calle de Serrano", etc.). es_esquina=true si limita con >=2 calles rotuladas distintas.
 
-TAREA: localiza ÚNICAMENTE la parcela con:
-- Nº de Catálogo: ${catalogo ?? "(desconocido — usa el número de policía)"}
-- Calle: ${calle}
-- Nº de policía: ${numero ?? "(desconocido)"}
+JSON estricto:
+{ "bbox": [x0,y0,x1,y1], "calles_frente": [..], "es_esquina": <bool>, "confianza_loc": <0..1>, "confianza_esquina": <0..1>, "razonamiento": "<breve>" }`;
 
-Sobre ESA parcela:
-(a) Cuenta sus CAJAS DE ESCALERA dentro de sus límites.
-    - CAJA DE ESCALERA = recuadro con PELDAÑOS dibujados (líneas paralelas finas, a veces dos tramos con meseta, a veces envolviendo el hueco del ascensor que es un cuadradito). Dos tramos con meseta de UNA misma caja = 1 escalera, NO 2.
-    - PATIO de luces = recuadro con una X (aspa). NO es escalera, anótalo en patios_vistos.
-    - NO cuentes núcleos de parcelas vecinas.
-(b) Determina a qué CALLES da la parcela: mira qué lados de la parcela limitan con vías ROTULADAS en el plano. Devuélvelas tal y como aparecen escritas (ej: "Calle de Serrano", "Calle de Goya"). Si solo da a una calle, devuelve esa única calle.
+const VLM_PROMPT_COUNT = `Esta imagen es el RECORTE de UNA parcela del croquis PG97 "Análisis de la Edificación". 
 
-es_esquina = true si la parcela limita con DOS o más calles distintas rotuladas; false si solo da a una.
+Cuenta SUS cajas de escalera:
+- CAJA DE ESCALERA = recuadro con PELDAÑOS dibujados (líneas paralelas finas, a veces dos tramos con meseta, a veces envolviendo el hueco del ascensor que es un cuadradito). Dos tramos con meseta de UNA misma caja = 1 escalera, NO 2.
+- PATIO de luces = recuadro con una X (aspa). NO es escalera; anótalo en patios.
+- Cuenta SOLO lo que esté dentro de los límites de la parcela recortada; ignora trozos de parcelas vecinas en los bordes.
 
-Devuelve JSON estricto:
-{
-  "n_escaleras": <int>,
-  "confianza": <0..1>,
-  "patios_vistos": <int>,
-  "calles_frente": [<string>, ...],
-  "es_esquina": <bool>,
-  "confianza_esquina": <0..1>,
-  "razonamiento": "<explica brevemente cómo identificaste la parcela, dónde está cada caja y a qué calles da>"
-}`;
+JSON estricto: { "n_escaleras": <int>, "patios": <int>, "confianza": <0..1>, "razonamiento": "<breve, indica dónde está cada caja>" }`;
 
 async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: any; modelo_usado: string; modelo_fallback: boolean; lastErr: string | null }> {
   const buildPayload = (model: string) => ({
@@ -273,49 +295,91 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
   }
   log({ step: "fetch_pdf", ok: true, note: `${pdfBuf.length}b` });
 
-  // 4. Render + subir páginas a storage para el VLM
-  let pages: Uint8Array[];
+  // 4. Render página completa (escala 2.5) para PASA 1
+  let fullPng: Uint8Array, pageW = 0, pageH = 0;
   try {
-    pages = await rasterizePdf(pdfBuf, 1, 3);
+    const fp = await renderFullPage(pdfBuf, 2.5);
+    fullPng = fp.png; pageW = fp.W; pageH = fp.H;
   } catch (e: any) {
-    log({ step: "rasterize", ok: false, note: String(e?.message ?? e) }); return { ok: false, ...result, motivo: "raster_error", steps };
+    log({ step: "rasterize_full", ok: false, note: String(e?.message ?? e) }); return { ok: false, ...result, motivo: "raster_error", steps };
   }
-  log({ step: "rasterize", ok: true, note: `${pages.length} páginas` });
+  log({ step: "rasterize_full", ok: true, note: `W=${pageW.toFixed(0)} H=${pageH.toFixed(0)} bytes=${fullPng.length}` });
 
-  const imageUrls: string[] = [];
-  for (let i = 0; i < pages.length; i++) {
-    const path = `visor-pg97/${building_id}_anedif_p${i + 1}_${Date.now()}.png`;
-    const up = await sb.storage.from("catastro").upload(path, pages[i], { contentType: "image/png", upsert: true });
-    if (up.error) { console.warn("[visor] upload fail", up.error.message); continue; }
-    imageUrls.push(sb.storage.from("catastro").getPublicUrl(path).data.publicUrl);
-  }
-  if (imageUrls.length === 0) {
-    log({ step: "upload_png", ok: false }); return { ok: false, ...result, motivo: "no_imagenes_subidas", steps };
-  }
-  log({ step: "upload_png", ok: true, note: `${imageUrls.length} url(s)` });
+  const ts = Date.now();
+  const fullPath = `visor-pg97/${building_id}_full_${ts}.png`;
+  const upFull = await sb.storage.from("catastro").upload(fullPath, fullPng, { contentType: "image/png", upsert: true });
+  if (upFull.error) { log({ step: "upload_full", ok: false, note: upFull.error.message }); return { ok: false, ...result, motivo: "upload_full_error", steps }; }
+  const fullUrl = sb.storage.from("catastro").getPublicUrl(fullPath).data.publicUrl;
+  log({ step: "upload_full", ok: true });
 
-  // 5. VLM
+  // 5. VLM PASA 1: localizar parcela + calles
   const numero = (b.direccion?.match(/\b(\d{1,4})\b/)?.[1]) ?? null;
   const calleSimple = (b.direccion ?? "").replace(/\b\d{1,4}\b.*$/, "").trim();
-  const prompt = VLM_PROMPT(meta.catalogo, calleSimple, numero);
-  const vlm = await callVLM(imageUrls, prompt);
-  if (!vlm.parsed) {
-    log({ step: "vlm", ok: false, note: vlm.lastErr ?? "" }); return { ok: false, ...result, motivo: "vlm_sin_resultado", vlm_error: vlm.lastErr, steps };
+  const vlm1 = await callVLM([fullUrl], VLM_PROMPT_LOCATE(meta.catalogo, calleSimple, numero));
+  if (!vlm1.parsed) {
+    log({ step: "vlm_locate", ok: false, note: vlm1.lastErr ?? "" }); return { ok: false, ...result, motivo: "vlm_locate_sin_resultado", vlm_error: vlm1.lastErr, steps };
   }
-  result.modelo_usado = vlm.modelo_usado;
-  const n = Number.parseInt(String(vlm.parsed.n_escaleras ?? 0), 10);
-  const conf = Number.parseFloat(String(vlm.parsed.confianza ?? 0));
+  const bbox = Array.isArray(vlm1.parsed.bbox) ? vlm1.parsed.bbox.map((v: any) => Number(v)) : null;
+  const confLoc = Number.parseFloat(String(vlm1.parsed.confianza_loc ?? 0));
+  const callesArr = Array.isArray(vlm1.parsed.calles_frente) ? (vlm1.parsed.calles_frente as any[]).map((c) => String(c)).slice(0, 6) : [];
+  result.calles_frente_visor = callesArr.length ? callesArr : null;
+  if (typeof vlm1.parsed.es_esquina === "boolean") result.es_esquina_visor = vlm1.parsed.es_esquina;
+  else if (callesArr.length) result.es_esquina_visor = callesArr.length >= 2;
+  const cesq = Number.parseFloat(String(vlm1.parsed.confianza_esquina ?? 0));
+  result.esquina_visor_confianza = Number.isFinite(cesq) ? cesq : null;
+  log({ step: "vlm_locate", ok: true, note: `bbox=${JSON.stringify(bbox)} confLoc=${confLoc} esq=${result.es_esquina_visor} calles=${callesArr.join("|")}` });
+
+  // 6. Decide imagen para PASA 2: recorte si bbox válido y conf>=0.4, si no full + downgrade
+  let bboxValid = false;
+  let nx0 = 0, ny0 = 0, nx1 = 1, ny1 = 1;
+  if (bbox && bbox.length === 4 && bbox.every((v: number) => Number.isFinite(v))) {
+    [nx0, ny0, nx1, ny1] = bbox;
+    if (nx1 > nx0 && ny1 > ny0 && nx0 >= 0 && ny0 >= 0 && nx1 <= 1.0001 && ny1 <= 1.0001) bboxValid = true;
+  }
+  let cropUrl = fullUrl;
+  let usedCrop = false;
+  let bboxUsed: number[] | null = null;
+  if (bboxValid && confLoc >= 0.4) {
+    // padding 12%
+    const padX = (nx1 - nx0) * 0.12, padY = (ny1 - ny0) * 0.12;
+    const cx0 = Math.max(0, nx0 - padX), cy0 = Math.max(0, ny0 - padY);
+    const cx1 = Math.min(1, nx1 + padX), cy1 = Math.min(1, ny1 + padY);
+    const targetWpx = 1400;
+    const widthPts = (cx1 - cx0) * pageW;
+    const S = Math.max(2, Math.min(10, targetWpx / Math.max(1, widthPts)));
+    try {
+      const cropPng = await renderRegion(pdfBuf, cx0, cy0, cx1, cy1, S);
+      const cropPath = `visor-pg97/${building_id}_crop_${ts}.png`;
+      const upCrop = await sb.storage.from("catastro").upload(cropPath, cropPng, { contentType: "image/png", upsert: true });
+      if (!upCrop.error) {
+        cropUrl = sb.storage.from("catastro").getPublicUrl(cropPath).data.publicUrl;
+        usedCrop = true;
+        bboxUsed = [cx0, cy0, cx1, cy1];
+        log({ step: "render_crop", ok: true, note: `S=${S.toFixed(2)} bytes=${cropPng.length}` });
+      } else {
+        log({ step: "render_crop", ok: false, note: upCrop.error.message });
+      }
+    } catch (e: any) {
+      log({ step: "render_crop", ok: false, note: String(e?.message ?? e) });
+    }
+  } else {
+    log({ step: "render_crop", ok: false, note: `bbox_invalid_or_low_conf (confLoc=${confLoc})` });
+  }
+
+  // 7. VLM PASA 2: contar
+  const vlm2 = await callVLM([cropUrl], VLM_PROMPT_COUNT);
+  if (!vlm2.parsed) {
+    log({ step: "vlm_count", ok: false, note: vlm2.lastErr ?? "" }); return { ok: false, ...result, motivo: "vlm_count_sin_resultado", vlm_error: vlm2.lastErr, steps };
+  }
+  result.modelo_usado = vlm2.modelo_usado;
+  const n = Number.parseInt(String(vlm2.parsed.n_escaleras ?? 0), 10);
+  let conf = Number.parseFloat(String(vlm2.parsed.confianza ?? 0));
+  if (!usedCrop) conf = Math.min(conf, 0.6); // fallback: capa de confianza
   result.n_escaleras_visor = Number.isFinite(n) ? n : null;
   result.confianza = Number.isFinite(conf) ? conf : null;
-  result.razonamiento = String(vlm.parsed.razonamiento ?? "").slice(0, 4000);
-  result.patios_vistos = Number.isFinite(Number(vlm.parsed.patios_vistos)) ? Number(vlm.parsed.patios_vistos) : null;
-  const callesArr = Array.isArray(vlm.parsed.calles_frente) ? (vlm.parsed.calles_frente as any[]).map((c) => String(c)).slice(0, 6) : [];
-  result.calles_frente_visor = callesArr.length ? callesArr : null;
-  if (typeof vlm.parsed.es_esquina === "boolean") result.es_esquina_visor = vlm.parsed.es_esquina;
-  else if (callesArr.length) result.es_esquina_visor = callesArr.length >= 2;
-  const cesq = Number.parseFloat(String(vlm.parsed.confianza_esquina ?? 0));
-  result.esquina_visor_confianza = Number.isFinite(cesq) ? cesq : null;
-  log({ step: "vlm", ok: true, note: `n=${result.n_escaleras_visor} conf=${result.confianza} esq=${result.es_esquina_visor} calles=${callesArr.join("|")}` });
+  result.razonamiento = String(vlm2.parsed.razonamiento ?? "").slice(0, 4000);
+  result.patios_vistos = Number.isFinite(Number(vlm2.parsed.patios)) ? Number(vlm2.parsed.patios) : null;
+  log({ step: "vlm_count", ok: true, note: `n=${result.n_escaleras_visor} conf=${result.confianza} crop=${usedCrop}` });
 
   // 6. Persistir
   const patch: any = {
@@ -338,11 +402,15 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       doc_url: result.doc_url,
       coords: { x: xy.x, y: xy.y, source: xy.source },
       modelo_usado: result.modelo_usado,
-      modelo_fallback: vlm.modelo_fallback,
+      modelo_fallback: vlm2.modelo_fallback,
       prompt_v: 3,
       es_esquina: result.es_esquina_visor,
       calles_frente: result.calles_frente_visor,
       confianza_esquina: result.esquina_visor_confianza,
+      pasa1: { bbox, confianza_loc: confLoc, calles_frente: callesArr, es_esquina: result.es_esquina_visor, razonamiento: String(vlm1.parsed.razonamiento ?? "").slice(0, 1500), modelo: vlm1.modelo_usado },
+      pasa2: { n_escaleras: result.n_escaleras_visor, confianza: result.confianza, patios: result.patios_vistos, razonamiento: result.razonamiento, modelo: vlm2.modelo_usado },
+      bbox_used: bboxUsed,
+      used_crop: usedCrop,
       steps,
     },
   };
