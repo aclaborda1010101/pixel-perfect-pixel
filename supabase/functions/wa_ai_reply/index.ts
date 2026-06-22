@@ -592,21 +592,32 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     await admin.from("wa_ai_jobs").update({ status: "done", updated_at: new Date().toISOString() })
       .eq("conversation_id", conversation_id).eq("status", "pending");
 
-    // Auto-avance de stage suave
+    // Auto-avance de stage suave (guion Afflux).
     const currentStage = contact.stage ?? "nuevo";
-    if (currentStage === "nuevo") {
-      await admin.from("wa_contacts").update({ stage: "conversando" }).eq("id", contact.id);
+    let nextStage: string | null = null;
+    if (currentStage === "nuevo") nextStage = "conversando";
+    // Cualificado: tipología detectada + al menos 3 datos de Fase 1-2.
+    const fase12 = ["estado_edificio","renta_mensual_estimada","gestion_rentas","cuota_participacion"]
+      .filter((k) => newQual[k] != null && newQual[k] !== "").length;
+    if (newQual.tipologia_proindivisario && fase12 >= 3 &&
+        !["cualificado","caliente","handoff"].includes(currentStage)) {
+      nextStage = "cualificado";
     }
-    const filled = allowed.filter((k) => newQual[k]).length;
-    if (filled >= 4 && currentStage !== "cualificado" && currentStage !== "caliente" && currentStage !== "handoff") {
-      await admin.from("wa_contacts").update({ stage: "cualificado" }).eq("id", contact.id);
+    // Caliente: cualquier flag de oportunidad o interes_reunion='si'.
+    if ((newFlags.length > 0 || newQual.interes_reunion === "si") &&
+        currentStage !== "caliente" && currentStage !== "handoff") {
+      nextStage = "caliente";
+    }
+    if (nextStage && nextStage !== currentStage) {
+      await admin.from("wa_contacts").update({ stage: nextStage }).eq("id", contact.id);
     }
 
-    // Resumen: en momentos clave (propuesta de reunión) o cuando haya ≥6 mensajes nuevos
+    // Resumen: forzar si propuesta de reunión, nueva flag de oportunidad, o cambio de stage.
+    const forceSummary = !!parsed.propose_meeting || flagsChanged || (nextStage === "caliente");
     fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/wa_summarize`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-      body: JSON.stringify({ conversation_id, force: !!parsed.propose_meeting }),
+      body: JSON.stringify({ conversation_id, force: forceSummary }),
     }).catch(() => {});
 
     return new Response(JSON.stringify({
