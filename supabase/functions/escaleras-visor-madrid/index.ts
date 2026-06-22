@@ -141,25 +141,37 @@ function parsePg97Html(html: string): Pg97Meta {
 
 // ---------- VLM ----------
 
-const VLM_PROMPT_LOCATE = (catalogo: string | null, calle: string, numero: string | null) => `Eres un experto en lectura de planos catastrales de Madrid (Catálogo PG97). El croquis "Análisis de la Edificación" muestra una MANZANA con varias parcelas rotuladas por Nº de Catálogo y las CALLES rotuladas alrededor.
+const VLM_PROMPT_LOCATE = (catalogo: string | null) => `En este plano de manzana del Catálogo PG97, BUSCA el número impreso ${catalogo ?? "(desconocido)"} (rótulo de parcela). Devuelve JSON: {encontrado:bool, centro:[cx,cy], bbox_parcela:[x0,y0,x1,y1], confianza:0..1} con coordenadas NORMALIZADAS 0..1 (origen arriba-izquierda). bbox_parcela = el polígono de la parcela rotulada con ESE número (sus límites con las parcelas vecinas, líneas finas). Si no encuentras el número, encontrado:false.`;
 
-TAREA: localiza la parcela rotulada con Nº de Catálogo ${catalogo ?? "(desconocido)"} (calle ${calle}, nº ${numero ?? "?"}).
-(a) Devuelve el bounding box [x0,y0,x1,y1] en coordenadas NORMALIZADAS 0..1 (origen arriba-izquierda, x derecha, y abajo) ajustado a los LÍMITES de ESA parcela.
-(b) ¿A qué calles rotuladas da esa parcela? Devuelve los nombres tal como aparecen ("Calle de Serrano", etc.). es_esquina=true si limita con >=2 calles rotuladas distintas.
+const VLM_PROMPT_COUNT = (catalogo: string | null) => `Esta imagen es el recorte de una parcela del croquis PG97. (1) CONFIRMA que ves impreso el número de catálogo ${catalogo ?? "(desconocido)"} dentro o junto a esta parcela. (2) La imagen puede incluir trozos de parcelas vecinas en los bordes, separadas por líneas finas: IGNÓRALAS, cuenta SOLO las cajas de escalera que están dentro de los límites de la parcela ${catalogo ?? ""}. Caja de escalera = recuadro con PELDAÑOS (líneas paralelas finas); patio = recuadro con X (no cuenta). Dos tramos con meseta de una caja = 1 escalera. JSON: {catalogo_confirmado:bool, n_escaleras:int, patios:int, confianza:0..1, razonamiento:'di dónde está cada caja y por qué NO cuentas las de los bordes'}`;
 
-JSON estricto:
-{ "bbox": [x0,y0,x1,y1], "calles_frente": [..], "es_esquina": <bool>, "confianza_loc": <0..1>, "confianza_esquina": <0..1>, "razonamiento": "<breve>" }`;
+// Extrae el primer objeto JSON balanceado de un texto (acepta texto alrededor / markdown)
+function extractFirstJsonObject(txt: string): any | null {
+  if (!txt) return null;
+  const t = String(txt);
+  // intenta directo
+  try { return JSON.parse(t); } catch (_e) { /* sigue */ }
+  // bloque {...} balanceado
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === "{") { if (depth === 0) start = i; depth++; }
+    else if (c === "}") { depth--; if (depth === 0 && start >= 0) {
+      const slice = t.slice(start, i + 1);
+      try { return JSON.parse(slice); } catch (_e) { return null; }
+    } }
+  }
+  return null;
+}
 
-const VLM_PROMPT_COUNT = `Esta imagen es el RECORTE de UNA parcela del croquis PG97 "Análisis de la Edificación". 
-
-Cuenta SUS cajas de escalera:
-- CAJA DE ESCALERA = recuadro con PELDAÑOS dibujados (líneas paralelas finas, a veces dos tramos con meseta, a veces envolviendo el hueco del ascensor que es un cuadradito). Dos tramos con meseta de UNA misma caja = 1 escalera, NO 2.
-- PATIO de luces = recuadro con una X (aspa). NO es escalera; anótalo en patios.
-- Cuenta SOLO lo que esté dentro de los límites de la parcela recortada; ignora trozos de parcelas vecinas en los bordes.
-
-JSON estricto: { "n_escaleras": <int>, "patios": <int>, "confianza": <0..1>, "razonamiento": "<breve, indica dónde está cada caja>" }`;
-
-async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: any; modelo_usado: string; modelo_fallback: boolean; lastErr: string | null }> {
+async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: any; raw: string; modelo_usado: string; modelo_fallback: boolean; lastErr: string | null }> {
   const buildPayload = (model: string) => ({
     model,
     messages: [{
@@ -174,6 +186,7 @@ async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: a
   const primary = "google/gemini-3.1-pro-preview";
   const fallback = "google/gemini-2.5-pro";
   let lastErr: string | null = null;
+  let lastRaw = "";
   for (const [model, isFallback] of [[primary, false], [fallback, true]] as const) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -185,12 +198,14 @@ async function callVLM(imageUrls: string[], prompt: string): Promise<{ parsed: a
         if (r.status === 429 || r.status === 402) { lastErr = `gateway ${r.status} (${model})`; await sleep(2000 * (attempt + 1)); continue; }
         const j = await r.json();
         const txt = j?.choices?.[0]?.message?.content ?? "";
-        try { return { parsed: JSON.parse(txt), modelo_usado: model, modelo_fallback: !!isFallback, lastErr: null }; }
-        catch { lastErr = `JSON inválido (${model}): ${txt.slice(0, 120)}`; }
+        lastRaw = String(txt);
+        const parsed = extractFirstJsonObject(lastRaw);
+        if (parsed) return { parsed, raw: lastRaw, modelo_usado: model, modelo_fallback: !!isFallback, lastErr: null };
+        lastErr = `JSON inválido (${model}): ${lastRaw.slice(0, 200)}`;
       } catch (e) { lastErr = `${model}: ${String((e as Error).message ?? e)}`; await sleep(1500); }
     }
   }
-  return { parsed: null, modelo_usado: primary, modelo_fallback: false, lastErr };
+  return { parsed: null, raw: lastRaw, modelo_usado: primary, modelo_fallback: false, lastErr };
 }
 
 // ---------- procesa un edificio ----------
