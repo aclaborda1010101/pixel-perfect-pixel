@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
 
     const { data: conv } = await admin
       .from("wa_conversations")
-      .select("id, summary, summary_msg_count, qualification, handoff_reason, wa_contacts(name, phone, stage)")
+      .select("id, summary, summary_msg_count, qualification, handoff_reason, rol_owner, subrol_owner, wa_contacts(name, phone, stage)")
       .eq("id", conversation_id).single();
     if (!conv) {
       return new Response(JSON.stringify({ error: "conv not found" }), {
@@ -63,6 +63,9 @@ Deno.serve(async (req) => {
 
     const qual = (conv as any).qualification ?? {};
     const handoff = (conv as any).handoff_reason ? `\nHandoff a humano: ${(conv as any).handoff_reason}` : "";
+    const rolLine = (conv as any).rol_owner
+      ? `\nRol inferido: ${(conv as any).rol_owner}${(conv as any).subrol_owner ? ` / ${(conv as any).subrol_owner}` : ""}`
+      : "";
 
     const systemPrompt = `Eres un asistente del equipo comercial de Afflux Property.
 Resume conversaciones de WhatsApp con propietarios para que un comercial las entienda en 10 segundos.
@@ -75,7 +78,7 @@ Usa esta estructura, sin viñetas largas:
 No inventes datos que no estén en la conversación.`;
 
     const userPrompt = `Contacto: ${contact?.name ?? "—"} (${contact?.phone ?? "—"})
-Stage actual: ${contact?.stage ?? "nuevo"}${handoff}
+Stage actual: ${contact?.stage ?? "nuevo"}${handoff}${rolLine}
 Datos extraídos hasta ahora: ${JSON.stringify(qual)}
 
 Transcripción cronológica:

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
@@ -15,11 +16,40 @@ import {
   Loader2, QrCode, Send, Bot, Phone, Power,
   MessagesSquare, UserPlus, Activity, Target, ArrowRight,
   TrendingUp, RefreshCw, AlertTriangle, History, Search, FileText, Check, X as XIcon, Sparkles,
-  Mic, Image as ImageIcon, FileType2,
+  Mic, Image as ImageIcon, FileType2, Building2, Users, IdCard, Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type SubView = "resumen" | "inbox" | "historico" | "pipeline" | "conexion" | "bot";
+
+/* Roles según enums internos (owner_role / owner_subrole) */
+const ROL_OPTIONS: { value: string; label: string }[] = [
+  { value: "particular",            label: "Particular" },
+  { value: "heredero",              label: "Heredero" },
+  { value: "inversor_pasivo",       label: "Inversor pasivo" },
+  { value: "operador_profesional",  label: "Operador profesional" },
+  { value: "institucional",         label: "Institucional" },
+  { value: "desconocido",           label: "Desconocido" },
+];
+const SUBROL_OPTIONS: { value: string; label: string }[] = [
+  { value: "ninguno",                label: "Ninguno" },
+  { value: "heredero_operador",      label: "Heredero · operador" },
+  { value: "heredero_residente",     label: "Heredero · residente" },
+  { value: "heredero_ausente",       label: "Heredero · ausente" },
+  { value: "heredero_conflictivo",   label: "Heredero · conflictivo" },
+  { value: "arrendador",             label: "Arrendador" },
+  { value: "usufructuario",          label: "Usufructuario" },
+  { value: "nudo_propietario",       label: "Nudo propietario" },
+  { value: "apoderado",              label: "Apoderado" },
+];
+function rolLabel(v?: string | null) {
+  if (!v) return null;
+  return (ROL_OPTIONS.find((o) => o.value === v)?.label) ?? v;
+}
+function subrolLabel(v?: string | null) {
+  if (!v || v === "ninguno") return null;
+  return (SUBROL_OPTIONS.find((o) => o.value === v)?.label) ?? v;
+}
 
 function MessageBody({ m }: { m: any }) {
   const media = m?.metadata?.media;
@@ -80,7 +110,7 @@ export default function WhatsappDashboard() {
     refetchInterval: 5000,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_conversations" as any) as any)
-        .select("id, contact_id, status, last_message_at, unread_count, ai_enabled, qualification, summary, summary_updated_at, handoff_reason, created_at, wa_contacts(id, phone, name, stage)")
+        .select("id, contact_id, status, last_message_at, unread_count, ai_enabled, qualification, summary, summary_updated_at, handoff_reason, created_at, rol_owner, subrol_owner, rol_source, rol_confianza, wa_contacts(id, phone, name, stage)")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .limit(500);
       return data ?? [];
@@ -130,22 +160,31 @@ export default function WhatsappDashboard() {
     queryFn: async () => {
       const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const since7d  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000).toISOString();
-      const [active, newLeads, sent, received, qualified] = await Promise.all([
+      const [active, newLeads, sent, received, qualified, outRows, inRows] = await Promise.all([
         (supabase.from("wa_conversations" as any) as any).select("id", { count: "exact", head: true }).gte("last_message_at", since24h),
         (supabase.from("wa_contacts" as any) as any).select("id", { count: "exact", head: true }).gte("created_at", since7d),
         (supabase.from("wa_messages" as any) as any).select("id", { count: "exact", head: true }).eq("direction", "out").gte("created_at", since24h),
         (supabase.from("wa_messages" as any) as any).select("id", { count: "exact", head: true }).eq("direction", "in").gte("created_at", since24h),
         (supabase.from("wa_conversations" as any) as any).select("id", { count: "exact", head: true }).in("qualification", ["caliente","cualificado"]),
+        (supabase.from("wa_messages" as any) as any).select("conversation_id").eq("direction", "out").gte("created_at", since24h).limit(2000),
+        (supabase.from("wa_messages" as any) as any).select("conversation_id").eq("direction", "in").gte("created_at", since24h).limit(2000),
       ]);
       const sentN = sent.count ?? 0;
       const recvN = received.count ?? 0;
-      const respRate = recvN > 0 ? Math.round((sentN / recvN) * 100) : 0;
+      // Nueva tasa: % conversaciones contactadas en 24h que han respondido (acotado 0..100)
+      const outConvs = new Set(((outRows as any).data ?? []).map((r: any) => r.conversation_id));
+      const inConvs  = new Set(((inRows  as any).data ?? []).map((r: any) => r.conversation_id));
+      let replied = 0;
+      outConvs.forEach((id) => { if (inConvs.has(id)) replied++; });
+      const respRate = outConvs.size > 0 ? Math.round((replied / outConvs.size) * 100) : 0;
+      const respHint = `${replied} / ${outConvs.size} contactadas`;
       return {
         active: active.count ?? 0,
         newLeads: newLeads.count ?? 0,
         sent: sentN,
         received: recvN,
         respRate,
+        respHint,
         qualified: qualified.count ?? 0,
       };
     },
@@ -208,6 +247,13 @@ export default function WhatsappDashboard() {
     qc.invalidateQueries({ queryKey: ["wa:conversations"] });
   }
 
+  async function setRol(convId: string, patch: { rol_owner?: string | null; subrol_owner?: string | null }) {
+    const update: any = { ...patch, rol_source: "manual" };
+    await (supabase.from("wa_conversations" as any) as any).update(update).eq("id", convId);
+    qc.invalidateQueries({ queryKey: ["wa:conversations"] });
+    toast.success("Rol actualizado");
+  }
+
   async function saveCfg(patch: any) {
     if (!cfg?.id) return;
     await (supabase.from("wa_bot_config" as any) as any).update(patch).eq("id", cfg.id);
@@ -233,7 +279,7 @@ export default function WhatsappDashboard() {
     { label: "Conversaciones activas 24h", value: metrics?.active ?? 0, icon: MessagesSquare, hint: "Con actividad en 24h" },
     { label: "Leads nuevos · 7 días",      value: metrics?.newLeads ?? 0, icon: UserPlus, hint: "Contactos creados" },
     { label: "Mensajes enviados · 24h",    value: metrics?.sent ?? 0, icon: Send, hint: `${metrics?.received ?? 0} recibidos` },
-    { label: "Tasa de respuesta",          value: `${metrics?.respRate ?? 0}%`, icon: TrendingUp, hint: "Enviados / recibidos" },
+    { label: "Tasa de respuesta",          value: `${metrics?.respRate ?? 0}%`, icon: TrendingUp, hint: metrics?.respHint ?? "Han respondido / contactadas" },
     { label: "Cualificados en pipeline",   value: metrics?.qualified ?? 0, icon: Target, hint: "Caliente + cualificado" },
   ];
 
@@ -299,6 +345,7 @@ export default function WhatsappDashboard() {
           sendMessage={sendMessage}
           toggleAi={toggleAi}
           regenerateSummary={regenerateSummary}
+          setRol={setRol}
         />
       )}
 
@@ -382,6 +429,11 @@ function ResumenView({ tiles, conversations, instance, onOpenInbox, onConnect }:
                         {c.wa_contacts?.name ?? c.wa_contacts?.phone ?? "Contacto"}
                       </span>
                       {c.ai_enabled && <Bot className="h-3 w-3 text-gold" />}
+                      {(subrolLabel(c.subrol_owner) || rolLabel(c.rol_owner)) && (
+                        <span className="rounded-full border border-gold/40 bg-gold/5 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/90">
+                          {subrolLabel(c.subrol_owner) ?? rolLabel(c.rol_owner)}
+                        </span>
+                      )}
                     </div>
                     <div className="mt-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                       {c.wa_contacts?.stage ?? "nuevo"} · {c.last_message_at ? new Date(c.last_message_at).toLocaleString("es") : "—"}
@@ -427,17 +479,10 @@ function ResumenView({ tiles, conversations, instance, onOpenInbox, onConnect }:
 }
 
 /* ─────────── Inbox ─────────── */
-function InboxView({ conversations, messages, selectedConv, setSelectedConv, draft, setDraft, sendMessage, toggleAi, regenerateSummary }: any) {
+function InboxView({ conversations, messages, selectedConv, setSelectedConv, draft, setDraft, sendMessage, toggleAi, regenerateSummary, setRol }: any) {
   const current = (conversations as any[]).find((c: any) => c.id === selectedConv);
   const isHandoff = current?.wa_contacts?.stage === "handoff";
   const qual = (current?.qualification ?? {}) as Record<string, any>;
-  const QUAL_FIELDS: { key: string; label: string }[] = [
-    { key: "nombre_apellidos",         label: "Nombre y apellidos" },
-    { key: "gestiona_edificio",        label: "Gestiona el edificio" },
-    { key: "tiene_cuadro_rentas",      label: "Cuadro de rentas" },
-    { key: "vive_en_edificio",         label: "Vive en el edificio" },
-    { key: "relacion_copropietarios",  label: "Relación copropietarios" },
-  ];
   return (
     <div className="grid grid-cols-12 gap-4">
       <Card className="col-span-12 lg:col-span-3">
@@ -475,6 +520,13 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
                 <div className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                   {c.wa_contacts?.stage ?? "nuevo"} · {c.last_message_at ? new Date(c.last_message_at).toLocaleString("es") : "—"}
                 </div>
+                {(subrolLabel(c.subrol_owner) || rolLabel(c.rol_owner)) && (
+                  <div className="mt-1">
+                    <span className="inline-block rounded-full border border-gold/40 bg-gold/5 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/90">
+                      {subrolLabel(c.subrol_owner) ?? rolLabel(c.rol_owner)}
+                    </span>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -562,63 +614,162 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
       {/* Panel lateral derecho con cualificación en vivo */}
       <Card className="col-span-12 lg:col-span-3">
         <CardHeader>
-          <Eyebrow>Cualificación</Eyebrow>
+          <Eyebrow>Ficha del lead</Eyebrow>
           <CardTitle className="text-base">Datos en vivo</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           {!current && (
-            <p className="text-xs text-muted-foreground">Selecciona una conversación para ver los datos extraídos.</p>
+            <p className="text-xs text-muted-foreground">Selecciona una conversación para ver la ficha.</p>
           )}
           {current && (
-            <>
-              <div className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
-                <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Stage</div>
-                <div className="mt-1 text-sm font-medium text-foreground">{current.wa_contacts?.stage ?? "nuevo"}</div>
-              </div>
-
-              <div className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-                    <FileText className="mr-1 inline h-3 w-3" /> Resumen
-                  </div>
-                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => regenerateSummary(current.id)}>
-                    <Sparkles className="h-3 w-3" /> Regenerar
-                  </Button>
-                </div>
-                <div className="mt-1 whitespace-pre-line text-xs text-foreground/90">
-                  {current.summary
-                    ? current.summary
-                    : <span className="italic text-muted-foreground/70">Aún no hay resumen. Se genera tras propuestas de llamada, handoff o ≥6 mensajes nuevos.</span>}
-                </div>
-                {current.summary_updated_at && (
-                  <div className="mt-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                    Actualizado: {new Date(current.summary_updated_at).toLocaleString("es")}
-                  </div>
-                )}
-              </div>
-
-              <ul className="space-y-2">
-                {QUAL_FIELDS.map((f) => {
-                  const v = qual[f.key];
-                  const has = v !== undefined && v !== null && v !== "";
-                  return (
-                    <li key={f.key} className="rounded-[6px] border border-border-faint bg-surface-1/30 px-3 py-2">
-                      <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{f.label}</div>
-                      <div className={cn("mt-0.5 text-sm", has ? "text-foreground" : "text-muted-foreground/60 italic")}>
-                        {has ? String(v) : "—"}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="pt-1 text-[10px] text-muted-foreground">
-                Los campos se rellenan automáticamente cuando la persona los menciona; el bot no los vuelve a preguntar.
-              </div>
-            </>
+            <LeadCard current={current} qual={qual} regenerateSummary={regenerateSummary} setRol={setRol} />
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/* ─────────── Ficha del lead (panel derecho del Inbox) ─────────── */
+function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
+  const stage = current.wa_contacts?.stage ?? "nuevo";
+  const stageColor =
+    stage === "handoff" ? "border-destructive/40 bg-destructive/10 text-destructive" :
+    stage === "caliente" || stage === "cualificado" ? "border-gold/40 bg-gold/10 text-gold" :
+    "border-border-faint bg-surface-1/40 text-foreground";
+
+  const SiNo = ({ v }: { v: any }) => {
+    if (v === "si" || v === true)  return <span className="text-success">✅ Sí</span>;
+    if (v === "no" || v === false) return <span className="text-destructive">⚠ No</span>;
+    if (v == null || v === "")     return <span className="italic text-muted-foreground/60">—</span>;
+    return <span className="text-foreground">{String(v)}</span>;
+  };
+  const Text = ({ v }: { v: any }) => {
+    const has = v != null && v !== "";
+    return <span className={cn(has ? "text-foreground" : "italic text-muted-foreground/60")}>{has ? String(v) : "—"}</span>;
+  };
+
+  const SectionHeader = ({ icon: Icon, label }: any) => (
+    <div className="mb-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+      <Icon className="h-3 w-3" /> {label}
+    </div>
+  );
+  const Row = ({ label, children }: any) => (
+    <div className="flex items-baseline justify-between gap-3 py-1">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span className="text-right text-xs">{children}</span>
+    </div>
+  );
+
+  const pendientes: string[] = [];
+  if (!qual.nombre_apellidos)        pendientes.push("Nombre y apellidos");
+  if (qual.gestiona_edificio == null) pendientes.push("Gestiona el edificio");
+  if (qual.vive_en_edificio == null) pendientes.push("Vive en el edificio");
+  if (!qual.relacion_copropietarios) pendientes.push("Vínculo con la propiedad");
+  if (qual.tiene_cuadro_rentas == null) pendientes.push("Cuadro de rentas");
+
+  return (
+    <>
+      {/* IDENTIDAD */}
+      <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+        <SectionHeader icon={IdCard} label="Identidad" />
+        <div className="text-sm font-medium text-foreground">
+          {qual.nombre_apellidos || current.wa_contacts?.name || current.wa_contacts?.phone || "—"}
+        </div>
+        <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{current.wa_contacts?.phone ?? "—"}</div>
+        <div className="mt-2 flex items-center gap-2">
+          <span className={cn("rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow", stageColor)}>
+            {stage}
+          </span>
+          {current.rol_source === "ia" && (
+            <span className="rounded-full border border-gold/30 bg-gold/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/80">
+              <Sparkles className="mr-0.5 inline h-2.5 w-2.5" /> IA{current.rol_confianza ? ` · ${Math.round(current.rol_confianza * 100)}%` : ""}
+            </span>
+          )}
+          {current.rol_source === "manual" && (
+            <span className="rounded-full border border-border-faint bg-surface-1/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+              Manual
+            </span>
+          )}
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-2">
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Rol</div>
+            <Select value={current.rol_owner ?? ""} onValueChange={(v) => setRol(current.id, { rol_owner: v })}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sin clasificar" /></SelectTrigger>
+              <SelectContent>
+                {ROL_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Subrol</div>
+            <Select value={current.subrol_owner ?? ""} onValueChange={(v) => setRol(current.id, { subrol_owner: v })}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectContent>
+                {SUBROL_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </section>
+
+      {/* VÍNCULO CON LA PROPIEDAD */}
+      <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+        <SectionHeader icon={Users} label="Vínculo con la propiedad" />
+        <Row label="Gestiona el edificio"><SiNo v={qual.gestiona_edificio} /></Row>
+        <Row label="Vive en el edificio"><SiNo v={qual.vive_en_edificio} /></Row>
+        <Row label="Relación familiar"><Text v={qual.relacion_copropietarios} /></Row>
+      </section>
+
+      {/* DATOS COMERCIALES */}
+      <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+        <SectionHeader icon={Briefcase} label="Datos comerciales" />
+        <Row label="Cuadro de rentas / vencimientos"><SiNo v={qual.tiene_cuadro_rentas} /></Row>
+        <Row label="Último mensaje">
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {current.last_message_at ? new Date(current.last_message_at).toLocaleString("es") : "—"}
+          </span>
+        </Row>
+      </section>
+
+      {/* RESUMEN IA */}
+      <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+            <FileText className="h-3 w-3" /> Resumen IA · próximo paso
+          </div>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => regenerateSummary(current.id)}>
+            <Sparkles className="h-3 w-3" /> Regenerar
+          </Button>
+        </div>
+        <div className="whitespace-pre-line text-xs text-foreground/90">
+          {current.summary
+            ? current.summary
+            : <span className="italic text-muted-foreground/70">Aún no hay resumen. Se genera tras propuestas de llamada, handoff o ≥6 mensajes nuevos.</span>}
+        </div>
+        {current.summary_updated_at && (
+          <div className="mt-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+            Actualizado: {new Date(current.summary_updated_at).toLocaleString("es")}
+          </div>
+        )}
+      </section>
+
+      {pendientes.length > 0 && (
+        <details className="rounded-[6px] border border-dashed border-border-faint bg-surface-1/20 p-3">
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+            Campos pendientes · {pendientes.length}
+          </summary>
+          <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+            {pendientes.map((p) => <li key={p}>· {p}</li>)}
+          </ul>
+        </details>
+      )}
+    </>
   );
 }
 

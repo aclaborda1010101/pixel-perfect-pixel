@@ -4903,7 +4903,11 @@ export type Database = {
           id: string
           last_message_at: string | null
           qualification: Json
+          rol_confianza: number | null
+          rol_owner: Database["public"]["Enums"]["owner_role"] | null
+          rol_source: string | null
           status: string
+          subrol_owner: Database["public"]["Enums"]["owner_subrole"] | null
           summary: string | null
           summary_msg_count: number
           summary_updated_at: string | null
@@ -4919,7 +4923,11 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           qualification?: Json
+          rol_confianza?: number | null
+          rol_owner?: Database["public"]["Enums"]["owner_role"] | null
+          rol_source?: string | null
           status?: string
+          subrol_owner?: Database["public"]["Enums"]["owner_subrole"] | null
           summary?: string | null
           summary_msg_count?: number
           summary_updated_at?: string | null
@@ -4935,7 +4943,11 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           qualification?: Json
+          rol_confianza?: number | null
+          rol_owner?: Database["public"]["Enums"]["owner_role"] | null
+          rol_source?: string | null
           status?: string
+          subrol_owner?: Database["public"]["Enums"]["owner_subrole"] | null
           summary?: string | null
           summary_msg_count?: number
           summary_updated_at?: string | null
