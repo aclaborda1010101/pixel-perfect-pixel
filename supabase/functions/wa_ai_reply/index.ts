@@ -620,6 +620,15 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       body: JSON.stringify({ conversation_id, force: forceSummary }),
     }).catch(() => {});
 
+    // Sync HubSpot bajo las mismas condiciones (resumen forzado, nueva flag o caliente).
+    if (forceSummary) {
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/wa_sync_hubspot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ conversation_id }),
+      }).catch(() => {});
+    }
+
     return new Response(JSON.stringify({
       ok: true, sent: finalReplies.length, qualification_update: cleanQu, propose_meeting: !!parsed.propose_meeting,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
