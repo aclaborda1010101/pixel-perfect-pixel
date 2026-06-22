@@ -327,76 +327,106 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
   const fullUrl = sb.storage.from("catastro").getPublicUrl(fullPath).data.publicUrl;
   log({ step: "upload_full", ok: true });
 
-  // 5. VLM PASA 1: localizar parcela + calles
-  const numero = (b.direccion?.match(/\b(\d{1,4})\b/)?.[1]) ?? null;
-  const calleSimple = (b.direccion ?? "").replace(/\b\d{1,4}\b.*$/, "").trim();
-  const vlm1 = await callVLM([fullUrl], VLM_PROMPT_LOCATE(meta.catalogo, calleSimple, numero));
+  // 5. VLM PASA 1: LOCALIZAR la parcela por su nº de catálogo
+  const vlm1 = await callVLM([fullUrl], VLM_PROMPT_LOCATE(meta.catalogo));
+  // Guarda SIEMPRE la respuesta cruda en steps[] para diagnóstico
+  log({ step: "vlm_locate_raw", ok: !!vlm1.parsed, note: vlm1.lastErr ?? "", detail: { raw: vlm1.raw?.slice(0, 4000) ?? "", modelo: vlm1.modelo_usado } });
   if (!vlm1.parsed) {
-    log({ step: "vlm_locate", ok: false, note: vlm1.lastErr ?? "" }); return { ok: false, ...result, motivo: "vlm_locate_sin_resultado", vlm_error: vlm1.lastErr, steps };
+    log({ step: "vlm_locate", ok: false, note: vlm1.lastErr ?? "" });
+    return { ok: false, ...result, motivo: "vlm_locate_sin_resultado", vlm_error: vlm1.lastErr, needs_review: true, steps };
   }
-  const bbox = Array.isArray(vlm1.parsed.bbox) ? vlm1.parsed.bbox.map((v: any) => Number(v)) : null;
-  const confLoc = Number.parseFloat(String(vlm1.parsed.confianza_loc ?? 0));
-  const callesArr = Array.isArray(vlm1.parsed.calles_frente) ? (vlm1.parsed.calles_frente as any[]).map((c) => String(c)).slice(0, 6) : [];
-  result.calles_frente_visor = callesArr.length ? callesArr : null;
-  if (typeof vlm1.parsed.es_esquina === "boolean") result.es_esquina_visor = vlm1.parsed.es_esquina;
-  else if (callesArr.length) result.es_esquina_visor = callesArr.length >= 2;
-  const cesq = Number.parseFloat(String(vlm1.parsed.confianza_esquina ?? 0));
-  result.esquina_visor_confianza = Number.isFinite(cesq) ? cesq : null;
-  log({ step: "vlm_locate", ok: true, note: `bbox=${JSON.stringify(bbox)} confLoc=${confLoc} esq=${result.es_esquina_visor} calles=${callesArr.join("|")}` });
+  const encontrado = vlm1.parsed.encontrado === true;
+  const confLoc = Number.parseFloat(String(vlm1.parsed.confianza ?? 0));
+  const bboxRaw = Array.isArray(vlm1.parsed.bbox_parcela) ? vlm1.parsed.bbox_parcela.map((v: any) => Number(v)) : null;
+  const centro = Array.isArray(vlm1.parsed.centro) ? vlm1.parsed.centro.map((v: any) => Number(v)) : null;
 
-  // 6. Decide imagen para PASA 2: recorte si bbox válido y conf>=0.4, si no full + downgrade
   let bboxValid = false;
   let nx0 = 0, ny0 = 0, nx1 = 1, ny1 = 1;
-  if (bbox && bbox.length === 4 && bbox.every((v: number) => Number.isFinite(v))) {
-    [nx0, ny0, nx1, ny1] = bbox;
+  if (bboxRaw && bboxRaw.length === 4 && bboxRaw.every((v: number) => Number.isFinite(v))) {
+    [nx0, ny0, nx1, ny1] = bboxRaw;
     if (nx1 > nx0 && ny1 > ny0 && nx0 >= 0 && ny0 >= 0 && nx1 <= 1.0001 && ny1 <= 1.0001) bboxValid = true;
   }
-  let cropUrl = fullUrl;
-  let usedCrop = false;
-  let bboxUsed: number[] | null = null;
-  if (bboxValid && confLoc >= 0.4) {
-    // padding 12%
-    const padX = (nx1 - nx0) * 0.12, padY = (ny1 - ny0) * 0.12;
-    const cx0 = Math.max(0, nx0 - padX), cy0 = Math.max(0, ny0 - padY);
-    const cx1 = Math.min(1, nx1 + padX), cy1 = Math.min(1, ny1 + padY);
-    const targetWpx = 1400;
-    const widthPts = (cx1 - cx0) * pageW;
-    const S = Math.max(2, Math.min(10, targetWpx / Math.max(1, widthPts)));
-    try {
-      const cropPng = await renderRegion(pdfBuf, cx0, cy0, cx1, cy1, S);
-      const cropPath = `visor-pg97/${building_id}_crop_${ts}.png`;
-      const upCrop = await sb.storage.from("catastro").upload(cropPath, cropPng, { contentType: "image/png", upsert: true });
-      if (!upCrop.error) {
-        cropUrl = sb.storage.from("catastro").getPublicUrl(cropPath).data.publicUrl;
-        usedCrop = true;
-        bboxUsed = [cx0, cy0, cx1, cy1];
-        log({ step: "render_crop", ok: true, note: `S=${S.toFixed(2)} bytes=${cropPng.length}` });
-      } else {
-        log({ step: "render_crop", ok: false, note: upCrop.error.message });
-      }
-    } catch (e: any) {
-      log({ step: "render_crop", ok: false, note: String(e?.message ?? e) });
-    }
-  } else {
-    log({ step: "render_crop", ok: false, note: `bbox_invalid_or_low_conf (confLoc=${confLoc})` });
+  log({ step: "vlm_locate", ok: encontrado && confLoc >= 0.5 && bboxValid, note: `encontrado=${encontrado} conf=${confLoc} bbox=${JSON.stringify(bboxRaw)} centro=${JSON.stringify(centro)}` });
+
+  // REGLA DURA: sin localización fiable NO contamos sobre la manzana entera.
+  if (!encontrado || !bboxValid || confLoc < 0.5) {
+    const motivo = !encontrado
+      ? "no_se_pudo_localizar_parcela"
+      : !bboxValid ? "bbox_invalido_pasa1"
+      : "confianza_localizacion_baja";
+    const patchSkip: any = {
+      building_id,
+      n_escaleras_visor: null,
+      escaleras_visor_confianza: null,
+      escaleras_visor_catalogo: meta.catalogo,
+      escaleras_visor_grado: meta.grado,
+      escaleras_visor_source: "pg97_analisis_edificacion",
+      escaleras_visor_at: new Date().toISOString(),
+      escaleras_visor_raw: {
+        motivo,
+        needs_review: true,
+        manzana: meta.manzana,
+        catalogo: meta.catalogo,
+        grado: meta.grado,
+        doc_url: result.doc_url,
+        coords: { x: xy.x, y: xy.y, source: xy.source },
+        prompt_v: 4,
+        pasa1: {
+          encontrado, confianza: confLoc, bbox_parcela: bboxRaw, centro,
+          modelo: vlm1.modelo_usado, raw: vlm1.raw?.slice(0, 4000) ?? "",
+        },
+        bbox_used: null,
+        used_crop: false,
+        steps,
+      },
+    };
+    const { data: ex0 } = await sb.from("building_analysis").select("id").eq("building_id", building_id).maybeSingle();
+    if (ex0) await sb.from("building_analysis").update(patchSkip).eq("building_id", building_id);
+    else await sb.from("building_analysis").insert(patchSkip);
+    return { ok: true, ...result, motivo, needs_review: true, steps };
   }
 
-  // 7. VLM PASA 2: contar
-  const vlm2 = await callVLM([cropUrl], VLM_PROMPT_COUNT);
+  // 6. Recorte AISLADO con padding 8%
+  const padX = (nx1 - nx0) * 0.08, padY = (ny1 - ny0) * 0.08;
+  const cx0 = Math.max(0, nx0 - padX), cy0 = Math.max(0, ny0 - padY);
+  const cx1 = Math.min(1, nx1 + padX), cy1 = Math.min(1, ny1 + padY);
+  const targetWpx = 1400;
+  const widthPts = (cx1 - cx0) * pageW;
+  const S = Math.max(2, Math.min(10, targetWpx / Math.max(1, widthPts)));
+  let cropUrl = "";
+  let bboxUsed: number[] | null = null;
+  try {
+    const cropPng = await renderRegion(pdfBuf, cx0, cy0, cx1, cy1, S);
+    const cropPath = `visor-pg97/${building_id}_crop_${ts}.png`;
+    const upCrop = await sb.storage.from("catastro").upload(cropPath, cropPng, { contentType: "image/png", upsert: true });
+    if (upCrop.error) { log({ step: "render_crop", ok: false, note: upCrop.error.message }); return { ok: false, ...result, motivo: "upload_crop_error", needs_review: true, steps }; }
+    cropUrl = sb.storage.from("catastro").getPublicUrl(cropPath).data.publicUrl;
+    bboxUsed = [cx0, cy0, cx1, cy1];
+    log({ step: "render_crop", ok: true, note: `S=${S.toFixed(2)} bytes=${cropPng.length}` });
+  } catch (e: any) {
+    log({ step: "render_crop", ok: false, note: String(e?.message ?? e) });
+    return { ok: false, ...result, motivo: "render_crop_error", needs_review: true, steps };
+  }
+
+  // 7. VLM PASA 2: confirmar catálogo + contar
+  const vlm2 = await callVLM([cropUrl], VLM_PROMPT_COUNT(meta.catalogo));
   if (!vlm2.parsed) {
-    log({ step: "vlm_count", ok: false, note: vlm2.lastErr ?? "" }); return { ok: false, ...result, motivo: "vlm_count_sin_resultado", vlm_error: vlm2.lastErr, steps };
+    log({ step: "vlm_count", ok: false, note: vlm2.lastErr ?? "" });
+    return { ok: false, ...result, motivo: "vlm_count_sin_resultado", vlm_error: vlm2.lastErr, needs_review: true, steps };
   }
   result.modelo_usado = vlm2.modelo_usado;
+  const catConfirmado = vlm2.parsed.catalogo_confirmado === true;
   const n = Number.parseInt(String(vlm2.parsed.n_escaleras ?? 0), 10);
   let conf = Number.parseFloat(String(vlm2.parsed.confianza ?? 0));
-  if (!usedCrop) conf = Math.min(conf, 0.6); // fallback: capa de confianza
+  let needsReview = false;
+  if (!catConfirmado) { conf = Math.min(conf, 0.5); needsReview = true; }
   result.n_escaleras_visor = Number.isFinite(n) ? n : null;
   result.confianza = Number.isFinite(conf) ? conf : null;
   result.razonamiento = String(vlm2.parsed.razonamiento ?? "").slice(0, 4000);
   result.patios_vistos = Number.isFinite(Number(vlm2.parsed.patios)) ? Number(vlm2.parsed.patios) : null;
-  log({ step: "vlm_count", ok: true, note: `n=${result.n_escaleras_visor} conf=${result.confianza} crop=${usedCrop}` });
+  log({ step: "vlm_count", ok: true, note: `n=${result.n_escaleras_visor} conf=${result.confianza} catConfirmado=${catConfirmado}` });
 
-  // 6. Persistir
+  // 8. Persistir
   const patch: any = {
     building_id,
     n_escaleras_visor: result.n_escaleras_visor,
@@ -405,9 +435,6 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     escaleras_visor_grado: result.grado,
     escaleras_visor_source: "pg97_analisis_edificacion",
     escaleras_visor_at: new Date().toISOString(),
-    es_esquina_visor: result.es_esquina_visor,
-    calles_frente_visor: result.calles_frente_visor,
-    esquina_visor_confianza: result.esquina_visor_confianza,
     escaleras_visor_raw: {
       razonamiento: result.razonamiento,
       patios_vistos: result.patios_vistos,
@@ -418,14 +445,23 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       coords: { x: xy.x, y: xy.y, source: xy.source },
       modelo_usado: result.modelo_usado,
       modelo_fallback: vlm2.modelo_fallback,
-      prompt_v: 3,
-      es_esquina: result.es_esquina_visor,
-      calles_frente: result.calles_frente_visor,
-      confianza_esquina: result.esquina_visor_confianza,
-      pasa1: { bbox, confianza_loc: confLoc, calles_frente: callesArr, es_esquina: result.es_esquina_visor, razonamiento: String(vlm1.parsed.razonamiento ?? "").slice(0, 1500), modelo: vlm1.modelo_usado },
-      pasa2: { n_escaleras: result.n_escaleras_visor, confianza: result.confianza, patios: result.patios_vistos, razonamiento: result.razonamiento, modelo: vlm2.modelo_usado },
+      prompt_v: 4,
+      needs_review: needsReview,
+      pasa1: {
+        encontrado, confianza: confLoc, bbox_parcela: bboxRaw, centro,
+        modelo: vlm1.modelo_usado,
+        raw: vlm1.raw?.slice(0, 4000) ?? "",
+      },
+      pasa2: {
+        catalogo_confirmado: catConfirmado,
+        n_escaleras: result.n_escaleras_visor,
+        confianza: result.confianza,
+        patios: result.patios_vistos,
+        razonamiento: result.razonamiento,
+        modelo: vlm2.modelo_usado,
+      },
       bbox_used: bboxUsed,
-      used_crop: usedCrop,
+      used_crop: true,
       steps,
     },
   };
