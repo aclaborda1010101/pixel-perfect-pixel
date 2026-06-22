@@ -5869,10 +5869,10 @@ export type Database = {
           building_id: string | null
           catalogo: string | null
           cluster_asignado: string | null
-          confirmado: boolean | null
           direccion: string | null
           fxcc_piso01: number | null
           fxcc_segundas: boolean | null
+          manzana: string | null
           prioridad: number | null
           score: number | null
           visor_conf: number | null
