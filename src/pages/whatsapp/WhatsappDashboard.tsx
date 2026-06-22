@@ -474,17 +474,10 @@ function ResumenView({ tiles, conversations, instance, onOpenInbox, onConnect }:
 }
 
 /* ─────────── Inbox ─────────── */
-function InboxView({ conversations, messages, selectedConv, setSelectedConv, draft, setDraft, sendMessage, toggleAi, regenerateSummary }: any) {
+function InboxView({ conversations, messages, selectedConv, setSelectedConv, draft, setDraft, sendMessage, toggleAi, regenerateSummary, setRol }: any) {
   const current = (conversations as any[]).find((c: any) => c.id === selectedConv);
   const isHandoff = current?.wa_contacts?.stage === "handoff";
   const qual = (current?.qualification ?? {}) as Record<string, any>;
-  const QUAL_FIELDS: { key: string; label: string }[] = [
-    { key: "nombre_apellidos",         label: "Nombre y apellidos" },
-    { key: "gestiona_edificio",        label: "Gestiona el edificio" },
-    { key: "tiene_cuadro_rentas",      label: "Cuadro de rentas" },
-    { key: "vive_en_edificio",         label: "Vive en el edificio" },
-    { key: "relacion_copropietarios",  label: "Relación copropietarios" },
-  ];
   return (
     <div className="grid grid-cols-12 gap-4">
       <Card className="col-span-12 lg:col-span-3">
@@ -522,6 +515,13 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
                 <div className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                   {c.wa_contacts?.stage ?? "nuevo"} · {c.last_message_at ? new Date(c.last_message_at).toLocaleString("es") : "—"}
                 </div>
+                {(subrolLabel(c.subrol_owner) || rolLabel(c.rol_owner)) && (
+                  <div className="mt-1">
+                    <span className="inline-block rounded-full border border-gold/40 bg-gold/5 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/90">
+                      {subrolLabel(c.subrol_owner) ?? rolLabel(c.rol_owner)}
+                    </span>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
