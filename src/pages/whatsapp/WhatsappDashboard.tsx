@@ -110,7 +110,7 @@ export default function WhatsappDashboard() {
     refetchInterval: 5000,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_conversations" as any) as any)
-        .select("id, contact_id, status, last_message_at, unread_count, ai_enabled, qualification, summary, summary_updated_at, handoff_reason, created_at, wa_contacts(id, phone, name, stage)")
+        .select("id, contact_id, status, last_message_at, unread_count, ai_enabled, qualification, summary, summary_updated_at, handoff_reason, created_at, rol_owner, subrol_owner, rol_source, rol_confianza, wa_contacts(id, phone, name, stage)")
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .limit(500);
       return data ?? [];
@@ -160,22 +160,31 @@ export default function WhatsappDashboard() {
     queryFn: async () => {
       const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const since7d  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000).toISOString();
-      const [active, newLeads, sent, received, qualified] = await Promise.all([
+      const [active, newLeads, sent, received, qualified, outRows, inRows] = await Promise.all([
         (supabase.from("wa_conversations" as any) as any).select("id", { count: "exact", head: true }).gte("last_message_at", since24h),
         (supabase.from("wa_contacts" as any) as any).select("id", { count: "exact", head: true }).gte("created_at", since7d),
         (supabase.from("wa_messages" as any) as any).select("id", { count: "exact", head: true }).eq("direction", "out").gte("created_at", since24h),
         (supabase.from("wa_messages" as any) as any).select("id", { count: "exact", head: true }).eq("direction", "in").gte("created_at", since24h),
         (supabase.from("wa_conversations" as any) as any).select("id", { count: "exact", head: true }).in("qualification", ["caliente","cualificado"]),
+        (supabase.from("wa_messages" as any) as any).select("conversation_id").eq("direction", "out").gte("created_at", since24h).limit(2000),
+        (supabase.from("wa_messages" as any) as any).select("conversation_id").eq("direction", "in").gte("created_at", since24h).limit(2000),
       ]);
       const sentN = sent.count ?? 0;
       const recvN = received.count ?? 0;
-      const respRate = recvN > 0 ? Math.round((sentN / recvN) * 100) : 0;
+      // Nueva tasa: % conversaciones contactadas en 24h que han respondido (acotado 0..100)
+      const outConvs = new Set(((outRows as any).data ?? []).map((r: any) => r.conversation_id));
+      const inConvs  = new Set(((inRows  as any).data ?? []).map((r: any) => r.conversation_id));
+      let replied = 0;
+      outConvs.forEach((id) => { if (inConvs.has(id)) replied++; });
+      const respRate = outConvs.size > 0 ? Math.round((replied / outConvs.size) * 100) : 0;
+      const respHint = `${replied} / ${outConvs.size} contactadas`;
       return {
         active: active.count ?? 0,
         newLeads: newLeads.count ?? 0,
         sent: sentN,
         received: recvN,
         respRate,
+        respHint,
         qualified: qualified.count ?? 0,
       };
     },
@@ -263,7 +272,7 @@ export default function WhatsappDashboard() {
     { label: "Conversaciones activas 24h", value: metrics?.active ?? 0, icon: MessagesSquare, hint: "Con actividad en 24h" },
     { label: "Leads nuevos · 7 días",      value: metrics?.newLeads ?? 0, icon: UserPlus, hint: "Contactos creados" },
     { label: "Mensajes enviados · 24h",    value: metrics?.sent ?? 0, icon: Send, hint: `${metrics?.received ?? 0} recibidos` },
-    { label: "Tasa de respuesta",          value: `${metrics?.respRate ?? 0}%`, icon: TrendingUp, hint: "Enviados / recibidos" },
+    { label: "Tasa de respuesta",          value: `${metrics?.respRate ?? 0}%`, icon: TrendingUp, hint: metrics?.respHint ?? "Han respondido / contactadas" },
     { label: "Cualificados en pipeline",   value: metrics?.qualified ?? 0, icon: Target, hint: "Caliente + cualificado" },
   ];
 
