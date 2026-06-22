@@ -31,6 +31,7 @@ const JOBS: Job[] = [
   { key: "detect-dh", label: "Detectar división horizontal", fn: "detect_division_horizontal", body: { max_buildings: 500 }, desc: "Marca buildings.division_horizontal=true cuando hay ≥2 fincas registrales distintas en sus notas simples. Sin IA.", cost: "bajo" },
   { key: "recompute-cuotas", label: "Recalcular cuotas de propietarios", fn: "recompute_building_owner_cuotas", body: { max_buildings: 500 }, desc: "Corrige building_owners.cuota: NULL en edificios DH (la verdad está por finca) y derivada desde notas en los demás. Marca inconsistentes (Σ≠100%). Lanzar tras 'Detectar DH'.", cost: "bajo" },
   { key: "escaleras-visor", label: "Detectar escaleras (Visor PG97)", fn: "escaleras-visor-madrid", body: { batch: true, only_protegidos: true, limit: 10 }, desc: "Lee el plano 'Análisis de la Edificación' del Catálogo PG97 (Visor Urbanístico Madrid) y cuenta cajas de escalera con VLM. Solo edificios protegidos. Validado a mano (Serrano 8 → 2, Conde de Peñalver 5 → 2). Bajo demanda.", cost: "alto" },
+  { key: "wa-sync-hubspot", label: "Sincronizar WhatsApp → HubSpot (conversación)", fn: "wa_sync_hubspot", desc: "Vuelca a HubSpot el resumen + cualificación + flags de una conversación como nota engagement en el contacto del propietario, y actualiza hs_lead_status según el stage. Requiere conversation_id (úsalo desde el detalle de la conversación o pasa el UUID a mano).", cost: "bajo" },
 ];
 
 export function JobsManualPanel() {
