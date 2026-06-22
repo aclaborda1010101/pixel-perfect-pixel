@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
@@ -15,11 +16,40 @@ import {
   Loader2, QrCode, Send, Bot, Phone, Power,
   MessagesSquare, UserPlus, Activity, Target, ArrowRight,
   TrendingUp, RefreshCw, AlertTriangle, History, Search, FileText, Check, X as XIcon, Sparkles,
-  Mic, Image as ImageIcon, FileType2,
+  Mic, Image as ImageIcon, FileType2, Building2, Users, IdCard, Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type SubView = "resumen" | "inbox" | "historico" | "pipeline" | "conexion" | "bot";
+
+/* Roles según enums internos (owner_role / owner_subrole) */
+const ROL_OPTIONS: { value: string; label: string }[] = [
+  { value: "particular",            label: "Particular" },
+  { value: "heredero",              label: "Heredero" },
+  { value: "inversor_pasivo",       label: "Inversor pasivo" },
+  { value: "operador_profesional",  label: "Operador profesional" },
+  { value: "institucional",         label: "Institucional" },
+  { value: "desconocido",           label: "Desconocido" },
+];
+const SUBROL_OPTIONS: { value: string; label: string }[] = [
+  { value: "ninguno",                label: "Ninguno" },
+  { value: "heredero_operador",      label: "Heredero · operador" },
+  { value: "heredero_residente",     label: "Heredero · residente" },
+  { value: "heredero_ausente",       label: "Heredero · ausente" },
+  { value: "heredero_conflictivo",   label: "Heredero · conflictivo" },
+  { value: "arrendador",             label: "Arrendador" },
+  { value: "usufructuario",          label: "Usufructuario" },
+  { value: "nudo_propietario",       label: "Nudo propietario" },
+  { value: "apoderado",              label: "Apoderado" },
+];
+function rolLabel(v?: string | null) {
+  if (!v) return null;
+  return (ROL_OPTIONS.find((o) => o.value === v)?.label) ?? v;
+}
+function subrolLabel(v?: string | null) {
+  if (!v || v === "ninguno") return null;
+  return (SUBROL_OPTIONS.find((o) => o.value === v)?.label) ?? v;
+}
 
 function MessageBody({ m }: { m: any }) {
   const media = m?.metadata?.media;
