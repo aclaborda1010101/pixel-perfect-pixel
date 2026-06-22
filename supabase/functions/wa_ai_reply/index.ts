@@ -467,18 +467,57 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     }
     const finalReplies = filteredReply;
 
-    // Merge qualification (sin sobrescribir lo ya conocido, solo añadir nuevos)
+    // Merge qualification (sin sobrescribir lo ya conocido, solo añadir nuevos).
+    // Campos del guion Afflux (doc interno v2026-06).
     const qu = parsed.qualification_update ?? {};
-    const allowed = ["nombre_apellidos", "gestiona_edificio", "tiene_cuadro_rentas", "vive_en_edificio", "relacion_copropietarios"];
+    const allowedString = new Set([
+      "nombre_apellidos", "motivacion_principal", "cobertura_edificio",
+    ]);
+    const allowedEnum: Record<string, Set<string>> = {
+      estado_edificio: new Set(["alquilado","vacio","mixto"]),
+      gestion_rentas: new Set(["contacto","otro","nadie"]),
+      tipologia_proindivisario: new Set(["01","02","03","04","05","06","07"]),
+      urgencia: new Set(["alta","media","baja"]),
+      decide_solo: new Set(["si","no","explorando"]),
+      dinamica_decision: new Set(["consenso","un_lider","bloqueo"]),
+      nivel_conflicto: new Set(["bajo","medio","alto"]),
+      interes_reunion: new Set(["si","agendar","seguimiento"]),
+    };
+    const allowedNumber = new Set([
+      "fase_actual", "renta_mensual_estimada", "cuota_participacion", "num_copropietarios",
+    ]);
     const cleanQu: Record<string, any> = {};
-    for (const k of allowed) {
-      const v = qu?.[k];
+    for (const [k, v] of Object.entries(qu ?? {})) {
       if (v == null) continue;
-      if (qual[k] != null && qual[k] !== "") continue;
-      if (typeof v === "string" && v.trim()) cleanQu[k] = v.trim();
+      // fase_actual SÍ puede actualizarse (avanza la conversación).
+      const isPhase = k === "fase_actual";
+      const already = qual[k];
+      if (!isPhase && already != null && already !== "") continue;
+      if (allowedString.has(k) && typeof v === "string" && v.trim()) {
+        cleanQu[k] = v.trim();
+      } else if (allowedEnum[k] && typeof v === "string" && allowedEnum[k].has(v)) {
+        cleanQu[k] = v;
+      } else if (allowedNumber.has(k) && (typeof v === "number" || (typeof v === "string" && !isNaN(Number(v))))) {
+        cleanQu[k] = Number(v);
+      }
     }
-    const newQual = { ...qual, ...cleanQu };
-    if (Object.keys(cleanQu).length > 0) {
+    let newQual: Record<string, any> = { ...qual, ...cleanQu };
+
+    // ────────────────────────────────────────────────────────────
+    // Señales de OPORTUNIDAD (Proceso 4) — calculadas server-side.
+    // ────────────────────────────────────────────────────────────
+    const flags = new Set<string>(Array.isArray(newQual.oportunidad_flags) ? newQual.oportunidad_flags : []);
+    const flagsBefore = new Set(flags);
+    if (newQual.dinamica_decision === "bloqueo" && newQual.nivel_conflicto === "alto") flags.add("fragmentacion");
+    if (newQual.decide_solo === "si" && ["02","03"].includes(String(newQual.tipologia_proindivisario))) flags.add("cuota_accionable");
+    if (newQual.tipologia_proindivisario === "07" && typeof newQual.cobertura_edificio === "string" && newQual.cobertura_edificio.trim()) flags.add("compra_multiple");
+    const motiv = String(newQual.motivacion_principal ?? "").toLowerCase();
+    if (newQual.urgencia === "alta" && /salir|dignidad|liberar|carga|cierre|cerrar/.test(motiv)) flags.add("listo_para_mover");
+    const newFlags = [...flags];
+    const flagsChanged = newFlags.length !== flagsBefore.size || newFlags.some((f) => !flagsBefore.has(f));
+    if (flagsChanged) newQual.oportunidad_flags = newFlags;
+
+    if (Object.keys(cleanQu).length > 0 || flagsChanged) {
       await admin.from("wa_conversations").update({ qualification: newQual }).eq("id", conversation_id);
     }
 
