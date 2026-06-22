@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
 
     const { data: conv } = await admin
       .from("wa_conversations")
-      .select("id, ai_enabled, qualification, contact_id, wa_contacts(id, phone, name, stage)")
+      .select("id, ai_enabled, qualification, contact_id, rol_owner, subrol_owner, rol_source, wa_contacts(id, phone, name, stage)")
       .eq("id", conversation_id).single();
     if (!conv) {
       return new Response(JSON.stringify({ error: "conversation not found" }), {
@@ -211,9 +211,34 @@ DEVUELVES SIEMPRE un JSON con esta forma EXACTA y nada más:
     "vive_en_edificio"?: "si" | "no",
     "relacion_copropietarios"?: string
   },
+  "rol_inferido"?: {
+    "rol_owner": "particular" | "heredero" | "inversor_pasivo" | "operador_profesional" | "institucional" | "desconocido",
+    "subrol_owner"?: "ninguno" | "heredero_operador" | "heredero_residente" | "heredero_ausente" | "heredero_conflictivo" | "arrendador" | "usufructuario" | "nudo_propietario" | "apoderado",
+    "confianza": number  // 0..1
+  },
   "propose_meeting": boolean
 }
-En "qualification_update" SOLO incluyes campos que hayas podido deducir con seguridad de lo que la persona ha dicho; si no se sabe, omítelo. No inventes.`;
+En "qualification_update" SOLO incluyes campos que hayas podido deducir con seguridad de lo que la persona ha dicho; si no se sabe, omítelo. No inventes.
+
+REGLA "relacion_copropietarios" — captura vínculos familiares INDIRECTOS:
+- Si dice "lo lleva mi tía/madre/padre/hermano/abuelo" → "Sobrino — gestiona la tía" (o el familiar que toque). NO lo dejes vacío.
+- Si dice "es de mis padres" → "Hijo — gestionan los padres".
+- Si dice "lo heredamos entre hermanos" → "Coheredero entre hermanos".
+- Si es propietario directo dilo así: "Copropietario directo".
+
+REGLA "rol_inferido" — clasifica al lead según los enums internos. SÓLO incluye este bloque si tienes evidencia clara (confianza ≥ 0.7):
+- "particular": dueño individual que vive o usa el inmueble.
+- "heredero": tiene el edificio por herencia (familiar). Sub:
+    · "heredero_residente" → vive allí.
+    · "heredero_operador" → lo gestiona él activamente.
+    · "heredero_ausente"  → no vive ni gestiona (lo lleva otro familiar). [CASO TÍPICO]
+    · "heredero_conflictivo" → hay disputas familiares.
+- "inversor_pasivo": compró para alquilar y no se mete.
+- "operador_profesional": gestor de patrimonio / dueño de varios edificios.
+- "institucional": fondo, SOCIMI, sociedad grande.
+- "desconocido": sin pistas suficientes.
+Sub: "arrendador", "usufructuario", "nudo_propietario", "apoderado" se usan cuando aplican.
+Ejemplo: "el edificio lo lleva mi tía, yo no vivo allí ni participo en la gestión" → rol_owner=heredero, subrol_owner=heredero_ausente, confianza≈0.9.`;
 
     const aiMessages = [
       { role: "system", content: systemPrompt },
@@ -285,6 +310,25 @@ En "qualification_update" SOLO incluyes campos que hayas podido deducir con segu
     if (Object.keys(cleanQu).length > 0) {
       await admin.from("wa_conversations").update({ qualification: newQual }).eq("id", conversation_id);
     }
+
+    // Rol/subrol inferido por la IA. Sólo lo escribimos si:
+    //  - hay confianza ≥ 0.7
+    //  - el comercial NO ha fijado uno manualmente (rol_source !== 'manual')
+    try {
+      const ROLES = new Set(["particular","heredero","inversor_pasivo","operador_profesional","institucional","desconocido"]);
+      const SUBROLES = new Set(["ninguno","heredero_operador","heredero_residente","heredero_ausente","heredero_conflictivo","arrendador","usufructuario","nudo_propietario","apoderado"]);
+      const ri = parsed.rol_inferido;
+      const isManual = (conv as any).rol_source === "manual";
+      if (!isManual && ri && typeof ri === "object" && ROLES.has(ri.rol_owner) && Number(ri.confianza ?? 0) >= 0.7) {
+        const patch: any = {
+          rol_owner: ri.rol_owner,
+          rol_source: "ia",
+          rol_confianza: Number(ri.confianza),
+        };
+        if (ri.subrol_owner && SUBROLES.has(ri.subrol_owner)) patch.subrol_owner = ri.subrol_owner;
+        await admin.from("wa_conversations").update(patch).eq("id", conversation_id);
+      }
+    } catch (_e) { /* no bloquear el reply por esto */ }
 
     // 4) TIEMPOS HUMANOS: delay total + presence typing + 1-3 mensajes con micro pausas
     // Si la conversación está activa (último saliente del bot < 5 min), respondemos rápido.
