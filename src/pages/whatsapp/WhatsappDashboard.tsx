@@ -429,6 +429,11 @@ function ResumenView({ tiles, conversations, instance, onOpenInbox, onConnect }:
                         {c.wa_contacts?.name ?? c.wa_contacts?.phone ?? "Contacto"}
                       </span>
                       {c.ai_enabled && <Bot className="h-3 w-3 text-gold" />}
+                      {(subrolLabel(c.subrol_owner) || rolLabel(c.rol_owner)) && (
+                        <span className="rounded-full border border-gold/40 bg-gold/5 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/90">
+                          {subrolLabel(c.subrol_owner) ?? rolLabel(c.rol_owner)}
+                        </span>
+                      )}
                     </div>
                     <div className="mt-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                       {c.wa_contacts?.stage ?? "nuevo"} · {c.last_message_at ? new Date(c.last_message_at).toLocaleString("es") : "—"}
