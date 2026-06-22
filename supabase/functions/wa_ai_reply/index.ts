@@ -309,11 +309,13 @@ Ejemplo: "el edificio lo lleva mi tía, yo no vivo allí ni participo en la gest
         ai_generated: true,
         metadata: { kind: "dup_skip", model_reply: replyMsgs, last_in: lastInText },
       });
-      await admin.rpc("increment_unread", { p_conv: conversation_id }).catch(() => {});
-      // Fallback por si la RPC no existe: bumpea manualmente.
-      await admin.from("wa_conversations")
-        .update({ last_message_at: new Date().toISOString() })
-        .eq("id", conversation_id);
+      // Bump unread_count manualmente para que el comercial vea el aviso en el inbox.
+      const { data: convRow } = await admin.from("wa_conversations")
+        .select("unread_count").eq("id", conversation_id).maybeSingle();
+      await admin.from("wa_conversations").update({
+        last_message_at: new Date().toISOString(),
+        unread_count: ((convRow as any)?.unread_count ?? 0) + 1,
+      }).eq("id", conversation_id);
       await admin.from("wa_ai_jobs").update({
         status: "skipped_dup",
         error: JSON.stringify({ reason: "duplicate_of_recent_reply", window_ms: DUP_WINDOW_MS, n_recent_outs: recentOuts.length }),
