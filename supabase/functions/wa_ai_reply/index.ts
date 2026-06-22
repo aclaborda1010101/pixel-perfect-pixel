@@ -94,6 +94,15 @@ Deno.serve(async (req) => {
     const lastIn = [...realHistory].reverse().find((m: any) => m.direction === "in");
     const lastInText: string = lastIn?.content ?? "";
 
+    // ¿El cliente acaba de REENVIAR un mensaje idéntico a uno anterior ya contestado?
+    // En ese caso el modelo tiende a saludar otra vez y dispara el anti-dup.
+    const normTxt = (s: string) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const lastInNorm = normTxt(lastInText);
+    const priorInDuplicates = realHistory
+      .slice(0, -1)
+      .filter((m: any) => m.direction === "in" && normTxt(m.content) === lastInNorm).length;
+    const isResend = !!lastInNorm && priorInDuplicates > 0;
+
     // Si el último mensaje entrante es multimedia aún no procesado, NO respondemos.
     // wa_process_incoming_media disparará wa_ai_reply al terminar.
     const lastInMeta = (lastIn as any)?.metadata?.media;
@@ -193,6 +202,7 @@ DATOS QUE NECESITAS IR SACANDO (encajados en la charla, NO como cuestionario, y 
 ${extractFields.map((f) => `- ${f}`).join("\n")}
 
 DATOS YA CONOCIDOS (NO los vuelvas a preguntar): ${JSON.stringify(qual)}
+${isResend ? "\nIMPORTANTE: el cliente ha REENVIADO un mensaje que ya os habíais cruzado antes. Retoma la conversación donde la dejasteis, NO saludes de nuevo ni repitas presentaciones.\n" : ""}
 
 REGLAS DURAS:
 - Nunca digas frases como: ${forbidden.join(" / ")}.
@@ -279,18 +289,37 @@ Ejemplo: "el edificio lo lleva mi tía, yo no vivo allí ni participo en la gest
       });
     }
 
-    // Anti-duplicado: si el bot acaba de mandar literalmente lo mismo en los últimos 5 minutos,
-    // no repitas. Evita los bucles "Da la sensación de que..." vistos en producción.
+    // Anti-duplicado: si el bot mandó literalmente lo mismo en los ÚLTIMOS 5 MINUTOS,
+    // no repitas. Antes se miraban los últimos 6 OUT de toda la historia y eso silenciaba
+    // al bot cuando un cliente reenviaba días después el mismo mensaje inicial.
+    const DUP_WINDOW_MS = 5 * 60 * 1000;
+    const nowMs = Date.now();
     const recentOuts = realHistory
-      .filter((m: any) => m.direction === "out")
-      .slice(-6)
-      .map((m: any) => String(m.content || "").trim().toLowerCase());
-    const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
-    const filteredReply = replyMsgs.filter((m) => !recentOuts.includes(norm(m)));
+      .filter((m: any) => m.direction === "out" && (nowMs - new Date(m.created_at).getTime()) < DUP_WINDOW_MS)
+      .map((m: any) => normTxt(m.content));
+    const filteredReply = replyMsgs.filter((m) => !recentOuts.includes(normTxt(m)));
     if (filteredReply.length === 0) {
-      await admin.from("wa_ai_jobs").update({ status: "skipped_dup", updated_at: new Date().toISOString() })
-        .eq("conversation_id", conversation_id).eq("status", "pending");
-      return new Response(JSON.stringify({ ok: true, skip: "duplicate of recent reply" }), {
+      // Registrar nota interna para que el comercial vea que el bot se saltó la respuesta.
+      await admin.from("wa_messages").insert({
+        conversation_id,
+        contact_id: contact.id,
+        direction: "out",
+        type: "system",
+        content: "⚠️ Respuesta del bot omitida por anti-duplicado. Revisa y contesta manualmente si procede.",
+        ai_generated: true,
+        metadata: { kind: "dup_skip", model_reply: replyMsgs, last_in: lastInText },
+      });
+      await admin.rpc("increment_unread", { p_conv: conversation_id }).catch(() => {});
+      // Fallback por si la RPC no existe: bumpea manualmente.
+      await admin.from("wa_conversations")
+        .update({ last_message_at: new Date().toISOString() })
+        .eq("id", conversation_id);
+      await admin.from("wa_ai_jobs").update({
+        status: "skipped_dup",
+        error: JSON.stringify({ reason: "duplicate_of_recent_reply", window_ms: DUP_WINDOW_MS, n_recent_outs: recentOuts.length }),
+        updated_at: new Date().toISOString(),
+      }).eq("conversation_id", conversation_id).eq("status", "pending");
+      return new Response(JSON.stringify({ ok: true, skip: "duplicate of recent reply", logged: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
