@@ -3,7 +3,7 @@ import {
   Inbox, FileText, PhoneCall,
   MessageSquare, Megaphone, ListChecks, BarChart3,
   Settings as SettingsIcon, Search, CheckSquare, UserCircle,
-  MessagesSquare,
+  MessagesSquare, Footprints,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -88,6 +88,7 @@ export function AppSidebar() {
   const cuenta: Item[] = isWhatsapp ? [] : isComercial ? [
     { url: "/comercial/cuenta", label: "Mi cuenta", icon: UserCircle },
   ] : [
+    { url: "/revision-escaleras", label: "Revisión escaleras", icon: Footprints },
     { url: "/admin/proteccion-pgoum", label: "Validación PGOUM", icon: CheckSquare },
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
   ];

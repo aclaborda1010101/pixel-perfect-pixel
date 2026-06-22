@@ -51,6 +51,7 @@ const AdminZonas = lazy(() => import("./pages/admin/Zonas"));
 const AdminIA = lazy(() => import("./pages/admin/IA"));
 const AdminOps = lazy(() => import("./pages/admin/Ops"));
 const WhatsappDashboard = lazy(() => import("./pages/whatsapp/WhatsappDashboard"));
+const RevisionEscaleras = lazy(() => import("./pages/RevisionEscaleras"));
 
 // React Query: cachea datos entre navegaciones. Volver a una vista ya cargada es instantáneo.
 const queryClient = new QueryClient({
@@ -140,6 +141,7 @@ const App = () => (
                 <Route path="/admin/_ops" element={<AdminOps />} />
                 <Route path="/enriquecimiento" element={<Enriquecimiento />} />
                 <Route path="/whatsapp" element={<WhatsappDashboard />} />
+                <Route path="/revision-escaleras" element={<RevisionEscaleras />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
