@@ -356,6 +356,7 @@ export default function WhatsappDashboard() {
           setSelectedConv={setSelectedConv}
           regenerateSummary={regenerateSummary}
           toggleAi={toggleAi}
+          setRol={setRol}
         />
       )}
 
