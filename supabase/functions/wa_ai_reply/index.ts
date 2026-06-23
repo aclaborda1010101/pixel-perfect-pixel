@@ -677,6 +677,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     const qu = parsed.qualification_update ?? {};
     const allowedString = new Set([
       "nombre_apellidos", "motivacion_principal", "cobertura_edificio",
+      "p0_complejidad", "p3_sensible",
     ]);
     const allowedEnum: Record<string, Set<string>> = {
       estado_edificio: new Set(["alquilado","vacio","mixto"]),
@@ -687,6 +688,8 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       dinamica_decision: new Set(["consenso","un_lider","bloqueo"]),
       nivel_conflicto: new Set(["bajo","medio","alto"]),
       interes_reunion: new Set(["si","agendar","seguimiento"]),
+      p1_oferta_previa: new Set(["si","no"]),
+      p2_motivo: new Set(["liquidez","discrecion","herencia"]),
     };
     const allowedNumber = new Set([
       "fase_actual", "renta_mensual_estimada", "cuota_participacion", "num_copropietarios",
@@ -707,6 +710,25 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       }
     }
     let newQual: Record<string, any> = { ...qual, ...cleanQu };
+
+    // ────────────────────────────────────────────────────────────
+    // CLASIFICADOR DE PUERTA: guardamos `categoria` en la conversación
+    // y, si es C (operativo) o E (comprador), preparamos handoff humano
+    // DESPUÉS de enviar la respuesta del bot.
+    // ────────────────────────────────────────────────────────────
+    const CATS = new Set(["A","B","C","D","E","F"]);
+    const categoria: string | null = (typeof parsed.categoria === "string" && CATS.has(parsed.categoria))
+      ? parsed.categoria : null;
+    if (categoria) newQual.categoria = categoria;
+    const HANDOFF_REASONS = new Set(["operativo","comprador","fuera_madrid","otro"]);
+    let handoffReason: string | null = null;
+    if (parsed.needs_handoff === true || categoria === "C" || categoria === "E") {
+      const r = typeof parsed.handoff_reason === "string" && HANDOFF_REASONS.has(parsed.handoff_reason)
+        ? parsed.handoff_reason
+        : (categoria === "C" ? "operativo" : categoria === "E" ? "comprador" : "otro");
+      handoffReason = r;
+      newQual.handoff_reason = r;
+    }
 
     // ────────────────────────────────────────────────────────────
     // Señales de OPORTUNIDAD (Proceso 4) — calculadas server-side.
