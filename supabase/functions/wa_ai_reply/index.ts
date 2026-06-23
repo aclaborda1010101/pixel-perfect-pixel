@@ -468,6 +468,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
         type: "system",
         content: "⚠️ Respuesta del bot omitida por anti-duplicado. Revisa y contesta manualmente si procede.",
         ai_generated: true,
+        sender_type: "system",
         metadata: { kind: "dup_skip", model_reply: replyMsgs, last_in: lastInText },
       });
       // Bump unread_count manualmente para que el comercial vea el aviso en el inbox.
