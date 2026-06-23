@@ -744,7 +744,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     const flagsChanged = newFlags.length !== flagsBefore.size || newFlags.some((f) => !flagsBefore.has(f));
     if (flagsChanged) newQual.oportunidad_flags = newFlags;
 
-    if (Object.keys(cleanQu).length > 0 || flagsChanged) {
+    if (Object.keys(cleanQu).length > 0 || flagsChanged || categoria || handoffReason) {
       await admin.from("wa_conversations").update({ qualification: newQual }).eq("id", conversation_id);
     }
 
@@ -838,6 +838,12 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     }
     if (nextStage && nextStage !== currentStage) {
       await admin.from("wa_contacts").update({ stage: nextStage }).eq("id", contact.id);
+    }
+
+    // Si el clasificador marcó handoff (C operativo / E comprador), pausamos el bot
+    // DESPUÉS de enviar la respuesta del modelo, para que un humano retome.
+    if (handoffReason) {
+      await admin.from("wa_contacts").update({ stage: "handoff" }).eq("id", contact.id);
     }
 
     // Resumen: forzar si propuesta de reunión, nueva flag de oportunidad, o cambio de stage.
