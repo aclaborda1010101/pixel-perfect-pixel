@@ -35,6 +35,23 @@ export function CatastroDetalladoCard({ buildingId, refCatastral }: { buildingId
   const subparcelas: any[] = Array.isArray(d.subparcelas) ? d.subparcelas : [];
   const hasParsed = !!(d.direccion_oficial || d.uso_principal || subparcelas.length);
 
+  // Resumen agregado por uso: m² y nº unidades.
+  const resumenUso = (() => {
+    const m = new Map<string, { m2: number; uds: number }>();
+    for (const sp of subparcelas) {
+      const uso = (sp?.uso ?? "Sin clasificar").toString();
+      const m2 = Number(sp?.superficie_m2) || 0;
+      const cur = m.get(uso) ?? { m2: 0, uds: 0 };
+      cur.m2 += m2;
+      cur.uds += 1;
+      m.set(uso, cur);
+    }
+    return Array.from(m.entries())
+      .map(([uso, v]) => ({ uso, ...v }))
+      .sort((a, b) => b.m2 - a.m2);
+  })();
+  const totalM2 = resumenUso.reduce((s, r) => s + r.m2, 0);
+
   return (
     <Card>
       <CardHeader>
@@ -73,6 +90,39 @@ export function CatastroDetalladoCard({ buildingId, refCatastral }: { buildingId
             )}
 
             {subparcelas.length > 0 && (
+              <div className="rounded-md border border-border-faint bg-surface-1/40 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                    Resumen por uso
+                  </div>
+                  <div className="font-mono text-[10px] tabular-nums text-foreground">
+                    Total: {totalM2.toLocaleString()} m² · {subparcelas.length} uds
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {resumenUso.map((r) => {
+                    const Icon = iconForUso(r.uso);
+                    return (
+                      <span
+                        key={r.uso}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border-faint bg-background/40 px-2.5 py-1 text-xs"
+                      >
+                        <Icon className="h-3.5 w-3.5 text-gold" />
+                        <span className="text-foreground">{r.uso}</span>
+                        <span className="font-mono tabular-nums text-foreground/90">
+                          {r.m2.toLocaleString()} m²
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          ({r.uds} {r.uds === 1 ? "ud" : "uds"})
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {subparcelas.length > 0 && (
               <div className="rounded-md border border-border-faint">
                 <button
                   type="button"
@@ -81,7 +131,7 @@ export function CatastroDetalladoCard({ buildingId, refCatastral }: { buildingId
                 >
                   <div className="flex items-center gap-2">
                     {open ? <ChevronDown className="h-4 w-4 text-gold" /> : <ChevronRight className="h-4 w-4 text-gold" />}
-                    <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Subparcelas</span>
+                    <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Detalle subparcelas</span>
                     <Badge variant="outline">{subparcelas.length}</Badge>
                   </div>
                   <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
@@ -96,6 +146,7 @@ export function CatastroDetalladoCard({ buildingId, refCatastral }: { buildingId
                           <th className="px-3 py-2 text-left">#</th>
                           <th className="px-3 py-2 text-left">Uso</th>
                           <th className="px-3 py-2 text-left">Planta</th>
+                          <th className="px-3 py-2 text-left">Puerta</th>
                           <th className="px-3 py-2 text-right">Superficie</th>
                         </tr>
                       </thead>
@@ -112,6 +163,7 @@ export function CatastroDetalladoCard({ buildingId, refCatastral }: { buildingId
                                 </span>
                               </td>
                               <td className="px-3 py-2 font-mono text-xs">{sp.planta ?? "—"}</td>
+                              <td className="px-3 py-2 font-mono text-xs">{sp.puerta ?? "—"}</td>
                               <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
                                 {sp.superficie_m2 != null ? `${Number(sp.superficie_m2).toLocaleString()} m²` : "—"}
                               </td>

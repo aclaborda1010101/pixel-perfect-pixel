@@ -737,6 +737,13 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
 
   return (
     <>
+      {/* AVISO IDENTIDAD DUDOSA */}
+      {qual.identidad_dudosa === true && (
+        <section className="rounded-[6px] border border-amber-500/40 bg-amber-500/10 p-3 text-[12px] text-amber-200">
+          ⚠️ Identidad por confirmar: el nombre que da no coincide con el del registro.
+        </section>
+      )}
+
       {/* IDENTIDAD */}
       <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
         <SectionHeader icon={IdCard} label="Identidad" />
@@ -748,6 +755,11 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
           <span className={cn("rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow", stageColor)}>
             {stage}
           </span>
+          {qual.categoria && (
+            <span className="rounded-full border border-gold/40 bg-gold/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold">
+              Cat. {String(qual.categoria).toUpperCase()}
+            </span>
+          )}
           {current.rol_source === "ia" && (
             <span className="rounded-full border border-gold/30 bg-gold/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/80">
               <Sparkles className="mr-0.5 inline h-2.5 w-2.5" /> IA{current.rol_confianza ? ` · ${Math.round(current.rol_confianza * 100)}%` : ""}
@@ -816,6 +828,22 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
         <Row label="Vive en el edificio"><SiNo v={qual.vive_en_edificio} /></Row>
         <Row label="Relación familiar"><Text v={qual.relacion_copropietarios} /></Row>
       </section>
+
+      {/* MOTIVACIÓN P0–P3 */}
+      {(qual.p0_complejidad || qual.p1_oferta_previa || qual.p2_motivo || qual.p3_sensible) && (
+        <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+          <SectionHeader icon={Sparkles} label="Motivación (P0–P3)" />
+          {qual.p0_complejidad && (
+            <div className="mb-2 rounded-md border border-gold/40 bg-gold/10 p-2">
+              <div className="font-mono text-[9px] uppercase tracking-eyebrow text-gold">P0 · Complejidad</div>
+              <div className="mt-0.5 text-xs text-foreground">{String(qual.p0_complejidad)}</div>
+            </div>
+          )}
+          {qual.p1_oferta_previa && <Row label="P1 · Oferta previa"><SiNo v={qual.p1_oferta_previa} /></Row>}
+          {qual.p2_motivo && <Row label="P2 · Motivo"><Text v={qual.p2_motivo} /></Row>}
+          {qual.p3_sensible && <Row label="P3 · Sensible"><Text v={qual.p3_sensible} /></Row>}
+        </section>
+      )}
 
       {/* IDENTIFICADO EN BD */}
       <IdentificadoEnBD contact={current.wa_contacts} />
