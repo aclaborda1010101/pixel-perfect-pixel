@@ -166,6 +166,140 @@ Deno.serve(async (req) => {
       ? `\nHISTORIAL DE CONTACTOS PREVIOS CON ESTE PROPIETARIO (no se lo recuerdes literalmente, úsalo solo para no repetir preguntas ni saludos, y para reconocer a quién ya le habló del tema):\n${priorContactsBlock.join("\n")}\n`
       : "";
 
+    // ────────────────────────────────────────────────────────────
+    // ENRIQUECIMIENTO DE CONTEXTO: cruza el teléfono con owners + HubSpot
+    // para que el bot sepa con quién habla antes de responder.
+    // Todo entre try/catch: si algo falla, seguimos sin contexto.
+    // ────────────────────────────────────────────────────────────
+    let enrichmentBlock = "";
+    let identidadDudosa = false;
+    let identidadAviso = "";
+    try {
+      if (phoneLast9 && phoneLast9.length >= 9) {
+        // 1) Owner por últimos 9 dígitos del teléfono. Si ya tenemos lead_id, úsalo;
+        //    si no, buscamos por teléfono normalizado.
+        let ownerRow: any = null;
+        if (ownerId) {
+          const { data } = await admin.from("owners")
+            .select("id, nombre, metadatos")
+            .eq("id", ownerId).maybeSingle();
+          ownerRow = data;
+        }
+        if (!ownerRow) {
+          const { data } = await admin.from("owners")
+            .select("id, nombre, metadatos, telefono")
+            .not("telefono", "is", null)
+            .is("merged_into", null)
+            .ilike("telefono", `%${phoneLast9}`)
+            .limit(3);
+          const matches = (data ?? []).filter((o: any) =>
+            String(o.telefono ?? "").replace(/\D/g, "").slice(-9) === phoneLast9);
+          if (matches.length === 1) ownerRow = matches[0];
+        }
+
+        const lines: string[] = [];
+        if (ownerRow) {
+          // 2) Edificio(s) asociados (hasta 2).
+          let buildingsTxt = "";
+          try {
+            const { data: bos } = await admin.from("building_owners")
+              .select("cuota, buildings(direccion, score, cluster_asignado)")
+              .eq("owner_id", ownerRow.id)
+              .order("cuota", { ascending: false, nullsFirst: false })
+              .limit(2);
+            const parts = (bos ?? []).map((bo: any) => {
+              const b = bo.buildings ?? {};
+              const sc = b.score != null ? ` score ${b.score}` : "";
+              const cl = b.cluster_asignado ? ` · ${b.cluster_asignado}` : "";
+              return `${b.direccion ?? "edif."}${sc}${cl}`;
+            });
+            if (parts.length) buildingsTxt = parts.join(" | ");
+          } catch { /* opcional */ }
+
+          lines.push(`- Propietario conocido: ${ownerRow.nombre}${buildingsTxt ? `. Edificio(s): ${buildingsTxt}` : ""}.`);
+
+          // 3) HubSpot contact id vía external_ids.
+          let hsIds: string[] = [];
+          try {
+            const { data: eids } = await admin.from("external_ids")
+              .select("provider_id")
+              .eq("entity_type", "owner")
+              .eq("entity_id", ownerRow.id)
+              .eq("provider", "hubspot");
+            hsIds = (eids ?? []).map((e: any) => String(e.provider_id)).filter(Boolean);
+          } catch { /* opcional */ }
+
+          if (hsIds.length) {
+            let hsCallsCount = 0, hsNotesCount = 0;
+            const recent: string[] = [];
+            try {
+              const { data: hsc } = await admin.from("hubspot_calls")
+                .select("hs_timestamp, hs_call_title, hs_call_body, associated_contact_ids", { count: "exact", head: false })
+                .overlaps("associated_contact_ids", hsIds)
+                .order("hs_timestamp", { ascending: false })
+                .limit(3);
+              hsCallsCount = (hsc ?? []).length;
+              for (const c of (hsc ?? []).slice(0, 2)) {
+                const when = (c as any).hs_timestamp ? new Date((c as any).hs_timestamp).toLocaleDateString("es-ES") : "";
+                const body = String((c as any).hs_call_title || (c as any).hs_call_body || "").slice(0, 200);
+                if (body) recent.push(`  · ${when} llamada HS — ${body}`);
+              }
+            } catch { /* opcional */ }
+            try {
+              const { data: hsn } = await admin.from("hubspot_notes")
+                .select("hs_timestamp, hs_note_body")
+                .overlaps("associated_contact_ids", hsIds)
+                .order("hs_timestamp", { ascending: false })
+                .limit(3);
+              hsNotesCount = (hsn ?? []).length;
+              for (const n of (hsn ?? []).slice(0, 2)) {
+                const when = (n as any).hs_timestamp ? new Date((n as any).hs_timestamp).toLocaleDateString("es-ES") : "";
+                const body = String((n as any).hs_note_body || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+                if (body) recent.push(`  · ${when} nota HS — ${body}`);
+              }
+            } catch { /* opcional */ }
+            try {
+              const { data: hsw } = await admin.from("hubspot_whatsapp")
+                .select("hs_timestamp, hs_communication_body")
+                .overlaps("associated_contact_ids", hsIds)
+                .order("hs_timestamp", { ascending: false })
+                .limit(3);
+              for (const w of (hsw ?? []).slice(0, 2)) {
+                const when = (w as any).hs_timestamp ? new Date((w as any).hs_timestamp).toLocaleDateString("es-ES") : "";
+                const body = String((w as any).hs_communication_body || "").slice(0, 200);
+                if (body) recent.push(`  · ${when} WA HS — ${body}`);
+              }
+            } catch { /* opcional */ }
+
+            lines.push(`- Histórico HubSpot: ${hsCallsCount} llamadas y ${hsNotesCount} notas asociadas.`);
+            if (recent.length) lines.push(`- Lo más reciente:\n${recent.join("\n")}`);
+          }
+
+          // 4) Identidad dudosa: comparar nombre WA vs nombre en owners.
+          const waName = String((contact as any)?.name ?? "").trim();
+          const ownerName = String(ownerRow.nombre ?? "").trim();
+          if (waName && ownerName) {
+            const norm = (s: string) => s.toLowerCase()
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+            const wa = norm(waName).split(" ").filter(Boolean);
+            const ow = norm(ownerName).split(" ").filter(Boolean);
+            const overlap = wa.some((t) => t.length >= 3 && ow.includes(t));
+            if (!overlap) {
+              identidadDudosa = true;
+              identidadAviso = `⚠️ IDENTIDAD: el contacto dice llamarse "${waName}" pero el teléfono figura a nombre de "${ownerName}" en el registro. No lo des por hecho; si surge de forma natural, confírmalo con tacto, sin acusar.`;
+            }
+          }
+        }
+
+        if (lines.length || identidadAviso) {
+          enrichmentBlock = `\nCONTEXTO PREVIO (úsalo para no partir de cero; NO lo recites ni lo leas en voz alta al cliente, es información interna para TI):\n${lines.join("\n")}${identidadAviso ? `\n${identidadAviso}` : ""}\n`;
+        }
+      }
+    } catch (e) {
+      console.warn("[wa_ai_reply] enrichment failed", (e as any)?.message);
+    }
+
     // GUARD ANTI RE-DISPARO: si ya hemos contestado (out, no system) al último
     // mensaje entrante y el cliente no ha escrito nada nuevo después, NO respondemos.
     // Esto evita ráfagas de mensajes salientes ante re-procesos del job.
