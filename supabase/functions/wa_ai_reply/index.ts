@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
     const { data: cfg } = await admin.from("wa_bot_config").select("*").limit(1).maybeSingle();
     const { data: history } = await admin
       .from("wa_messages")
-      .select("direction, content, type, created_at, metadata")
+      .select("direction, content, type, created_at, metadata, sender_type, agent_user_id")
       .eq("conversation_id", conversation_id)
       .order("created_at", { ascending: true })
       .limit(60);
@@ -93,6 +93,86 @@ Deno.serve(async (req) => {
     const realHistory = (history ?? []).filter((m: any) => m.type !== "system" && m.content);
     const lastIn = [...realHistory].reverse().find((m: any) => m.direction === "in");
     const lastInText: string = lastIn?.content ?? "";
+
+    // ────────────────────────────────────────────────────────────
+    // MEMORIA CROSS-CHANNEL: nombres de agentes humanos que han escrito por WhatsApp,
+    // contactos previos por llamada o nota en HubSpot/CRM, etc.
+    // Se inyecta en el system prompt para que el bot sepa con quién más ha hablado el lead.
+    // ────────────────────────────────────────────────────────────
+    const agentIds = Array.from(new Set(
+      realHistory.filter((m: any) => m.sender_type === "human_agent" && m.agent_user_id)
+        .map((m: any) => m.agent_user_id as string),
+    ));
+    const agentNames: Record<string, string> = {};
+    if (agentIds.length) {
+      const { data: profs } = await admin.from("profiles")
+        .select("id, full_name, email").in("id", agentIds);
+      for (const p of profs ?? []) {
+        agentNames[(p as any).id] = (p as any).full_name || (p as any).email || "agente";
+      }
+    }
+
+    const phoneClean = String(contact?.phone ?? "").replace(/[^\d]/g, "");
+    const phoneLast9 = phoneClean.slice(-9);
+    const touchpoints: string[] = [];
+    try {
+      // Llamadas (tabla `calls`).
+      const { data: callsRows } = await admin.from("calls")
+        .select("created_at, summary, outcome, agent_name, duration_sec")
+        .ilike("phone", `%${phoneLast9}`)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      for (const c of callsRows ?? []) {
+        const when = new Date((c as any).created_at).toLocaleDateString("es-ES");
+        const who  = (c as any).agent_name ?? "comercial";
+        const out  = (c as any).outcome ? ` [${(c as any).outcome}]` : "";
+        const sum  = (c as any).summary ? ` — ${String((c as any).summary).slice(0, 180)}` : "";
+        touchpoints.push(`• ${when} · llamada (${who})${out}${sum}`);
+      }
+    } catch { /* tabla opcional */ }
+    try {
+      // Llamadas registradas en HubSpot.
+      const { data: hsCalls } = await admin.from("hubspot_calls")
+        .select("timestamp, call_body, call_disposition, call_direction")
+        .or(`call_to_number.ilike.%${phoneLast9},call_from_number.ilike.%${phoneLast9}`)
+        .order("timestamp", { ascending: false })
+        .limit(5);
+      for (const c of hsCalls ?? []) {
+        const when = new Date((c as any).timestamp).toLocaleDateString("es-ES");
+        const dir  = (c as any).call_direction ?? "";
+        const disp = (c as any).call_disposition ? ` [${(c as any).call_disposition}]` : "";
+        const body = (c as any).call_body ? ` — ${String((c as any).call_body).slice(0, 180)}` : "";
+        touchpoints.push(`• ${when} · HubSpot llamada ${dir}${disp}${body}`);
+      }
+    } catch { /* opcional */ }
+    try {
+      // Notas y comunicaciones de HubSpot ligadas al teléfono (vía contacto).
+      const { data: hsComm } = await admin.from("hubspot_communications")
+        .select("timestamp, channel, body, direction")
+        .ilike("phone", `%${phoneLast9}`)
+        .order("timestamp", { ascending: false })
+        .limit(5);
+      for (const c of hsComm ?? []) {
+        const when = new Date((c as any).timestamp).toLocaleDateString("es-ES");
+        const ch   = (c as any).channel ?? "comunicación";
+        const body = (c as any).body ? ` — ${String((c as any).body).slice(0, 180)}` : "";
+        touchpoints.push(`• ${when} · HubSpot ${ch}${body}`);
+      }
+    } catch { /* opcional */ }
+
+    const humanWaTouches = realHistory
+      .filter((m: any) => m.sender_type === "human_agent")
+      .slice(-5)
+      .map((m: any) => {
+        const when = new Date(m.created_at).toLocaleDateString("es-ES");
+        const who  = agentNames[m.agent_user_id] ?? "agente humano";
+        return `• ${when} · WhatsApp (${who}) — ${String(m.content).slice(0, 180)}`;
+      });
+
+    const priorContactsBlock = [...humanWaTouches, ...touchpoints].slice(0, 12);
+    const priorContactsText = priorContactsBlock.length
+      ? `\nHISTORIAL DE CONTACTOS PREVIOS CON ESTE PROPIETARIO (no se lo recuerdes literalmente, úsalo solo para no repetir preguntas ni saludos, y para reconocer a quién ya le habló del tema):\n${priorContactsBlock.join("\n")}\n`
+      : "";
 
     // GUARD ANTI RE-DISPARO: si ya hemos contestado (out, no system) al último
     // mensaje entrante y el cliente no ha escrito nada nuevo después, NO respondemos.
