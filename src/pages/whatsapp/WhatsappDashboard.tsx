@@ -1148,3 +1148,68 @@ function BotView({ cfg, saveCfg }: any) {
     </Card>
   );
 }
+function IdentificadoEnBD({ contact }: { contact: any }) {
+  const leadId: string | null = contact?.lead_id ?? null;
+  const md = contact?.metadata ?? {};
+  const status: string | undefined = md?.match_status;
+  const ownerNombre: string | null = md?.matched_owner_nombre ?? null;
+  const buildings: Array<{ building_id: string; direccion: string | null; cuota?: number | null }> =
+    Array.isArray(md?.matched_buildings) ? md.matched_buildings : [];
+
+  if (!leadId && status !== "ambiguous") return null;
+
+  return (
+    <section className="rounded-[6px] border border-gold/30 bg-gold/5 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <IdCard className="h-3 w-3 text-gold" />
+        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-gold/80">
+          Identificado en BD
+        </span>
+      </div>
+      {leadId ? (
+        <>
+          <Link
+            to={`/owners/${leadId}`}
+            className="text-sm font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            {ownerNombre ?? "Propietario"}
+          </Link>
+          {buildings.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                Edificios ({buildings.length})
+              </div>
+              <ul className="space-y-0.5">
+                {buildings.slice(0, 5).map((b) => (
+                  <li key={b.building_id} className="text-xs">
+                    <Link
+                      to={`/comercial/edificios/${b.building_id}`}
+                      className="flex items-center gap-1 text-foreground/90 hover:text-gold"
+                    >
+                      <Building2 className="h-3 w-3" />
+                      <span className="truncate">{b.direccion ?? b.building_id}</span>
+                      {b.cuota != null && (
+                        <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                          {Math.round(Number(b.cuota))}%
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                ))}
+                {buildings.length > 5 && (
+                  <li className="text-[10px] text-muted-foreground">
+                    +{buildings.length - 5} más
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="text-xs text-muted-foreground">
+          Varios propietarios con este teléfono — revisar manualmente.
+        </div>
+      )}
+    </section>
+  );
+}
