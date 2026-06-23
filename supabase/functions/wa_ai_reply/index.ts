@@ -496,7 +496,9 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       { role: "system", content: systemPrompt },
       ...realHistory.map((m: any) => ({
         role: m.direction === "in" ? "user" : "assistant",
-        content: m.content,
+        content: m.direction === "out" && m.sender_type === "human_agent"
+          ? `[Mensaje escrito por ${agentNames[m.agent_user_id] ?? "un agente humano del equipo"}]: ${m.content}`
+          : m.content,
       })),
     ];
 
