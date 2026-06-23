@@ -114,49 +114,41 @@ Deno.serve(async (req) => {
 
     const phoneClean = String(contact?.phone ?? "").replace(/[^\d]/g, "");
     const phoneLast9 = phoneClean.slice(-9);
+    const ownerId = (contact as any)?.lead_id ?? null;
     const touchpoints: string[] = [];
     try {
-      // Llamadas (tabla `calls`).
-      const { data: callsRows } = await admin.from("calls")
-        .select("created_at, summary, outcome, agent_name, duration_sec")
-        .ilike("phone", `%${phoneLast9}`)
-        .order("created_at", { ascending: false })
-        .limit(5);
-      for (const c of callsRows ?? []) {
-        const when = new Date((c as any).created_at).toLocaleDateString("es-ES");
-        const who  = (c as any).agent_name ?? "comercial";
-        const out  = (c as any).outcome ? ` [${(c as any).outcome}]` : "";
-        const sum  = (c as any).summary ? ` — ${String((c as any).summary).slice(0, 180)}` : "";
-        touchpoints.push(`• ${when} · llamada (${who})${out}${sum}`);
+      // Llamadas internas (tabla `calls`), enlazadas al propietario.
+      if (ownerId) {
+        const { data: callsRows } = await admin.from("calls")
+          .select("fecha, resumen, outcome, direccion, comercial_nombre")
+          .eq("owner_id", ownerId)
+          .order("fecha", { ascending: false })
+          .limit(5);
+        for (const c of callsRows ?? []) {
+          const when = new Date((c as any).fecha).toLocaleDateString("es-ES");
+          const who  = (c as any).comercial_nombre ?? "comercial";
+          const dir  = (c as any).direccion ?? "";
+          const out  = (c as any).outcome ? ` [${(c as any).outcome}]` : "";
+          const sum  = (c as any).resumen ? ` — ${String((c as any).resumen).slice(0, 180)}` : "";
+          touchpoints.push(`• ${when} · llamada ${dir} (${who})${out}${sum}`);
+        }
       }
     } catch { /* tabla opcional */ }
     try {
-      // Llamadas registradas en HubSpot.
-      const { data: hsCalls } = await admin.from("hubspot_calls")
-        .select("timestamp, call_body, call_disposition, call_direction")
-        .or(`call_to_number.ilike.%${phoneLast9},call_from_number.ilike.%${phoneLast9}`)
-        .order("timestamp", { ascending: false })
-        .limit(5);
-      for (const c of hsCalls ?? []) {
-        const when = new Date((c as any).timestamp).toLocaleDateString("es-ES");
-        const dir  = (c as any).call_direction ?? "";
-        const disp = (c as any).call_disposition ? ` [${(c as any).call_disposition}]` : "";
-        const body = (c as any).call_body ? ` — ${String((c as any).call_body).slice(0, 180)}` : "";
-        touchpoints.push(`• ${when} · HubSpot llamada ${dir}${disp}${body}`);
-      }
-    } catch { /* opcional */ }
-    try {
-      // Notas y comunicaciones de HubSpot ligadas al teléfono (vía contacto).
-      const { data: hsComm } = await admin.from("hubspot_communications")
-        .select("timestamp, channel, body, direction")
-        .ilike("phone", `%${phoneLast9}`)
-        .order("timestamp", { ascending: false })
-        .limit(5);
-      for (const c of hsComm ?? []) {
-        const when = new Date((c as any).timestamp).toLocaleDateString("es-ES");
-        const ch   = (c as any).channel ?? "comunicación";
-        const body = (c as any).body ? ` — ${String((c as any).body).slice(0, 180)}` : "";
-        touchpoints.push(`• ${when} · HubSpot ${ch}${body}`);
+      // Llamadas registradas en HubSpot, matcheadas por teléfono.
+      if (phoneLast9) {
+        const { data: hsCalls } = await admin.from("hubspot_calls")
+          .select("hs_timestamp, hs_call_body, hs_call_disposition, hs_call_direction, hs_call_to_number, hs_call_from_number")
+          .or(`hs_call_to_number.ilike.%${phoneLast9},hs_call_from_number.ilike.%${phoneLast9}`)
+          .order("hs_timestamp", { ascending: false })
+          .limit(5);
+        for (const c of hsCalls ?? []) {
+          const when = new Date((c as any).hs_timestamp).toLocaleDateString("es-ES");
+          const dir  = (c as any).hs_call_direction ?? "";
+          const disp = (c as any).hs_call_disposition ? ` [${(c as any).hs_call_disposition}]` : "";
+          const body = (c as any).hs_call_body ? ` — ${String((c as any).hs_call_body).slice(0, 180)}` : "";
+          touchpoints.push(`• ${when} · HubSpot llamada ${dir}${disp}${body}`);
+        }
       }
     } catch { /* opcional */ }
 
