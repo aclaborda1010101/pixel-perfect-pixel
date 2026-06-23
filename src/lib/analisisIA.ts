@@ -27,7 +27,22 @@ export function useBuildingAnalysis(buildingId: string | undefined) {
         (supabase.from("building_imagery" as any) as any).select("*").eq("building_id", buildingId!),
         (supabase.from("catastro_data" as any) as any).select("*").eq("building_id", buildingId!).maybeSingle(),
       ]);
-      return { analysis: analysis as any, imgs: (imgs ?? []) as any[], catastro: cat as any };
+      // Solo última generación por source: descarta filas con fetched_at
+      // anterior al máximo de su source (evita ver fotos viejas tras reanalizar).
+      const all = (imgs ?? []) as any[];
+      const latestBySource = new Map<string, number>();
+      for (const r of all) {
+        const t = r?.fetched_at ? Date.parse(r.fetched_at) : 0;
+        const cur = latestBySource.get(r.source) ?? 0;
+        if (t > cur) latestBySource.set(r.source, t);
+      }
+      const filtered = all.filter((r) => {
+        const t = r?.fetched_at ? Date.parse(r.fetched_at) : 0;
+        const max = latestBySource.get(r.source) ?? 0;
+        // tolerancia de 5s por si varias fotos del mismo source llegaron en el mismo batch
+        return max - t < 5000;
+      });
+      return { analysis: analysis as any, imgs: filtered, catastro: cat as any };
     },
   });
 }
