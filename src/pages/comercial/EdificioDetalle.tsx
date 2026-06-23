@@ -190,6 +190,7 @@ export default function ComercialEdificioDetalle() {
         actions={
           <div className="flex gap-2">
             <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral }} />
+            <IeeBadge building={b as any} />
             {assigned ? (
               <Badge variant="gold">Tu cartera</Badge>
             ) : (
@@ -204,6 +205,8 @@ export default function ComercialEdificioDetalle() {
 
       {/* Resumen narrativo + scoring visual */}
       <ScoringResumen b={b} s={s} analysis={analysis} />
+
+      <IeeCard buildingId={b.id} building={b as any} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Catastro */}
