@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type SubView = "resumen" | "inbox" | "historico" | "pipeline" | "conexion" | "bot";
+type SubView = "resumen" | "inbox" | "historico" | "conexion" | "bot";
 
 /* Roles según enums internos (owner_role / owner_subrole) */
 const ROL_OPTIONS: { value: string; label: string }[] = [
@@ -84,7 +84,6 @@ const SUB_NAV: { id: SubView; label: string; icon: any }[] = [
   { id: "resumen",  label: "Resumen",  icon: Activity },
   { id: "inbox",    label: "Inbox",    icon: MessagesSquare },
   { id: "historico",label: "Histórico",icon: History },
-  { id: "pipeline", label: "Pipeline", icon: Target },
   { id: "conexion", label: "Conexión", icon: Phone },
   { id: "bot",      label: "Bot",      icon: Bot },
 ];
