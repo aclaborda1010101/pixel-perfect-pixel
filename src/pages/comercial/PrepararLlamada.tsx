@@ -263,6 +263,15 @@ export default function ComercialPrepararLlamada() {
     setSubmitting(true);
     try {
       // 1. Insert call
+      // Bloque A · escribir los flags KPI del doc Afflux para que la vista
+      // v_kpis_comercial_semana deje de contar 0.
+      const reunionCerrada = objetivo === "reunion" && outcome === "interesado";
+      const callMetadatos: Record<string, unknown> = {
+        objetivo,
+        whatsapp_enviado: objetivo === "whatsapp" || undefined,
+        pixel_enviado: objetivo === "pixel" || undefined,
+        reunion_cerrada: reunionCerrada || undefined,
+      };
       const { data: callRow, error: callErr } = await supabase.from("calls").insert({
         owner_id: ownerId,
         fecha: new Date().toISOString(),
@@ -270,6 +279,7 @@ export default function ComercialPrepararLlamada() {
         resumen: notas || `Resultado: ${outcome}`,
         outcome,
         notas_post_llamada: notas,
+        metadatos: Object.fromEntries(Object.entries(callMetadatos).filter(([, v]) => v !== undefined)) as any,
       }).select("id").maybeSingle();
       if (callErr) throw callErr;
       if (sessionId) {
@@ -296,6 +306,11 @@ export default function ComercialPrepararLlamada() {
       // 3. Quality score y oportunidades vía analyze_call (best-effort)
       if (callRow?.id) {
         supabase.functions.invoke("analyze_call", { body: { call_id: callRow.id, chain: false } }).catch(() => {});
+      }
+
+      // 4. Push KPIs a HubSpot (best-effort). Necesita session_id para resolver el contacto.
+      if (sessionId) {
+        supabase.functions.invoke("hubspot_sync_call_kpis", { body: { session_id: sessionId } }).catch(() => {});
       }
 
       toast.success("Resultado registrado · próximo paso programado");

@@ -167,12 +167,45 @@ Deno.serve(async (req) => {
 
     // 5) Si tenemos call_id pero faltan campos clave, actualizar
     if (callId && transcript) {
+      // Bloque A · KPIs fantasma del doc Afflux: escribimos en calls.metadatos
+      // los flags que la vista v_kpis_comercial_semana cuenta pero nadie
+      // poblaba (whatsapp_enviado, pixel_enviado, reunion_cerrada).
+      const objetivo = String(session.objetivo ?? "").toLowerCase();
+      const proxAccion = String(voss?.proxima_accion ?? "").toLowerCase();
+      const vossOutcome = String(voss?.outcome ?? "").toLowerCase();
+      const sessionResultado = String(session.resultado ?? "").toLowerCase();
+      // Reunión cerrada = el objetivo era reunión y o bien voss lo confirma,
+      // o bien el comercial marcó "interesado", o el outcome/proxima_accion
+      // menciona reunión / cita / agendar.
+      const mentionsMeeting =
+        /(reuni[oó]n|cita|agenda)/.test(proxAccion) ||
+        /(reuni[oó]n|cita|agenda)/.test(vossOutcome);
+      const reunionCerrada =
+        (objetivo === "reunion" && (sessionResultado === "interesado" || mentionsMeeting)) ||
+        vossOutcome === "reunion_agendada";
+
+      const kpiFlags: Record<string, unknown> = {
+        whatsapp_enviado: objetivo === "whatsapp" ? true : undefined,
+        pixel_enviado: objetivo === "pixel" ? true : undefined,
+        reunion_cerrada: reunionCerrada ? true : undefined,
+        objetivo,
+      };
+      // Mezclar con metadatos existentes preservando flags previos.
+      const { data: prevCall } = await sb.from("calls")
+        .select("metadatos").eq("id", callId).maybeSingle();
+      const prevMeta = (prevCall?.metadatos ?? {}) as Record<string, unknown>;
+      const mergedMeta: Record<string, unknown> = { ...prevMeta };
+      for (const [k, v] of Object.entries(kpiFlags)) {
+        if (v !== undefined && v !== null) mergedMeta[k] = v;
+      }
+
       await sb.from("calls").update({
         transcripcion: transcript,
         outcome: voss?.outcome ?? undefined,
         resumen: voss?.puntuacion?.justificacion ?? undefined,
         siguiente_accion: voss?.proxima_accion ?? undefined,
         tecnica_score: puntuacion,
+        metadatos: mergedMeta,
       }).eq("id", callId);
     }
 
@@ -198,6 +231,17 @@ Deno.serve(async (req) => {
         Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
       },
       body: JSON.stringify({ since_days: 1 }),
+    }).catch(() => {});
+
+    // Bloque B · push a HubSpot (nota engagement + propiedades del contacto + lead_status)
+    // Fire & forget: si falta contacto HubSpot o falla, no rompe el cierre de sesión.
+    fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/hubspot_sync_call_kpis`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      },
+      body: JSON.stringify({ session_id }),
     }).catch(() => {});
 
     return new Response(JSON.stringify({
