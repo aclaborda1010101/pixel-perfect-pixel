@@ -189,7 +189,7 @@ export default function ComercialEdificioDetalle() {
         subtitle={`${b.ciudad ?? ""} ${b.codigo_postal ?? ""}`}
         actions={
           <div className="flex gap-2">
-            <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral }} />
+            <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral, iee_estado: (b as any)?.iee_estado }} />
             <IeeBadge building={b as any} />
             {assigned ? (
               <Badge variant="gold">Tu cartera</Badge>
