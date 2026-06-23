@@ -5970,6 +5970,15 @@ export type Database = {
               source: string
             }[]
           }
+      match_owner_by_phone: {
+        Args: { p_phone: string }
+        Returns: {
+          buildings: Json
+          match_status: string
+          owner_id: string
+          owner_nombre: string
+        }[]
+      }
       merge_duplicate_owners: { Args: { p_dry_run?: boolean }; Returns: Json }
       normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
