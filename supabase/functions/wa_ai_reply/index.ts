@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
 
     const { data: conv } = await admin
       .from("wa_conversations")
-      .select("id, ai_enabled, qualification, contact_id, rol_owner, subrol_owner, rol_source, wa_contacts(id, phone, name, stage)")
+      .select("id, ai_enabled, qualification, contact_id, rol_owner, subrol_owner, rol_source, wa_contacts(id, phone, name, stage, lead_id)")
       .eq("id", conversation_id).single();
     if (!conv) {
       return new Response(JSON.stringify({ error: "conversation not found" }), {
