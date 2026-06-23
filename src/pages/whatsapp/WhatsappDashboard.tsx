@@ -359,14 +359,6 @@ export default function WhatsappDashboard() {
         />
       )}
 
-      {view === "pipeline" && (
-        <PipelineView
-          conversations={conversations ?? []}
-          stageCounts={stageCounts}
-          onOpen={(id) => { setSelectedConv(id); setView("inbox"); }}
-        />
-      )}
-
       {view === "conexion" && (
         <ConexionView instance={instance} connect={connect} disconnect={disconnect} refreshStatus={refreshStatus} polling={polling} />
       )}
