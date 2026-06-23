@@ -737,6 +737,13 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
 
   return (
     <>
+      {/* AVISO IDENTIDAD DUDOSA */}
+      {qual.identidad_dudosa === true && (
+        <section className="rounded-[6px] border border-amber-500/40 bg-amber-500/10 p-3 text-[12px] text-amber-200">
+          ⚠️ Identidad por confirmar: el nombre que da no coincide con el del registro.
+        </section>
+      )}
+
       {/* IDENTIDAD */}
       <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
         <SectionHeader icon={IdCard} label="Identidad" />
@@ -748,6 +755,11 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
           <span className={cn("rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow", stageColor)}>
             {stage}
           </span>
+          {qual.categoria && (
+            <span className="rounded-full border border-gold/40 bg-gold/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold">
+              Cat. {String(qual.categoria).toUpperCase()}
+            </span>
+          )}
           {current.rol_source === "ia" && (
             <span className="rounded-full border border-gold/30 bg-gold/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/80">
               <Sparkles className="mr-0.5 inline h-2.5 w-2.5" /> IA{current.rol_confianza ? ` · ${Math.round(current.rol_confianza * 100)}%` : ""}
