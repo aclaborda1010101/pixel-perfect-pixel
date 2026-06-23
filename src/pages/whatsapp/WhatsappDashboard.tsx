@@ -829,6 +829,22 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
         <Row label="Relación familiar"><Text v={qual.relacion_copropietarios} /></Row>
       </section>
 
+      {/* MOTIVACIÓN P0–P3 */}
+      {(qual.p0_complejidad || qual.p1_oferta_previa || qual.p2_motivo || qual.p3_sensible) && (
+        <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+          <SectionHeader icon={Sparkles} label="Motivación (P0–P3)" />
+          {qual.p0_complejidad && (
+            <div className="mb-2 rounded-md border border-gold/40 bg-gold/10 p-2">
+              <div className="font-mono text-[9px] uppercase tracking-eyebrow text-gold">P0 · Complejidad</div>
+              <div className="mt-0.5 text-xs text-foreground">{String(qual.p0_complejidad)}</div>
+            </div>
+          )}
+          {qual.p1_oferta_previa && <Row label="P1 · Oferta previa"><SiNo v={qual.p1_oferta_previa} /></Row>}
+          {qual.p2_motivo && <Row label="P2 · Motivo"><Text v={qual.p2_motivo} /></Row>}
+          {qual.p3_sensible && <Row label="P3 · Sensible"><Text v={qual.p3_sensible} /></Row>}
+        </section>
+      )}
+
       {/* IDENTIFICADO EN BD */}
       <IdentificadoEnBD contact={current.wa_contacts} />
 
