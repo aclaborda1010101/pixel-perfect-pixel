@@ -150,7 +150,7 @@ function BuildingCard({ r }: { r: Row }) {
             </h3>
             <div className="flex flex-wrap items-center gap-1.5">
               <ClusterChip cluster={r.cluster_asignado} />
-              <DocAlertBadge building={{ score: r.score, metadatos: r.raw?.metadatos, catastro_ref: r.raw?.catastro_ref, refcatastral: r.raw?.refcatastral }} />
+              <DocAlertBadge building={{ score: r.score, metadatos: r.raw?.metadatos, catastro_ref: r.raw?.catastro_ref, refcatastral: r.raw?.refcatastral, iee_estado: (r as any).raw?.iee_estado ?? (r as any).iee_estado }} />
               {r.assigned && (
                 <Badge
                   variant="gold"
@@ -315,7 +315,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown, iee_estado")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
@@ -389,7 +389,7 @@ export default function ComercialEdificios() {
           .range(from, from + PAGE - 1);
       const fetchBldgsPage = (from: number) =>
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown, iee_estado")
           // also need cluster_asignado for chips
           .range(from, from + PAGE - 1);
       const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
