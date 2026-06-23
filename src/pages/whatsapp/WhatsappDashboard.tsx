@@ -719,6 +719,9 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
         <Row label="Relación familiar"><Text v={qual.relacion_copropietarios} /></Row>
       </section>
 
+      {/* IDENTIFICADO EN BD */}
+      <IdentificadoEnBD contact={current.wa_contacts} />
+
       {/* DATOS COMERCIALES */}
       <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
         <SectionHeader icon={Briefcase} label="Datos comerciales" />
