@@ -1169,7 +1169,7 @@ function IdentificadoEnBD({ contact }: { contact: any }) {
       {leadId ? (
         <>
           <Link
-            to={`/owners/${leadId}`}
+            to={`/propietarios/${leadId}`}
             className="text-sm font-medium text-foreground underline-offset-2 hover:underline"
           >
             {ownerNombre ?? "Propietario"}
