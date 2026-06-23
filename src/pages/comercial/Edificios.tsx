@@ -54,6 +54,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
 import { NewBuildingDialog } from "@/components/buildings/NewBuildingDialog";
+import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { Plus } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -149,6 +150,7 @@ function BuildingCard({ r }: { r: Row }) {
             </h3>
             <div className="flex flex-wrap items-center gap-1.5">
               <ClusterChip cluster={r.cluster_asignado} />
+              <DocAlertBadge building={{ score: r.score, metadatos: r.raw?.metadatos, catastro_ref: r.raw?.catastro_ref, refcatastral: r.raw?.refcatastral }} />
               {r.assigned && (
                 <Badge
                   variant="gold"

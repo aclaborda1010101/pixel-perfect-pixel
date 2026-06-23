@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type SubView = "resumen" | "inbox" | "historico" | "pipeline" | "conexion" | "bot";
+type SubView = "resumen" | "inbox" | "historico" | "conexion" | "bot";
 
 /* Roles según enums internos (owner_role / owner_subrole) */
 const ROL_OPTIONS: { value: string; label: string }[] = [
@@ -84,7 +84,6 @@ const SUB_NAV: { id: SubView; label: string; icon: any }[] = [
   { id: "resumen",  label: "Resumen",  icon: Activity },
   { id: "inbox",    label: "Inbox",    icon: MessagesSquare },
   { id: "historico",label: "Histórico",icon: History },
-  { id: "pipeline", label: "Pipeline", icon: Target },
   { id: "conexion", label: "Conexión", icon: Phone },
   { id: "bot",      label: "Bot",      icon: Bot },
 ];
@@ -357,14 +356,7 @@ export default function WhatsappDashboard() {
           setSelectedConv={setSelectedConv}
           regenerateSummary={regenerateSummary}
           toggleAi={toggleAi}
-        />
-      )}
-
-      {view === "pipeline" && (
-        <PipelineView
-          conversations={conversations ?? []}
-          stageCounts={stageCounts}
-          onOpen={(id) => { setSelectedConv(id); setView("inbox"); }}
+          setRol={setRol}
         />
       )}
 
@@ -783,7 +775,7 @@ const QUAL_FIELDS_HIST: { key: string; label: string }[] = [
   { key: "relacion_copropietarios",  label: "Relación con copropietarios" },
 ];
 
-function HistoricoView({ conversations, messages, selectedConv, setSelectedConv, regenerateSummary, toggleAi }: any) {
+function HistoricoView({ conversations, messages, selectedConv, setSelectedConv, regenerateSummary, toggleAi, setRol }: any) {
   const [stageFilter, setStageFilter] = useState<string>("todos");
   const [q, setQ] = useState("");
 
@@ -893,6 +885,7 @@ function HistoricoView({ conversations, messages, selectedConv, setSelectedConv,
             messages={messages}
             regenerateSummary={regenerateSummary}
             toggleAi={toggleAi}
+            setRol={setRol}
           />
         )}
       </div>
@@ -900,22 +893,42 @@ function HistoricoView({ conversations, messages, selectedConv, setSelectedConv,
   );
 }
 
-function ConversationDetail({ conv, messages, regenerateSummary, toggleAi }: any) {
+function ConversationDetail({ conv, messages, regenerateSummary, toggleAi, setRol }: any) {
   const isHandoff = conv.wa_contacts?.stage === "handoff";
   const qual = (conv.qualification ?? {}) as Record<string, any>;
+  const stage = conv.wa_contacts?.stage ?? "nuevo";
+  const stageColor =
+    stage === "handoff" ? "border-destructive/40 bg-destructive/10 text-destructive" :
+    stage === "caliente" || stage === "cualificado" ? "border-gold/40 bg-gold/10 text-gold" :
+    "border-border-faint bg-surface-1/40 text-foreground";
   return (
     <>
-      {/* Cabecera + handoff */}
+      {/* Cabecera de la ficha */}
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <Eyebrow>Conversación</Eyebrow>
+          <div className="min-w-0 space-y-1.5">
+            <Eyebrow>Ficha del lead</Eyebrow>
             <CardTitle className="truncate text-lg">
-              {conv.wa_contacts?.name ?? conv.wa_contacts?.phone ?? "—"}
+              {qual.nombre_apellidos || conv.wa_contacts?.name || conv.wa_contacts?.phone || "—"}
             </CardTitle>
             <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
-              {conv.wa_contacts?.phone} · stage: {conv.wa_contacts?.stage ?? "nuevo"}
+              {conv.wa_contacts?.phone ?? "—"}
               {conv.created_at && <> · abierta {new Date(conv.created_at).toLocaleDateString("es")}</>}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className={cn("rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow", stageColor)}>
+                {stage}
+              </span>
+              {(subrolLabel(conv.subrol_owner) || rolLabel(conv.rol_owner)) && (
+                <span className="rounded-full border border-gold/40 bg-gold/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/90">
+                  {subrolLabel(conv.subrol_owner) ?? rolLabel(conv.rol_owner)}
+                </span>
+              )}
+              {conv.rol_source === "ia" && (
+                <span className="rounded-full border border-gold/30 bg-gold/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/80">
+                  <Sparkles className="mr-0.5 inline h-2.5 w-2.5" /> IA{conv.rol_confianza ? ` · ${Math.round(conv.rol_confianza * 100)}%` : ""}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
@@ -938,144 +951,93 @@ function ConversationDetail({ conv, messages, regenerateSummary, toggleAi }: any
         )}
       </Card>
 
-      {/* Resumen */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <Eyebrow><FileText className="mr-1 inline h-3 w-3" /> Resumen</Eyebrow>
-            <CardTitle className="text-base">Qué sabemos de este lead</CardTitle>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => regenerateSummary(conv.id)}>
-            <Sparkles className="h-3.5 w-3.5" /> Regenerar resumen
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {conv.summary ? (
-            <p className="whitespace-pre-line text-sm leading-relaxed text-foreground/90">{conv.summary}</p>
-          ) : (
-            <p className="text-sm italic text-muted-foreground">
-              Todavía no hay resumen para esta conversación. Se genera automáticamente cuando el bot propone llamada, salta el handoff a humano o se acumulan 6 mensajes nuevos. También puedes generarlo ahora con el botón "Regenerar resumen".
-            </p>
-          )}
-          {conv.summary_updated_at && (
-            <div className="mt-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-              Actualizado: {new Date(conv.summary_updated_at).toLocaleString("es")}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 5 datos */}
-      <Card>
-        <CardHeader>
-          <Eyebrow>Datos extraídos</Eyebrow>
-          <CardTitle className="text-base">Cualificación del propietario</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {QUAL_FIELDS_HIST.map((f) => {
-              const v = qual[f.key];
-              const has = v !== undefined && v !== null && v !== "";
-              return (
-                <li
-                  key={f.key}
-                  className={cn(
-                    "flex items-start gap-2 rounded-[6px] border px-3 py-2",
-                    has ? "border-border-faint bg-surface-1/30" : "border-dashed border-border-faint/60 bg-transparent",
-                  )}
-                >
-                  {has
-                    ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
-                    : <XIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />}
-                  <div className="min-w-0">
-                    <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{f.label}</div>
-                    <div className={cn("mt-0.5 text-sm", has ? "text-foreground" : "italic text-muted-foreground/60")}>
-                      {has ? String(v) : "Falta"}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </CardContent>
-      </Card>
-
-      {/* Histórico completo */}
-      <Card>
-        <CardHeader>
-          <Eyebrow>Histórico</Eyebrow>
-          <CardTitle className="text-base">Mensajes ({(messages as any[]).length})</CardTitle>
-        </CardHeader>
-        <CardContent className="max-h-[55vh] space-y-2 overflow-y-auto">
-          {(messages as any[]).length === 0 && (
-            <p className="text-sm text-muted-foreground">Sin mensajes aún.</p>
-          )}
-          {(messages as any[]).map((m: any) => {
-            if (m.type === "system") {
-              return (
-                <div key={m.id} className="my-2 flex justify-center">
-                  <div className="max-w-[85%] rounded-[6px] border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
-                    {m.content}
-                  </div>
-                </div>
-              );
-            }
-            return (
-              <div key={m.id} className={cn("flex", m.direction === "out" ? "justify-end" : "justify-start")}>
-                <div className={cn(
-                  "max-w-[78%] rounded-[6px] border px-3 py-2 text-sm",
-                  m.direction === "out"
-                    ? "border-gold/30 bg-gold/10 text-foreground"
-                    : "border-border-faint bg-surface-1/60 text-foreground",
-                )}>
-                    <MessageBody m={m} />
-                  <div className="mt-1 flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                    {new Date(m.created_at).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}
-                    {m.ai_generated && <span className="text-gold">· bot</span>}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-    </>
-  );
-}
-
-/* ─────────── Pipeline ─────────── */
-function PipelineView({ conversations, stageCounts, onOpen }: any) {
-  const stages = ["nuevo", "conversando", "cualificado", "caliente", "cerrado"];
-  return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
-      {stages.map((s) => (
-        <Card key={s} className="min-w-0">
-          <CardHeader className="pb-3">
-            <Eyebrow>{s}</Eyebrow>
-            <CardTitle><MetricValue size="lg">{stageCounts[s] ?? 0}</MetricValue></CardTitle>
+      {/* 2 columnas: datos del lead | resumen + hilo */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        {/* IZQUIERDA: ficha de datos del lead */}
+        <Card className="lg:col-span-5">
+          <CardHeader>
+            <Eyebrow>Datos del lead</Eyebrow>
+            <CardTitle className="text-base">Identidad y vínculo con la propiedad</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 p-4 pt-0">
-            {(conversations as any[])
-              .filter((c: any) => (c.wa_contacts?.stage ?? "nuevo") === s)
-              .slice(0, 12)
-              .map((c: any) => (
-                <div
-                  key={c.id}
-                  onClick={() => onOpen(c.id)}
-                  className="cursor-pointer rounded-[4px] border border-border-faint bg-surface-1/30 p-2.5 text-xs transition-colors hover:border-gold/50 hover:bg-surface-1/60"
-                >
-                  <div className="truncate font-medium text-foreground">
-                    {c.wa_contacts?.name ?? c.wa_contacts?.phone}
-                  </div>
-                  <div className="mt-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                    {c.last_message_at ? new Date(c.last_message_at).toLocaleDateString("es") : "—"}
-                  </div>
-                </div>
-              ))}
+          <CardContent className="space-y-4">
+            <LeadCard
+              current={conv}
+              qual={qual}
+              regenerateSummary={() => {}}
+              setRol={setRol}
+            />
           </CardContent>
         </Card>
-      ))}
-    </div>
+
+        {/* DERECHA: resumen IA + hilo de mensajes */}
+        <div className="space-y-4 lg:col-span-7">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <Eyebrow><FileText className="mr-1 inline h-3 w-3" /> Resumen IA</Eyebrow>
+                <CardTitle className="text-base">Qué sabemos de este lead</CardTitle>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => regenerateSummary(conv.id)}>
+                <Sparkles className="h-3.5 w-3.5" /> Regenerar
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {conv.summary ? (
+                <p className="whitespace-pre-line text-sm leading-relaxed text-foreground/90">{conv.summary}</p>
+              ) : (
+                <p className="text-sm italic text-muted-foreground">
+                  Todavía no hay resumen. Se genera cuando el bot propone llamada, salta el handoff, o se acumulan ≥6 mensajes nuevos.
+                </p>
+              )}
+              {conv.summary_updated_at && (
+                <div className="mt-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Actualizado: {new Date(conv.summary_updated_at).toLocaleString("es")}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <Eyebrow>Hilo de mensajes</Eyebrow>
+              <CardTitle className="text-base">Conversación ({(messages as any[]).length})</CardTitle>
+            </CardHeader>
+            <CardContent className="max-h-[60vh] space-y-2 overflow-y-auto">
+              {(messages as any[]).length === 0 && (
+                <p className="text-sm text-muted-foreground">Sin mensajes aún.</p>
+              )}
+              {(messages as any[]).map((m: any) => {
+                if (m.type === "system") {
+                  return (
+                    <div key={m.id} className="my-2 flex justify-center">
+                      <div className="max-w-[85%] rounded-[6px] border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
+                        {m.content}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={m.id} className={cn("flex", m.direction === "out" ? "justify-end" : "justify-start")}>
+                    <div className={cn(
+                      "max-w-[78%] rounded-[6px] border px-3 py-2 text-sm",
+                      m.direction === "out"
+                        ? "border-gold/30 bg-gold/10 text-foreground"
+                        : "border-border-faint bg-surface-1/60 text-foreground",
+                    )}>
+                      <MessageBody m={m} />
+                      <div className="mt-1 flex items-center gap-2 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                        {new Date(m.created_at).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}
+                        {m.ai_generated && <span className="text-gold">· bot</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </>
   );
 }
 

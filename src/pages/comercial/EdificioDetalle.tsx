@@ -45,6 +45,7 @@ import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
 import { VerificacionInlinePanel } from "@/components/comercial/VerificacionInlinePanel";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
+import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -187,6 +188,7 @@ export default function ComercialEdificioDetalle() {
         subtitle={`${b.ciudad ?? ""} ${b.codigo_postal ?? ""}`}
         actions={
           <div className="flex gap-2">
+            <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral }} />
             {assigned ? (
               <Badge variant="gold">Tu cartera</Badge>
             ) : (

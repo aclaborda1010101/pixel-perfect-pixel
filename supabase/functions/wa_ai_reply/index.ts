@@ -94,6 +94,26 @@ Deno.serve(async (req) => {
     const lastIn = [...realHistory].reverse().find((m: any) => m.direction === "in");
     const lastInText: string = lastIn?.content ?? "";
 
+    // GUARD ANTI RE-DISPARO: si ya hemos contestado (out, no system) al último
+    // mensaje entrante y el cliente no ha escrito nada nuevo después, NO respondemos.
+    // Esto evita ráfagas de mensajes salientes ante re-procesos del job.
+    if (lastIn) {
+      const lastInTs = new Date(lastIn.created_at).getTime();
+      const alreadyAnswered = realHistory.some(
+        (m: any) => m.direction === "out" && m.type !== "system" &&
+          new Date(m.created_at).getTime() > lastInTs,
+      );
+      if (alreadyAnswered) {
+        await admin.from("wa_ai_jobs").update({
+          status: "skipped_already_answered",
+          updated_at: new Date().toISOString(),
+        }).eq("conversation_id", conversation_id).eq("status", "pending");
+        return new Response(JSON.stringify({ ok: true, skip: "ya respondido al ultimo entrante" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // ¿El cliente acaba de REENVIAR un mensaje idéntico a uno anterior ya contestado?
     // En ese caso el modelo tiende a saludar otra vez y dispara el anti-dup.
     const normTxt = (s: string) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -199,7 +219,7 @@ REGLAS DE ORO (no se rompen):
 - UNA sola pregunta por mensaje. Dos preguntas seguidas convierten el chat en formulario.
 - Cada pregunta paga algo al propietario ANTES o EN el mismo mensaje. Si no hay nada que dar, esperas.
 - De menor a mayor intrusión: el edificio primero (neutro), los co-propietarios al final.
-- Mensajes MUY cortos (1–2 frases). Puedes dividir en 1–3 mensajes seguidos tipo WhatsApp.
+- Mensajes MUY cortos (1–2 frases). Puedes dividir como MUCHO en 2 mensajes cortos; lo normal es 1.
 - Nada de listas, bullets ni textos largos.
 - El cierre lleva a una conversación/reunión, NO a más datos.
 
@@ -421,7 +441,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     catch { parsed = { messages: [raw], qualification_update: {}, propose_meeting: false }; }
 
     const replyMsgs: string[] = Array.isArray(parsed.messages)
-      ? parsed.messages.filter((s: any) => typeof s === "string" && s.trim()).slice(0, 3)
+      ? parsed.messages.filter((s: any) => typeof s === "string" && s.trim()).slice(0, 2)
       : [];
     if (replyMsgs.length === 0) {
       return new Response(JSON.stringify({ ok: true, skip: "empty reply" }), {
