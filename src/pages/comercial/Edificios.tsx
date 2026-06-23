@@ -315,7 +315,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown, iee_estado")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
