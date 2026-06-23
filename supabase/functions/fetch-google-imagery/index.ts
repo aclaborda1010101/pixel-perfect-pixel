@@ -127,6 +127,14 @@ Deno.serve(async (req) => {
     const imagenes: any[] = [];
     const skipped: string[] = [];
 
+    // Reemplazo limpio: borra filas previas de este building para no acumular
+    // generaciones viejas (Street View cambia de panorama/heading entre runs).
+    try {
+      await sb.from("building_imagery").delete().eq("building_id", building_id);
+    } catch (e) {
+      console.warn("building_imagery prev delete failed", e);
+    }
+
     const shots = [
       { source: "satellite", url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=20&size=640x640&maptype=satellite&key=${API_KEY}`, name: "satellite.png", heading: null, pitch: null, zoom: 20 },
       { source: "oblique",   url: `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=19&size=640x640&maptype=hybrid&key=${API_KEY}`,   name: "oblique.png",   heading: null, pitch: null, zoom: 19 },
