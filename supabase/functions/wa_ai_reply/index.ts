@@ -845,6 +845,9 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     }
     let newQual: Record<string, any> = { ...qual, ...cleanQu };
 
+    // Flag de identidad dudosa detectada en el enriquecimiento previo.
+    if (identidadDudosa) newQual.identidad_dudosa = true;
+
     // ────────────────────────────────────────────────────────────
     // CLASIFICADOR DE PUERTA: guardamos `categoria` en la conversación
     // y, si es C (operativo) o E (comprador), preparamos handoff humano
