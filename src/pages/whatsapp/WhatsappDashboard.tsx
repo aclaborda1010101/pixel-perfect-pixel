@@ -1034,42 +1034,6 @@ function ConversationDetail({ conv, messages, regenerateSummary, toggleAi }: any
   );
 }
 
-/* ─────────── Pipeline ─────────── */
-function PipelineView({ conversations, stageCounts, onOpen }: any) {
-  const stages = ["nuevo", "conversando", "cualificado", "caliente", "cerrado"];
-  return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
-      {stages.map((s) => (
-        <Card key={s} className="min-w-0">
-          <CardHeader className="pb-3">
-            <Eyebrow>{s}</Eyebrow>
-            <CardTitle><MetricValue size="lg">{stageCounts[s] ?? 0}</MetricValue></CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 p-4 pt-0">
-            {(conversations as any[])
-              .filter((c: any) => (c.wa_contacts?.stage ?? "nuevo") === s)
-              .slice(0, 12)
-              .map((c: any) => (
-                <div
-                  key={c.id}
-                  onClick={() => onOpen(c.id)}
-                  className="cursor-pointer rounded-[4px] border border-border-faint bg-surface-1/30 p-2.5 text-xs transition-colors hover:border-gold/50 hover:bg-surface-1/60"
-                >
-                  <div className="truncate font-medium text-foreground">
-                    {c.wa_contacts?.name ?? c.wa_contacts?.phone}
-                  </div>
-                  <div className="mt-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                    {c.last_message_at ? new Date(c.last_message_at).toLocaleDateString("es") : "—"}
-                  </div>
-                </div>
-              ))}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
 /* ─────────── Conexión ─────────── */
 function ConexionView({ instance, connect, disconnect, refreshStatus, polling }: any) {
   return (
