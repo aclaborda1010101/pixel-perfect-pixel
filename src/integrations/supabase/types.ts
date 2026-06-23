@@ -1175,6 +1175,12 @@ export type Database = {
           es_esquina_manual: boolean | null
           estado: Database["public"]["Enums"]["building_status"]
           id: string
+          iee_actualizado_at: string | null
+          iee_deficiencias: Json | null
+          iee_estado: Database["public"]["Enums"]["iee_estado"]
+          iee_fecha_inspeccion: string | null
+          iee_fuente: string | null
+          iee_proxima_revision: string | null
           last_synced_at: string | null
           metadatos: Json
           notas: string | null
@@ -1203,6 +1209,12 @@ export type Database = {
           es_esquina_manual?: boolean | null
           estado?: Database["public"]["Enums"]["building_status"]
           id?: string
+          iee_actualizado_at?: string | null
+          iee_deficiencias?: Json | null
+          iee_estado?: Database["public"]["Enums"]["iee_estado"]
+          iee_fecha_inspeccion?: string | null
+          iee_fuente?: string | null
+          iee_proxima_revision?: string | null
           last_synced_at?: string | null
           metadatos?: Json
           notas?: string | null
@@ -1231,6 +1243,12 @@ export type Database = {
           es_esquina_manual?: boolean | null
           estado?: Database["public"]["Enums"]["building_status"]
           id?: string
+          iee_actualizado_at?: string | null
+          iee_deficiencias?: Json | null
+          iee_estado?: Database["public"]["Enums"]["iee_estado"]
+          iee_fecha_inspeccion?: string | null
+          iee_fuente?: string | null
+          iee_proxima_revision?: string | null
           last_synced_at?: string | null
           metadatos?: Json
           notas?: string | null
@@ -5931,6 +5949,15 @@ export type Database = {
         Returns: boolean
       }
       has_whatsapp_access: { Args: { _user_id: string }; Returns: boolean }
+      iee_score_components: {
+        Args: { p_building_id: string }
+        Returns: {
+          aviso: Json
+          delta: number
+          estado: string
+          label: string
+        }[]
+      }
       madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
       match_building_fuzzy: {
         Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
@@ -6154,6 +6181,14 @@ export type Database = {
       cadence_step_kind: "llamada" | "whatsapp" | "email" | "visita"
       call_direction: "entrante" | "saliente"
       compliance_status: "pendiente" | "aprobado" | "rechazado"
+      iee_estado:
+        | "desconocido"
+        | "no_procede"
+        | "pendiente"
+        | "favorable"
+        | "caducada"
+        | "desfavorable_leve"
+        | "desfavorable_grave"
       match_status: "propuesto" | "aprobado" | "rechazado" | "contactado"
       next_action_status: "pendiente" | "completada" | "cancelada"
       nota_titular_rol: "pleno" | "usufructo" | "nuda_propiedad" | "otro"
@@ -6369,6 +6404,15 @@ export const Constants = {
       cadence_step_kind: ["llamada", "whatsapp", "email", "visita"],
       call_direction: ["entrante", "saliente"],
       compliance_status: ["pendiente", "aprobado", "rechazado"],
+      iee_estado: [
+        "desconocido",
+        "no_procede",
+        "pendiente",
+        "favorable",
+        "caducada",
+        "desfavorable_leve",
+        "desfavorable_grave",
+      ],
       match_status: ["propuesto", "aprobado", "rechazado", "contactado"],
       next_action_status: ["pendiente", "completada", "cancelada"],
       nota_titular_rol: ["pleno", "usufructo", "nuda_propiedad", "otro"],
