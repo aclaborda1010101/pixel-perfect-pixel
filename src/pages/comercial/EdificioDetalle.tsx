@@ -46,6 +46,7 @@ import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
 import { VerificacionInlinePanel } from "@/components/comercial/VerificacionInlinePanel";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
+import { IeeBadge, IeeCard } from "@/components/buildings/IeeStatus";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
