@@ -123,7 +123,7 @@ export default function WhatsappDashboard() {
     refetchInterval: 3000,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_messages" as any) as any)
-        .select("id, direction, content, created_at, ai_generated, type, metadata")
+        .select("id, direction, content, created_at, ai_generated, type, metadata, sender_type, agent_user_id")
         .eq("conversation_id", selectedConv)
         .order("created_at", { ascending: true })
         .limit(200);
