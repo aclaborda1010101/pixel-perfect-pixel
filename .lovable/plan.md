@@ -1,48 +1,75 @@
 ## Objetivo
-Cuando entra un WhatsApp, intentar identificar el teléfono contra `owners.telefono` de nuestra base y, si hay match, mostrar el propietario y los edificios asociados directamente en el panel de WhatsApp.
+Integrar el **estado IEE/ITE** de cada edificio como dato estructurado, visible en la ficha y con impacto en el scoring.
 
-## Alcance (solo esto)
-- Match teléfono → owner (1 sola coincidencia) → edificios vía `building_owners`.
-- Persistir el match en `wa_contacts.lead_id` (FK ya existe a `owners.id`) y guardar los `building_ids` en `wa_contacts.metadata.matched_buildings` para no repetir lookups.
-- Visualizarlo en la ficha derecha de la conversación en `src/pages/whatsapp/WhatsappDashboard.tsx` (no en listados globales).
+## Modelo de datos (nueva migración)
+Añadir a `buildings` (no a `building_analysis` para que `compute_cluster_score` lo lea fácil):
 
-No se toca: scoring, escaleras, bot AI, mapping HubSpot, ranking, ni la lógica de roles.
+| Columna | Tipo | Significado |
+|---|---|---|
+| `iee_estado` | enum `iee_estado` (`favorable`, `desfavorable_leve`, `desfavorable_grave`, `no_procede`, `pendiente`, `caducada`, `desconocido`) | Resultado vigente |
+| `iee_fecha_inspeccion` | date | Fecha del último IEE presentado |
+| `iee_proxima_revision` | date | Para favorables = fecha+10 años. Calculada en trigger. |
+| `iee_anos_desde_desfavorable` | generated, integer | Solo si estado desfavorable_*: `now() - iee_fecha_inspeccion` en años. |
+| `iee_deficiencias` | jsonb | Lista corta `[{categoria, gravedad, descripcion}]` (opcional) |
+| `iee_fuente` | text | `'sede_madrid'` / `'manual'` / `'ia_extracted'` |
+| `iee_actualizado_at` | timestamptz | |
 
-## Cambios
+Default `iee_estado = 'desconocido'` para no marcar 4000 edificios como huecos.
 
-### 1. Helper SQL `match_owner_by_phone(p_phone text)`
-Migración con función `security definer` que:
-- Normaliza ambos lados a últimos 9 dígitos (`regexp_replace` + `right(...,9)`).
-- Devuelve `owner_id` solo si hay **exactamente 1** owner con ese teléfono (evita falsos positivos cuando dos owners comparten móvil).
-- Devuelve también `owner_nombre` y array de `building_id, direccion` desde `building_owners` + `buildings`.
+## Fuente del dato (scraper)
+Nueva edge function `fetch_iee_madrid`:
+- Input: `building_id` o `referencia_catastral`.
+- Llama vía **Firecrawl scrape** a la consulta pública del Registro de IEE del Ayuntamiento de Madrid (`https://sede.madrid.es/...`, formulario por refcat). Si Firecrawl no está conectado, se lo pediré al usuario antes de implementar.
+- Parsea con LLM (Lovable AI Gateway, `google/gemini-2.5-flash`) → JSON normalizado `{estado, fecha_inspeccion, deficiencias[]}`.
+- Idempotente: cache 90 días vía `iee_actualizado_at`.
+- Manejo del caso "no aparece en registro" → marca `pendiente` si el edificio tiene ≥30 años (obligado), `no_procede` si <30.
 
-GRANT EXECUTE a `authenticated` y `service_role`.
+Trigger SQL: al `update` de `iee_fecha_inspeccion`/`iee_estado`, recalcular:
+- `iee_proxima_revision = iee_fecha_inspeccion + interval '10 years'` si favorable.
+- Si `now() > iee_proxima_revision` → estado `caducada` automático.
 
-### 2. Auto-match en `evolution_webhook/index.ts`
-Tras el `upsert` en `wa_contacts` (línea 78–80), si el contacto no tiene `lead_id` aún:
-- Llamar a `match_owner_by_phone(phone)`.
-- Si hay match único: `update wa_contacts set lead_id = ..., metadata = metadata || {matched_buildings: [...], matched_at: now()}`.
-- Si 0 o ≥2 matches: dejar `lead_id` null y guardar `metadata.match_status = 'none' | 'ambiguous'` para que la UI lo muestre como tal.
+## Integración en scoring
+Modificar `public.compute_cluster_score` para añadir un componente `s_iee / w_iee`:
 
-Idempotente: no reintenta si ya hay `lead_id` o si `metadata.matched_at` < 7 días.
+| Estado | Aporte al `mala_gestion` o penalización |
+|---|---|
+| `favorable` y revisión > 3 años vista | bonus −1 punto mala_gestión |
+| `favorable` próxima a caducar (<1 año) | neutro |
+| `caducada` | +2 mala_gestión |
+| `pendiente` (obligada y nunca presentada) | +3 mala_gestión |
+| `desfavorable_leve` | +2 mala_gestión, **+ años desde inspección** como multiplicador suave (cuanto más tiempo sin reparar, peor) |
+| `desfavorable_grave` | +4 mala_gestión, igual escalado por antigüedad |
+| `no_procede` / `desconocido` | sin efecto |
 
-### 3. Edge function `wa_match_backfill`
-One-off (con botón en `JobsManualPanel`) que recorre `wa_contacts` sin `lead_id` y aplica el mismo match para los 3986 owners con teléfono ya existentes en la base.
+Añadir `iee` al `breakdown` y a `avisos` del JSON que ya devuelve la función, para que sea visible en debug.
 
-### 4. UI en `WhatsappDashboard.tsx`
-En la ficha derecha de la conversación (donde se muestran nombre/teléfono y rol), añadir un bloque "Identificado en BD":
-- Si `lead_id` está poblado: nombre del owner como link a `/owners/:id`, y lista de edificios (máx 3 + "ver más") con link a `/comercial/edificios/:id`.
-- Si `match_status='ambiguous'`: aviso discreto "Varios propietarios con este teléfono — revisar".
-- Si nada: no mostrar el bloque.
+## UI
+En `src/pages/comercial/EdificioDetalle.tsx` (cabecera + tarjeta de "Estado del edificio"), nuevo bloque **IEE/ITE**:
+- Badge color según estado (verde / ámbar / rojo).
+- Texto humano:
+  - Favorable → "IEE favorable · próx. revisión: oct 2031 (5 a 2 m)".
+  - Desfavorable → "IEE desfavorable desde mar 2022 (3 a 4 m sin corregir)".
+  - Caducada → "IEE caducada desde feb 2024".
+  - Pendiente → "Sin IEE presentado (obligado desde 2019)".
+- Botón "Actualizar IEE" → invoca `fetch_iee_madrid`.
 
-Datos: ampliar el `select` de la query principal para incluir `wa_contacts.lead_id, wa_contacts.metadata`, y un join lateral / segunda query a `owners` + `building_owners` + `buildings` solo del contacto seleccionado (no de la lista para no penalizar).
+Idéntico badge compacto en `DocAlertBadge` para que aparezca también en listados de la cartera del comercial cuando es `desfavorable_grave`, `caducada` o `pendiente`.
 
-## Archivos
-- nueva migración (función SQL + grants)
-- `supabase/functions/evolution_webhook/index.ts` (auto-match)
-- `supabase/functions/wa_match_backfill/index.ts` (nuevo)
-- `src/components/settings/JobsManualPanel.tsx` (botón backfill)
-- `src/pages/whatsapp/WhatsappDashboard.tsx` (bloque "Identificado en BD")
+## Cron
+Cron job (cada noche, 200 edificios) que actualiza IEE de los que estén `desconocido` o `iee_actualizado_at` > 90 días, priorizando los de la cartera activa.
 
-## Pregunta
-Ambigüedad (≥2 owners con el mismo teléfono): ¿lo dejo como aviso "revisar" sin asociar, o prefieres que asocie igualmente al más reciente y marque "posible"?
+## Archivos a tocar
+- migración SQL (columnas + enum + trigger + edición de `compute_cluster_score`)
+- `supabase/functions/fetch_iee_madrid/index.ts` (nuevo)
+- cron job (insert)
+- `src/pages/comercial/EdificioDetalle.tsx`
+- `src/components/buildings/DocAlertBadge.tsx`
+- `src/components/settings/JobsManualPanel.tsx` (botón manual)
+
+## No se toca
+Detector de escaleras, lógica de proindiviso, voss_coach, scoring P0, mapping HubSpot.
+
+## Preguntas
+1. **Fuente exacta**: ¿confirmas usar la **consulta pública del Ayuntamiento de Madrid** (sede.madrid.es) por referencia catastral? ¿O ya tenéis un export oficial que prefieres subir como CSV y nos saltamos el scraping?
+2. **Firecrawl**: para hacer el scraping de la sede necesito que conectes Firecrawl (lo gestiono con el botón estándar de Lovable). ¿Lo conectamos o prefieres una alternativa (subida manual por edificio)?
+3. **Peso en el scoring**: ¿te valen los números de la tabla de arriba (+2/+3/+4 sobre mala_gestión), o quieres que IEE pese más/menos respecto a proindiviso y conflicto?
