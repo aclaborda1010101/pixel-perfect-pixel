@@ -881,7 +881,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     const flagsChanged = newFlags.length !== flagsBefore.size || newFlags.some((f) => !flagsBefore.has(f));
     if (flagsChanged) newQual.oportunidad_flags = newFlags;
 
-    if (Object.keys(cleanQu).length > 0 || flagsChanged || categoria || handoffReason) {
+    if (Object.keys(cleanQu).length > 0 || flagsChanged || categoria || handoffReason || (identidadDudosa && !qual.identidad_dudosa)) {
       await admin.from("wa_conversations").update({ qualification: newQual }).eq("id", conversation_id);
     }
 
