@@ -671,7 +671,7 @@ ${vossSnippets.join("\n") || "- (sin ejemplos cargados)"}
 
 DATOS YA CONOCIDOS DEL LEAD (NO los vuelvas a preguntar): ${JSON.stringify(qual)}
 ${isResend ? "\nIMPORTANTE: el cliente ha REENVIADO un mensaje que ya os habíais cruzado antes. Retoma la conversación donde la dejasteis, NO saludes de nuevo ni repitas presentaciones.\n" : ""}
-${priorContactsText}
+${enrichmentBlock}${priorContactsText}
 
 DEVUELVES SIEMPRE un JSON con esta forma EXACTA y nada más:
 {
