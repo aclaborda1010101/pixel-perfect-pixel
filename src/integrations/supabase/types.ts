@@ -5128,6 +5128,9 @@ export type Database = {
           created_at: string
           id: string
           jid: string | null
+          last_bot_contact_at: string | null
+          last_human_agent_id: string | null
+          last_human_contact_at: string | null
           last_message_at: string | null
           lead_id: string | null
           metadata: Json
@@ -5142,6 +5145,9 @@ export type Database = {
           created_at?: string
           id?: string
           jid?: string | null
+          last_bot_contact_at?: string | null
+          last_human_agent_id?: string | null
+          last_human_contact_at?: string | null
           last_message_at?: string | null
           lead_id?: string | null
           metadata?: Json
@@ -5156,6 +5162,9 @@ export type Database = {
           created_at?: string
           id?: string
           jid?: string | null
+          last_bot_contact_at?: string | null
+          last_human_agent_id?: string | null
+          last_human_contact_at?: string | null
           last_message_at?: string | null
           lead_id?: string | null
           metadata?: Json
@@ -5167,6 +5176,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "wa_contacts_last_human_agent_id_fkey"
+            columns: ["last_human_agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "wa_contacts_lead_id_fkey"
             columns: ["lead_id"]
@@ -5309,7 +5325,9 @@ export type Database = {
       }
       wa_messages: {
         Row: {
+          agent_user_id: string | null
           ai_generated: boolean
+          campaign_id: string | null
           contact_id: string
           content: string | null
           conversation_id: string
@@ -5319,11 +5337,14 @@ export type Database = {
           id: string
           media_url: string | null
           metadata: Json
+          sender_type: string | null
           status: string
           type: string
         }
         Insert: {
+          agent_user_id?: string | null
           ai_generated?: boolean
+          campaign_id?: string | null
           contact_id: string
           content?: string | null
           conversation_id: string
@@ -5333,11 +5354,14 @@ export type Database = {
           id?: string
           media_url?: string | null
           metadata?: Json
+          sender_type?: string | null
           status?: string
           type?: string
         }
         Update: {
+          agent_user_id?: string | null
           ai_generated?: boolean
+          campaign_id?: string | null
           contact_id?: string
           content?: string | null
           conversation_id?: string
@@ -5347,10 +5371,25 @@ export type Database = {
           id?: string
           media_url?: string | null
           metadata?: Json
+          sender_type?: string | null
           status?: string
           type?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "wa_messages_agent_user_id_fkey"
+            columns: ["agent_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wa_messages_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "wa_campaigns"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "wa_messages_contact_id_fkey"
             columns: ["contact_id"]
