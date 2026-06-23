@@ -629,10 +629,11 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
   const contactId = current.wa_contacts?.id ?? current.contact_id;
   const phone = current.wa_contacts?.phone ?? "";
   const phoneLast9 = String(phone).replace(/\D/g, "").slice(-9);
+  const ownerId = current.wa_contacts?.lead_id ?? null;
 
   // Memoria cross-channel: con quién más ha hablado este propietario.
   const { data: priorTouches } = useQuery({
-    queryKey: ["wa:prior-touches", contactId, phoneLast9],
+    queryKey: ["wa:prior-touches", contactId, ownerId, phoneLast9],
     enabled: !!contactId,
     queryFn: async () => {
       const out: { when: string; channel: string; who: string; preview?: string }[] = [];
@@ -658,23 +659,40 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
           preview: String((m as any).content ?? "").slice(0, 90),
         });
       }
-      // 2) Llamadas por teléfono.
-      if (phoneLast9) {
+      // 2) Llamadas internas (vía owner_id).
+      if (ownerId) {
         try {
           const { data: calls } = await (supabase.from("calls" as any) as any)
-            .select("created_at, agent_name, outcome")
-            .ilike("phone", `%${phoneLast9}`)
-            .order("created_at", { ascending: false })
+            .select("fecha, comercial_nombre, outcome")
+            .eq("owner_id", ownerId)
+            .order("fecha", { ascending: false })
             .limit(5);
           for (const c of calls ?? []) {
             out.push({
-              when: new Date((c as any).created_at).toLocaleDateString("es-ES"),
+              when: new Date((c as any).fecha).toLocaleDateString("es-ES"),
               channel: "Llamada",
-              who: (c as any).agent_name ?? "—",
+              who: (c as any).comercial_nombre ?? "—",
               preview: (c as any).outcome ?? undefined,
             });
           }
         } catch { /* tabla opcional */ }
+      }
+      // 3) Llamadas HubSpot por teléfono.
+      if (phoneLast9) {
+        try {
+          const { data: hsCalls } = await (supabase.from("hubspot_calls" as any) as any)
+            .select("hs_timestamp, hs_call_direction, hs_call_disposition")
+            .or(`hs_call_to_number.ilike.%${phoneLast9},hs_call_from_number.ilike.%${phoneLast9}`)
+            .order("hs_timestamp", { ascending: false })
+            .limit(5);
+          for (const c of hsCalls ?? []) {
+            out.push({
+              when: new Date((c as any).hs_timestamp).toLocaleDateString("es-ES"),
+              channel: `HubSpot ${(c as any).hs_call_direction ?? ""}`.trim(),
+              who: (c as any).hs_call_disposition ?? "—",
+            });
+          }
+        } catch { /* opcional */ }
       }
       return out
         .sort((a, b) => (a.when < b.when ? 1 : -1))
