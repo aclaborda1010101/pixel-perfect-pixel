@@ -775,7 +775,7 @@ const QUAL_FIELDS_HIST: { key: string; label: string }[] = [
   { key: "relacion_copropietarios",  label: "Relación con copropietarios" },
 ];
 
-function HistoricoView({ conversations, messages, selectedConv, setSelectedConv, regenerateSummary, toggleAi }: any) {
+function HistoricoView({ conversations, messages, selectedConv, setSelectedConv, regenerateSummary, toggleAi, setRol }: any) {
   const [stageFilter, setStageFilter] = useState<string>("todos");
   const [q, setQ] = useState("");
 
@@ -885,6 +885,7 @@ function HistoricoView({ conversations, messages, selectedConv, setSelectedConv,
             messages={messages}
             regenerateSummary={regenerateSummary}
             toggleAi={toggleAi}
+            setRol={setRol}
           />
         )}
       </div>
