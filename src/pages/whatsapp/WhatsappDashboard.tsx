@@ -123,7 +123,7 @@ export default function WhatsappDashboard() {
     refetchInterval: 3000,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_messages" as any) as any)
-        .select("id, direction, content, created_at, ai_generated, type, metadata")
+        .select("id, direction, content, created_at, ai_generated, type, metadata, sender_type, agent_user_id")
         .eq("conversation_id", selectedConv)
         .order("created_at", { ascending: true })
         .limit(200);
@@ -626,6 +626,80 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
 /* ─────────── Ficha del lead (panel derecho del Inbox) ─────────── */
 function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
   const stage = current.wa_contacts?.stage ?? "nuevo";
+  const contactId = current.wa_contacts?.id ?? current.contact_id;
+  const phone = current.wa_contacts?.phone ?? "";
+  const phoneLast9 = String(phone).replace(/\D/g, "").slice(-9);
+  const ownerId = current.wa_contacts?.lead_id ?? null;
+
+  // Memoria cross-channel: con quién más ha hablado este propietario.
+  const { data: priorTouches } = useQuery({
+    queryKey: ["wa:prior-touches", contactId, ownerId, phoneLast9],
+    enabled: !!contactId,
+    queryFn: async () => {
+      const out: { when: string; channel: string; who: string; preview?: string }[] = [];
+      // 1) Mensajes WhatsApp de agentes humanos del propio equipo.
+      const { data: hum } = await (supabase.from("wa_messages" as any) as any)
+        .select("created_at, content, agent_user_id")
+        .eq("contact_id", contactId)
+        .eq("sender_type", "human_agent")
+        .order("created_at", { ascending: false })
+        .limit(5);
+      const ids = Array.from(new Set((hum ?? []).map((m: any) => m.agent_user_id).filter(Boolean)));
+      const names: Record<string, string> = {};
+      if (ids.length) {
+        const { data: profs } = await (supabase.from("profiles" as any) as any)
+          .select("id, full_name, email").in("id", ids);
+        for (const p of profs ?? []) names[(p as any).id] = (p as any).full_name || (p as any).email || "agente";
+      }
+      for (const m of hum ?? []) {
+        out.push({
+          when: new Date((m as any).created_at).toLocaleDateString("es-ES"),
+          channel: "WhatsApp",
+          who: names[(m as any).agent_user_id] ?? "agente",
+          preview: String((m as any).content ?? "").slice(0, 90),
+        });
+      }
+      // 2) Llamadas internas (vía owner_id).
+      if (ownerId) {
+        try {
+          const { data: calls } = await (supabase.from("calls" as any) as any)
+            .select("fecha, comercial_nombre, outcome")
+            .eq("owner_id", ownerId)
+            .order("fecha", { ascending: false })
+            .limit(5);
+          for (const c of calls ?? []) {
+            out.push({
+              when: new Date((c as any).fecha).toLocaleDateString("es-ES"),
+              channel: "Llamada",
+              who: (c as any).comercial_nombre ?? "—",
+              preview: (c as any).outcome ?? undefined,
+            });
+          }
+        } catch { /* tabla opcional */ }
+      }
+      // 3) Llamadas HubSpot por teléfono.
+      if (phoneLast9) {
+        try {
+          const { data: hsCalls } = await (supabase.from("hubspot_calls" as any) as any)
+            .select("hs_timestamp, hs_call_direction, hs_call_disposition")
+            .or(`hs_call_to_number.ilike.%${phoneLast9},hs_call_from_number.ilike.%${phoneLast9}`)
+            .order("hs_timestamp", { ascending: false })
+            .limit(5);
+          for (const c of hsCalls ?? []) {
+            out.push({
+              when: new Date((c as any).hs_timestamp).toLocaleDateString("es-ES"),
+              channel: `HubSpot ${(c as any).hs_call_direction ?? ""}`.trim(),
+              who: (c as any).hs_call_disposition ?? "—",
+            });
+          }
+        } catch { /* opcional */ }
+      }
+      return out
+        .sort((a, b) => (a.when < b.when ? 1 : -1))
+        .slice(0, 6);
+    },
+  });
+
   const stageColor =
     stage === "handoff" ? "border-destructive/40 bg-destructive/10 text-destructive" :
     stage === "caliente" || stage === "cualificado" ? "border-gold/40 bg-gold/10 text-gold" :
@@ -710,6 +784,30 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
           </div>
         </div>
       </section>
+
+      {/* CONTACTOS PREVIOS (memoria cross-channel) */}
+      {(priorTouches?.length ?? 0) > 0 && (
+        <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+          <SectionHeader icon={History} label="Ya contactado por" />
+          <ul className="space-y-1.5">
+            {priorTouches!.map((t, i) => (
+              <li key={i} className="text-[11px] leading-snug">
+                <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{t.when}</span>
+                <span className="mx-1 text-muted-foreground">·</span>
+                <span className="text-foreground">{t.channel}</span>
+                <span className="mx-1 text-muted-foreground">·</span>
+                <span className="text-foreground/80">{t.who}</span>
+                {t.preview && (
+                  <div className="truncate text-[10.5px] text-muted-foreground/80">{t.preview}</div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[10px] italic text-muted-foreground/70">
+            El bot también recibe este contexto y evita repetir preguntas o saludos.
+          </p>
+        </section>
+      )}
 
       {/* VÍNCULO CON LA PROPIEDAD */}
       <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">

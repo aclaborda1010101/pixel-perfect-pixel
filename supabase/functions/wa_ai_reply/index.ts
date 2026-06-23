@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
 
     const { data: conv } = await admin
       .from("wa_conversations")
-      .select("id, ai_enabled, qualification, contact_id, rol_owner, subrol_owner, rol_source, wa_contacts(id, phone, name, stage)")
+      .select("id, ai_enabled, qualification, contact_id, rol_owner, subrol_owner, rol_source, wa_contacts(id, phone, name, stage, lead_id)")
       .eq("id", conversation_id).single();
     if (!conv) {
       return new Response(JSON.stringify({ error: "conversation not found" }), {
@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
     const { data: cfg } = await admin.from("wa_bot_config").select("*").limit(1).maybeSingle();
     const { data: history } = await admin
       .from("wa_messages")
-      .select("direction, content, type, created_at, metadata")
+      .select("direction, content, type, created_at, metadata, sender_type, agent_user_id")
       .eq("conversation_id", conversation_id)
       .order("created_at", { ascending: true })
       .limit(60);
@@ -93,6 +93,78 @@ Deno.serve(async (req) => {
     const realHistory = (history ?? []).filter((m: any) => m.type !== "system" && m.content);
     const lastIn = [...realHistory].reverse().find((m: any) => m.direction === "in");
     const lastInText: string = lastIn?.content ?? "";
+
+    // ────────────────────────────────────────────────────────────
+    // MEMORIA CROSS-CHANNEL: nombres de agentes humanos que han escrito por WhatsApp,
+    // contactos previos por llamada o nota en HubSpot/CRM, etc.
+    // Se inyecta en el system prompt para que el bot sepa con quién más ha hablado el lead.
+    // ────────────────────────────────────────────────────────────
+    const agentIds = Array.from(new Set(
+      realHistory.filter((m: any) => m.sender_type === "human_agent" && m.agent_user_id)
+        .map((m: any) => m.agent_user_id as string),
+    ));
+    const agentNames: Record<string, string> = {};
+    if (agentIds.length) {
+      const { data: profs } = await admin.from("profiles")
+        .select("id, full_name, email").in("id", agentIds);
+      for (const p of profs ?? []) {
+        agentNames[(p as any).id] = (p as any).full_name || (p as any).email || "agente";
+      }
+    }
+
+    const phoneClean = String(contact?.phone ?? "").replace(/[^\d]/g, "");
+    const phoneLast9 = phoneClean.slice(-9);
+    const ownerId = (contact as any)?.lead_id ?? null;
+    const touchpoints: string[] = [];
+    try {
+      // Llamadas internas (tabla `calls`), enlazadas al propietario.
+      if (ownerId) {
+        const { data: callsRows } = await admin.from("calls")
+          .select("fecha, resumen, outcome, direccion, comercial_nombre")
+          .eq("owner_id", ownerId)
+          .order("fecha", { ascending: false })
+          .limit(5);
+        for (const c of callsRows ?? []) {
+          const when = new Date((c as any).fecha).toLocaleDateString("es-ES");
+          const who  = (c as any).comercial_nombre ?? "comercial";
+          const dir  = (c as any).direccion ?? "";
+          const out  = (c as any).outcome ? ` [${(c as any).outcome}]` : "";
+          const sum  = (c as any).resumen ? ` — ${String((c as any).resumen).slice(0, 180)}` : "";
+          touchpoints.push(`• ${when} · llamada ${dir} (${who})${out}${sum}`);
+        }
+      }
+    } catch { /* tabla opcional */ }
+    try {
+      // Llamadas registradas en HubSpot, matcheadas por teléfono.
+      if (phoneLast9) {
+        const { data: hsCalls } = await admin.from("hubspot_calls")
+          .select("hs_timestamp, hs_call_body, hs_call_disposition, hs_call_direction, hs_call_to_number, hs_call_from_number")
+          .or(`hs_call_to_number.ilike.%${phoneLast9},hs_call_from_number.ilike.%${phoneLast9}`)
+          .order("hs_timestamp", { ascending: false })
+          .limit(5);
+        for (const c of hsCalls ?? []) {
+          const when = new Date((c as any).hs_timestamp).toLocaleDateString("es-ES");
+          const dir  = (c as any).hs_call_direction ?? "";
+          const disp = (c as any).hs_call_disposition ? ` [${(c as any).hs_call_disposition}]` : "";
+          const body = (c as any).hs_call_body ? ` — ${String((c as any).hs_call_body).slice(0, 180)}` : "";
+          touchpoints.push(`• ${when} · HubSpot llamada ${dir}${disp}${body}`);
+        }
+      }
+    } catch { /* opcional */ }
+
+    const humanWaTouches = realHistory
+      .filter((m: any) => m.sender_type === "human_agent")
+      .slice(-5)
+      .map((m: any) => {
+        const when = new Date(m.created_at).toLocaleDateString("es-ES");
+        const who  = agentNames[m.agent_user_id] ?? "agente humano";
+        return `• ${when} · WhatsApp (${who}) — ${String(m.content).slice(0, 180)}`;
+      });
+
+    const priorContactsBlock = [...humanWaTouches, ...touchpoints].slice(0, 12);
+    const priorContactsText = priorContactsBlock.length
+      ? `\nHISTORIAL DE CONTACTOS PREVIOS CON ESTE PROPIETARIO (no se lo recuerdes literalmente, úsalo solo para no repetir preguntas ni saludos, y para reconocer a quién ya le habló del tema):\n${priorContactsBlock.join("\n")}\n`
+      : "";
 
     // GUARD ANTI RE-DISPARO: si ya hemos contestado (out, no system) al último
     // mensaje entrante y el cliente no ha escrito nada nuevo después, NO respondemos.
@@ -163,6 +235,7 @@ Deno.serve(async (req) => {
           conversation_id, contact_id: contact.id,
           direction: "out", type: "text", content: offMsg, ai_generated: true,
           evolution_message_id: sendRes?.key?.id ?? null,
+          sender_type: "bot",
           metadata: { off_hours: true },
         });
       }
@@ -363,6 +436,7 @@ ${vossSnippets.join("\n") || "- (sin ejemplos cargados)"}
 
 DATOS YA CONOCIDOS DEL LEAD (NO los vuelvas a preguntar): ${JSON.stringify(qual)}
 ${isResend ? "\nIMPORTANTE: el cliente ha REENVIADO un mensaje que ya os habíais cruzado antes. Retoma la conversación donde la dejasteis, NO saludes de nuevo ni repitas presentaciones.\n" : ""}
+${priorContactsText}
 
 DEVUELVES SIEMPRE un JSON con esta forma EXACTA y nada más:
 {
@@ -414,7 +488,9 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       { role: "system", content: systemPrompt },
       ...realHistory.map((m: any) => ({
         role: m.direction === "in" ? "user" : "assistant",
-        content: m.content,
+        content: m.direction === "out" && m.sender_type === "human_agent"
+          ? `[Mensaje escrito por ${agentNames[m.agent_user_id] ?? "un agente humano del equipo"}]: ${m.content}`
+          : m.content,
       })),
     ];
 
@@ -467,6 +543,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
         type: "system",
         content: "⚠️ Respuesta del bot omitida por anti-duplicado. Revisa y contesta manualmente si procede.",
         ai_generated: true,
+        sender_type: "system",
         metadata: { kind: "dup_skip", model_reply: replyMsgs, last_in: lastInText },
       });
       // Bump unread_count manualmente para que el comercial vea el aviso en el inbox.
@@ -594,6 +671,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
         content: m,
         evolution_message_id: sendRes?.key?.id ?? null,
         ai_generated: true,
+        sender_type: "bot",
         metadata: {
           model: "google/gemini-3-flash-preview",
           part: i + 1, of: finalReplies.length,

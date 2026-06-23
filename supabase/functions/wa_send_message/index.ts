@@ -15,6 +15,19 @@ Deno.serve(async (req) => {
     }
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+    // Identificar al agente humano que envía (si el call viene autenticado).
+    let agentUserId: string | null = null;
+    if (!ai_generated) {
+      const auth = req.headers.get("Authorization") ?? "";
+      const jwt = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+      if (jwt) {
+        try {
+          const { data: u } = await admin.auth.getUser(jwt);
+          agentUserId = u?.user?.id ?? null;
+        } catch { /* anónimo */ }
+      }
+    }
+
     let convId = conversation_id as string | null;
     let contactId: string | null = null;
     let toPhone = phone ? normalizePhone(phone) : null;
@@ -46,6 +59,8 @@ Deno.serve(async (req) => {
       content: text,
       evolution_message_id: res?.key?.id ?? null,
       ai_generated: !!ai_generated,
+      sender_type: ai_generated ? "bot" : "human_agent",
+      agent_user_id: agentUserId,
       metadata: { evo: res },
     });
     await admin.from("wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", convId);
