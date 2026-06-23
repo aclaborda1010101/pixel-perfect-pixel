@@ -389,7 +389,7 @@ export default function ComercialEdificios() {
           .range(from, from + PAGE - 1);
       const fetchBldgsPage = (from: number) =>
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown, iee_estado")
           // also need cluster_asignado for chips
           .range(from, from + PAGE - 1);
       const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
