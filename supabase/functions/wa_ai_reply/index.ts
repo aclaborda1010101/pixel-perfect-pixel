@@ -163,6 +163,7 @@ Deno.serve(async (req) => {
           conversation_id, contact_id: contact.id,
           direction: "out", type: "text", content: offMsg, ai_generated: true,
           evolution_message_id: sendRes?.key?.id ?? null,
+          sender_type: "bot",
           metadata: { off_hours: true },
         });
       }
