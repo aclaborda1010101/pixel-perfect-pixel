@@ -77,7 +77,31 @@ Deno.serve(async (req) => {
       // contact
       const { data: contact } = await admin.from("wa_contacts")
         .upsert({ phone, jid: remoteJid, name: pushName ?? undefined, last_message_at: new Date().toISOString() }, { onConflict: "phone" })
-        .select("id, stage").single();
+        .select("id, stage, lead_id, metadata").single();
+
+      // Identificación contra owners de la BD (idempotente)
+      try {
+        const md: any = (contact as any)?.metadata ?? {};
+        const lastMatch = md?.matched_at ? Date.parse(md.matched_at) : 0;
+        const stale = !lastMatch || (Date.now() - lastMatch) > 7 * 24 * 3600 * 1000;
+        if (!(contact as any)?.lead_id && stale) {
+          const { data: matches } = await admin.rpc("match_owner_by_phone", { p_phone: phone });
+          const m = Array.isArray(matches) ? matches[0] : matches;
+          const newMeta = {
+            ...md,
+            match_status: m?.match_status ?? "none",
+            matched_at: new Date().toISOString(),
+            matched_owner_nombre: m?.owner_nombre ?? null,
+            matched_buildings: m?.buildings ?? [],
+          };
+          await admin.from("wa_contacts").update({
+            lead_id: m?.owner_id ?? null,
+            metadata: newMeta,
+          }).eq("id", (contact as any).id);
+        }
+      } catch (e) {
+        console.warn("[evolution_webhook] match_owner_by_phone failed", (e as any)?.message);
+      }
 
       // conversation (latest open)
       let convId: string | null = null;
