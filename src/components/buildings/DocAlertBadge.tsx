@@ -8,6 +8,7 @@ type Building = {
   metadatos?: Record<string, any> | null;
   catastro_ref?: string | null;
   refcatastral?: string | null;
+  iee_estado?: string | null;
 };
 
 /**
@@ -23,14 +24,20 @@ export function DocAlertBadge({ building, className }: { building: Building; cla
   ).trim();
   const sinCatastro = !refCat || building.score == null || Number(building.score) === 0;
   const sinNota = String(meta.tenemos_la_nota_simple_ ?? "").trim().toLowerCase() === "no";
+  const ieeAlerta = ["desfavorable_grave", "caducada", "pendiente"].includes(String(building.iee_estado ?? ""));
 
-  if (!sinCatastro && !sinNota) return null;
+  if (!sinCatastro && !sinNota && !ieeAlerta) return null;
 
   const reasons: string[] = [];
   if (sinCatastro) reasons.push("Sin datos de Catastro — no se puede puntuar");
   if (sinNota) reasons.push("Falta nota simple");
+  if (ieeAlerta) reasons.push(
+    building.iee_estado === "caducada" ? "IEE caducada"
+    : building.iee_estado === "pendiente" ? "IEE nunca presentada"
+    : "IEE desfavorable grave",
+  );
   const tooltip = reasons.join(" · ");
-  const both = sinCatastro && sinNota;
+  const both = (sinCatastro && sinNota) || ieeAlerta;
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -47,7 +54,12 @@ export function DocAlertBadge({ building, className }: { building: Building; cla
             )}
           >
             <AlertTriangle className="h-3 w-3" />
-            {sinCatastro && sinNota ? "Sin catastro · sin nota" : sinCatastro ? "Sin catastro" : "Sin nota simple"}
+            {ieeAlerta
+              ? (building.iee_estado === "caducada" ? "IEE caducada"
+                : building.iee_estado === "pendiente" ? "IEE pendiente"
+                : "IEE desfavorable")
+              : sinCatastro && sinNota ? "Sin catastro · sin nota"
+              : sinCatastro ? "Sin catastro" : "Sin nota simple"}
           </Badge>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs text-xs">{tooltip}</TooltipContent>
