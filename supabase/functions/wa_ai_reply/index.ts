@@ -595,6 +595,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
         content: m,
         evolution_message_id: sendRes?.key?.id ?? null,
         ai_generated: true,
+        sender_type: "bot",
         metadata: {
           model: "google/gemini-3-flash-preview",
           part: i + 1, of: finalReplies.length,
