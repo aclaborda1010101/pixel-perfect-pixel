@@ -711,7 +711,9 @@ DEVUELVES SIEMPRE un JSON con esta forma EXACTA y nada más:
     "p1_oferta_previa"?: "si" | "no",
     "p2_motivo"?: "liquidez" | "discrecion" | "herencia",
     "p3_sensible"?: string,
-    "complejidad_afflux"?: "baja" | "media" | "alta"
+    "complejidad_afflux"?: "baja" | "media" | "alta",
+    "direccion_inmueble"?: string,
+    "tipo_inmueble"?: "piso" | "casa" | "local" | "edificio" | "garaje" | "otro"
   },
   "rol_inferido"?: {
     "rol_owner": "particular" | "heredero" | "inversor_pasivo" | "operador_profesional" | "institucional" | "desconocido",
@@ -731,6 +733,19 @@ ETIQUETA INTERNA "complejidad_afflux" (no afecta al tono, solo informa al comerc
   - "alta"  → proindiviso difícil: bloqueo entre copropietarios, conflicto familiar, okupa,
               renta antigua, usufructo, residente, herencia no ejecutada.
 Solo rellénalo si tienes señales claras. Si no, omítelo.
+
+CAPTURA DE DATOS DEL INMUEBLE Y DEL CLIENTE (sin interrogar):
+  - "nombre_apellidos": si el cliente dice cómo se llama, GUÁRDALO. No lo pidas a bocajarro;
+    si llevas varios turnos y no lo ha dado, puedes pedirlo de forma natural ("¿con quién tengo
+    el gusto?").
+  - "direccion_inmueble": calle/zona/distrito o dirección completa del inmueble. ES IMPORTANTE:
+    sin saber DÓNDE está la casa, mi compañero no puede preparar nada con sentido para la
+    llamada. Encájalo de forma natural cuando ya estéis hablando del inmueble (ej.: "para que
+    mi compañero prepare algo con cabeza, ¿en qué zona o calle está?"). No lo preguntes en el
+    primer mensaje ni a bocajarro. Antes de cerrar reunión, deberías tenerlo.
+  - "tipo_inmueble": "piso" | "casa" | "local" | "edificio" | "garaje" | "otro". Dedúcelo de
+    lo que cuente; si no queda claro, pregunta de pasada ("¿es un piso, una casa entera…?").
+  Solo rellena estos campos si el cliente los da. Nunca inventes una dirección ni un tipo.
 
 En "qualification_update" SOLO incluyes campos que hayas podido deducir CON SEGURIDAD. Si no se
 sabe, OMÍTELO. No inventes. NO sobrescribas un campo ya conocido salvo que el propietario lo
@@ -837,7 +852,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     const qu = parsed.qualification_update ?? {};
     const allowedString = new Set([
       "nombre_apellidos", "motivacion_principal", "cobertura_edificio",
-      "p0_complejidad", "p3_sensible",
+      "p0_complejidad", "p3_sensible", "direccion_inmueble",
     ]);
     const allowedEnum: Record<string, Set<string>> = {
       estado_edificio: new Set(["alquilado","vacio","mixto"]),
@@ -851,6 +866,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       p1_oferta_previa: new Set(["si","no"]),
       p2_motivo: new Set(["liquidez","discrecion","herencia"]),
       complejidad_afflux: new Set(["baja","media","alta"]),
+      tipo_inmueble: new Set(["piso","casa","local","edificio","garaje","otro"]),
     };
     const allowedNumber = new Set([
       "fase_actual", "renta_mensual_estimada", "cuota_participacion", "num_copropietarios",

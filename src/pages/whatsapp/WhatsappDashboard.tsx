@@ -17,7 +17,7 @@ import {
   Loader2, QrCode, Send, Bot, Phone, Power,
   MessagesSquare, UserPlus, Activity, Target, ArrowRight,
   TrendingUp, RefreshCw, AlertTriangle, History, Search, FileText, Check, X as XIcon, Sparkles,
-  Mic, Image as ImageIcon, FileType2, Building2, Users, IdCard, Briefcase,
+  Mic, Image as ImageIcon, FileType2, Building2, Users, IdCard, Briefcase, Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -796,6 +796,15 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
           </div>
         </div>
       </section>
+
+      {/* INMUEBLE */}
+      {(qual.direccion_inmueble || qual.tipo_inmueble) && (
+        <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+          <SectionHeader icon={Home} label="Inmueble" />
+          {qual.direccion_inmueble && <Row label="Dirección"><Text v={qual.direccion_inmueble} /></Row>}
+          {qual.tipo_inmueble && <Row label="Tipo"><Text v={qual.tipo_inmueble} /></Row>}
+        </section>
+      )}
 
       {/* CONTACTOS PREVIOS (memoria cross-channel) */}
       {(priorTouches?.length ?? 0) > 0 && (
