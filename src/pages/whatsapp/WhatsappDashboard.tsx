@@ -797,6 +797,15 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
         </div>
       </section>
 
+      {/* INMUEBLE */}
+      {(qual.direccion_inmueble || qual.tipo_inmueble) && (
+        <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
+          <SectionHeader icon={Home} label="Inmueble" />
+          {qual.direccion_inmueble && <Row label="Dirección"><Text v={qual.direccion_inmueble} /></Row>}
+          {qual.tipo_inmueble && <Row label="Tipo"><Text v={qual.tipo_inmueble} /></Row>}
+        </section>
+      )}
+
       {/* CONTACTOS PREVIOS (memoria cross-channel) */}
       {(priorTouches?.length ?? 0) > 0 && (
         <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
