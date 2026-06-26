@@ -760,6 +760,19 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
               Cat. {String(qual.categoria).toUpperCase()}
             </span>
           )}
+          {qual.perfil_copropietario && qual.perfil_copropietario !== "indefinido" && (
+            <span className="rounded-full border border-border-faint bg-surface-1/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-foreground/80">
+              {({
+                gestor_cansado: "Gestor cansado",
+                desplazado: "Desplazado",
+                controlador: "Controlador",
+                dominante: "Dominante",
+                mediador_protector: "Mediador protector",
+                inquilino_ocupante: "Inquilino/ocupante",
+                informado: "Informado",
+              } as Record<string, string>)[qual.perfil_copropietario] ?? qual.perfil_copropietario}
+            </span>
+          )}
           {current.rol_source === "ia" && (
             <span className="rounded-full border border-gold/30 bg-gold/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-gold/80">
               <Sparkles className="mr-0.5 inline h-2.5 w-2.5" /> IA{current.rol_confianza ? ` · ${Math.round(current.rol_confianza * 100)}%` : ""}
