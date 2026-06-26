@@ -67,6 +67,12 @@ Deno.serve(async (req) => {
 
       const text: string = m.conversation
         ?? m.extendedTextMessage?.text
+        ?? m.ephemeralMessage?.message?.conversation
+        ?? m.ephemeralMessage?.message?.extendedTextMessage?.text
+        ?? m.viewOnceMessageV2?.message?.conversation
+        ?? m.viewOnceMessageV2?.message?.extendedTextMessage?.text
+        ?? m.buttonsResponseMessage?.selectedDisplayText
+        ?? m.templateButtonReplyMessage?.selectedDisplayText
         ?? msg?.body
         ?? msg?.text
         ?? "";
@@ -75,11 +81,15 @@ Deno.serve(async (req) => {
       const phone = normalizePhone(remoteJid.split("@")[0]);
 
       // ── Comando oculto /reset ─────────────────────────────────────────
-      // Si el cliente escribe exactamente "/reset" cerramos la conversación
+      // Si el cliente escribe "/reset" (o sinónimos) cerramos la conversación
       // abierta y arrancamos una nueva. No invocamos al bot para este turno.
-      const isResetCommand = !fromMe && !mediaKind && typeof text === "string"
-        && text.trim().toLowerCase() === "/reset";
+      const normalizedText = typeof text === "string"
+        ? text.replace(/[\u200b\u200e\u200f\ufeff]/g, "").trim().toLowerCase()
+        : "";
+      const RESET_TOKENS = new Set(["/reset", "reset", "/start", "/reiniciar", "reiniciar"]);
+      const isResetCommand = !fromMe && !mediaKind && RESET_TOKENS.has(normalizedText);
       if (isResetCommand) {
+        console.log("[reset] detected", { phone, raw: text, normalized: normalizedText });
         const { data: contactR } = await admin.from("wa_contacts")
           .upsert({ phone, jid: remoteJid, name: pushName ?? undefined, last_message_at: new Date().toISOString() }, { onConflict: "phone" })
           .select("id, metadata").single();
@@ -120,11 +130,13 @@ Deno.serve(async (req) => {
 
         // Confirmación al cliente
         const confirmText = "Conversación reiniciada. ¿En qué puedo ayudarte?";
+        let ackError: string | null = null;
         try {
           const sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
             method: "POST",
             body: JSON.stringify({ number: phone, text: confirmText }),
           });
+          console.log("[reset] ack sent", { msgId: sendRes?.key?.id ?? null, phone });
           await admin.from("wa_messages").insert({
             conversation_id: (newConv as any).id,
             contact_id: (contactR as any).id,
@@ -137,7 +149,8 @@ Deno.serve(async (req) => {
             metadata: { command: "reset_ack" },
           });
         } catch (e) {
-          console.warn("[evolution_webhook] /reset ack send failed", (e as any)?.message);
+          ackError = (e as any)?.message ?? String(e);
+          console.error("[reset] ack FAILED", { phone, err: ackError });
         }
 
         await admin.from("wa_conversations").update({
@@ -145,7 +158,7 @@ Deno.serve(async (req) => {
           unread_count: 0,
         }).eq("id", (newConv as any).id);
 
-        return new Response(JSON.stringify({ ok: true, reset: true }), {
+        return new Response(JSON.stringify({ ok: !ackError, reset: true, ack_error: ackError }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
