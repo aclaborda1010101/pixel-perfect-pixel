@@ -798,10 +798,11 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
       </section>
 
       {/* INMUEBLE */}
-      {(qual.direccion_inmueble || qual.tipo_inmueble) && (
+      {(qual.direccion_inmueble || qual.tipo_inmueble || qual.codigo_postal) && (
         <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
           <SectionHeader icon={Home} label="Inmueble" />
           {qual.direccion_inmueble && <Row label="Dirección"><Text v={qual.direccion_inmueble} /></Row>}
+          {qual.codigo_postal && <Row label="CP"><Text v={qual.codigo_postal} /></Row>}
           {qual.tipo_inmueble && <Row label="Tipo"><Text v={qual.tipo_inmueble} /></Row>}
         </section>
       )}
