@@ -1,6 +1,6 @@
 // Recibe eventos del Evolution API. Público (verify_jwt=false).
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { normalizePhone } from "../_shared/evolution.ts";
+import { normalizePhone, evoFetch, EVOLUTION_INSTANCE } from "../_shared/evolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -73,6 +73,82 @@ Deno.serve(async (req) => {
       const evoId: string = msg?.key?.id ?? msg?.id ?? crypto.randomUUID();
       const pushName: string | null = msg?.pushName ?? null;
       const phone = normalizePhone(remoteJid.split("@")[0]);
+
+      // ── Comando oculto /reset ─────────────────────────────────────────
+      // Si el cliente escribe exactamente "/reset" cerramos la conversación
+      // abierta y arrancamos una nueva. No invocamos al bot para este turno.
+      const isResetCommand = !fromMe && !mediaKind && typeof text === "string"
+        && text.trim().toLowerCase() === "/reset";
+      if (isResetCommand) {
+        const { data: contactR } = await admin.from("wa_contacts")
+          .upsert({ phone, jid: remoteJid, name: pushName ?? undefined, last_message_at: new Date().toISOString() }, { onConflict: "phone" })
+          .select("id, metadata").single();
+
+        // Cerrar todas las conversaciones abiertas de este contacto
+        const { data: openConvs } = await admin.from("wa_conversations")
+          .select("id, metadata").eq("contact_id", contactR!.id).eq("status", "open");
+        for (const c of (openConvs ?? [])) {
+          await admin.from("wa_conversations").update({
+            status: "closed",
+            metadata: { ...((c as any).metadata ?? {}), closed_reason: "reset_by_user", closed_at: new Date().toISOString() },
+          }).eq("id", (c as any).id);
+        }
+
+        // Reset de stage y limpieza de cualificación en el contacto
+        const mdR: any = (contactR as any)?.metadata ?? {};
+        await admin.from("wa_contacts").update({
+          stage: "nuevo",
+          metadata: { ...mdR, qualification: {}, reset_at: new Date().toISOString() },
+        }).eq("id", (contactR as any).id);
+
+        // Crear conversación nueva limpia
+        const { data: newConv } = await admin.from("wa_conversations")
+          .insert({ contact_id: (contactR as any).id, status: "open", metadata: { opened_reason: "reset_by_user" } })
+          .select("id").single();
+
+        // Registrar el mensaje /reset del cliente en la nueva conversación (auditoría)
+        await admin.from("wa_messages").insert({
+          conversation_id: (newConv as any).id,
+          contact_id: (contactR as any).id,
+          direction: "in",
+          type: "text",
+          content: text,
+          evolution_message_id: evoId,
+          ai_generated: false,
+          metadata: { raw: msg, command: "reset" },
+        });
+
+        // Confirmación al cliente
+        const confirmText = "Conversación reiniciada. ¿En qué puedo ayudarte?";
+        try {
+          const sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
+            method: "POST",
+            body: JSON.stringify({ number: phone, text: confirmText }),
+          });
+          await admin.from("wa_messages").insert({
+            conversation_id: (newConv as any).id,
+            contact_id: (contactR as any).id,
+            direction: "out",
+            type: "text",
+            content: confirmText,
+            evolution_message_id: sendRes?.key?.id ?? null,
+            ai_generated: false,
+            sender_type: "system",
+            metadata: { command: "reset_ack" },
+          });
+        } catch (e) {
+          console.warn("[evolution_webhook] /reset ack send failed", (e as any)?.message);
+        }
+
+        await admin.from("wa_conversations").update({
+          last_message_at: new Date().toISOString(),
+          unread_count: 0,
+        }).eq("id", (newConv as any).id);
+
+        return new Response(JSON.stringify({ ok: true, reset: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       // contact
       const { data: contact } = await admin.from("wa_contacts")
