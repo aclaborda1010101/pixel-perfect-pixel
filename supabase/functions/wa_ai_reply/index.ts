@@ -642,9 +642,7 @@ PERFIL 6 · INQUILINO / OCUPANTE ("inquilino_ocupante")
 PERFIL 7 · INFORMADO ("informado")
   Sabe todo pero no gestiona; fuente de inteligencia.
   TRIGGER: da info detallada y precisa pero no es el gestor; menciona a otros por su cuenta.
-  ENFOQUE: Objetivo interno (no se lo digas a él): sacarle toda la información posible del edificio y del resto, porque con eso identificamos quién vendería rápido. Puede haber contactado ya con otras empresas. NUNCA le des un precio a él el primero; déjale hablar y, cuando ya no haya más que sacar, propón la reunión. Alarga la charla con naturalidad, escucha y extrae info, NO presiones con oferta
-  (nunca quiere ser el primero), y al final lleva a reunión ("para una propuesta seria
-  necesitamos vernos y ver el edificio").
+  ENFOQUE: Objetivo interno (no se lo digas a él): sacarle toda la información posible del edificio y del resto, porque con eso identificamos quién vendería rápido. Puede haber contactado ya con otras empresas. NUNCA le des un precio a él el primero; déjale hablar y, cuando ya no haya más que sacar, propón la reunión. Alarga la charla con naturalidad, escucha y extrae info, NO presiones con oferta (nunca quiere ser el primero), y al final lleva a reunión ("para una propuesta seria necesitamos vernos y ver el edificio").
 
 Si aún no tienes señales claras, deja "perfil_copropietario": "indefinido".
 
