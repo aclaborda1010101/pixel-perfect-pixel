@@ -845,7 +845,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     const qu = parsed.qualification_update ?? {};
     const allowedString = new Set([
       "nombre_apellidos", "motivacion_principal", "cobertura_edificio",
-      "p0_complejidad", "p3_sensible", "direccion_inmueble",
+      "p0_complejidad", "p3_sensible", "direccion_inmueble", "codigo_postal",
     ]);
     const allowedEnum: Record<string, Set<string>> = {
       estado_edificio: new Set(["alquilado","vacio","mixto"]),
@@ -860,6 +860,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       p2_motivo: new Set(["liquidez","discrecion","herencia"]),
       complejidad_afflux: new Set(["baja","media","alta"]),
       tipo_inmueble: new Set(["piso","casa","local","edificio","garaje","otro"]),
+      perfil_copropietario: new Set(["gestor_cansado","desplazado","controlador","dominante","mediador_protector","inquilino_ocupante","informado","indefinido"]),
     };
     const allowedNumber = new Set([
       "fase_actual", "renta_mensual_estimada", "cuota_participacion", "num_copropietarios",
