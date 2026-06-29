@@ -1,40 +1,46 @@
-## Problema
+## Objetivo
 
-El cliente envía `/reset` por WhatsApp y el bot no responde nada. El branch del comando ya existe en `evolution_webhook/index.ts` (líneas 67–139) pero no se dispara o falla en silencio.
+Darte un coste aproximado en € por conversación completa del bot de WhatsApp con un lead, basado en datos reales del AI Gateway (no estimaciones de manual).
 
-## Causas probables
+## Datos reales medidos (últimas conversaciones)
 
-1. **El texto no llega como esperamos.** Hoy se lee de `m.conversation` o `m.extendedTextMessage?.text`. Algunos clientes mandan `/reset` con un espacio invisible, mayúsculas, o el cuerpo viene en otro campo (`buttonsResponseMessage`, `ephemeralMessage.message.conversation`, etc.) y `text` queda vacío → no entra al branch.
-2. **El branch entra pero el `sendText` a Evolution falla** y solo se hace `console.warn`. Sin re-lanzar y sin log estructurado, no nos enteramos y el cliente no ve respuesta.
-3. **No tenemos visibilidad**: no hay un solo `console.log("[reset] ...")` en el flujo, así que ahora mismo no podemos diferenciar (1) de (2) en los logs de la edge function.
+He revisado los logs reales del AI Gateway. Cada **turno** del bot (1 mensaje del lead → 1 respuesta del bot) dispara **2 llamadas a Gemini 3 Flash**:
 
-## Plan
+| Llamada | Tokens típicos | Coste/turno |
+|---|---|---|
+| Clasificador de puerta (A–F) | ~500–800 in / ~100 out | ~0,0006–0,0008 |
+| Respuesta principal (con contexto CRM, historial, perfil) | ~7.500 in / ~200 out | ~0,0043–0,0047 |
+| **Total por turno** | | **~0,0050–0,0055** |
 
-Tocar **solo** `supabase/functions/evolution_webhook/index.ts`. Nada más del CRM.
+Unidad: créditos del **AI Gateway** (balance de IA Cloud), no créditos del plan Pro.
 
-1. **Extracción de texto robusta**: antes del check, calcular `text` también desde:
-   - `m.extendedTextMessage?.text`
-   - `m.ephemeralMessage?.message?.conversation`
-   - `m.ephemeralMessage?.message?.extendedTextMessage?.text`
-   - `m.viewOnceMessageV2?.message?.conversation`
-   - `m.buttonsResponseMessage?.selectedDisplayText`
-   - `m.templateButtonReplyMessage?.selectedDisplayText`
-   
-   Y normalizar: `trim()`, quitar caracteres invisibles (`\u200b`, `\u200e`, `\u200f`, `\ufeff`), pasar a minúsculas.
+## Coste por conversación
 
-2. **Matcher más permisivo**: aceptar `/reset`, `reset`, `/start`, `/reiniciar`, `reiniciar` como sinónimos (mismo efecto). Mantener exacto tras normalizar.
+Asumiendo una conversación típica de **10 turnos** (10 mensajes del lead + 10 respuestas del bot):
 
-3. **Logging explícito**: añadir `console.log("[reset] detected", { phone, raw: text })` al entrar al branch y `console.log("[reset] ack sent", { msgId })` / `console.error("[reset] ack FAILED", err)` en el envío. Así, si vuelve a fallar, los logs de la función lo dicen en una línea.
+- **~0,05 créditos AI Gateway por conversación de 10 turnos**
+- Conversación corta (3 turnos): ~0,015
+- Conversación larga (20 turnos): ~0,10
 
-4. **No tragarse el error del envío**: si `evoFetch` del ack falla, devolver `{ ok:false, reset:true, ack_error }` con 200 igualmente (Evolution no debe reintentar el webhook), pero el error queda en la respuesta y en los logs.
+## Conversión a euros
 
-5. **Verificación**:
-   - Desplegar.
-   - Pedirte que mandes `/reset` desde el WhatsApp de prueba.
-   - Leer `edge_function_logs` de `evolution_webhook` para confirmar `[reset] detected` y `[reset] ack sent`.
-   - Confirmar en `wa_conversations` que la antigua quedó `closed` con `closed_reason=reset_by_user` y hay una nueva `open`.
+Los créditos del AI Gateway están denominados en **USD** (el balance gratuito mensual es de $1). La equivalencia es **1 crédito ≈ 1 USD ≈ 0,93 €**.
 
-## Lo que NO se toca
+Por tanto:
+- **Conversación típica (10 turnos): ~0,05 € (5 céntimos)**
+- Conversación corta: ~1,5 céntimos
+- Conversación larga: ~10 céntimos
 
-- `wa_ai_reply`, `wa_followups`, `wa_send_message`, dashboard de WhatsApp, scoring, escaleras, IEE, ni ninguna otra función.
-- Esquema de BD: no hace falta migración.
+Con el **balance gratuito de $1/mes** del AI Cloud que incluye Lovable, te dan margen para **~20 conversaciones completas gratis al mes** antes de tirar de saldo extra.
+
+## Validación que voy a hacer cuando me apruebes el plan
+
+1. Agrupar los logs del Gateway **por `run_id`** de las últimas 24h filtrando solo las llamadas que vienen de `wa_ai_reply` (bot de WhatsApp), no de las otras 30+ edge functions (escaleras, scoring, valuator, briefings, etc.).
+2. Calcular media real **por conversación cerrada** (no por turno): sumar tokens y coste de todos los turnos asociados a un mismo `wa_conversation_id`.
+3. Devolverte una tabla con: nº de conversaciones medidas, media de turnos, media de coste en créditos y €, y el rango (mín–máx).
+
+Así tendrás el número real con tu tráfico actual, no una estimación teórica.
+
+## Lo que NO voy a tocar
+
+Nada de código. Es solo lectura de logs y cálculo.
