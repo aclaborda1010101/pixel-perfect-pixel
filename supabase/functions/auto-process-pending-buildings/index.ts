@@ -113,7 +113,9 @@ async function process(jobId: string, limit: number, userId: string | null) {
           const r = await callWithRetry(ph.fn, { building_id: it.building_id });
           if (!r.ok) throw new Error(`${ph.key}: ${r.error}`);
         }
-        await sb.rpc("compute_score", { p_building_id: it.building_id });
+        // Usar la RPC v2 (compute_cluster_score); compute_score (v1) está DEPRECATED
+        // y daba una fórmula distinta (sin IEE ni cluster), causando scores incoherentes.
+        await sb.rpc("compute_cluster_score", { p_building_id: it.building_id });
         await callFn("enhance-building-score", { building_id: it.building_id });
         (it as any).status = "ok"; ok++;
       } catch (e) {

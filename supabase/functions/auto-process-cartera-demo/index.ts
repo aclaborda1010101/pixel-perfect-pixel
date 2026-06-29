@@ -145,7 +145,8 @@ async function processCartera(jobId: string) {
   for (const it of items) {
     if (it.status === "error") continue;
     try {
-      const { data: scoreVal } = await sb.rpc("compute_score", { p_building_id: it.building_id });
+      // compute_cluster_score (v2); compute_score (v1) está DEPRECATED.
+      const { data: scoreVal } = await sb.rpc("compute_cluster_score", { p_building_id: it.building_id });
       // Enhance: avisos con reasoning + summary narrativo
       try {
         await callFn("enhance-building-score", { building_id: it.building_id });
