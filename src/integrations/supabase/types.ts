@@ -5222,6 +5222,7 @@ export type Database = {
           handoff_reason: string | null
           id: string
           last_message_at: string | null
+          metadata: Json
           qualification: Json
           rol_confianza: number | null
           rol_owner: Database["public"]["Enums"]["owner_role"] | null
@@ -5242,6 +5243,7 @@ export type Database = {
           handoff_reason?: string | null
           id?: string
           last_message_at?: string | null
+          metadata?: Json
           qualification?: Json
           rol_confianza?: number | null
           rol_owner?: Database["public"]["Enums"]["owner_role"] | null
@@ -5262,6 +5264,7 @@ export type Database = {
           handoff_reason?: string | null
           id?: string
           last_message_at?: string | null
+          metadata?: Json
           qualification?: Json
           rol_confianza?: number | null
           rol_owner?: Database["public"]["Enums"]["owner_role"] | null
