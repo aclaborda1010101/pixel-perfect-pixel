@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
         });
 
         // Confirmación al cliente
-        const confirmText = "Conversación reiniciada. ¿En qué puedo ayudarte?";
+        const confirmText = "Conversación reseteada, ya puedes comenzar de nuevo una conversación";
         let ackError: string | null = null;
         try {
           const sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {

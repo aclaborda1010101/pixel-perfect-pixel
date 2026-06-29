@@ -1,0 +1,1 @@
+ALTER TABLE public.wa_conversations ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
