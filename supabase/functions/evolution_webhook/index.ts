@@ -205,9 +205,13 @@ Deno.serve(async (req) => {
       }
 
       // message
+      const isVideo = mediaKind === "video";
+      const VIDEO_PLACEHOLDER = "🎥 Vídeo recibido (no visible por el asistente)";
       const msgType = mediaKind ?? "text";
       const initialContent = mediaKind
-        ? (mediaCaption || "")
+        ? (isVideo
+            ? (mediaCaption ? `${VIDEO_PLACEHOLDER}. Texto adjunto: ${mediaCaption}` : VIDEO_PLACEHOLDER)
+            : (mediaCaption || ""))
         : text;
       const mediaMeta = mediaKind ? {
         media: {
@@ -215,7 +219,9 @@ Deno.serve(async (req) => {
           mimetype: mediaMimetype,
           filename: mediaFilename,
           caption: mediaCaption || null,
-          processing: fromMe ? "skipped" : "pending",
+          // El vídeo no se procesa (no lo ve el asistente): lo marcamos "skipped"
+          // para que wa_ai_reply responda directamente en vez de esperar el procesado.
+          processing: fromMe ? "skipped" : (isVideo ? "skipped" : "pending"),
         },
       } : {};
       const { data: insertedMsg } = await admin.from("wa_messages").insert({

@@ -18,7 +18,7 @@ function madridHour(): number {
   return Number(parts.hour);
 }
 
-const FOLLOWUP_1 = "Hola de nuevo, soy el asistente de Afflux. No quiero molestarle: si prefiere que dejemos esta conversación aquí, dígamelo y no le escribo más. Si en algún momento le interesa entender qué opciones tiene con su parte del edificio, sigo por aquí cuando le venga bien.";
+const FOLLOWUP_1 = "Hola de nuevo, le escribo del equipo de Afflux. No quiero molestarle: si prefiere que dejemos esta conversación aquí, dígamelo y no le escribo más. Si en algún momento le interesa entender qué opciones tiene con su parte del edificio, sigo por aquí cuando le venga bien.";
 const FOLLOWUP_2 = "Le escribo solo una última vez. Si no es el momento, lo respeto y no le contacto más por aquí. Si más adelante quisiera ver con números lo que vale realmente su parte, sin compromiso, basta con que me responda a este mensaje.";
 
 Deno.serve(async (req) => {

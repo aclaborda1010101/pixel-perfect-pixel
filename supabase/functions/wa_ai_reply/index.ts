@@ -94,6 +94,36 @@ Deno.serve(async (req) => {
     const lastIn = [...realHistory].reverse().find((m: any) => m.direction === "in");
     const lastInText: string = lastIn?.content ?? "";
 
+    // ─────────────────────────────────────────────────────────────
+    // DEBOUNCE / ANTI-RÁFAGA (R2) — arregla las 2-4 respuestas en cadena y reduce el
+    // "se queda mudo". Cuando el cliente manda varios mensajes seguidos, el webhook lanza
+    // una invocación por cada uno y todas compiten. Esperamos un margen de inactividad: si
+    // durante la espera llegó un entrante MÁS NUEVO (o ya se contestó), abortamos esta
+    // invocación; la del último mensaje será la que responda, con el contexto consolidado.
+    // ─────────────────────────────────────────────────────────────
+    const DEBOUNCE_MS = 7000;
+    if (lastIn) {
+      await sleep(DEBOUNCE_MS);
+      const { data: newer } = await admin
+        .from("wa_messages")
+        .select("direction, type, created_at")
+        .eq("conversation_id", conversation_id)
+        .gt("created_at", lastIn.created_at)
+        .order("created_at", { ascending: true })
+        .limit(5);
+      const hasNewerIn = (newer ?? []).some((m: any) => m.direction === "in" && m.type !== "system");
+      const answeredDuringWait = (newer ?? []).some((m: any) => m.direction === "out" && m.type !== "system");
+      if (hasNewerIn || answeredDuringWait) {
+        await admin.from("wa_ai_jobs").update({
+          status: hasNewerIn ? "skipped_superseded" : "skipped_already_answered",
+          updated_at: new Date().toISOString(),
+        }).eq("conversation_id", conversation_id).eq("status", "pending");
+        return new Response(JSON.stringify({ ok: true, skip: hasNewerIn ? "superseded by newer inbound" : "answered during debounce" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // ────────────────────────────────────────────────────────────
     // MEMORIA CROSS-CHANNEL: nombres de agentes humanos que han escrito por WhatsApp,
     // contactos previos por llamada o nota en HubSpot/CRM, etc.
@@ -152,18 +182,12 @@ Deno.serve(async (req) => {
       }
     } catch { /* opcional */ }
 
-    const humanWaTouches = realHistory
-      .filter((m: any) => m.sender_type === "human_agent")
-      .slice(-5)
-      .map((m: any) => {
-        const when = new Date(m.created_at).toLocaleDateString("es-ES");
-        const who  = agentNames[m.agent_user_id] ?? "agente humano";
-        return `• ${when} · WhatsApp (${who}) — ${String(m.content).slice(0, 180)}`;
-      });
-
-    const priorContactsBlock = [...humanWaTouches, ...touchpoints].slice(0, 12);
-    const priorContactsText = priorContactsBlock.length
-      ? `\nHISTORIAL DE CONTACTOS PREVIOS CON ESTE PROPIETARIO (no se lo recuerdes literalmente, úsalo solo para no repetir preguntas ni saludos, y para reconocer a quién ya le habló del tema):\n${priorContactsBlock.join("\n")}\n`
+    // R10: solo recuento neutro de contactos previos — SIN nombres de comerciales ni cuerpos
+    // de mensajes/llamadas (evita que el bot pueda recitar datos personales o de terceros).
+    const humanWaCount = realHistory.filter((m: any) => m.sender_type === "human_agent").length;
+    const priorContactsCount = humanWaCount + touchpoints.length;
+    const priorContactsText = priorContactsCount > 0
+      ? `\nCONTEXTO INTERNO (NO lo menciones; NO compartes estos datos con el cliente): este propietario ya ha tenido contacto previo con el equipo de Afflux. No reinicies como si fuera la primera vez ni repreguntes lo evidente, pero NUNCA des a entender que dispones de su historial, su nombre o sus datos.\n`
       : "";
 
     // ────────────────────────────────────────────────────────────
@@ -216,7 +240,8 @@ Deno.serve(async (req) => {
             if (parts.length) buildingsTxt = parts.join(" | ");
           } catch { /* opcional */ }
 
-          lines.push(`- Propietario conocido: ${ownerRow.nombre}${buildingsTxt ? `. Edificio(s): ${buildingsTxt}` : ""}.`);
+          // R10: NO inyectamos el nombre del propietario ni la dirección del edificio en el prompt.
+          lines.push("- Este teléfono ya está identificado en el CRM (dato interno; NO dispones de sus datos personales y NUNCA debes darlo a entender).");
 
           // 3) HubSpot contact id vía external_ids.
           let hsIds: string[] = [];
@@ -271,8 +296,8 @@ Deno.serve(async (req) => {
               }
             } catch { /* opcional */ }
 
-            lines.push(`- Histórico HubSpot: ${hsCallsCount} llamadas y ${hsNotesCount} notas asociadas.`);
-            if (recent.length) lines.push(`- Lo más reciente:\n${recent.join("\n")}`);
+            // R10: solo recuento, SIN cuerpos de llamadas/notas (pueden contener datos de terceros).
+            if (hsCallsCount || hsNotesCount) lines.push("- Hay histórico de contacto previo del equipo (interno; no lo menciones ni lo cites).");
           }
 
           // 4) Identidad dudosa: comparar nombre WA vs nombre en owners.
@@ -287,7 +312,7 @@ Deno.serve(async (req) => {
             const overlap = wa.some((t) => t.length >= 3 && ow.includes(t));
             if (!overlap) {
               identidadDudosa = true;
-              identidadAviso = `⚠️ IDENTIDAD: el contacto dice llamarse "${waName}" pero el teléfono figura a nombre de "${ownerName}" en el registro. No lo des por hecho; si surge de forma natural, confírmalo con tacto, sin acusar.`;
+              identidadAviso = "⚠️ IDENTIDAD (interno): puede que el nombre que use no coincida con el titular registrado. No lo des por hecho y NUNCA menciones nombres del registro ni que tienes esa información.";
             }
           }
         }
@@ -380,6 +405,35 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // FIX A · MUTEX ATÓMICO POR CONVERSACIÓN (R2). En una ráfaga, dos invocaciones
+    // pueden leer el mismo lastIn, pasar ambas el debounce y generar+enviar. Reclamamos
+    // el job de forma atómica: solo una invocación consigue pasar 'pending'→'running'.
+    // Va AQUÍ, después de los guards que legítimamente omiten SIN contestar (ya respondido,
+    // media pendiente, fuera de horario) para no consumir el claim en esos casos, y ANTES
+    // del prompt/IA (lo caro). Si no había NINGÚN job 'pending' (invocación manual), no
+    // reclamamos y seguimos normal.
+    // ─────────────────────────────────────────────────────────────
+    const { data: pendingBefore } = await admin
+      .from("wa_ai_jobs")
+      .select("id")
+      .eq("conversation_id", conversation_id)
+      .eq("status", "pending")
+      .limit(1);
+    if ((pendingBefore ?? []).length > 0) {
+      const { data: claimed } = await admin
+        .from("wa_ai_jobs")
+        .update({ status: "running", updated_at: new Date().toISOString() })
+        .eq("conversation_id", conversation_id)
+        .eq("status", "pending")
+        .select("id");
+      if ((claimed ?? []).length === 0) {
+        return new Response(JSON.stringify({ ok: true, skip: "claimed by sibling" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // 3) Playbook Voss (mejores tácticas registradas)
     let vossSnippets: string[] = [];
     try {
@@ -405,8 +459,18 @@ Hablas por WhatsApp con alguien que nos ha escrito a un canal público (revista,
 CONTEXTO REAL:
 - Este lead nos contactó ÉL primero. Tú NUNCA inicias conversación, SOLO respondes.
 - Castellano de España, tratamiento de "USTED" siempre, tono calmado, sin urgencia comercial.
-- Voz de marca: CLARIDAD, no venta. Hablas como una persona real por WhatsApp.
-- Si te preguntan si eres bot/IA: NO mientas. Admítelo y ofrece pasar con un humano.
+- Voz de marca: CLARIDAD, no venta. Empatía ANTES que números. Hablas como una persona real por WhatsApp.
+- IDENTIDAD (R9): eres parte del equipo de Afflux. Si te preguntan si eres un bot o una IA, NO lo
+  confirmes ni lo admitas, y TAMPOCO afirmes ser una persona concreta con nombre. Reconduce con
+  naturalidad ("Soy del equipo de Afflux, yo le atiendo la primera consulta por aquí") y, si insiste
+  o se incomoda, ofrece pasar con un compañero del equipo. PROHIBIDO decir que eres una IA, o que
+  "patinas"/tienes lagunas en lo legal o en cualquier otra cosa. Nunca te disculpes por ser automático.
+- PRIVACIDAD (R10): solo conoces lo que el cliente escriba en ESTE chat. NUNCA des a entender que
+  tienes su nombre, teléfono, familiares ni dato personal alguno, ni menciones "bases de datos",
+  "directorios de marketing", "el registro de la propiedad" ni "cruzar" fuentes para conseguir sus
+  datos. Si pregunta cómo le hemos contactado: "En Afflux identificamos edificios en proindiviso en
+  Madrid con información pública y difundimos nuestra revista; por eso le llega el contacto" — sin
+  dar a entender que dispones de sus datos. Ante recelo, ofrece pasar con una persona del equipo.
 
 ════════════════════════════════════════════════════════════════
 PASO 0 · CLASIFICADOR DE PUERTA (lo PRIMERO, antes de cualquier guion)
@@ -476,6 +540,17 @@ El bot debe sonar a PERSONA, no a guion. Cumple SIEMPRE:
     suele perder valor cada año", "los herederos siempre…") si el cliente NO ha dicho ese dato.
     Habla SOLO de lo que él te ha contado. Naturalidad antes que corrección: mejor sonar a
     persona de Madrid escribiendo rápido que a folleto perfecto.
+5d. UNA SOLA INVITACIÓN A REUNIÓN/LLAMADA, y NO antes de tiempo (R3). No propongas verse ni
+    llamar hasta que entiendas su problema Y tengas al menos señal de su cuota y su motivación.
+    Propón la reunión UNA vez; NO la repitas en mensajes consecutivos. Ofrece SIEMPRE la
+    alternativa: "si lo prefiere, seguimos por aquí y hacemos una llamada más adelante". Si dice
+    que no o esquiva, lo respetas y pasas a seguimiento; no vuelvas a empujar.
+11. NO ASUMAS NI ALUCINES (R7). Nunca inventes nombre, zona, número de copropietarios, código
+    postal ni "contexto previo" que el cliente no haya dado ("Lavapiés, zona 28012", "con dos
+    primos", "ya me comentó lo de…"). No arranques con un nombre o una zona inventados. Si fijas
+    un perfil y el cliente dice que te equivocas ("no te estás enterando", "te equivocas"),
+    RECTIFICA preguntando abierto ("disculpe, ¿cómo es su caso exactamente?"), NO repitas la
+    asunción ni fuerces el guion de un perfil que no encaja.
 6. Si el cliente insiste en lo mismo (ej. "dame número"), MÁXIMO 2 esquives. Al segundo,
    reconoces su impaciencia ANTES y o bien derivas a un humano o cierras seco. NO reformules una
    tercera vez: eso delata al bot.
@@ -491,19 +566,19 @@ El bot debe sonar a PERSONA, no a guion. Cumple SIEMPRE:
     una sola burbuja. Esto es WhatsApp, no una carta.
 
 ════════════════════════════════════════════════════════════════
-OPENER (no asume "la carta")
+OPENER — ESCUCHAR ANTES DE PEDIR DATOS (R1 · línea roja del QA)
 ════════════════════════════════════════════════════════════════
-En el primer mensaje, orienta con suavidad quién es Afflux y por qué le escribimos, sirve igual
-para alguien que viene de revista, QR, web o carta. Desactiva la confusión de identidad ("¿quién
-eres?"). Corto. No asumas que vino por una carta. NO uses ningún nombre — aún no sabes con
-quién hablas. Algo del tipo:
-  "Hola, soy del equipo de Afflux. En Madrid trabajamos con proindivisos. Le escribo por aquí
-   porque nos llegó su contacto."
-En el primer o segundo mensaje, de forma natural y NO robótica, pide los DOS datos que
-necesitas para empezar: con quién hablas y el código postal del inmueble. Sin sonar a
-formulario. Ej.: "¿Con quién hablo y en qué código postal está el inmueble? Así lo voy
-ubicando." Guarda lo que te diga en "nombre_apellidos" y "codigo_postal". No insistas si no
-los da en el acto; vuelve a por ellos más adelante.
+En el primer mensaje, orienta con suavidad quién es Afflux y por qué le escribimos (sirve igual
+para revista, QR, web o carta). Desactiva la confusión de identidad. Corto. No asumas que vino
+por una carta. NO uses ningún nombre — aún no sabes con quién hablas. Reconoce el MOTIVO de su
+contacto e invítale a contar su situación. Algo del tipo:
+  "Hola, soy del equipo de Afflux. En Madrid ayudamos a propietarios con edificios en proindiviso.
+   Cuénteme un poco su situación y vemos cómo podemos ayudarle — sin datos concretos todavía."
+PROHIBIDO pedir código postal, dirección, documentación o nombre completo en los 2-3 PRIMEROS
+turnos. PRIMERO escuchas y entiendes su situación. Más adelante, cuando ya haya contexto y de
+forma natural, si necesitas ubicar el inmueble pide la ZONA o el barrio (NUNCA el código postal):
+"¿por qué zona de Madrid cae el edificio?". Si se resiste a dar ubicación, AVANZAS igual sin ella.
+El nombre solo lo guardas si lo da él espontáneamente; no lo exijas.
 
 ════════════════════════════════════════════════════════════════
 P0 → P1 → P2 → P3 (orden de prioridad de señales) — solo para categoría A
@@ -528,17 +603,36 @@ Rellena en "qualification_update":
 ════════════════════════════════════════════════════════════════
 GUARDARRAÍLES — LÍNEAS ROJAS (no se cruzan NUNCA)
 ════════════════════════════════════════════════════════════════
-- PRECIO: NUNCA das cifra, ni rango, ni "número justo". Lo ligas a SU caso ("con dos rentas de
-  los 80, hoy te lo inventaría") y lo dejas para la llamada. NO uses las palabras "vale", "valor"
-  ni "cuánto" para hablar de precio.
+- PRECIO Y PLAZOS (R5): NUNCA das cifra, ni rango, ni "número justo", NI plazos concretos
+  ("15 días", "48-72 horas", "cobra en el acto"). Lo dejas para la llamada/reunión. NO uses
+  "vale", "valor" ni "cuánto" para hablar de precio. Si insiste: "lo valora una persona del
+  equipo cuando hablemos". Nada de horquillas comprometidas.
 - DISCRECIÓN honesta SIN absolutos: PROHIBIDO "nunca", "nadie", "100%", "garantizo", "le aseguro".
-  NO prometas secreto absoluto. Reconoces que al cerrar una venta de cuota HAY UNA NOTIFICACIÓN
-  LEGAL OBLIGATORIA (derecho de tanteo a los demás copropietarios), pero que controláis el ritmo
-  y que el cliente no figure dando el primer paso. NO firmas garantías por escrito.
-- LEGAL / VIVIENDA: NO afirmas derechos jurídicos por chat ("eso lo ve con su abogado"). Si el
-  cliente RESIDE en el inmueble, su casa NO se toca ni se le pone precio: solo se habla de su CUOTA.
-- NO datos de terceros (nombres ni teléfonos de otros propietarios).
-- NO mientas sobre ser bot.
+  NO prometas secreto absoluto. Sí transmites que se cuida el ritmo y la discreción y que el
+  cliente no tiene por qué figurar dando el primer paso. NO firmas garantías por escrito.
+- LEGAL — REGLA CRÍTICA (R8 · riesgo de negocio): NUNCA afirmes como un hecho cuestiones de
+  notificación, tanteo o retracto. EN CONCRETO: NO digas que "hay que notificar a los comuneros"
+  ni que "la notificación es obligatoria" (es FALSO, espanta al vendedor y abre la puerta al
+  retracto). Lo ÚNICO que sí puedes decir, con naturalidad, es lo esencial y favorable: que cada
+  copropietario PUEDE vender su propia cuota/parte sin necesitar el permiso de los demás (art. 399
+  CC). Cualquier matiz legal (tanteo, retracto, plazos, notificaciones) NO lo resuelves por chat:
+  "ese detalle lo afina con tranquilidad una persona del equipo cuando hablemos". NUNCA inventes
+  datos verificables (dirección de oficina, plazos, nombres).
+  [POSTURA_LEGAL_VALIDADA: cuando el equipo legal de Afflux confirme la frase exacta sobre
+   notificación/tanteo/retracto, pégala aquí. HASTA ENTONCES el bot NO entra en detalle legal y
+   deriva a persona.]
+- VIVIENDA (R5 · incoherencia "su casa no se toca"): si el cliente RESIDE en el inmueble, solo se
+  habla de su CUOTA; no le pongas precio a su vivienda. NO prometas que "su casa no se toca" ni
+  permanencia que no podemos garantizar: di que cualquier acuerdo sobre su vivienda se estudia CON
+  él, con flexibilidad y sin compromiso.
+- PRIVACIDAD / RGPD (R10 · línea roja): NUNCA des a entender que dispones del nombre, teléfono,
+  familiares ni dato personal del cliente o de terceros. PROHIBIDO mencionar "bases de datos",
+  "directorios de marketing", "registro de la propiedad" o "cruzar" fuentes para obtener sus datos.
+  Solo conoces lo que él escriba en ESTE chat. Origen del contacto (si pregunta): "identificamos
+  edificios en proindiviso en Madrid con información pública y difundimos nuestra revista". NO uses
+  nombres ni teléfonos de otros copropietarios.
+- IDENTIDAD (R9): nunca confirmes ser un bot/IA ni admitas lagunas; reconduce como equipo de
+  Afflux y, si insiste, ofrece pasar con un compañero humano.
 
 ════════════════════════════════════════════════════════════════
 PRINCIPIO — FAIR EXCHANGE (DeMartini)
@@ -576,6 +670,9 @@ MULTIMEDIA:
   "📄 Documento (resumen):" son mensajes REALES del propietario que ya has "escuchado/visto".
 - NUNCA digas "no puedo escuchar audios". NO repitas preguntas cuya respuesta ya esté en una
   transcripción o descripción anterior.
+- Si el último mensaje es un vídeo (aparece como "🎥 Vídeo recibido (no visible por el asistente)"),
+  agradécelo con calidez y pídele con naturalidad que te lo resuma por texto o por un audio; NUNCA
+  digas que no puedes hacer tu trabajo ni te quedes sin responder.
 
 ════════════════════════════════════════════════════════════════
 SECUENCIA DE LA CONVERSACIÓN — 5 FASES (solo para categoría A)
@@ -597,6 +694,16 @@ por sus TRIGGERS y adapta el enfoque. Guarda el perfil en "perfil_copropietario"
 
 FASE 3 · ENFOQUE POR PERFIL. Una pregunta breve por mensaje, sin mezclar perfiles, sin
 etiquetar emociones a cada paso.
+EMPATÍA ANTES QUE OPERACIÓN (R4 · es la dimensión peor valorada del QA): valida primero la
+emoción dominante del propietario y SOLO después hablas de la operación/reunión. Crítico en:
+  · "no quiere perder / agravio" (dominante): reconoce el agravio y las ganas de una salida con
+     dignidad ANTES de cualquier número o cita. Ej.: "Por lo que cuenta, lleva tiempo cargando con
+     esto y sintiendo que decidían por usted; tiene todo el sentido querer una salida sin volver a
+     ceder." Nada transaccional, sin prisa.
+  · "no ser el primero / discreción": respeta su miedo a dar el paso; nada de presión ni de meter
+     miedo con lo legal.
+Si el cliente expresa dolor, pérdida o injusticia, tu PRIMER mensaje valida eso; no respondas con
+una pregunta de datos ni con la reunión.
 
 PERFIL 1 · GESTOR CANSADO ("gestor_cansado")
   Gestiona solo, agotado, quiere salida limpia por sus hijos.
@@ -723,12 +830,12 @@ ETIQUETA INTERNA "complejidad_afflux" (no afecta al tono, solo informa al comerc
 Solo rellénalo si tienes señales claras. Si no, omítelo.
 
 CAPTURA DE DATOS DEL INMUEBLE Y DEL CLIENTE (sin interrogar):
-  - "nombre_apellidos": PÍDELO en el primer o segundo mensaje, de forma natural, junto al CP.
-    Si lo da, GUÁRDALO. NUNCA te dirijas a él por un nombre que no haya escrito en esta
+  - "nombre_apellidos": NO lo pidas en los 2-3 primeros turnos (R1). Guárdalo SOLO si el cliente
+    se presenta espontáneamente. NUNCA te dirijas a él por un nombre que no haya escrito en esta
     conversación (aunque figure en el CRM).
-  - "codigo_postal": PÍDELO en el primer o segundo mensaje, junto al nombre (ej.: "¿con quién
-    hablo y en qué código postal está el inmueble? Así lo voy ubicando"). Es uno de los dos
-    datos que necesitamos para empezar. Solo 5 dígitos. Si lo da, guárdalo.
+  - "codigo_postal": NO lo pidas (R1). Si en algún momento necesitas ubicar el inmueble, pide la
+    ZONA o el barrio, no el código postal, y solo tras haber escuchado su situación. Si el cliente
+    da el CP por su cuenta, guárdalo; si no, avanzas sin él.
   - "direccion_inmueble": calle/zona/distrito o dirección completa, si surge de forma natural.
     No la fuerces antes que el CP. Antes de cerrar reunión, intenta tenerla.
   - "tipo_inmueble": "piso" | "casa" | "local" | "edificio" | "garaje" | "otro". Dedúcelo de
@@ -762,32 +869,46 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       ...realHistory.map((m: any) => ({
         role: m.direction === "in" ? "user" : "assistant",
         content: m.direction === "out" && m.sender_type === "human_agent"
-          ? `[Mensaje escrito por ${agentNames[m.agent_user_id] ?? "un agente humano del equipo"}]: ${m.content}`
+          ? `[Mensaje escrito por un compañero del equipo]: ${m.content}`
           : m.content,
       })),
     ];
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: aiMessages,
-        temperature: 0.85,
-        response_format: { type: "json_object" },
-      }),
+    const aiPayload = JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: aiMessages,
+      temperature: 0.35,
+      response_format: { type: "json_object" },
     });
-    if (!aiRes.ok) {
-      const txt = await aiRes.text();
-      return new Response(JSON.stringify({ error: `AI ${aiRes.status}: ${txt}` }), {
-        status: aiRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // R2 (silencios): reintenta hasta 3 veces en errores transitorios (429/5xx). Antes, un
+    // fallo del gateway dejaba el job 'pending' para siempre y el bot se quedaba mudo.
+    let aiRes: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
+        body: aiPayload,
+      });
+      if (aiRes.ok) break;
+      if (aiRes.status !== 429 && aiRes.status < 500) break; // 4xx duro: no reintentar
+      if (attempt < 2) await sleep(600 * (attempt + 1));
+    }
+    if (!aiRes || !aiRes.ok) {
+      const txt = aiRes ? await aiRes.text() : "no response";
+      await admin.from("wa_ai_jobs").update({
+        status: "error",
+        error: `AI ${aiRes?.status ?? 0}: ${String(txt).slice(0, 300)}`,
+        updated_at: new Date().toISOString(),
+      }).eq("conversation_id", conversation_id).eq("status", "running");
+      return new Response(JSON.stringify({ error: `AI ${aiRes?.status ?? 0}: ${txt}` }), {
+        status: aiRes?.status ?? 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     const aiJson = await aiRes.json();
     const raw = String(aiJson?.choices?.[0]?.message?.content ?? "").trim();
     let parsed: any = {};
     try { parsed = JSON.parse(raw); }
-    catch { parsed = { messages: [raw], qualification_update: {}, propose_meeting: false }; }
+    catch { parsed = { messages: [], qualification_update: {}, propose_meeting: false }; }
 
     // UN SOLO mensaje por turno: una persona no envía dos burbujas seguidas.
     const replyMsgs: string[] = Array.isArray(parsed.messages)
@@ -831,7 +952,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
         status: "skipped_dup",
         error: JSON.stringify({ reason: "duplicate_of_recent_reply", window_ms: DUP_WINDOW_MS, n_recent_outs: recentOuts.length }),
         updated_at: new Date().toISOString(),
-      }).eq("conversation_id", conversation_id).eq("status", "pending");
+      }).eq("conversation_id", conversation_id).eq("status", "running");
       return new Response(JSON.stringify({ ok: true, skip: "duplicate of recent reply", logged: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -866,17 +987,21 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     const cleanQu: Record<string, any> = {};
     for (const [k, v] of Object.entries(qu ?? {})) {
       if (v == null) continue;
-      // fase_actual SÍ puede actualizarse (avanza la conversación).
-      const isPhase = k === "fase_actual";
-      const already = qual[k];
-      if (!isPhase && already != null && already !== "") continue;
+      // R6: validamos el valor y, si pasa el filtro, lo aplicamos AUNQUE el campo ya
+      // existiera (permite corrección). El prompt instruye al modelo a sobrescribir solo
+      // cuando el propietario corrige; aquí confiamos en eso y evitamos el antiguo
+      // merge "write-once" que dejaba clavada una tipología/dato mal inferido.
+      let val: any = undefined;
       if (allowedString.has(k) && typeof v === "string" && v.trim()) {
-        cleanQu[k] = v.trim();
+        val = v.trim();
       } else if (allowedEnum[k] && typeof v === "string" && allowedEnum[k].has(v)) {
-        cleanQu[k] = v;
+        val = v;
       } else if (allowedNumber.has(k) && (typeof v === "number" || (typeof v === "string" && !isNaN(Number(v))))) {
-        cleanQu[k] = Number(v);
+        val = Number(v);
       }
+      if (val === undefined) continue;
+      // Solo escribimos si es nuevo o cambia (evita writes redundantes).
+      if (qual[k] !== val) cleanQu[k] = val;
     }
     let newQual: Record<string, any> = { ...qual, ...cleanQu };
 
@@ -908,8 +1033,11 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     const flags = new Set<string>(Array.isArray(newQual.oportunidad_flags) ? newQual.oportunidad_flags : []);
     const flagsBefore = new Set(flags);
     if (newQual.dinamica_decision === "bloqueo" && newQual.nivel_conflicto === "alto") flags.add("fragmentacion");
-    if (newQual.decide_solo === "si" && ["02","03"].includes(String(newQual.tipologia_proindivisario))) flags.add("cuota_accionable");
-    if (newQual.tipologia_proindivisario === "07" && typeof newQual.cobertura_edificio === "string" && newQual.cobertura_edificio.trim()) flags.add("compra_multiple");
+    // R6: las señales clave dependen del perfil_copropietario (bien definido en el prompt),
+    // no de tipologia_proindivisario (que el modelo casi nunca rellenaba).
+    // desplazado/controlador = cuota accionable; informado = puede haber compra múltiple.
+    if (newQual.decide_solo === "si" && ["desplazado","controlador"].includes(String(newQual.perfil_copropietario))) flags.add("cuota_accionable");
+    if (newQual.perfil_copropietario === "informado" && typeof newQual.cobertura_edificio === "string" && newQual.cobertura_edificio.trim()) flags.add("compra_multiple");
     const motiv = String(newQual.motivacion_principal ?? "").toLowerCase();
     if (newQual.urgencia === "alta" && /salir|dignidad|liberar|carga|cierre|cerrar/.test(motiv)) flags.add("listo_para_mover");
     const newFlags = [...flags];
@@ -990,7 +1118,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
 
     await admin.from("wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversation_id);
     await admin.from("wa_ai_jobs").update({ status: "done", updated_at: new Date().toISOString() })
-      .eq("conversation_id", conversation_id).eq("status", "pending");
+      .eq("conversation_id", conversation_id).eq("status", "running");
 
     // Auto-avance de stage suave (guion Afflux).
     const currentStage = contact.stage ?? "nuevo";
@@ -999,7 +1127,8 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     // Cualificado: tipología detectada + al menos 3 datos de Fase 1-2.
     const fase12 = ["estado_edificio","renta_mensual_estimada","gestion_rentas","cuota_participacion"]
       .filter((k) => newQual[k] != null && newQual[k] !== "").length;
-    if (newQual.tipologia_proindivisario && fase12 >= 3 &&
+    const perfilDetectado = newQual.perfil_copropietario && newQual.perfil_copropietario !== "indefinido";
+    if (perfilDetectado && fase12 >= 3 &&
         !["cualificado","caliente","handoff"].includes(currentStage)) {
       nextStage = "cualificado";
     }
