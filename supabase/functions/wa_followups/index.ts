@@ -37,11 +37,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Convs con bot activo (y contacto no en handoff)
+    // Solo conversaciones abiertas con bot activo (y contacto no en handoff).
+    // Importante: un /reset cierra la conversación anterior; nunca debe disparar
+    // follow-ups desde conversaciones ya cerradas.
     const { data: convs } = await admin
       .from("wa_conversations")
       .select("id, contact_id, ai_enabled, wa_contacts(id, phone, name, stage)")
       .eq("ai_enabled", true)
+      .eq("status", "open")
       .limit(500);
 
     const results: any[] = [];
@@ -55,11 +58,15 @@ Deno.serve(async (req) => {
 
       const { data: msgs } = await admin
         .from("wa_messages")
-        .select("direction, type, created_at, metadata")
+        .select("direction, type, created_at, sender_type, metadata")
         .eq("conversation_id", conv.id)
         .order("created_at", { ascending: true })
         .limit(80);
-      const real = (msgs ?? []).filter((m: any) => m.type !== "system");
+      const real = (msgs ?? []).filter((m: any) => {
+        if (m.type === "system" || m.sender_type === "system") return false;
+        if (m.metadata?.command === "reset" || m.metadata?.command === "reset_ack") return false;
+        return true;
+      });
       if (real.length === 0) continue;
       const last = real[real.length - 1];
       // El último debe ser saliente (cliente no ha respondido).
