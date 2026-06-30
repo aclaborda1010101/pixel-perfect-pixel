@@ -978,41 +978,54 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       })),
     ];
 
-    const aiPayload = JSON.stringify({
-      model: "google/gemini-3-flash-preview",
-      messages: aiMessages,
-      temperature: 0.35,
-      response_format: { type: "json_object" },
-    });
-    // R2 (silencios): reintenta hasta 3 veces en errores transitorios (429/5xx). Antes, un
-    // fallo del gateway dejaba el job 'pending' para siempre y el bot se quedaba mudo.
+    // MODELO: primario Claude Sonnet vía OpenRouter (mejor calidad/latencia/coste según el banco);
+    // FALLBACK a Gemini Flash vía gateway de Lovable si OpenRouter falla (sin saldo, caído, sin key),
+    // para que el bot NUNCA se quede mudo. Reintentos 3x en errores transitorios (429/5xx).
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    const MODEL_PRIMARY = "anthropic/claude-sonnet-4.6";
+    const MODEL_FALLBACK = "google/gemini-3-flash-preview";
+    const providers: Array<{ url: string; key: string | undefined; model: string; jsonFmt: boolean }> = [];
+    if (OPENROUTER_API_KEY) providers.push({ url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY, model: MODEL_PRIMARY, jsonFmt: false });
+    providers.push({ url: "https://ai.gateway.lovable.dev/v1/chat/completions", key: LOVABLE_API_KEY, model: MODEL_FALLBACK, jsonFmt: true });
+
     let aiRes: Response | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
-        body: aiPayload,
-      });
-      if (aiRes.ok) break;
-      if (aiRes.status !== 429 && aiRes.status < 500) break; // 4xx duro: no reintentar
-      if (attempt < 2) await sleep(600 * (attempt + 1));
+    let modelUsed = "";
+    let lastStatus = 0, lastTxt = "";
+    for (const p of providers) {
+      const payloadObj: any = { model: p.model, messages: aiMessages, temperature: 0.4 };
+      if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
+      const payload = JSON.stringify(payloadObj);
+      let r: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        r = await fetch(p.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.key}` }, body: payload });
+        if (r.ok) break;
+        if (r.status !== 429 && r.status < 500) break; // 4xx duro (p.ej. 402 sin saldo): pasa al siguiente proveedor
+        if (attempt < 2) await sleep(600 * (attempt + 1));
+      }
+      if (r && r.ok) { aiRes = r; modelUsed = p.model; break; }
+      lastStatus = r?.status ?? 0; lastTxt = r ? await r.text() : "no response";
     }
     if (!aiRes || !aiRes.ok) {
-      const txt = aiRes ? await aiRes.text() : "no response";
       await admin.from("wa_ai_jobs").update({
         status: "error",
-        error: `AI ${aiRes?.status ?? 0}: ${String(txt).slice(0, 300)}`,
+        error: `AI ${lastStatus}: ${String(lastTxt).slice(0, 300)}`,
         updated_at: new Date().toISOString(),
       }).eq("conversation_id", conversation_id).eq("status", "running");
-      return new Response(JSON.stringify({ error: `AI ${aiRes?.status ?? 0}: ${txt}` }), {
-        status: aiRes?.status ?? 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return new Response(JSON.stringify({ error: `AI ${lastStatus}: ${lastTxt}` }), {
+        status: lastStatus || 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     const aiJson = await aiRes.json();
     const raw = String(aiJson?.choices?.[0]?.message?.content ?? "").trim();
+    // Parseo ROBUSTO: quita fences ```json y extrae el primer objeto {...} por si el modelo lo envuelve.
     let parsed: any = {};
-    try { parsed = JSON.parse(raw); }
-    catch { parsed = { messages: [], qualification_update: {}, propose_meeting: false }; }
+    try {
+      let s = raw;
+      if (s.startsWith("```")) s = s.replace(/^```(json)?/i, "").replace(/```\s*$/, "").trim();
+      const a = s.indexOf("{"), b = s.lastIndexOf("}");
+      if (a >= 0 && b > a) s = s.slice(a, b + 1);
+      parsed = JSON.parse(s);
+    } catch { parsed = { messages: [], qualification_update: {}, propose_meeting: false }; }
 
     // UN SOLO mensaje por turno: una persona no envía dos burbujas seguidas.
     const replyMsgs: string[] = Array.isArray(parsed.messages)
@@ -1220,7 +1233,7 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
         ai_generated: true,
         sender_type: "bot",
         metadata: {
-          model: "google/gemini-3-flash-preview",
+          model: modelUsed,
           part: i + 1, of: finalReplies.length,
           qualification_update: cleanQu,
           propose_meeting: !!parsed.propose_meeting,
