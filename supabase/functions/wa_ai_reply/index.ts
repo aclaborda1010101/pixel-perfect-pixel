@@ -543,10 +543,16 @@ Deno.serve(async (req) => {
     // GUION AFFLUX · Voss + Fair Exchange (DeMartini) + 7 Espejos
     // Documento interno "Bot de IA para WhatsApp" — versión literal.
     // ============================================================
+    const hoyMadrid = new Intl.DateTimeFormat("es-ES", {
+      timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long", year: "numeric",
+    }).format(new Date());
     const systemPrompt = `Eres una persona del equipo de Afflux (especialistas en proindivisos en Madrid desde 2015), no un guion ni un bot recitando.
 Hablas por WhatsApp con alguien que nos ha escrito a un canal público (revista, QR, web, carta). NO asumas que vino "por la carta".
 
 CONTEXTO REAL:
+- FECHA DE HOY (Madrid): ${hoyMadrid}. Úsala para agendar bien: calcula correctamente qué día cae
+  "mañana", "el domingo", "esta semana"… NUNCA te confundas ni inventes la fecha; si el cliente te
+  corrige una fecha, acéptalo y recalcula sin discutir ni cambiar de día tú solo.
 - Este lead nos contactó ÉL primero. Tú NUNCA inicias conversación, SOLO respondes.
 - Castellano de España, tratamiento de "USTED" siempre, tono calmado, sin urgencia comercial.
 - Voz de marca: CLARIDAD, no venta. Empatía ANTES que números. Hablas como una persona real por WhatsApp.
@@ -561,6 +567,14 @@ CONTEXTO REAL:
   datos. Si pregunta cómo le hemos contactado: "En Afflux identificamos edificios en proindiviso en
   Madrid con información pública y difundimos nuestra revista; por eso le llega el contacto" — sin
   dar a entender que dispones de sus datos. Ante recelo, ofrece pasar con una persona del equipo.
+- DATOS REALES DE AFFLUX (úsalos SIEMPRE tal cual; PROHIBIDO inventar otros):
+  · Empresa: Afflux Property — compra de edificios residenciales y cuotas (proindivisos) en Madrid;
+    más de 50 operaciones y +112 M€ invertidos; resuelve casos complejos (herencias, desacuerdos,
+    inquilinos, reformas).
+  · Oficina (si la piden): C/ Almagro 22, 28010 Madrid.
+  · Teléfono: 620 40 80 24 · Email: madrid@afflux.es
+  Si preguntan dirección/teléfono/email, das EXACTAMENTE estos datos. Cualquier OTRO dato que no esté
+  aquí (precios, plazos, nombres de personas) NO lo inventes: lo concreta una persona del equipo.
 
 ════════════════════════════════════════════════════════════════
 PASO 0 · CLASIFICADOR DE PUERTA (lo PRIMERO, antes de cualquier guion)
@@ -1163,20 +1177,19 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     const lastOut = [...realHistory].reverse().find((m: any) => m.direction === "out");
     const lastOutAgeMs = lastOut?.created_at ? (Date.now() - new Date(lastOut.created_at).getTime()) : Infinity;
     const isActive = lastOutAgeMs < 5 * 60 * 1000;
-    const minS = isActive
-      ? ((cfg as any)?.reply_delay_active_min ?? 3)
-      : ((cfg as any)?.reply_delay_min ?? 8);
-    const maxS = isActive
-      ? ((cfg as any)?.reply_delay_active_max ?? 10)
-      : ((cfg as any)?.reply_delay_max ?? 45);
-    const totalMs = Math.floor((minS + Math.random() * Math.max(1, maxS - minS)) * 1000);
-    const perMsg = Math.floor(totalMs / Math.max(1, finalReplies.length));
+    // Retardo de tecleo PROPORCIONAL A LA LONGITUD del mensaje: parecer una persona
+    // escribiendo. "Pensar" (0,7-1,6s) + teclear (~33 ms/carácter con ±15% de variación).
+    // Suelo 2s; techo 17s (22s en primer contacto frío). Así un párrafo de 4 líneas tarda
+    // ~9-13s en llegar, NUNCA 1s. (Antes el delay era aleatorio e independiente del texto.)
+    const MS_PER_CHAR = 33;
 
     for (let i = 0; i < finalReplies.length; i++) {
       const m = finalReplies[i];
-      const typingMs = isActive
-        ? Math.max(800, Math.min(perMsg - 400, 6000))
-        : Math.max(1500, Math.min(perMsg - 600, 12000));
+      const thinkMs = 700 + Math.floor(Math.random() * 900);
+      const typeMs = Math.round(m.length * MS_PER_CHAR * (0.85 + Math.random() * 0.30));
+      let typingMs = Math.max(2000, Math.min(thinkMs + typeMs, 17000));
+      if (!isActive) typingMs = Math.min(typingMs + 1500, 22000);
+      // El "escribiendo…" se mantiene visible durante toda la elaboración.
       await sendPresence(contact.phone, typingMs);
       await sleep(typingMs);
       let sendRes: any;
