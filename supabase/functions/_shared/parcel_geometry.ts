@@ -699,16 +699,18 @@ export async function fetchBboxParcels(
   const dLon = halfMeters / (111320 * Math.cos(toRad(lat)));
   const minLon = lon - dLon, minLat = lat - dLat;
   const maxLon = lon + dLon, maxLat = lat + dLat;
+  // OJO: el WFS del Catastro con EPSG:4326 espera el bbox en orden LAT,LON
+  // (verificado: lon,lat devuelve 0 parcelas; lat,lon devuelve todas).
   let res = await callCatastroCP({
     service: "WFS", version: "2.0.0", request: "GetFeature",
     typeNames: "cp:CadastralParcel", srsName: "EPSG:4326",
-    bbox: `${minLon},${minLat},${maxLon},${maxLat},urn:ogc:def:crs:EPSG::4326`,
+    bbox: `${minLat},${minLon},${maxLat},${maxLon},urn:ogc:def:crs:EPSG::4326`,
   });
   if (!res) {
     res = await callCatastroCP({
       service: "WFS", version: "2.0.0", request: "GetFeature",
       typeNames: "cp:CadastralParcel", srsName: "EPSG:4326",
-      bbox: `${minLon},${minLat},${maxLon},${maxLat}`,
+      bbox: `${minLat},${minLon},${maxLat},${maxLon}`,
     });
   }
   if (!res || res.polys.length === 0) return null;
