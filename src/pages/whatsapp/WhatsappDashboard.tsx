@@ -7,6 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Eyebrow } from "@/components/common/Eyebrow";
@@ -18,6 +22,7 @@ import {
   MessagesSquare, UserPlus, Activity, Target, ArrowRight,
   TrendingUp, RefreshCw, AlertTriangle, History, Search, FileText, Check, X as XIcon, Sparkles,
   Mic, Image as ImageIcon, FileType2, Building2, Users, IdCard, Briefcase, Home,
+  ShieldCheck, ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -88,6 +93,53 @@ const SUB_NAV: { id: SubView; label: string; icon: any }[] = [
   { id: "conexion", label: "Conexión", icon: Phone },
   { id: "bot",      label: "Bot",      icon: Bot },
 ];
+
+/* ─────────── Kill switch global (cabecera) ───────────
+   Control prominente para PARAR todas las respuestas automáticas al instante.
+   Verde = activo · Rojo = detenido. Apagarlo pide confirmación. */
+function KillSwitchControl({ active, onToggle }: { active: boolean; onToggle: (next: boolean) => void }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  return (
+    <div className={cn(
+      "flex items-center gap-2 rounded-[6px] border px-3 py-1.5",
+      active ? "border-success/40 bg-success/10" : "border-destructive/50 bg-destructive/10",
+    )}>
+      <span className={cn(
+        "flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-eyebrow",
+        active ? "text-success" : "text-destructive",
+      )}>
+        {active ? <ShieldCheck className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />}
+        {active ? "Bot activo" : "🛑 Bot detenido"}
+      </span>
+      <Switch
+        checked={active}
+        onCheckedChange={(v) => { if (v) onToggle(true); else setConfirmOpen(true); }}
+        aria-label="Kill switch global del bot"
+      />
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>🛑 ¿Parar el bot (kill switch)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esto detiene AL INSTANTE todas las respuestas automáticas y los seguimientos.
+              Los mensajes entrantes se seguirán registrando, pero el bot no contestará a nadie
+              hasta que lo reactives. Úsalo si Meta marca o bloquea el número.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onToggle(false)}
+            >
+              Sí, parar el bot
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
 
 export default function WhatsappDashboard() {
   const qc = useQueryClient();
@@ -261,6 +313,20 @@ export default function WhatsappDashboard() {
     toast.success("Bot actualizado");
   }
 
+  // KILL SWITCH global: enciende/apaga TODAS las respuestas automáticas (wa_bot_config.is_active).
+  // Upsert si no existe fila de config.
+  const botActive = (cfg as any)?.is_active !== false;
+  async function setBotActive(next: boolean) {
+    if ((cfg as any)?.id) {
+      await (supabase.from("wa_bot_config" as any) as any).update({ is_active: next }).eq("id", (cfg as any).id);
+    } else {
+      await (supabase.from("wa_bot_config" as any) as any).insert({ is_active: next });
+    }
+    qc.invalidateQueries({ queryKey: ["wa:cfg"] });
+    if (next) toast.success("Bot ACTIVADO · responde automáticamente");
+    else toast.warning("🛑 Bot DETENIDO · no se enviará ningún mensaje automático");
+  }
+
   const stageCounts: Record<string, number> = useMemo(() =>
     ((conversations ?? []) as any[]).reduce((acc, c: any) => {
       const s = c.wa_contacts?.stage ?? "nuevo"; acc[s] = (acc[s] ?? 0) + 1; return acc;
@@ -291,6 +357,7 @@ export default function WhatsappDashboard() {
         subtitle={statusLabel}
         actions={
           <>
+            <KillSwitchControl active={botActive} onToggle={setBotActive} />
             <Button variant="outline" size="sm" onClick={refreshStatus}>
               {polling ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Refrescar

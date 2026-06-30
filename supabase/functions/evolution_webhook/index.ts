@@ -240,9 +240,14 @@ Deno.serve(async (req) => {
         unread_count: fromMe ? 0 : ((existingConv as any)?.unread_count ?? 0) + 1,
       }).eq("id", convId!);
 
+      // KILL SWITCH GLOBAL: si is_active=false seguimos REGISTRANDO el entrante (arriba),
+      // pero NO disparamos auto-respuesta ni procesado de media. La ingesta no se pierde.
+      const { data: killCfg } = await admin.from("wa_bot_config").select("is_active").limit(1).maybeSingle();
+      const botActive = (killCfg as any)?.is_active !== false;
+
       // Solo respondemos a entrantes y solo si el bot está activo y no estamos en handoff.
       const stage = (contact as any)?.stage;
-      if (!fromMe && aiEnabled && stage !== "handoff") {
+      if (!fromMe && aiEnabled && stage !== "handoff" && botActive) {
         await admin.from("wa_ai_jobs").insert({
           conversation_id: convId,
           run_after: new Date().toISOString(),

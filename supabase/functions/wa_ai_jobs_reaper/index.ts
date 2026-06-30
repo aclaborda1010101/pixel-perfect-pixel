@@ -22,6 +22,15 @@ Deno.serve(async (req) => {
     const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(SUPABASE_URL, SERVICE);
 
+    // KILL SWITCH GLOBAL: si is_active=false no re-disparamos ningún job (evita que el
+    // reaper resucite envíos automáticos mientras el bot está parado).
+    const { data: cfg } = await admin.from("wa_bot_config").select("is_active").limit(1).maybeSingle();
+    if ((cfg as any)?.is_active === false) {
+      return new Response(JSON.stringify({ ok: true, skip: "kill_switch" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const cutoff = new Date(Date.now() - STALE_MS).toISOString();
     const { data: stale } = await admin
       .from("wa_ai_jobs")

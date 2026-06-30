@@ -26,7 +26,15 @@ Deno.serve(async (req) => {
   try {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    const { data: cfg } = await admin.from("wa_bot_config").select("active_hours").limit(1).maybeSingle();
+    const { data: cfg } = await admin.from("wa_bot_config").select("active_hours, is_active").limit(1).maybeSingle();
+
+    // KILL SWITCH GLOBAL: is_active=false ⇒ no enviamos ningún seguimiento.
+    if ((cfg as any)?.is_active === false) {
+      return new Response(JSON.stringify({ ok: true, skip: "kill_switch" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const ah = (cfg as any)?.active_hours ?? { from: "09:00", to: "21:00" };
     const fromH = Number(String(ah.from || "09:00").split(":")[0]) || 9;
     const toH   = Number(String(ah.to   || "21:00").split(":")[0]) || 21;
