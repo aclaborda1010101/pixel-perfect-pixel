@@ -380,6 +380,7 @@ export type Database = {
           escaleras_visor_raw: Json | null
           escaleras_visor_source: string | null
           esquina: boolean | null
+          esquina_needs_review: boolean
           esquina_visor_confianza: number | null
           fachada_lineal_total_m: number | null
           formula_ventanas_patio: string | null
@@ -456,6 +457,7 @@ export type Database = {
           escaleras_visor_raw?: Json | null
           escaleras_visor_source?: string | null
           esquina?: boolean | null
+          esquina_needs_review?: boolean
           esquina_visor_confianza?: number | null
           fachada_lineal_total_m?: number | null
           formula_ventanas_patio?: string | null
@@ -532,6 +534,7 @@ export type Database = {
           escaleras_visor_raw?: Json | null
           escaleras_visor_source?: string | null
           esquina?: boolean | null
+          esquina_needs_review?: boolean
           esquina_visor_confianza?: number | null
           fachada_lineal_total_m?: number | null
           formula_ventanas_patio?: string | null
