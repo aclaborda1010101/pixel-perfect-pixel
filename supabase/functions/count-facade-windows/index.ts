@@ -6,6 +6,7 @@
 
 import { corsHeaders, err, getServiceClient, json } from "../_shared/scoring_v2_common.ts";
 import { fetchParcelGeometry, mergeCollinearRing, type StreetEdge } from "../_shared/parcel_geometry.ts";
+import { facadeCapturePlan, type FacadeShot } from "../_shared/corner_catastro.ts";
 
 const TTL_CAPTURES_MS = 90 * 24 * 60 * 60 * 1000;
 const SV_SIZE = "640x640";
@@ -101,8 +102,8 @@ async function streetBearingFromGoogle(lat: number, lon: number, apiKey: string)
 }
 
 // ---------- Street View ----------
-async function fetchStreetView(lat: number, lon: number, heading: number, apiKey: string): Promise<ArrayBuffer | null> {
-  const url = `https://maps.googleapis.com/maps/api/streetview?size=${SV_SIZE}&location=${lat},${lon}&heading=${heading.toFixed(2)}&fov=${SV_FOV}&pitch=10&source=outdoor&key=${apiKey}`;
+async function fetchStreetView(lat: number, lon: number, heading: number, apiKey: string, pitch = 10): Promise<ArrayBuffer | null> {
+  const url = `https://maps.googleapis.com/maps/api/streetview?size=${SV_SIZE}&location=${lat},${lon}&heading=${heading.toFixed(2)}&fov=${SV_FOV}&pitch=${pitch}&source=outdoor&key=${apiKey}`;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const r = await fetch(url);
@@ -536,14 +537,25 @@ Deno.serve(async (req) => {
       longitud_fachada_source = "sqrt_area_fallback";
     }
 
-    // (C) Capturas Street View — 3 por fachada
+    // (C) Capturas Street View — 3 por fachada.
+    // Heading FRONTAL desde la geometría catastral validada (corner_catastro.facadeCapturePlan):
+    // corrige el bug de capturas "calle abajo". Pitch hacia arriba según nº de plantas.
+    let plan: FacadeShot[] | null = null;
+    try { plan = await facadeCapturePlan(centroidLat, centroidLon); } catch { plan = null; }
+    flags.push(plan ? `heading_geom_plan_${plan.length}` : "heading_plan_no_disponible");
+    const planByRole: Record<string, FacadeShot | undefined> = {};
+    for (const s of (plan ?? [])) planByRole[s.role] = s;
+    const nPlantasPitch = Number(derived.inferred_floor_count ?? 5);
+    const captPitch = Math.max(8, Math.min(28, Math.round(6 + nPlantasPitch * 2.5)));
+
     await Promise.all(fachadas.map(async (f) => {
       const e = f.edge;
-      const heading = e.heading;
-      const insideBearing = (heading + 180) % 360;
+      const shot = planByRole[f.role];
+      const heading = shot ? shot.heading : e.heading;
       const tangent = (heading + 90) % 360;
-      const midLat = e.midpoint[1], midLon = e.midpoint[0];
-      const center = offsetAlongBearing(midLat, midLon, 8, insideBearing);
+      const center = shot
+        ? { lat: shot.camLat, lon: shot.camLon }
+        : offsetAlongBearing(e.midpoint[1], e.midpoint[0], 8, (heading + 180) % 360);
       const sideOff = Math.min(8, Math.max(3, e.len_m / 3));
       const left = offsetAlongBearing(center.lat, center.lon, sideOff, tangent);
       const right = offsetAlongBearing(center.lat, center.lon, sideOff, (tangent + 180) % 360);
@@ -558,7 +570,7 @@ Deno.serve(async (req) => {
         if (!buf) {
           const exists = await checkPanoramaExists(lat, lon, apiKey);
           if (!exists) return null;
-          buf = await fetchStreetView(lat, lon, heading, apiKey);
+          buf = await fetchStreetView(lat, lon, heading, apiKey, captPitch);
           if (!buf) return null;
           await sb.storage.from(BUCKET).upload(storage_path, new Uint8Array(buf), {
             contentType: "image/jpeg", upsert: true,
