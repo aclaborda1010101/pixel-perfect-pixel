@@ -185,10 +185,11 @@ Deno.serve(async (req) => {
       const hasNewerIn = (newer ?? []).some((m: any) => m.direction === "in" && m.type !== "system");
       const answeredDuringWait = (newer ?? []).some((m: any) => m.direction === "out" && m.type !== "system");
       if (hasNewerIn || answeredDuringWait) {
-        await admin.from("wa_ai_jobs").update({
-          status: hasNewerIn ? "skipped_superseded" : "skipped_already_answered",
-          updated_at: new Date().toISOString(),
-        }).eq("conversation_id", conversation_id).eq("status", "pending");
+        // R2 (Codex P1): NO marcamos los jobs pendientes aquí. Si los marcáramos todos como
+        // skipped, mataríamos también el job del mensaje MÁS NUEVO; y si su wa_ai_reply
+        // fire-and-forget no llegara a arrancar, el reaper no vería ningún job pendiente y la
+        // conversación quedaría sin respuesta. Dejamos los pendientes intactos: la invocación
+        // del último mensaje (o el reaper a los 60s) los reclamará vía el mutex y contestará.
         return new Response(JSON.stringify({ ok: true, skip: hasNewerIn ? "superseded by newer inbound" : "answered during debounce" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -495,24 +496,32 @@ Deno.serve(async (req) => {
     // del prompt/IA (lo caro). Si no había NINGÚN job 'pending' (invocación manual), no
     // reclamamos y seguimos normal.
     // ─────────────────────────────────────────────────────────────
-    const { data: pendingBefore } = await admin
+    // Claim-first (Codex P2): UPDATE pending→running RETURNING, de forma atómica.
+    // - Si reclamamos ≥1 job → seguimos (somos los dueños).
+    // - Si 0 → o un hermano ya pasó los pendientes a running (existe un 'running' reciente
+    //   → skip) o no hay ningún job (invocación manual/edge → seguimos sin reclamar).
+    // Esto elimina el TOCTOU del antiguo select-then-claim, donde si un hermano reclamaba
+    // entre el SELECT y el UPDATE, esta invocación se colaba como "manual" y duplicaba envío.
+    const { data: claimed } = await admin
       .from("wa_ai_jobs")
-      .select("id")
+      .update({ status: "running", updated_at: new Date().toISOString() })
       .eq("conversation_id", conversation_id)
       .eq("status", "pending")
-      .limit(1);
-    if ((pendingBefore ?? []).length > 0) {
-      const { data: claimed } = await admin
+      .select("id");
+    if ((claimed ?? []).length === 0) {
+      const { data: running } = await admin
         .from("wa_ai_jobs")
-        .update({ status: "running", updated_at: new Date().toISOString() })
+        .select("id")
         .eq("conversation_id", conversation_id)
-        .eq("status", "pending")
-        .select("id");
-      if ((claimed ?? []).length === 0) {
+        .eq("status", "running")
+        .gt("updated_at", new Date(Date.now() - 3 * 60 * 1000).toISOString())
+        .limit(1);
+      if ((running ?? []).length > 0) {
         return new Response(JSON.stringify({ ok: true, skip: "claimed by sibling" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      // Sin 'pending' ni 'running' reciente → invocación manual/edge: seguimos sin reclamar.
     }
 
     // 3) Playbook Voss (mejores tácticas registradas)
