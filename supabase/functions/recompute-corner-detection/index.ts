@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { detectStreetEdges } from "../_shared/parcel_geometry.ts";
+import { detectCornerCatastro } from "../_shared/corner_catastro.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -62,14 +63,20 @@ Deno.serve(async (req) => {
         if (!cen?.lat || !cen?.lon) { doneSet.add(p.refcatastral_14); continue; }
         // skipGoogle: false → si Overpass falla en una arista, intenta Google Roads (nearestRoads + reverse geocode) como fallback de callejero.
         const det = await detectStreetEdges(p.exterior_ring as [number, number][], { lat: cen.lat, lon: cen.lon, skipGoogle: false });
-        const newType = det.corner_type ?? "linea";
+        // Detector GEOMÉTRICO catastral (medianera/patio/calle) = PRIMARIO para la decisión de esquina.
+        // detectStreetEdges (conteo de nombres OSM) queda solo para metadatos de frentes/nombres.
+        // Validado ~97% sobre verdad de campo bajo criterio "fachadas de parcela".
+        const geo = await detectCornerCatastro(cen.lat, cen.lon, Deno.env.get("GOOGLE_MAPS_API_KEY"));
+        const isCorner = geo ? geo.is_corner : det.is_corner;
+        const needsReview = geo ? geo.needs_review : (det.is_corner ? (det.esquina_needs_review ?? false) : false);
+        const newType = geo ? geo.corner_type : (det.corner_type ?? "linea");
         if (newType === "esquina_chaflan") counts.chaflan++;
         else if (newType === "multifachada") counts.multifachada++;
         else if (newType === "esquina_angulo") counts.angulo++;
         else counts.linea++;
-        if (det.is_corner) after.corners++; else after.no_corner++;
+        if (isCorner) after.corners++; else after.no_corner++;
 
-        const changedCorner = (p.is_corner ?? false) !== det.is_corner;
+        const changedCorner = (p.is_corner ?? false) !== isCorner;
         const changedType = (p.corner_type ?? null) !== newType;
 
         const rcLike = `${p.refcatastral_14}%`;
@@ -81,7 +88,7 @@ Deno.serve(async (req) => {
         const b = bs?.[0];
 
         if (changedCorner) {
-          if (det.is_corner) counts.new_corner++; else counts.lost_corner++;
+          if (isCorner) counts.new_corner++; else counts.lost_corner++;
         }
 
         if (changedCorner || changedType) {
@@ -90,9 +97,11 @@ Deno.serve(async (req) => {
             direccion: b?.direccion ?? null,
             building_id: b?.id ?? null,
             old_is_corner: p.is_corner ?? null,
-            new_is_corner: det.is_corner,
+            new_is_corner: isCorner,
             old_corner_type: p.corner_type ?? null,
             new_corner_type: newType,
+            needs_review: needsReview,
+            geom: geo ? { street_fronts: geo.street_fronts, max_turn_deg: geo.max_turn_deg, n_calle: geo.n_calle, n_patio: geo.n_patio, n_open: geo.n_open, neighbors: geo.neighbors } : null,
             street_names: det.street_names_distinct ?? [],
             frentes_count: det.frentes?.length ?? 0,
             frentes: (det.frentes ?? []).map((f) => ({ vial: f.vial, longitud_m: f.longitud_m })),
@@ -102,7 +111,7 @@ Deno.serve(async (req) => {
         if (!dryRun) {
           await sb.from("parcel_geometry_cache").update({
             street_edges_jsonb: det.street_edges,
-            is_corner: det.is_corner,
+            is_corner: isCorner,
             total_street_length_m: det.total_street_length_m,
             corner_type: newType,
             street_names_distinct: det.street_names_distinct ?? [],
@@ -113,8 +122,8 @@ Deno.serve(async (req) => {
           // [#7] Adjuntamos esquina_needs_review cuando la esquina se apoya en una señal débil.
           if (b?.id) {
             await sb.from("building_analysis").update({
-              esquina: det.is_corner,
-              esquina_needs_review: det.is_corner ? (det.esquina_needs_review ?? false) : false,
+              esquina: isCorner,
+              esquina_needs_review: needsReview,
             }).eq("building_id", b.id);
           }
 
@@ -125,17 +134,19 @@ Deno.serve(async (req) => {
               autor_email: "corner-detector@affluxos",
               dimension: "esquina",
               estado: "abierto",
-              texto: `Detector de esquina v3 (por viales): ${p.is_corner ? "esquina" : "no_esquina"} → ${det.is_corner ? "esquina" : "no_esquina"} (${newType}). Frentes: ${(det.frentes ?? []).map((f) => `${f.vial} (${f.longitud_m}m)`).join(" | ") || "—"}. Por favor confirma por la UI.`,
+              texto: `Detector de esquina v4 (geometría catastral): ${p.is_corner ? "esquina" : "no_esquina"} → ${isCorner ? "esquina" : "no_esquina"} (${newType})${needsReview ? " [A REVISAR]" : ""}. ${geo ? `Frentes calle=${geo.n_calle} patio=${geo.n_patio} abierto=${geo.n_open} giro=${geo.max_turn_deg}° vecinos=${geo.neighbors}` : "geom no disponible"}. Por favor confirma por la UI.`,
               analisis_ia: {
                 old_is_corner: p.is_corner,
-                new_is_corner: det.is_corner,
+                new_is_corner: isCorner,
                 old_corner_type: p.corner_type,
                 new_corner_type: newType,
+                needs_review: needsReview,
+                geom: geo,
                 street_names_distinct: det.street_names_distinct ?? [],
                 frentes: det.frentes ?? [],
                 corner_angle_deg: det.corner_angle_deg,
                 refcatastral_14: p.refcatastral_14,
-                detector_version: "v3_by_street_names",
+                detector_version: "v4_catastro_geom",
               },
             });
           }

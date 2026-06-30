@@ -687,6 +687,34 @@ async function catastroParcelByBbox(lat: number, lon: number): Promise<{ ring: [
   return { ring: pick.exterior, inner: pick.interiors, areaValue };
 }
 
+// Devuelve TODAS las parcelas del bbox (objetivo + colindantes), en [lon,lat].
+// Es la palanca del detector de esquina geométrico: las colindantes permiten
+// distinguir medianera (pared con vecino) de fachada a calle.
+export async function fetchBboxParcels(
+  lat: number,
+  lon: number,
+  halfMeters = 32,
+): Promise<{ exterior: [number, number][]; interiors: [number, number][][] }[] | null> {
+  const dLat = halfMeters / 111320;
+  const dLon = halfMeters / (111320 * Math.cos(toRad(lat)));
+  const minLon = lon - dLon, minLat = lat - dLat;
+  const maxLon = lon + dLon, maxLat = lat + dLat;
+  let res = await callCatastroCP({
+    service: "WFS", version: "2.0.0", request: "GetFeature",
+    typeNames: "cp:CadastralParcel", srsName: "EPSG:4326",
+    bbox: `${minLon},${minLat},${maxLon},${maxLat},urn:ogc:def:crs:EPSG::4326`,
+  });
+  if (!res) {
+    res = await callCatastroCP({
+      service: "WFS", version: "2.0.0", request: "GetFeature",
+      typeNames: "cp:CadastralParcel", srsName: "EPSG:4326",
+      bbox: `${minLon},${minLat},${maxLon},${maxLat}`,
+    });
+  }
+  if (!res || res.polys.length === 0) return null;
+  return res.polys;
+}
+
 // ---------- Detección geométrica de aristas a calle + esquina ----------
 // Fusiona vértices "ruido" del polígono catastral (chaflanes rasterizados):
 // elimina v si el giro entre (prev->v) y (v->next) es <= angleThresholdDeg.
