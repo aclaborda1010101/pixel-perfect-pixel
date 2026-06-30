@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
 
     const contact = (conv as any).wa_contacts;
     const transcript = real
-      .map((m: any) => `${m.direction === "in" ? "Lead" : "Lucía"}: ${m.content}`)
+      .map((m: any) => `${m.direction === "in" ? "Lead" : "Asistente Afflux"}: ${m.content}`)
       .join("\n");
 
     const qual = (conv as any).qualification ?? {};

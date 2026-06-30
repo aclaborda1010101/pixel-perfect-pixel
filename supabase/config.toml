@@ -2,3 +2,7 @@ project_id = "vsbrupwznqaaoiflvliu"
 
 [functions.analyze_nota_simple]
 verify_jwt = true
+
+# Reaper invocado por pg_cron sin JWT de usuario (endpoint interno e idempotente).
+[functions.wa_ai_jobs_reaper]
+verify_jwt = false
