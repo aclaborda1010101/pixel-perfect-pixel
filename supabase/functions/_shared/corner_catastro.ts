@@ -262,3 +262,105 @@ export async function detectCornerCatastro(
 
   return decide(edges, neighbors, roadsUsed);
 }
+
+// ---- Plan de captura de fachada (heading frontal por geometría) ----
+// Devuelve, para la(s) fachada(s) a CALLE más larga(s), la posición de cámara en la
+// calle + el heading que ENCARA la fachada. Resuelve el bug del detector de ventanas
+// (capturas "calle abajo"). Validado: produce vistas frontales donde antes salían oblicuas.
+export type FacadeShot = {
+  role: "principal" | "secundaria";
+  camLat: number; camLon: number; heading: number; len_m: number;
+};
+
+export async function facadeCapturePlan(
+  lat: number,
+  lon: number,
+  streetOffsetM = 9,
+): Promise<FacadeShot[] | null> {
+  const polys = await fetchBboxParcels(lat, lon, 32);
+  if (!polys || polys.length === 0) return null;
+  const P = projector(lat, lon);
+  const U = unproject(lat, lon);
+  const parcelsM: Pt[][][] = polys.map((poly: Poly) =>
+    [poly.exterior, ...poly.interiors].map((r) => r.map((pt) => P(pt as [number, number])))
+  );
+  let ti = parcelsM.findIndex((rings) => pip([0, 0], rings[0]));
+  if (ti < 0) {
+    let best = Infinity;
+    for (let i = 0; i < parcelsM.length; i++) {
+      const d = minDistToParcel([0, 0], parcelsM[i]);
+      if (d < best) { best = d; ti = i; }
+    }
+  }
+  if (ti < 0) return null;
+
+  const target = parcelsM[ti];
+  const others = parcelsM.map((rings, i) => ({ rings, i })).filter((o) => o.i !== ti);
+  // manzana del objetivo (para excluir patios interiores)
+  const block = new Set<number>([ti]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const o of others) {
+      if (block.has(o.i)) continue;
+      for (const b of block) {
+        if (shareBoundary(parcelsM[o.i], parcelsM[b])) { block.add(o.i); added = true; break; }
+      }
+    }
+  }
+  const ext = target.reduce((a, b) => (b.length > a.length ? b : a));
+  let sx = 0, sy = 0;
+  for (const p of ext) { sx += p[0]; sy += p[1]; }
+  const cT: Pt = [sx / ext.length, sy / ext.length];
+
+  type Cand = { len: number; bearing: number; camLat: number; camLon: number; heading: number };
+  const calle: Cand[] = [];
+  for (let i = 0; i + 1 < ext.length; i++) {
+    const a = ext[i], b = ext[i + 1], len = dist(a, b);
+    if (len < 2) continue;
+    const mid: Pt = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    let near = 0;
+    for (const t of [0.3, 0.5, 0.7]) {
+      const s: Pt = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+      let md = Infinity;
+      for (const o of others) { const d = minDistToParcel(s, parcelsM[o.i]); if (d < md) md = d; }
+      if (md < SHARED_TOL_M) near++;
+    }
+    if (near >= 2) continue; // medianera
+    let nx = -(b[1] - a[1]), ny = b[0] - a[0]; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+    const out = dist([mid[0] + nx, mid[1] + ny], cT) > dist([mid[0] - nx, mid[1] - ny], cT) ? 1 : -1;
+    nx *= out; ny *= out;
+    // ¿patio interior? (choca con parcela de la misma manzana)
+    let hitId: number | null = null;
+    for (let d = PROBE_STEP_M; d <= PROBE_MAX_M; d += PROBE_STEP_M) {
+      const pp: Pt = [mid[0] + nx * d, mid[1] + ny * d];
+      let hit: number | null = null;
+      for (const o of [{ i: ti }, ...others]) {
+        for (const r of parcelsM[o.i]) { if (pip(pp, r)) { hit = o.i; break; } }
+        if (hit !== null) break;
+      }
+      if (hit !== null && hit !== ti) { hitId = hit; break; }
+    }
+    if (hitId !== null && block.has(hitId)) continue; // patio
+    // cámara en la calle + heading que encara la fachada
+    const cam: Pt = [mid[0] + nx * streetOffsetM, mid[1] + ny * streetOffsetM];
+    const [camLat, camLon] = U(cam);
+    const dx = mid[0] - cam[0], dy = mid[1] - cam[1];
+    const heading = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360; // compás (0=N,90=E)
+    calle.push({ len, bearing: bearing(a, b), camLat, camLon, heading });
+  }
+  if (!calle.length) return null;
+  calle.sort((a, b) => b.len - a.len);
+  const principal = calle[0];
+  const out: FacadeShot[] = [{ role: "principal", camLat: principal.camLat, camLon: principal.camLon, heading: principal.heading, len_m: Math.round(principal.len) }];
+  // secundaria: la siguiente CALLE más larga no paralela (ángulo 50-130° con la principal)
+  for (let i = 1; i < calle.length; i++) {
+    const sep = angDiff(calle[i].bearing - principal.bearing);
+    const a = sep > 90 ? 180 - sep : sep;
+    if (a >= 50 && a <= 130) {
+      out.push({ role: "secundaria", camLat: calle[i].camLat, camLon: calle[i].camLon, heading: calle[i].heading, len_m: Math.round(calle[i].len) });
+      break;
+    }
+  }
+  return out;
+}
