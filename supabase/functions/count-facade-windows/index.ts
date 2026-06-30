@@ -652,6 +652,26 @@ Deno.serve(async (req) => {
     if (flags.includes("polygon_no_fiable") || flags.includes("esquina_no_detectable_por_geometria")) confidence = "baja";
     if (flags.some((f) => f.startsWith("ejes_fuera_de_rango"))) confidence = "baja";
 
+    // [#5/#6] needs_review: un conteo de baja confianza no debe registrarse como verdad.
+    // El total = ventanas_por_planta_tipo × plantas_tipo + ..., así que un plantas_tipo
+    // erróneo multiplica el error: si plantas_tipo discrepa de inferred_floor_count en >1,
+    // también va a revisión (el multiplicador es el amplificador dominante).
+    const floorCountMismatch =
+      Math.abs((derived.plantas_tipo ?? 0) - (derived.inferred_floor_count ?? 0)) > 1;
+    if (floorCountMismatch && !flags.includes("plantas_tipo_vs_inferred_floor_mismatch")) {
+      flags.push("plantas_tipo_vs_inferred_floor_mismatch");
+    }
+    const needs_review =
+      confidence === "baja" ||
+      flags.some((f) => f.startsWith("ejes_fuera_de_rango")) ||
+      flags.includes("sin_plantas_tipo") ||
+      flags.some((f) => f.startsWith("cobertura_streetview_insuficiente")) ||
+      floorCountMismatch;
+    // facade_window_counts.final_count es NOT NULL: el marcador needs_review vive en
+    // flags (forma existente de la tabla) y el conteo autoritativo se anula en la
+    // respuesta (lo que consumen aguas abajo), no se persiste un número como verdad.
+    if (needs_review && !flags.includes("needs_review")) flags.push("needs_review");
+
     const fachadas_a_calle = fachadas.map((f) => ({
       role: f.role,
       len_m: f.edge.len_m,
@@ -727,7 +747,9 @@ Deno.serve(async (req) => {
       longitud_fachada_total_m,
       longitud_fachada_principal_m,
       longitud_fachada_secundaria_m: secundariaLen,
-      total_ventanas_fachada_exterior: total_ventanas,
+      // [#5/#6] No exponer un conteo de baja confianza como verdad autoritativa.
+      total_ventanas_fachada_exterior: needs_review ? null : total_ventanas,
+      needs_review,
       ejes_total,
       fachada_principal,
       fachada_secundaria,

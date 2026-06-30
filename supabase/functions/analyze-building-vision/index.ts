@@ -489,6 +489,10 @@ REGLA: usa numero_plantas como ancla para plantas_desglose. Si lo que ves en Str
       plantas_visibles: plantasVis,
       plantas_max_normativa: plantas_max,
       plantas_levantables: levantables,
+      // [#8] plantas_levantables deriva de estimaciones (ancho de calle + VLM), no es
+      // normativo (PGOUM). Mientras se calcule así, cualquier valor >=1 va a revisión
+      // humana/PGOUM (y el badge de "plantas elevables" lo suprime).
+      plantas_levantables_requiere_humano: typeof levantables === "number" && levantables >= 1,
       metricas_extra: parsed.metricas_extra ?? null,
       anotaciones_plano: Array.isArray(parsed.anotaciones) ? parsed.anotaciones : null,
       n_escaleras_en_piso01: parsed.n_escaleras_en_piso01 ?? null,
