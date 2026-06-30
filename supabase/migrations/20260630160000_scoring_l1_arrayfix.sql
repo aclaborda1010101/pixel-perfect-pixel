@@ -1,50 +1,6 @@
--- ============================================================================
--- Scoring "Layer 1" (edificio) — NUEVO esquema de PESOS por GRUPO DE BARRIO
--- ----------------------------------------------------------------------------
--- Reescritura de compute_cluster_score con la ponderación que pidió el cliente.
--- Cambios clave respecto a 20260630120000_scoring_reliability.sql (base):
---   1. Los PESOS dejan de venir del cluster (5 clusters) y pasan a venir del
---      GRUPO DE BARRIO:
---        GRUPO A "prime especiales" (Justicia, Jerónimos, Recoletos, Goya, Lista,
---          Castellana, Almagro, Trafalgar, El Viso):
---          w_own=30, w_viv=24, w_mg=20, w_esquina=14, w_ratio=12 (tamaño=0, local=0)
---        GRUPO B "resto":
---          w_viv=30, w_own=24, w_esquina=18, w_ratio=16, w_mg=12 (tamaño=0, local=0)
---      El CLUSTER (zona→cluster) se sigue calculando SOLO para: forma de banda del
---      sub-score ratio, gate de degradado <1000 m², upgrade de cambio de uso y display.
---   2. NUEVA variable s_esquina: 1.0 solo si esquina CONFIRMADA
---      (ba.esquina = true AND ba.esquina_needs_review = false). La detección es ~63%
---      fiable; las detectadas sin confirmar puntúan 0 y se marcan en v_faltantes.
---   3. Se ELIMINA el peso de tamaño (m² crudos) y de local PB en ambos grupos
---      (no están en la lista de variables del cliente). v_m2/v_ratio se siguen
---      calculando (el ratio los necesita) pero tamaño pesa 0.
---   4. Bonos: protegido + 2ª escalera CONFIRMADA -> +12 (antes +10);
---      terciario_pct >= 0.66 -> +8 (nuevo).
---   5. OPCIÓN ESTRELLA: protegido + 2ª escalera confirmada + terciario>=66% ->
---      es_estrella=true, suelo de score 95 (tras el clamp) y aviso de severidad alta.
---      es_estrella se expone en el meta `_confianza` del breakdown para que la UI
---      ordene las estrellas primero.
--- Se MANTIENE intacta toda la maquinaria de fiabilidad/confianza/datos_incompletos,
--- las penalizaciones (reformado +25, gestión profesional +15, protegido-sin-2esc +5),
--- el delta IEE, el degradado ultra_prime <1000 m², el upgrade de cambio de uso y las
--- mismas columnas escritas en el UPDATE.
--- ============================================================================
-
--- Columnas de esquina canónicas que usa el scoring L1 (la detección vive en
--- es_esquina_visor/esquina_visor_confianza; estas dos son la señal CONFIRMADA que
--- consume el score). Se crean idempotentes para que la función sea válida y, hasta
--- que un humano/detector las confirme, esquina puntúa 0 (confirmado-solo).
-ALTER TABLE public.building_analysis
-  ADD COLUMN IF NOT EXISTS esquina boolean,
-  ADD COLUMN IF NOT EXISTS esquina_needs_review boolean;
-
--- Backfill conservador: lo detectado por el visor entra como candidato pero queda
--- "needs_review" (puntúa 0) hasta confirmación humana. No imputa esquinas nuevas.
-UPDATE public.building_analysis
-SET esquina = COALESCE(esquina, es_esquina_visor),
-    esquina_needs_review = COALESCE(esquina_needs_review,
-                                    CASE WHEN COALESCE(es_esquina_visor,false) THEN true ELSE NULL END)
-WHERE es_esquina_visor IS NOT NULL;
+-- Re-aplica compute_cluster_score (Capa 1) con la concatenación de array corregida.
+-- Bug: text[] || 'literal' daba 'malformed array literal' en runtime; ahora array_append.
+-- (Migración separada porque Supabase no re-ejecuta una migración ya aplicada.)
 
 CREATE OR REPLACE FUNCTION public.compute_cluster_score(p_building_id uuid)
  RETURNS numeric
