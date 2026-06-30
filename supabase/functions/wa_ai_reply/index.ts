@@ -48,6 +48,43 @@ async function sendPresence(phone: string, ms: number) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// KILL SWITCH · detección de baneo/desconexión a partir de un error de Evolution.
+// Solo señales CLARAS (401/403/404 o cuerpo de "logged out"/"disconnected"/"closed").
+// Los transitorios (429/5xx) NO cuentan: esos ya reintentan/retoma el reaper.
+function isDisconnectError(err: any): boolean {
+  const msg = String(err?.message ?? err ?? "");
+  const code = Number(msg.match(/Evolution\s+(\d{3})/)?.[1] ?? 0);
+  if (code === 401 || code === 403 || code === 404) return true;
+  return /logged?\s*out|disconnect|not[\s-]*connected|connection\s*closed|\bclosed\b|instance.*(not|does\s*not).*exist|unauthor/i.test(msg);
+}
+
+// Auto-trip del kill switch global ante un fallo de envío que indica número caído/baneado.
+// Desactiva wa_bot_config.is_active y deja nota de sistema en la conversación. Devuelve true
+// si efectivamente disparó (el caller debe abortar sin reintentar).
+async function autoTripOnDisconnect(
+  admin: any, cfgId: any, conversation_id: string, contactId: string, err: any,
+): Promise<boolean> {
+  if (!isDisconnectError(err)) return false;
+  const reason = String(err?.message ?? err);
+  try {
+    const upd = { is_active: false, updated_at: new Date().toISOString() };
+    if (cfgId) await admin.from("wa_bot_config").update(upd).eq("id", cfgId);
+    else await admin.from("wa_bot_config").update(upd).gte("created_at", "1970-01-01");
+    console.error(`[KILL SWITCH AUTO-TRIP] ${reason} @ ${new Date().toISOString()}`);
+  } catch (e) {
+    console.error("[KILL SWITCH] no se pudo desactivar is_active", (e as any)?.message);
+  }
+  try {
+    await admin.from("wa_messages").insert({
+      conversation_id, contact_id: contactId, direction: "out", type: "system",
+      content: `🛑 KILL SWITCH automático: Evolution devolvió un error de conexión/baneo al enviar (${reason.slice(0, 160)}). Bot global desactivado; revisa la conexión de WhatsApp.`,
+      ai_generated: false, sender_type: "system",
+      metadata: { kind: "killswitch_autotrip", error: reason.slice(0, 300), at: new Date().toISOString() },
+    });
+  } catch { /* nota best-effort */ }
+  return true;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -83,6 +120,40 @@ Deno.serve(async (req) => {
     }
 
     const { data: cfg } = await admin.from("wa_bot_config").select("*").limit(1).maybeSingle();
+
+    // ─────────────────────────────────────────────────────────────
+    // KILL SWITCH GLOBAL. is_active === false ⇒ NINGÚN envío automático sale.
+    // Cortocircuito barato: va ANTES del debounce/claim/IA y de cualquier llamada a
+    // Evolution, para que parar el bot detenga TODO al instante (p.ej. si Meta marca
+    // el número). El job pendiente se marca 'skipped_killswitch' para no reanimarse.
+    // ─────────────────────────────────────────────────────────────
+    if ((cfg as any)?.is_active === false) {
+      await admin.from("wa_ai_jobs").update({
+        status: "skipped_killswitch", updated_at: new Date().toISOString(),
+      }).eq("conversation_id", conversation_id).eq("status", "pending");
+      return new Response(JSON.stringify({ ok: true, skip: "kill_switch" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // AUTO-STOP POR CONEXIÓN. Si la instancia de WhatsApp no está conectada, no
+    // enviamos nada (evita martillear Evolution con el número caído/baneado). Solo
+    // bloqueamos si existe la fila de instancia y su status NO es conectado.
+    // ─────────────────────────────────────────────────────────────
+    const { data: inst } = await admin.from("wa_instances")
+      .select("status").eq("instance_name", EVOLUTION_INSTANCE).maybeSingle();
+    const connStatus = String((inst as any)?.status ?? "");
+    if (inst && !["open", "connected"].includes(connStatus)) {
+      console.error(`[wa_ai_reply] instancia '${EVOLUTION_INSTANCE}' no conectada (status=${connStatus}); no se envía`);
+      await admin.from("wa_ai_jobs").update({
+        status: "skipped_disconnected", updated_at: new Date().toISOString(),
+      }).eq("conversation_id", conversation_id).eq("status", "pending");
+      return new Response(JSON.stringify({ ok: true, skip: "disconnected", status: connStatus }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: history } = await admin
       .from("wa_messages")
       .select("direction, content, type, created_at, metadata, sender_type, agent_user_id")
@@ -386,10 +457,20 @@ Deno.serve(async (req) => {
       if (incomingStreak >= 3 && offMsg && !alreadyToldTonight) {
         await sendPresence(contact.phone, 1800);
         await sleep(2000);
-        const sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
-          method: "POST",
-          body: JSON.stringify({ number: contact.phone, text: offMsg }),
-        });
+        let sendRes: any;
+        try {
+          sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
+            method: "POST",
+            body: JSON.stringify({ number: contact.phone, text: offMsg }),
+          });
+        } catch (e) {
+          if (await autoTripOnDisconnect(admin, (cfg as any)?.id, conversation_id, contact.id, e)) {
+            return new Response(JSON.stringify({ ok: false, kill_switch: "auto_tripped" }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          throw e; // transitorio: lo gestiona el catch global / reaper
+        }
         await admin.from("wa_messages").insert({
           conversation_id, contact_id: contact.id,
           direction: "out", type: "text", content: offMsg, ai_generated: true,
@@ -1089,10 +1170,24 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
         : Math.max(1500, Math.min(perMsg - 600, 12000));
       await sendPresence(contact.phone, typingMs);
       await sleep(typingMs);
-      const sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
-        method: "POST",
-        body: JSON.stringify({ number: contact.phone, text: m }),
-      });
+      let sendRes: any;
+      try {
+        sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
+          method: "POST",
+          body: JSON.stringify({ number: contact.phone, text: m }),
+        });
+      } catch (e) {
+        // AUTO-TRIP: si el envío falla por desconexión/baneo, paramos el bot globalmente.
+        if (await autoTripOnDisconnect(admin, (cfg as any)?.id, conversation_id, contact.id, e)) {
+          await admin.from("wa_ai_jobs").update({
+            status: "error", error: "killswitch_autotrip", updated_at: new Date().toISOString(),
+          }).eq("conversation_id", conversation_id).eq("status", "running");
+          return new Response(JSON.stringify({ ok: false, kill_switch: "auto_tripped" }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        throw e; // transitorio: lo gestiona el catch global / reaper
+      }
       await admin.from("wa_messages").insert({
         conversation_id,
         contact_id: contact.id,
