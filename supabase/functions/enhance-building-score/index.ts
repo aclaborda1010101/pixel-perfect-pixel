@@ -28,7 +28,8 @@ function buildAvisos(an: any, cat: any): Aviso[] {
   const ventFachada = Number(an?.ventanas_fachada_total ?? 0);
   const ventPatios = Number(an?.ventanas_patios_total ?? 0);
   const ventTotal = ventFachada + ventPatios;
-  if (ventTotal >= 20) {
+  // [#4] No presentar conteo de ventanas de baja confianza como oportunidad.
+  if (ventTotal >= 20 && an?.ventanas_fachada_needs_review !== true) {
     const det = pickDetalle(d, "ventanas_fachada_total");
     const reasoning = det?.reasoning
       ?? `Detectadas ${ventTotal} ventanas en total (${ventFachada} a fachada + ${ventPatios} a patios). Cada ventana es una habitación potencial — todas suman valor para reposicionamiento residencial/coliving.`;
@@ -45,7 +46,8 @@ function buildAvisos(an: any, cat: any): Aviso[] {
 
   // Plantas elevables
   const lev = an?.plantas_levantables;
-  if (typeof lev === "number" && lev >= 1) {
+  // [#4] No presentar plantas elevables como oportunidad si requiere revisión humana/PGOUM.
+  if (typeof lev === "number" && lev >= 1 && an?.plantas_levantables_requiere_humano !== true) {
     const det = pickDetalle(d, "plantas_levantables");
     const ancho = cat?.ancho_calle_m;
     const visibles = an?.plantas_visibles;
@@ -65,7 +67,9 @@ function buildAvisos(an: any, cat: any): Aviso[] {
 
   // 2 escaleras (cambio uso hotelero)
   const escPiso01 = an?.n_escaleras_en_piso01;
-  if (typeof escPiso01 === "number" && escPiso01 >= 2) {
+  // [#4] Sólo mostrar como oportunidad si la 2a escalera está confirmada o no needs_review.
+  const escConfirmado = an?.second_staircase_confirmed === true || an?.escaleras_needs_review !== true;
+  if (typeof escPiso01 === "number" && escPiso01 >= 2 && escConfirmado) {
     const det = pickDetalle(d, "n_escaleras_en_piso01");
     const reasoning = det?.reasoning
       ?? `Detectadas ${escPiso01} cajas ESC independientes en PISO 01 del PDF de distribución de plantas catastral. Cumple criterio normativa Madrid para cambio de uso hotelero (requisito de evacuación dual).`;
@@ -81,7 +85,8 @@ function buildAvisos(an: any, cat: any): Aviso[] {
   }
 
   // Esquina
-  if (an?.esquina === true) {
+  // [#4/#7] No presentar esquina como oportunidad si descansa en una señal débil (esquina_needs_review).
+  if (an?.esquina === true && an?.esquina_needs_review !== true) {
     const det = pickDetalle(d, "esquina");
     const reasoning = det?.reasoning
       ?? `Parcela con fachada a 2 calles según vistas aéreas y Street View. Maximiza ventanas exteriores, luz natural y dobles vistas — muy valorado para conversión hotelera o residencial premium.`;

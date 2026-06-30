@@ -110,8 +110,12 @@ Deno.serve(async (req) => {
           }).eq("refcatastral_14", p.refcatastral_14);
 
           // Propagar resultado del detector a building_analysis.esquina (NO a qa_ground_truth)
+          // [#7] Adjuntamos esquina_needs_review cuando la esquina se apoya en una señal débil.
           if (b?.id) {
-            await sb.from("building_analysis").update({ esquina: det.is_corner }).eq("building_id", b.id);
+            await sb.from("building_analysis").update({
+              esquina: det.is_corner,
+              esquina_needs_review: det.is_corner ? (det.esquina_needs_review ?? false) : false,
+            }).eq("building_id", b.id);
           }
 
           if (changedCorner && b?.id) {

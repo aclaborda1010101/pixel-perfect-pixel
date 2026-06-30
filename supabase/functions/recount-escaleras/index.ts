@@ -27,6 +27,18 @@ edificio residencial. Prioriza SIEMPRE la PLANTA 1 sobre la PLANTA BAJA.
    - Llama "n_portales_pb" al número de portales residenciales.
    - Marca "pb_legible" = true/false.
 
+LEYENDA CATASTRAL (OCR de tokens) — para NO fusionar núcleos independientes:
+   - Lee (OCR) las etiquetas de la leyenda y cuenta como NÚCLEOS DE ESCALERA
+     DISTINTOS los tokens del tipo: "COM.V", "COM.VA" / "COM.VB" / "COM.VC" /
+     "COM.VD", "ESC", "ESC.A" .. "ESC.D", "E1" .. "E4", "NÚCLEO".
+   - Cada token distinto = un núcleo vertical independiente. NO fusiones núcleos
+     separados en uno solo: el error dominante es CONTAR DE MENOS al fusionar
+     núcleos que en realidad son independientes.
+   - DESCARTA explícitamente "ASCENSOR" / "ASC", "PTO", "PATINILLO": no son
+     cajas de escalera y no deben contarse.
+   - Usa este recuento de leyenda para corroborar/elevar n_cajas_p01 cuando veas
+     más núcleos distintos en la leyenda que cajas dibujadas claramente.
+
 REGLA DE DECISIÓN (estricta):
 - Si p01_legible y n_cajas_p01 es un entero >=1 → n_final = n_cajas_p01.
 - Si NO p01_legible pero pb_legible y n_portales_pb es entero >=1
@@ -59,7 +71,7 @@ async function callGateway(apiKey: string, model: string, imageUrls: string[]): 
       messages: [{
         role: "user",
         content: [
-          { type: "text", text: PROMPT_PISO1 },
+          { type: "text", text: PROMPT_V72 },
           ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } })),
         ],
       }],
@@ -158,6 +170,11 @@ async function recountOne(sb: any, apiKey: string, building_id: string) {
   nVlm = nVlm == null ? null : Math.max(1, Math.min(8, nVlm));
   const needsReview = nVlm == null;
 
+  // [#3] Desacuerdo VLM(=1) vs DNPRC(>=2): no afirmamos "1 escalera" en silencio.
+  // Marcamos needs_review + feedback "CONFIRMAR 2a escalera". NO se auto-marca
+  // segundas_escaleras=true (debe confirmarlo un humano; un FP dispara hospedaje).
+  const dnprcDisagreement = nVlm === 1 && typeof nSub === "number" && nSub >= 2;
+
   // n_final = MAX(VLM, DNPRC) sólo cuando tenemos VLM. DNPRC NUNCA toca
   // segundas_escaleras (24/47 FP en gt=1 según A/B previo).
   const nFinal: number | null = nVlm == null
@@ -183,7 +200,8 @@ async function recountOne(sb: any, apiKey: string, building_id: string) {
     n_subparcelas_residenciales: nSub,
     n_final: nFinal,
     fuente,
-    needs_review: needsReview,
+    needs_review: needsReview || dnprcDisagreement,
+    dnprc_disagreement: dnprcDisagreement,
     pagina_pb_etiqueta: parsed.pagina_pb_etiqueta ?? null,
     pagina_p01_etiqueta: parsed.pagina_p01_etiqueta ?? null,
     razonamiento: parsed.razonamiento ?? null,
@@ -198,11 +216,11 @@ async function recountOne(sb: any, apiKey: string, building_id: string) {
     n_escaleras_fuente: fuente,
     n_escaleras_evidencia: evidencia,
   };
-  if (!needsReview) upsertRow.segundas_escaleras = segundasNuevo;
+  if (!needsReview && !dnprcDisagreement) upsertRow.segundas_escaleras = segundasNuevo;
 
   await sb.from("building_analysis").upsert(upsertRow, { onConflict: "building_id" });
 
-  const segundasFinal = needsReview ? (prev?.segundas_escaleras ?? null) : segundasNuevo;
+  const segundasFinal = (needsReview || dnprcDisagreement) ? (prev?.segundas_escaleras ?? null) : segundasNuevo;
   const changed = !needsReview && (
     (prev?.segundas_escaleras ?? null) !== segundasNuevo
     || (prev?.n_escaleras_en_piso01 ?? null) !== nVlm
@@ -221,7 +239,20 @@ async function recountOne(sb: any, apiKey: string, building_id: string) {
     });
   }
 
-  return { building_id, direccion: b.direccion, ...evidencia, segundas_escaleras: segundasFinal, changed, needs_review: needsReview };
+  // [#3] Feedback explícito cuando VLM=1 pero DNPRC>=2 (sin auto-marcar segundas).
+  if (dnprcDisagreement) {
+    await sb.from("building_feedback").insert({
+      building_id,
+      canal: "sistema",
+      autor_email: "escaleras-recount@affluxos",
+      dimension: "escaleras",
+      estado: "abierto",
+      texto: `CONFIRMAR 2a escalera: VLM detecta 1 caja en P01 pero Catastro DNPRC reporta ${nSub} subparcelas residenciales. Posible 2º núcleo fusionado/no detectado. Confirma por la UI (no se auto-marca segundas_escaleras).`,
+      analisis_ia: { motivo: "dnprc_disagreement", n_vlm_piso01: nVlm, n_subparcelas_residenciales: nSub, n_final: nFinal, evidencia },
+    });
+  }
+
+  return { building_id, direccion: b.direccion, ...evidencia, segundas_escaleras: segundasFinal, changed, needs_review: needsReview || dnprcDisagreement };
 }
 
 Deno.serve(async (req) => {

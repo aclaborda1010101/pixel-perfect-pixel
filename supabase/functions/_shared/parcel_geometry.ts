@@ -62,6 +62,11 @@ export interface StreetEdgesResult {
   corner_type?: "multifachada" | "esquina_chaflan" | "esquina_angulo" | "linea";
   street_names_distinct?: string[];
   frentes?: Frente[];
+  // [#7] true cuando la esquina se sostiene en una señal débil (2ª vía sólo por
+  // google_roads fallback o arista sin nombre OSM). No afecta al score; sirve
+  // para enrutar a revisión humana y para que el badge de "Esquina" no la presente
+  // como oportunidad confirmada.
+  esquina_needs_review?: boolean;
 }
 
 export interface Frente {
@@ -1055,6 +1060,23 @@ out geom;`;
     console.log("detectStreetEdges curve_same_name", JSON.stringify({ vial: frentes[0].vial, runs: frentes.length }));
   }
 
+  // [#7] Confianza de la esquina: ¿la 2ª vía proviene sólo de una señal débil?
+  // Una arista es "fuerte" si su nombre viene de Overpass (OSM) y tiene nombre.
+  // Si quitando las señales débiles (google_roads fallback / aristas sin nombre)
+  // no quedan >=2 vías distintas fuertes, la esquina descansa en una única señal
+  // débil → esquina_needs_review = true. (TODO: el tipo de vía 'service' no se
+  // expone en StreetEdge; si se añadiera highway_type, tratarlo también como débil.)
+  let esquina_needs_review = false;
+  if (is_corner) {
+    const strongVials = new Set<string>();
+    for (const e of street_edges) {
+      if (e.street_source === "overpass") {
+        for (const n of (e.street_names ?? [])) if (n) strongVials.add(n);
+      }
+    }
+    if (strongVials.size < 2) esquina_needs_review = true;
+  }
+
   // Roles principal/secundaria por longitud (compat con resto del sistema)
   const sortedByLen = [...street_edges].sort((a, b) => b.len_m - a.len_m);
   if (sortedByLen[0]) sortedByLen[0].role = "principal";
@@ -1083,6 +1105,7 @@ out geom;`;
     corner_type,
     street_names_distinct: Array.from(distinctVials),
     frentes,
+    esquina_needs_review,
   };
 }
 
