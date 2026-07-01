@@ -1028,22 +1028,40 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     if (OPENROUTER_API_KEY) providers.push({ url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY, model: MODEL_PRIMARY, jsonFmt: false });
     providers.push({ url: "https://ai.gateway.lovable.dev/v1/chat/completions", key: LOVABLE_API_KEY, model: MODEL_FALLBACK, jsonFmt: true });
 
+    const AI_TIMEOUT_MS = 30000;       // timeout por intento (evita cuelgues del proveedor)
+    const AI_TOTAL_BUDGET_MS = 75000;  // presupuesto total de la fase IA (no agotar el wall-time del edge)
+    const aiStart = Date.now();
     let aiRes: Response | null = null;
     let modelUsed = "";
     let lastStatus = 0, lastTxt = "";
     for (const p of providers) {
+      if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
       const payloadObj: any = { model: p.model, messages: aiMessages, temperature: 0.4 };
       if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
       const payload = JSON.stringify(payloadObj);
       let r: Response | null = null;
       for (let attempt = 0; attempt < 3; attempt++) {
-        r = await fetch(p.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.key}` }, body: payload });
+        const remaining = AI_TOTAL_BUDGET_MS - (Date.now() - aiStart);
+        if (remaining <= 2000) break; // sin presupuesto: no arriesgar el wall-time
+        const ac = new AbortController();
+        const to = setTimeout(() => ac.abort(), Math.min(AI_TIMEOUT_MS, remaining));
+        try {
+          r = await fetch(p.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.key}` }, body: payload, signal: ac.signal });
+        } catch (e) {
+          // abort por timeout o error de red: transitorio → reintenta / siguiente proveedor (NUNCA cuelga)
+          r = null;
+          lastTxt = `fetch abort/error (${p.model}): ${String((e as any)?.message ?? e).slice(0, 120)}`;
+          if (attempt < 2) { await sleep(600 * (attempt + 1)); continue; }
+          break;
+        } finally {
+          clearTimeout(to);
+        }
         if (r.ok) break;
         if (r.status !== 429 && r.status < 500) break; // 4xx duro (p.ej. 402 sin saldo): pasa al siguiente proveedor
         if (attempt < 2) await sleep(600 * (attempt + 1));
       }
       if (r && r.ok) { aiRes = r; modelUsed = p.model; break; }
-      lastStatus = r?.status ?? 0; lastTxt = r ? await r.text() : "no response";
+      lastStatus = r?.status ?? lastStatus; lastTxt = r ? await r.text() : lastTxt;
     }
     if (!aiRes || !aiRes.ok) {
       await admin.from("wa_ai_jobs").update({
