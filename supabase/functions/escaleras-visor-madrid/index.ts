@@ -143,14 +143,7 @@ function parsePg97Html(html: string): Pg97Meta {
 
 const VLM_PROMPT_LOCATE = (catalogo: string | null) => `En este plano de manzana del Catálogo PG97, BUSCA el número impreso ${catalogo ?? "(desconocido)"} (rótulo de parcela). Devuelve JSON: {encontrado:bool, centro:[cx,cy], bbox_parcela:[x0,y0,x1,y1], confianza:0..1} con coordenadas NORMALIZADAS 0..1 (origen arriba-izquierda). bbox_parcela = el polígono de la parcela rotulada con ESE número (sus límites con las parcelas vecinas, líneas finas). Si no encuentras el número, encontrado:false.`;
 
-const VLM_PROMPT_COUNT = (catalogo: string | null) => `Esta imagen es el recorte a ALTA RESOLUCIÓN de UNA parcela del croquis PG97.
-(1) CONFIRMA que ves impreso el número de catálogo ${catalogo ?? "(desconocido)"} dentro o junto a la parcela.
-(2) Cuenta las CAJAS DE ESCALERA dentro de los límites de la parcela ${catalogo ?? ""}. Ignora trozos de parcelas vecinas en los bordes (líneas finas).
-- Caja de escalera = recuadro con PELDAÑOS (líneas paralelas finas), a veces en dos tramos alrededor de una meseta, a veces envolviendo el hueco del ascensor (cuadradito).
-- Patio = recuadro con X. No cuenta.
-- Dos tramos con meseta de una misma caja = 1 escalera. Dos grupos de peldaños SEPARADOS = 2.
-IMPORTANTE — el error dominante es CONTAR DE MENOS: los edificios del ensanche de Madrid suelen tener una 2ª ESCALERA DE SERVICIO pequeña (hacia el patio interior, peldaños estrechos, a menudo sin ascensor). Búscala. Un bloque grande de elementos comunes (p. ej. COM.V) puede contener DOS núcleos de peldaños distintos: cuéntalos por separado.
-JSON: {catalogo_confirmado:bool, n_escaleras:int, patios:int, confianza:0..1, razonamiento:'ubica cada caja de peldaños y di si hay una 2ª de servicio'}`;
+const VLM_PROMPT_COUNT = (catalogo: string | null) => `Esta imagen es el recorte de una parcela del croquis PG97. (1) CONFIRMA que ves impreso el número de catálogo ${catalogo ?? "(desconocido)"} dentro o junto a esta parcela. (2) La imagen puede incluir trozos de parcelas vecinas en los bordes, separadas por líneas finas: IGNÓRALAS, cuenta SOLO las cajas de escalera que están dentro de los límites de la parcela ${catalogo ?? ""}. Caja de escalera = recuadro con PELDAÑOS (líneas paralelas finas); patio = recuadro con X (no cuenta). Dos tramos con meseta de una caja = 1 escalera. JSON: {catalogo_confirmado:bool, n_escaleras:int, patios:int, confianza:0..1, razonamiento:'di dónde está cada caja y por qué NO cuentas las de los bordes'}`;
 
 // Extrae el primer objeto JSON balanceado de un texto (acepta texto alrededor / markdown)
 function extractFirstJsonObject(txt: string): any | null {
@@ -377,7 +370,7 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
         grado: meta.grado,
         doc_url: result.doc_url,
         coords: { x: xy.x, y: xy.y, source: xy.source },
-        prompt_v: 5,
+        prompt_v: 4,
         pasa1: {
           encontrado, confianza: confLoc, bbox_parcela: bboxRaw, centro,
           modelo: vlm1.modelo_usado, raw: vlm1.raw?.slice(0, 4000) ?? "",
@@ -393,32 +386,30 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     return { ok: true, ...result, motivo, needs_review: true, steps };
   }
 
-  // 6. Recorte AISLADO en ALTA RESOLUCIÓN (una sola imagen).
-  //    Con 5 imágenes el VLM devolvía respuesta vacía (MAX_TOKENS).
-  //    Una sola imagen a ~3200px de ancho es suficiente para distinguir
-  //    la escalera principal y la de servicio pequeña del ensanche.
-  const padX = (nx1 - nx0) * 0.25, padY = (ny1 - ny0) * 0.25;
+  // 6. Recorte AISLADO con padding 8%
+  const padX = (nx1 - nx0) * 0.08, padY = (ny1 - ny0) * 0.08;
   const cx0 = Math.max(0, nx0 - padX), cy0 = Math.max(0, ny0 - padY);
   const cx1 = Math.min(1, nx1 + padX), cy1 = Math.min(1, ny1 + padY);
+  const targetWpx = 1400;
   const widthPts = (cx1 - cx0) * pageW;
-  const S = Math.max(8, Math.min(18, 3200 / Math.max(1, widthPts)));
-  const imageUrls: string[] = [];
+  const S = Math.max(2, Math.min(10, targetWpx / Math.max(1, widthPts)));
+  let cropUrl = "";
   let bboxUsed: number[] | null = null;
   try {
     const cropPng = await renderRegion(pdfBuf, cx0, cy0, cx1, cy1, S);
     const cropPath = `visor-pg97/${building_id}_crop_${ts}.png`;
-    const upC = await sb.storage.from("catastro").upload(cropPath, cropPng, { contentType: "image/png", upsert: true });
-    if (upC.error) { log({ step: "render_crop", ok: false, note: upC.error.message }); return { ok: false, ...result, motivo: "upload_crop_error", needs_review: true, steps }; }
-    imageUrls.push(sb.storage.from("catastro").getPublicUrl(cropPath).data.publicUrl);
+    const upCrop = await sb.storage.from("catastro").upload(cropPath, cropPng, { contentType: "image/png", upsert: true });
+    if (upCrop.error) { log({ step: "render_crop", ok: false, note: upCrop.error.message }); return { ok: false, ...result, motivo: "upload_crop_error", needs_review: true, steps }; }
+    cropUrl = sb.storage.from("catastro").getPublicUrl(cropPath).data.publicUrl;
     bboxUsed = [cx0, cy0, cx1, cy1];
-    log({ step: "render_crop", ok: true, note: `S=${S.toFixed(1)}` });
+    log({ step: "render_crop", ok: true, note: `S=${S.toFixed(2)} bytes=${cropPng.length}` });
   } catch (e: any) {
     log({ step: "render_crop", ok: false, note: String(e?.message ?? e) });
     return { ok: false, ...result, motivo: "render_crop_error", needs_review: true, steps };
   }
 
-  // 7. VLM PASA 2: confirmar catálogo + contar (recorte completo + cuadrantes)
-  const vlm2 = await callVLM(imageUrls, VLM_PROMPT_COUNT(meta.catalogo));
+  // 7. VLM PASA 2: confirmar catálogo + contar
+  const vlm2 = await callVLM([cropUrl], VLM_PROMPT_COUNT(meta.catalogo));
   if (!vlm2.parsed) {
     log({ step: "vlm_count", ok: false, note: vlm2.lastErr ?? "" });
     return { ok: false, ...result, motivo: "vlm_count_sin_resultado", vlm_error: vlm2.lastErr, needs_review: true, steps };
@@ -454,8 +445,7 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       coords: { x: xy.x, y: xy.y, source: xy.source },
       modelo_usado: result.modelo_usado,
       modelo_fallback: vlm2.modelo_fallback,
-      prompt_v: 5,
-      n_imgs: imageUrls.length,
+      prompt_v: 4,
       needs_review: needsReview,
       pasa1: {
         encontrado, confianza: confLoc, bbox_parcela: bboxRaw, centro,
