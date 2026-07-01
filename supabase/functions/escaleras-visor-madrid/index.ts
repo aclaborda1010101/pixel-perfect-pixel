@@ -387,7 +387,7 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
   }
 
   // 6. Recorte AISLADO con padding 8%
-  const padX = (nx1 - nx0) * 0.08, padY = (ny1 - ny0) * 0.08;
+  const padX = (nx1 - nx0) * 0.5, padY = (ny1 - ny0) * 0.5;
   const cx0 = Math.max(0, nx0 - padX), cy0 = Math.max(0, ny0 - padY);
   const cx1 = Math.min(1, nx1 + padX), cy1 = Math.min(1, ny1 + padY);
   const targetWpx = 1400;
