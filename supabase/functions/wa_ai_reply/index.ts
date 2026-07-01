@@ -1090,7 +1090,30 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       ? parsed.messages.filter((s: any) => typeof s === "string" && s.trim()).slice(0, 1)
       : [];
     if (replyMsgs.length === 0) {
-      return new Response(JSON.stringify({ ok: true, skip: "empty reply" }), {
+      // FIX: la IA devolvió respuesta vacía/ininteligible. NO dejar el job en 'running'
+      // (eso colgaba la conversación). Marcar job resuelto + aviso interno para el comercial.
+      await admin.from("wa_messages").insert({
+        conversation_id,
+        contact_id: contact.id,
+        direction: "out",
+        type: "system",
+        content: "⚠️ El bot no pudo generar respuesta a este mensaje (respuesta de IA vacía). Revisa y contesta manualmente si procede.",
+        ai_generated: true,
+        sender_type: "system",
+        metadata: { kind: "empty_reply", raw: String(raw).slice(0, 500), last_in: lastInText, model: modelUsed },
+      });
+      const { data: convRowE } = await admin.from("wa_conversations")
+        .select("unread_count").eq("id", conversation_id).maybeSingle();
+      await admin.from("wa_conversations").update({
+        last_message_at: new Date().toISOString(),
+        unread_count: ((convRowE as any)?.unread_count ?? 0) + 1,
+      }).eq("id", conversation_id);
+      await admin.from("wa_ai_jobs").update({
+        status: "skipped_empty",
+        error: "empty_reply",
+        updated_at: new Date().toISOString(),
+      }).eq("conversation_id", conversation_id).eq("status", "running");
+      return new Response(JSON.stringify({ ok: true, skip: "empty reply", logged: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
