@@ -143,22 +143,14 @@ function parsePg97Html(html: string): Pg97Meta {
 
 const VLM_PROMPT_LOCATE = (catalogo: string | null) => `En este plano de manzana del Catálogo PG97, BUSCA el número impreso ${catalogo ?? "(desconocido)"} (rótulo de parcela). Devuelve JSON: {encontrado:bool, centro:[cx,cy], bbox_parcela:[x0,y0,x1,y1], confianza:0..1} con coordenadas NORMALIZADAS 0..1 (origen arriba-izquierda). bbox_parcela = el polígono de la parcela rotulada con ESE número (sus límites con las parcelas vecinas, líneas finas). Si no encuentras el número, encontrado:false.`;
 
-const VLM_PROMPT_COUNT = (catalogo: string | null) => `Te paso VARIAS imágenes del croquis PG97 de UNA parcela: la 1ª es el recorte COMPLETO de la parcela (úsala para ver sus LÍMITES y confirmar el número de catálogo); las siguientes son CUADRANTES ampliados a alta resolución de esa MISMA parcela (úsalas para ver detalles pequeños que en el recorte completo se pierden).
-
-TAREA:
+const VLM_PROMPT_COUNT = (catalogo: string | null) => `Esta imagen es el recorte a ALTA RESOLUCIÓN de UNA parcela del croquis PG97.
 (1) CONFIRMA que ves impreso el número de catálogo ${catalogo ?? "(desconocido)"} dentro o junto a la parcela.
-(2) Cuenta las CAJAS DE ESCALERA que están DENTRO de los límites de la parcela ${catalogo ?? ""}. Ignora trozos de parcelas vecinas en los bordes (separados por líneas finas). No cuentes dos veces una caja que aparezca en el solape de dos cuadrantes.
-
-DEFINICIONES:
-- Caja de escalera = recuadro con PELDAÑOS (líneas paralelas finas), a veces en dos tramos alrededor de una meseta, a veces envolviendo el hueco del ascensor (cuadradito pequeño).
-- Patio de luces = recuadro con una X (aspa diagonal). NO es escalera, NO cuenta.
-- Dos tramos con meseta de UNA MISMA caja = 1 escalera. Dos grupos de peldaños SEPARADOS = 2 escaleras.
-
-MUY IMPORTANTE — el error dominante es CONTAR DE MENOS:
-- Los edificios del ensanche/centro de Madrid suelen tener DOS escaleras: la PRINCIPAL (grande, cerca de fachada, normalmente con ascensor) y una ESCALERA DE SERVICIO (más pequeña, hacia el interior/patio, peldaños más estrechos, a menudo SIN ascensor y pegada a un patio). BUSCA activamente esa segunda caja pequeña en los cuadrantes ampliados.
-- Un único bloque grande de "elementos comunes" (p. ej. rotulado COM.V) puede contener DOS núcleos de peldaños distintos: cuenta CADA grupo de peldaños separado, no el bloque como uno solo.
-
-JSON: {catalogo_confirmado:bool, n_escaleras:int, patios:int, confianza:0..1, razonamiento:'ubica cada caja de peldaños (principal y de servicio), di por qué es escalera y no patio, y menciona explícitamente si viste o no una 2ª caja pequeña de servicio'}`;
+(2) Cuenta las CAJAS DE ESCALERA dentro de los límites de la parcela ${catalogo ?? ""}. Ignora trozos de parcelas vecinas en los bordes (líneas finas).
+- Caja de escalera = recuadro con PELDAÑOS (líneas paralelas finas), a veces en dos tramos alrededor de una meseta, a veces envolviendo el hueco del ascensor (cuadradito).
+- Patio = recuadro con X. No cuenta.
+- Dos tramos con meseta de una misma caja = 1 escalera. Dos grupos de peldaños SEPARADOS = 2.
+IMPORTANTE — el error dominante es CONTAR DE MENOS: los edificios del ensanche de Madrid suelen tener una 2ª ESCALERA DE SERVICIO pequeña (hacia el patio interior, peldaños estrechos, a menudo sin ascensor). Búscala. Un bloque grande de elementos comunes (p. ej. COM.V) puede contener DOS núcleos de peldaños distintos: cuéntalos por separado.
+JSON: {catalogo_confirmado:bool, n_escaleras:int, patios:int, confianza:0..1, razonamiento:'ubica cada caja de peldaños y di si hay una 2ª de servicio'}`;
 
 // Extrae el primer objeto JSON balanceado de un texto (acepta texto alrededor / markdown)
 function extractFirstJsonObject(txt: string): any | null {
