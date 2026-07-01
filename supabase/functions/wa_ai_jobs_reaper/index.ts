@@ -14,6 +14,7 @@ const corsHeaders = {
 const STALE_MS = 60 * 1000; // 'pending' más viejo que 60s = el fetch nunca completó
 const MAX_ATTEMPTS = 3;
 const BATCH = 50;
+const RUNNING_STALE_MS = 3 * 60 * 1000; // un 'running' sin avanzar >3 min = wa_ai_reply murió a medias
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
