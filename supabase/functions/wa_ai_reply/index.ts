@@ -1379,6 +1379,16 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       ok: true, sent: finalReplies.length, qualification_update: cleanQu, propose_meeting: !!parsed.propose_meeting,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
+    // FIX crítico: liberar el job si algo lanzó DESPUÉS de reclamarlo. Antes se quedaba
+    // en 'running' para siempre → conversación muda. Marcarlo 'error' (envuelto en try
+    // por si la excepción ocurrió antes de tener admin/conversation_id).
+    try {
+      await admin.from("wa_ai_jobs").update({
+        status: "error",
+        error: `unhandled: ${String(e?.message ?? e).slice(0, 250)}`,
+        updated_at: new Date().toISOString(),
+      }).eq("conversation_id", conversation_id).eq("status", "running");
+    } catch (_e) { /* no romper el handler por el marcado */ }
     return new Response(JSON.stringify({ error: e?.message ?? String(e) }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
