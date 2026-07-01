@@ -32,6 +32,39 @@ Deno.serve(async (req) => {
       });
     }
 
+    let refired = 0;
+    let errored = 0;
+
+    // RESCATE de jobs 'running' colgados: wa_ai_reply los reclamó pero murió antes de 'done'.
+    const runCutoff = new Date(Date.now() - RUNNING_STALE_MS).toISOString();
+    const { data: stuckRunning } = await admin
+      .from("wa_ai_jobs")
+      .select("id, conversation_id, attempts, updated_at")
+      .eq("status", "running")
+      .lt("updated_at", runCutoff)
+      .order("updated_at", { ascending: true })
+      .limit(BATCH);
+    for (const job of stuckRunning ?? []) {
+      const attempts = Number((job as any).attempts ?? 0);
+      if (attempts >= MAX_ATTEMPTS) {
+        await admin.from("wa_ai_jobs").update({
+          status: "error", error: "max_retries_running", updated_at: new Date().toISOString(),
+        }).eq("id", (job as any).id).eq("status", "running");
+        errored++;
+        continue;
+      }
+      // Devolver a 'pending' (el trigger refresca updated_at) y re-disparar wa_ai_reply.
+      await admin.from("wa_ai_jobs").update({
+        status: "pending", attempts: attempts + 1, updated_at: new Date().toISOString(),
+      }).eq("id", (job as any).id).eq("status", "running");
+      fetch(`${SUPABASE_URL}/functions/v1/wa_ai_reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
+        body: JSON.stringify({ conversation_id: (job as any).conversation_id }),
+      }).catch(() => {});
+      refired++;
+    }
+
     const cutoff = new Date(Date.now() - STALE_MS).toISOString();
     const { data: stale } = await admin
       .from("wa_ai_jobs")
@@ -41,8 +74,6 @@ Deno.serve(async (req) => {
       .order("updated_at", { ascending: true })
       .limit(BATCH);
 
-    let refired = 0;
-    let errored = 0;
     for (const job of stale ?? []) {
       const attempts = Number((job as any).attempts ?? 0);
       if (attempts >= MAX_ATTEMPTS) {
