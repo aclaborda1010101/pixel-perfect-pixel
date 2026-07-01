@@ -401,47 +401,25 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     return { ok: true, ...result, motivo, needs_review: true, steps };
   }
 
-  // 6. Recorte AISLADO en ALTA RESOLUCIÓN + 4 cuadrantes ampliados (tiling 2x2).
-  //    Antes: un único recorte a ~1400px de ancho (targetWpx=1400) → a esa
-  //    resolución la escalera de servicio (pequeña, al patio) se fundía con la
-  //    principal y el VLM contaba 1. Ahora apuntamos a ~3600px en el recorte
-  //    completo y añadimos 4 cuadrantes a ~el doble de densidad para ver los
-  //    núcleos pequeños. Es el gesto que hace la lectura manual (zoom 8-11).
+  // 6. Recorte AISLADO en ALTA RESOLUCIÓN (una sola imagen).
+  //    Con 5 imágenes el VLM devolvía respuesta vacía (MAX_TOKENS).
+  //    Una sola imagen a ~3200px de ancho es suficiente para distinguir
+  //    la escalera principal y la de servicio pequeña del ensanche.
   const padX = (nx1 - nx0) * 0.25, padY = (ny1 - ny0) * 0.25;
   const cx0 = Math.max(0, nx0 - padX), cy0 = Math.max(0, ny0 - padY);
   const cx1 = Math.min(1, nx1 + padX), cy1 = Math.min(1, ny1 + padY);
   const widthPts = (cx1 - cx0) * pageW;
-  const Sfull = Math.max(6, Math.min(20, 3600 / Math.max(1, widthPts)));
-  const Stile = Math.max(8, Math.min(28, 3600 / Math.max(1, widthPts * 0.5)));
+  const S = Math.max(8, Math.min(18, 3200 / Math.max(1, widthPts)));
   const imageUrls: string[] = [];
   let bboxUsed: number[] | null = null;
   try {
-    // 6a. Recorte completo (límites de parcela + confirmación de catálogo)
-    const fullCrop = await renderRegion(pdfBuf, cx0, cy0, cx1, cy1, Sfull);
-    const fullCropPath = `visor-pg97/${building_id}_crop_${ts}.png`;
-    const upFC = await sb.storage.from("catastro").upload(fullCropPath, fullCrop, { contentType: "image/png", upsert: true });
-    if (upFC.error) { log({ step: "render_crop", ok: false, note: upFC.error.message }); return { ok: false, ...result, motivo: "upload_crop_error", needs_review: true, steps }; }
-    imageUrls.push(sb.storage.from("catastro").getPublicUrl(fullCropPath).data.publicUrl);
-    // 6b. 4 cuadrantes 2x2 con solape 10% (detalle de núcleos pequeños)
-    const mx = (cx0 + cx1) / 2, my = (cy0 + cy1) / 2;
-    const ovx = (cx1 - cx0) * 0.10, ovy = (cy1 - cy0) * 0.10;
-    const tiles: [number, number, number, number][] = [
-      [cx0, cy0, mx + ovx, my + ovy],
-      [mx - ovx, cy0, cx1, my + ovy],
-      [cx0, my - ovy, mx + ovx, cy1],
-      [mx - ovx, my - ovy, cx1, cy1],
-    ];
-    for (let ti = 0; ti < tiles.length; ti++) {
-      const [tx0, ty0, tx1, ty1] = tiles[ti];
-      try {
-        const tilePng = await renderRegion(pdfBuf, Math.max(0, tx0), Math.max(0, ty0), Math.min(1, tx1), Math.min(1, ty1), Stile);
-        const tilePath = `visor-pg97/${building_id}_tile${ti}_${ts}.png`;
-        const upT = await sb.storage.from("catastro").upload(tilePath, tilePng, { contentType: "image/png", upsert: true });
-        if (!upT.error) imageUrls.push(sb.storage.from("catastro").getPublicUrl(tilePath).data.publicUrl);
-      } catch (_e) { /* un tile que falle no aborta: seguimos con los demás */ }
-    }
+    const cropPng = await renderRegion(pdfBuf, cx0, cy0, cx1, cy1, S);
+    const cropPath = `visor-pg97/${building_id}_crop_${ts}.png`;
+    const upC = await sb.storage.from("catastro").upload(cropPath, cropPng, { contentType: "image/png", upsert: true });
+    if (upC.error) { log({ step: "render_crop", ok: false, note: upC.error.message }); return { ok: false, ...result, motivo: "upload_crop_error", needs_review: true, steps }; }
+    imageUrls.push(sb.storage.from("catastro").getPublicUrl(cropPath).data.publicUrl);
     bboxUsed = [cx0, cy0, cx1, cy1];
-    log({ step: "render_crop", ok: true, note: `Sfull=${Sfull.toFixed(1)} Stile=${Stile.toFixed(1)} imgs=${imageUrls.length}` });
+    log({ step: "render_crop", ok: true, note: `S=${S.toFixed(1)}` });
   } catch (e: any) {
     log({ step: "render_crop", ok: false, note: String(e?.message ?? e) });
     return { ok: false, ...result, motivo: "render_crop_error", needs_review: true, steps };
