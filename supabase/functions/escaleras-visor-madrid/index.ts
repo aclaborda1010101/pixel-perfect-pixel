@@ -143,7 +143,22 @@ function parsePg97Html(html: string): Pg97Meta {
 
 const VLM_PROMPT_LOCATE = (catalogo: string | null) => `En este plano de manzana del Catálogo PG97, BUSCA el número impreso ${catalogo ?? "(desconocido)"} (rótulo de parcela). Devuelve JSON: {encontrado:bool, centro:[cx,cy], bbox_parcela:[x0,y0,x1,y1], confianza:0..1} con coordenadas NORMALIZADAS 0..1 (origen arriba-izquierda). bbox_parcela = el polígono de la parcela rotulada con ESE número (sus límites con las parcelas vecinas, líneas finas). Si no encuentras el número, encontrado:false.`;
 
-const VLM_PROMPT_COUNT = (catalogo: string | null) => `Esta imagen es el recorte de una parcela del croquis PG97. (1) CONFIRMA que ves impreso el número de catálogo ${catalogo ?? "(desconocido)"} dentro o junto a esta parcela. (2) La imagen puede incluir trozos de parcelas vecinas en los bordes, separadas por líneas finas: IGNÓRALAS, cuenta SOLO las cajas de escalera que están dentro de los límites de la parcela ${catalogo ?? ""}. Caja de escalera = recuadro con PELDAÑOS (líneas paralelas finas); patio = recuadro con X (no cuenta). Dos tramos con meseta de una caja = 1 escalera. JSON: {catalogo_confirmado:bool, n_escaleras:int, patios:int, confianza:0..1, razonamiento:'di dónde está cada caja y por qué NO cuentas las de los bordes'}`;
+const VLM_PROMPT_COUNT = (catalogo: string | null) => `Te paso VARIAS imágenes del croquis PG97 de UNA parcela: la 1ª es el recorte COMPLETO de la parcela (úsala para ver sus LÍMITES y confirmar el número de catálogo); las siguientes son CUADRANTES ampliados a alta resolución de esa MISMA parcela (úsalas para ver detalles pequeños que en el recorte completo se pierden).
+
+TAREA:
+(1) CONFIRMA que ves impreso el número de catálogo ${catalogo ?? "(desconocido)"} dentro o junto a la parcela.
+(2) Cuenta las CAJAS DE ESCALERA que están DENTRO de los límites de la parcela ${catalogo ?? ""}. Ignora trozos de parcelas vecinas en los bordes (separados por líneas finas). No cuentes dos veces una caja que aparezca en el solape de dos cuadrantes.
+
+DEFINICIONES:
+- Caja de escalera = recuadro con PELDAÑOS (líneas paralelas finas), a veces en dos tramos alrededor de una meseta, a veces envolviendo el hueco del ascensor (cuadradito pequeño).
+- Patio de luces = recuadro con una X (aspa diagonal). NO es escalera, NO cuenta.
+- Dos tramos con meseta de UNA MISMA caja = 1 escalera. Dos grupos de peldaños SEPARADOS = 2 escaleras.
+
+MUY IMPORTANTE — el error dominante es CONTAR DE MENOS:
+- Los edificios del ensanche/centro de Madrid suelen tener DOS escaleras: la PRINCIPAL (grande, cerca de fachada, normalmente con ascensor) y una ESCALERA DE SERVICIO (más pequeña, hacia el interior/patio, peldaños más estrechos, a menudo SIN ascensor y pegada a un patio). BUSCA activamente esa segunda caja pequeña en los cuadrantes ampliados.
+- Un único bloque grande de "elementos comunes" (p. ej. rotulado COM.V) puede contener DOS núcleos de peldaños distintos: cuenta CADA grupo de peldaños separado, no el bloque como uno solo.
+
+JSON: {catalogo_confirmado:bool, n_escaleras:int, patios:int, confianza:0..1, razonamiento:'ubica cada caja de peldaños (principal y de servicio), di por qué es escalera y no patio, y menciona explícitamente si viste o no una 2ª caja pequeña de servicio'}`;
 
 // Extrae el primer objeto JSON balanceado de un texto (acepta texto alrededor / markdown)
 function extractFirstJsonObject(txt: string): any | null {
@@ -370,7 +385,7 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
         grado: meta.grado,
         doc_url: result.doc_url,
         coords: { x: xy.x, y: xy.y, source: xy.source },
-        prompt_v: 4,
+        prompt_v: 5,
         pasa1: {
           encontrado, confianza: confLoc, bbox_parcela: bboxRaw, centro,
           modelo: vlm1.modelo_usado, raw: vlm1.raw?.slice(0, 4000) ?? "",
@@ -386,30 +401,54 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
     return { ok: true, ...result, motivo, needs_review: true, steps };
   }
 
-  // 6. Recorte AISLADO con padding 8%
+  // 6. Recorte AISLADO en ALTA RESOLUCIÓN + 4 cuadrantes ampliados (tiling 2x2).
+  //    Antes: un único recorte a ~1400px de ancho (targetWpx=1400) → a esa
+  //    resolución la escalera de servicio (pequeña, al patio) se fundía con la
+  //    principal y el VLM contaba 1. Ahora apuntamos a ~3600px en el recorte
+  //    completo y añadimos 4 cuadrantes a ~el doble de densidad para ver los
+  //    núcleos pequeños. Es el gesto que hace la lectura manual (zoom 8-11).
   const padX = (nx1 - nx0) * 0.08, padY = (ny1 - ny0) * 0.08;
   const cx0 = Math.max(0, nx0 - padX), cy0 = Math.max(0, ny0 - padY);
   const cx1 = Math.min(1, nx1 + padX), cy1 = Math.min(1, ny1 + padY);
-  const targetWpx = 1400;
   const widthPts = (cx1 - cx0) * pageW;
-  const S = Math.max(2, Math.min(10, targetWpx / Math.max(1, widthPts)));
-  let cropUrl = "";
+  const Sfull = Math.max(4, Math.min(12, 3600 / Math.max(1, widthPts)));
+  const Stile = Math.max(6, Math.min(16, 3600 / Math.max(1, widthPts * 0.5)));
+  const imageUrls: string[] = [];
   let bboxUsed: number[] | null = null;
   try {
-    const cropPng = await renderRegion(pdfBuf, cx0, cy0, cx1, cy1, S);
-    const cropPath = `visor-pg97/${building_id}_crop_${ts}.png`;
-    const upCrop = await sb.storage.from("catastro").upload(cropPath, cropPng, { contentType: "image/png", upsert: true });
-    if (upCrop.error) { log({ step: "render_crop", ok: false, note: upCrop.error.message }); return { ok: false, ...result, motivo: "upload_crop_error", needs_review: true, steps }; }
-    cropUrl = sb.storage.from("catastro").getPublicUrl(cropPath).data.publicUrl;
+    // 6a. Recorte completo (límites de parcela + confirmación de catálogo)
+    const fullCrop = await renderRegion(pdfBuf, cx0, cy0, cx1, cy1, Sfull);
+    const fullCropPath = `visor-pg97/${building_id}_crop_${ts}.png`;
+    const upFC = await sb.storage.from("catastro").upload(fullCropPath, fullCrop, { contentType: "image/png", upsert: true });
+    if (upFC.error) { log({ step: "render_crop", ok: false, note: upFC.error.message }); return { ok: false, ...result, motivo: "upload_crop_error", needs_review: true, steps }; }
+    imageUrls.push(sb.storage.from("catastro").getPublicUrl(fullCropPath).data.publicUrl);
+    // 6b. 4 cuadrantes 2x2 con solape 10% (detalle de núcleos pequeños)
+    const mx = (cx0 + cx1) / 2, my = (cy0 + cy1) / 2;
+    const ovx = (cx1 - cx0) * 0.10, ovy = (cy1 - cy0) * 0.10;
+    const tiles: [number, number, number, number][] = [
+      [cx0, cy0, mx + ovx, my + ovy],
+      [mx - ovx, cy0, cx1, my + ovy],
+      [cx0, my - ovy, mx + ovx, cy1],
+      [mx - ovx, my - ovy, cx1, cy1],
+    ];
+    for (let ti = 0; ti < tiles.length; ti++) {
+      const [tx0, ty0, tx1, ty1] = tiles[ti];
+      try {
+        const tilePng = await renderRegion(pdfBuf, Math.max(0, tx0), Math.max(0, ty0), Math.min(1, tx1), Math.min(1, ty1), Stile);
+        const tilePath = `visor-pg97/${building_id}_tile${ti}_${ts}.png`;
+        const upT = await sb.storage.from("catastro").upload(tilePath, tilePng, { contentType: "image/png", upsert: true });
+        if (!upT.error) imageUrls.push(sb.storage.from("catastro").getPublicUrl(tilePath).data.publicUrl);
+      } catch (_e) { /* un tile que falle no aborta: seguimos con los demás */ }
+    }
     bboxUsed = [cx0, cy0, cx1, cy1];
-    log({ step: "render_crop", ok: true, note: `S=${S.toFixed(2)} bytes=${cropPng.length}` });
+    log({ step: "render_crop", ok: true, note: `Sfull=${Sfull.toFixed(1)} Stile=${Stile.toFixed(1)} imgs=${imageUrls.length}` });
   } catch (e: any) {
     log({ step: "render_crop", ok: false, note: String(e?.message ?? e) });
     return { ok: false, ...result, motivo: "render_crop_error", needs_review: true, steps };
   }
 
-  // 7. VLM PASA 2: confirmar catálogo + contar
-  const vlm2 = await callVLM([cropUrl], VLM_PROMPT_COUNT(meta.catalogo));
+  // 7. VLM PASA 2: confirmar catálogo + contar (recorte completo + cuadrantes)
+  const vlm2 = await callVLM(imageUrls, VLM_PROMPT_COUNT(meta.catalogo));
   if (!vlm2.parsed) {
     log({ step: "vlm_count", ok: false, note: vlm2.lastErr ?? "" });
     return { ok: false, ...result, motivo: "vlm_count_sin_resultado", vlm_error: vlm2.lastErr, needs_review: true, steps };
@@ -445,7 +484,8 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
       coords: { x: xy.x, y: xy.y, source: xy.source },
       modelo_usado: result.modelo_usado,
       modelo_fallback: vlm2.modelo_fallback,
-      prompt_v: 4,
+      prompt_v: 5,
+      n_imgs: imageUrls.length,
       needs_review: needsReview,
       pasa1: {
         encontrado, confianza: confLoc, bbox_parcela: bboxRaw, centro,
