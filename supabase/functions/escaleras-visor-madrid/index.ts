@@ -407,12 +407,12 @@ async function processBuilding(building_id: string, opts?: { force?: boolean }) 
   //    principal y el VLM contaba 1. Ahora apuntamos a ~3600px en el recorte
   //    completo y añadimos 4 cuadrantes a ~el doble de densidad para ver los
   //    núcleos pequeños. Es el gesto que hace la lectura manual (zoom 8-11).
-  const padX = (nx1 - nx0) * 0.08, padY = (ny1 - ny0) * 0.08;
+  const padX = (nx1 - nx0) * 0.25, padY = (ny1 - ny0) * 0.25;
   const cx0 = Math.max(0, nx0 - padX), cy0 = Math.max(0, ny0 - padY);
   const cx1 = Math.min(1, nx1 + padX), cy1 = Math.min(1, ny1 + padY);
   const widthPts = (cx1 - cx0) * pageW;
-  const Sfull = Math.max(4, Math.min(12, 3600 / Math.max(1, widthPts)));
-  const Stile = Math.max(6, Math.min(16, 3600 / Math.max(1, widthPts * 0.5)));
+  const Sfull = Math.max(6, Math.min(40, 3600 / Math.max(1, widthPts)));
+  const Stile = Math.max(8, Math.min(60, 3600 / Math.max(1, widthPts * 0.5)));
   const imageUrls: string[] = [];
   let bboxUsed: number[] | null = null;
   try {
