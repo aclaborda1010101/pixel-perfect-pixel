@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
       refired++;
     }
 
-    return new Response(JSON.stringify({ ok: true, scanned: (stale ?? []).length, refired, errored }), {
+    return new Response(JSON.stringify({ ok: true, scanned: (stale ?? []).length, running_rescued: (stuckRunning ?? []).length, refired, errored }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e: any) {
