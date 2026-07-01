@@ -13,7 +13,21 @@ export async function evoFetch(path: string, init: RequestInit = {}) {
     apikey: EVOLUTION_KEY,
     ...(init.headers as Record<string, string> | undefined ?? {}),
   };
-  const res = await fetch(`${EVOLUTION_URL}${path}`, { ...init, headers });
+  // Timeout duro: Evolution puede colgarse en el envío y dejar la función edge
+  // muriendo por wall-time (job mudo). Aborta a 25s y lanza; el catch del llamador
+  // lo trata como error limpio en vez de colgarse. No dispara el kill-switch
+  // (el regex de baneo busca "Evolution <3 dígitos>", no coincide con este mensaje).
+  const EVO_TIMEOUT_MS = 25000;
+  const ac = new AbortController();
+  const to = setTimeout(() => ac.abort(), EVO_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${EVOLUTION_URL}${path}`, { ...init, headers, signal: ac.signal });
+  } catch (e) {
+    throw new Error(`Evolution fetch abort/error: ${String((e as any)?.message ?? e).slice(0, 120)}`);
+  } finally {
+    clearTimeout(to);
+  }
   const text = await res.text();
   let json: unknown = null;
   try { json = text ? JSON.parse(text) : null; } catch { json = text; }
