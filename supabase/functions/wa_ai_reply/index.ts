@@ -1040,7 +1040,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     // FALLBACK a Gemini Flash vía gateway de Lovable si OpenRouter falla (sin saldo, caído, sin key),
     // para que el bot NUNCA se quede mudo. Reintentos 3x en errores transitorios (429/5xx).
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    const MODEL_PRIMARY = "anthropic/claude-sonnet-4.6";
+    const MODEL_PRIMARY = "anthropic/claude-haiku-4.5";
     const MODEL_FALLBACK = "google/gemini-3-flash-preview";
     const providers: Array<{ url: string; key: string | undefined; model: string; jsonFmt: boolean }> = [];
     if (OPENROUTER_API_KEY) providers.push({ url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY, model: MODEL_PRIMARY, jsonFmt: false });
