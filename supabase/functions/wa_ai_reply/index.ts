@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
     // durante la espera llegó un entrante MÁS NUEVO (o ya se contestó), abortamos esta
     // invocación; la del último mensaje será la que responda, con el contexto consolidado.
     // ─────────────────────────────────────────────────────────────
-    const DEBOUNCE_MS = 7000;
+    const DEBOUNCE_MS = 3000;
     if (lastIn) {
       await sleep(DEBOUNCE_MS);
       const { data: newer } = await admin
@@ -197,6 +197,10 @@ Deno.serve(async (req) => {
         });
       }
     }
+
+    // Presencia temprana: mostrar "escribiendo…" al lead mientras la IA piensa,
+    // en vez de silencio de 30-60s. Cubre el prompt-build + llamada a IA.
+    try { await sendPresence(contact.phone, 12000); } catch { /* best-effort */ }
 
     // ────────────────────────────────────────────────────────────
     // MEMORIA CROSS-CHANNEL: nombres de agentes humanos que han escrito por WhatsApp,
