@@ -53,6 +53,7 @@ import {
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
+import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
 import { NewBuildingDialog } from "@/components/buildings/NewBuildingDialog";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { Plus } from "lucide-react";
@@ -65,6 +66,8 @@ type Row = {
   barrio: string | null;
   distrito: string | null;
   score: number;
+  es_estrella: boolean;
+  n_alarmas: number;
   num_viviendas: number | null;
   m2_total: number | null;
   owners_count: number | null;
