@@ -318,7 +318,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown, iee_estado")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
@@ -347,7 +347,9 @@ export default function ComercialEdificios() {
           ciudad: b.ciudad,
           barrio: b.barrio ?? null,
           distrito: b.distrito ?? null,
-          score: Number(extra.score ?? b.score ?? 0),
+          score: Number(extra.cluster_score ?? extra.score ?? b.score ?? 0),
+          es_estrella: !!extra.es_estrella,
+          n_alarmas: countAlarmas(extra.avisos_inteligentes),
           num_viviendas: viv,
           m2_total: m2,
           owners_count: b.owners_count,
@@ -392,7 +394,7 @@ export default function ComercialEdificios() {
           .range(from, from + PAGE - 1);
       const fetchBldgsPage = (from: number) =>
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown, iee_estado")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
           // also need cluster_asignado for chips
           .range(from, from + PAGE - 1);
       const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
@@ -458,7 +460,9 @@ export default function ComercialEdificios() {
           ciudad: b.ciudad,
           barrio: b.barrio ?? null,
           distrito: b.distrito ?? null,
-          score: Number(extra.score ?? b.score ?? 0),
+          score: Number(extra.cluster_score ?? extra.score ?? b.score ?? 0),
+          es_estrella: !!extra.es_estrella,
+          n_alarmas: countAlarmas(extra.avisos_inteligentes),
           num_viviendas: viv,
           m2_total: m2,
           owners_count: b.owners_count,
