@@ -811,6 +811,9 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
         </section>
       )}
 
+      {/* FICHA DEL LEAD · resumen normalizado (lo que el bot ha extraído) */}
+      <FichaLead qual={qual} current={current} />
+
       {/* IDENTIDAD */}
       <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
         <SectionHeader icon={IdCard} label="Identidad" />
