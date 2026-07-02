@@ -1338,7 +1338,9 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
           propose_meeting: !!parsed.propose_meeting,
         },
       });
-      if (i < finalReplies.length - 1) {
+      if (i === finalReplies.length - 1) {
+        sendPresence(contact.phone, 800, "paused").catch(() => {});
+      } else {
         await sleep(300 + Math.floor(Math.random() * 500));
       }
     }
