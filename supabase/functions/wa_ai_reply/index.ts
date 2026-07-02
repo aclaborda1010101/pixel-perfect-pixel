@@ -89,6 +89,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   let conversation_id: string | null = null;
   let admin: any = null;
+  let presenceTimer: ReturnType<typeof setInterval> | null = null;
+  const clearPresenceTimer = () => {
+    if (presenceTimer) { try { clearInterval(presenceTimer); } catch { /* noop */ } presenceTimer = null; }
+  };
   try {
     ({ conversation_id } = await req.json());
     if (!conversation_id) {
@@ -174,7 +178,7 @@ Deno.serve(async (req) => {
     // durante la espera llegó un entrante MÁS NUEVO (o ya se contestó), abortamos esta
     // invocación; la del último mensaje será la que responda, con el contexto consolidado.
     // ─────────────────────────────────────────────────────────────
-    const DEBOUNCE_MS = 3000;
+    const DEBOUNCE_MS = 1500;
     if (lastIn) {
       await sleep(DEBOUNCE_MS);
       const { data: newer } = await admin
@@ -198,9 +202,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Presencia temprana: mostrar "escribiendo…" al lead mientras la IA piensa,
-    // en vez de silencio de 30-60s. Cubre el prompt-build + llamada a IA.
-    try { await sendPresence(contact.phone, 12000); } catch { /* best-effort */ }
+    // Presencia CONTINUA: "escribiendo…" ininterrumpido mientras la IA piensa.
+    // Un único burst inicial de 25s + refresh cada 20s hasta el envío del primer mensaje.
+    try { await sendPresence(contact.phone, 25000); } catch { /* best-effort */ }
+    presenceTimer = setInterval(() => {
+      sendPresence(contact.phone, 25000).catch(() => {});
+    }, 20000);
 
     // ────────────────────────────────────────────────────────────
     // MEMORIA CROSS-CHANNEL: nombres de agentes humanos que han escrito por WhatsApp,
@@ -1047,7 +1054,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     let lastStatus = 0, lastTxt = "";
     for (const p of providers) {
       if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
-      const payloadObj: any = { model: p.model, messages: aiMessages, temperature: 0.4 };
+      const payloadObj: any = { model: p.model, messages: aiMessages, temperature: 0.4, max_tokens: 600 };
       if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
       const payload = JSON.stringify(payloadObj);
       let r: Response | null = null;
