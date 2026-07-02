@@ -52,24 +52,10 @@ Deno.serve(async (req) => {
       .filter(Boolean)
       .join(", ");
 
-    // 1) Geocodificar — preferimos lat/lng del portal a lat/lng catastral
-    let portalLat = cat.lat as number;
-    let portalLng = cat.lon as number;
-    if (addressParts) {
-      try {
-        const gRes = await fetch(
-          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressParts)}&region=es&key=${API_KEY}`,
-        );
-        const gJson = await gRes.json();
-        const loc = gJson?.results?.[0]?.geometry?.location;
-        if (loc?.lat && loc?.lng) {
-          portalLat = loc.lat;
-          portalLng = loc.lng;
-        }
-      } catch (e) {
-        console.warn("geocode failed", e);
-      }
-    }
+    // Fuente de verdad: lat/lon catastral. NUNCA geocoding por texto libre
+    // (evita capturar fotos de otros edificios cuando el portal está mal geocodificado).
+    const portalLat = cat.lat as number;
+    const portalLng = cat.lon as number;
 
     // 2) Metadata API: panorama outdoor más cercano (radio 50m)
     let panoLat = portalLat;
