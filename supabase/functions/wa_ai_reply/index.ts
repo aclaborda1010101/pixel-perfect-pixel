@@ -562,17 +562,29 @@ Deno.serve(async (req) => {
     const hoyMadrid = new Intl.DateTimeFormat("es-ES", {
       timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long", year: "numeric",
     }).format(new Date());
+    // Calendario pre-calculado: los modelos fallan calculando fechas relativas.
+    // Se inyecta una tabla exacta de los próximos 10 días en Europe/Madrid.
+    const calendarioTabla = Array.from({ length: 10 }, (_, i) => {
+      const d = new Date(Date.now() + i * 86400000);
+      const f = new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long" }).format(d);
+      const wd = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Madrid", weekday: "short" }).format(d);
+      const finde = wd === "Sat" || wd === "Sun";
+      return `${i === 0 ? "HOY" : i === 1 ? "MAÑANA" : ""} ${f}${finde ? " (fin de semana: NO agendar)" : ""}`.trim();
+    }).join("\n- ");
     const systemPrompt = `Eres una persona del equipo de Afflux (especialistas en proindivisos en Madrid desde 2015), no un guion ni un bot recitando.
 Hablas por WhatsApp con alguien que nos ha escrito a un canal público (revista, QR, web, carta). NO asumas que vino "por la carta".
 
 CONTEXTO REAL:
-- FECHA DE HOY (Madrid): ${hoyMadrid}. Úsala para agendar bien: calcula correctamente qué día cae
-  "mañana", "el domingo", "esta semana"… NUNCA te confundas ni inventes la fecha; si el cliente te
-  corrige una fecha, acéptalo y recalcula sin discutir ni cambiar de día tú solo.
+- FECHA DE HOY (Madrid): ${hoyMadrid}.
+- CALENDARIO EXACTO (usa SIEMPRE esta tabla para cualquier día que mencione el cliente, NUNCA calcules tú):
+- ${calendarioTabla}
+  Cuando el cliente diga "mañana", "el jueves", "el domingo", "esta semana"… localiza la fila en la
+  tabla y usa esa fecha literal. NUNCA inventes ni calcules la fecha por tu cuenta. Si el cliente te
+  corrige, acéptalo y recalcula sobre la tabla sin discutir.
 - HORARIO PARA AGENDAR reunión/llamada: lunes a viernes, de 8:00 a 19:00 (no fines de semana). Si el
-  cliente propone un día, calcula la fecha real a partir de HOY; si cae en fin de semana o fuera de
-  horario, ofrécele el día/hora hábil más cercano. NUNCA inventes la fecha ni el día de la semana;
-  si el cliente te corrige, acéptalo y recalcula.
+  cliente propone un día, resuélvelo con el CALENDARIO EXACTO de arriba; si cae en fin de semana o
+  fuera de horario, ofrécele el día/hora hábil más cercano de la tabla. NUNCA inventes la fecha ni
+  el día de la semana; si el cliente te corrige, acéptalo y recalcula sobre la tabla.
 - Este lead nos contactó ÉL primero. Tú NUNCA inicias conversación, SOLO respondes.
 - Castellano de España, tratamiento de "USTED" siempre, tono calmado, sin urgencia comercial.
 - Voz de marca: CLARIDAD, no venta. Empatía ANTES que números. Hablas como una persona real por WhatsApp.
@@ -1040,10 +1052,14 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     // FALLBACK a Gemini Flash vía gateway de Lovable si OpenRouter falla (sin saldo, caído, sin key),
     // para que el bot NUNCA se quede mudo. Reintentos 3x en errores transitorios (429/5xx).
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    const MODEL_PRIMARY = "anthropic/claude-haiku-4.5";
-    const MODEL_FALLBACK = "google/gemini-3-flash-preview";
+    const MODEL_PRIMARY = "anthropic/claude-sonnet-4.6";     // titular: mejor cierre de objeciones
+    const MODEL_SECONDARY = "anthropic/claude-haiku-4.5";    // respaldo rápido (mismo OpenRouter)
+    const MODEL_FALLBACK = "google/gemini-3-flash-preview";  // último recurso: gateway Lovable
     const providers: Array<{ url: string; key: string | undefined; model: string; jsonFmt: boolean }> = [];
-    if (OPENROUTER_API_KEY) providers.push({ url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY, model: MODEL_PRIMARY, jsonFmt: false });
+    if (OPENROUTER_API_KEY) {
+      providers.push({ url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY, model: MODEL_PRIMARY, jsonFmt: false });
+      providers.push({ url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY, model: MODEL_SECONDARY, jsonFmt: false });
+    }
     providers.push({ url: "https://ai.gateway.lovable.dev/v1/chat/completions", key: LOVABLE_API_KEY, model: MODEL_FALLBACK, jsonFmt: true });
 
     const AI_TIMEOUT_MS = 10000;       // timeout por intento (evita cuelgues del proveedor)
