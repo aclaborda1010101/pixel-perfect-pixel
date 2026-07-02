@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
 
     // Presencia CONTINUA: "escribiendo…" ininterrumpido mientras la IA piensa.
     // Un único burst inicial de 25s + refresh cada 20s hasta el envío del primer mensaje.
-    try { await sendPresence(contact.phone, 25000); } catch { /* best-effort */ }
+    sendPresence(contact.phone, 25000).catch(() => {});
     presenceTimer = setInterval(() => {
       sendPresence(contact.phone, 25000).catch(() => {});
     }, 20000);
@@ -469,7 +469,7 @@ Deno.serve(async (req) => {
       const offMsg: string = (cfg as any)?.off_hours_message ?? "Te respondo mañana sin falta 🙌";
       const alreadyToldTonight = lastOffHoursSent && (Date.now() - new Date(lastOffHoursSent.created_at).getTime()) < 8 * 60 * 60 * 1000;
       if (incomingStreak >= 3 && offMsg && !alreadyToldTonight) {
-        await sendPresence(contact.phone, 1800);
+        sendPresence(contact.phone, 1800).catch(() => {});
         await sleep(2000);
         let sendRes: any;
         try {
@@ -1301,7 +1301,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
         clearPresenceTimer();
       } else {
         const typingMs = 400 + Math.floor(Math.random() * 500);
-        await sendPresence(contact.phone, typingMs);
+        sendPresence(contact.phone, typingMs).catch(() => {});
         await sleep(typingMs);
       }
       let sendRes: any;
