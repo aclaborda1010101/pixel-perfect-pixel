@@ -692,6 +692,67 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
 
 /* ─────────── Ficha del lead (panel derecho del Inbox) ─────────── */
 function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
+  return <LeadCardInner current={current} qual={qual} regenerateSummary={regenerateSummary} setRol={setRol} />;
+}
+
+/* Resumen normalizado del lead. Pinta exactamente los campos que también se
+   vuelcan a la nota de HubSpot en wa_sync_hubspot: nombre, rol, dirección,
+   situación, intención, nº propietarios, % propiedad, cita propuesta. */
+function firstNonEmpty(q: Record<string, any>, keys: string[]): any {
+  for (const k of keys) { const v = q?.[k]; if (v != null && v !== "") return v; }
+  return null;
+}
+function FichaLead({ qual, current }: { qual: Record<string, any>; current: any }) {
+  const stage = current?.wa_contacts?.stage ?? "nuevo";
+  const fmt = (v: any) => {
+    if (v == null || v === "") return <span className="italic text-muted-foreground/60">—</span>;
+    if (v === true || v === "si" || v === "sí") return <span className="text-success">Sí</span>;
+    if (v === false || v === "no") return <span className="text-destructive">No</span>;
+    return <span className="text-foreground">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>;
+  };
+  const nombre = firstNonEmpty(qual, ["nombre_apellidos"]) ?? current?.wa_contacts?.name ?? null;
+  const rolProp = firstNonEmpty(qual, ["rol_propietario", "rol", "tipologia_proindivisario"]) ?? current?.rol_owner ?? null;
+  const direccion = firstNonEmpty(qual, ["direccion_inmueble", "direccion", "edificio_mencionado"]);
+  const situacion = firstNonEmpty(qual, ["situacion", "nivel_conflicto", "fase_actual"]);
+  const intencion = firstNonEmpty(qual, ["intencion_venta", "interes_reunion", "motivacion_principal"]);
+  const numProp = firstNonEmpty(qual, ["num_copropietarios", "numero_propietarios"]);
+  const cuota = firstNonEmpty(qual, ["cuota_participacion", "porcentaje_propiedad", "porcentaje_participacion"]);
+  const cita = firstNonEmpty(qual, ["cita_propuesta", "cita", "fecha_cita_propuesta"]);
+  const rows: Array<[string, any]> = [
+    ["Nombre", nombre],
+    ["Rol", rolProp],
+    ["Dirección / edificio", direccion],
+    ["Situación", situacion],
+    ["Intención de venta", intencion],
+    ["Nº copropietarios", numProp],
+    ["% propiedad", cuota],
+    ["Cita propuesta", cita],
+    ["Stage", stage],
+  ];
+  return (
+    <section className="rounded-[6px] border border-gold/30 bg-gold/5 p-3">
+      <div className="mb-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-gold">
+        <IdCard className="h-3 w-3" /> Ficha del lead
+      </div>
+      <dl className="divide-y divide-border-faint/60">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-baseline justify-between gap-3 py-1">
+            <dt className="text-[11px] text-muted-foreground">{label}</dt>
+            <dd className="text-right text-xs">{fmt(value)}</dd>
+          </div>
+        ))}
+      </dl>
+      {current?.summary && (
+        <div className="mt-2 border-t border-border-faint/60 pt-2 text-[11px] leading-snug text-foreground/90">
+          <div className="mb-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">Resumen</div>
+          <p className="whitespace-pre-line line-clamp-6">{current.summary}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LeadCardInner({ current, qual, regenerateSummary, setRol }: any) {
   const stage = current.wa_contacts?.stage ?? "nuevo";
   const contactId = current.wa_contacts?.id ?? current.contact_id;
   const phone = current.wa_contacts?.phone ?? "";
@@ -810,6 +871,9 @@ function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
           ⚠️ Identidad por confirmar: el nombre que da no coincide con el del registro.
         </section>
       )}
+
+      {/* FICHA DEL LEAD · resumen normalizado (lo que el bot ha extraído) */}
+      <FichaLead qual={qual} current={current} />
 
       {/* IDENTIDAD */}
       <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">

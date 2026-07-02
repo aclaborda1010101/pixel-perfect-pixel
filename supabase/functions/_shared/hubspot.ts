@@ -21,10 +21,22 @@ export const corsHeaders = {
 
 export async function hubspotFetch(path: string, init?: RequestInit) {
   const url = `${HUBSPOT_GATEWAY}${path}`;
-  const res = await fetch(url, {
-    ...init,
-    headers: { ...hubspotHeaders(), ...(init?.headers || {}) },
-  });
+  const HS_TIMEOUT_MS = 20000;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), HS_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: { ...hubspotHeaders(), ...(init?.headers || {}) },
+      signal: ctrl.signal,
+    });
+  } catch (e: any) {
+    clearTimeout(t);
+    if (e?.name === "AbortError") throw new Error(`HubSpot ${path} timeout (${HS_TIMEOUT_MS}ms)`);
+    throw e;
+  }
+  clearTimeout(t);
   const text = await res.text();
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
