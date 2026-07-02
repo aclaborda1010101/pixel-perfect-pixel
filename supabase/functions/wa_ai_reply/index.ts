@@ -1288,10 +1288,18 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
 
     for (let i = 0; i < finalReplies.length; i++) {
       const m = finalReplies[i];
-      const thinkMs = 700 + Math.floor(Math.random() * 900);
-      const typeMs = Math.round(m.length * MS_PER_CHAR * (0.85 + Math.random() * 0.30));
-      let typingMs = Math.max(2000, Math.min(thinkMs + typeMs, 17000));
-      if (!isActive) typingMs = Math.min(typingMs + 1500, 22000);
+      let typingMs: number;
+      if (i === 0) {
+        // Primer mensaje: descontar el tiempo ya invertido (debounce + IA) para que
+        // el lead reciba respuesta en ~9-12s desde su entrante.
+        const objetivoTotalMs = Math.max(8000, Math.min(3000 + m.length * 33, 14000));
+        const elapsed = Date.now() - jobStartMs;
+        typingMs = Math.max(1200, Math.min(objetivoTotalMs - elapsed, 6000));
+      } else {
+        const thinkMs = 700 + Math.floor(Math.random() * 900);
+        const typeMs = Math.round(m.length * MS_PER_CHAR * (0.85 + Math.random() * 0.30));
+        typingMs = Math.max(1500, Math.min(thinkMs + typeMs, 7000));
+      }
       // El "escribiendo…" se mantiene visible durante toda la elaboración.
       await sendPresence(contact.phone, typingMs);
       await sleep(typingMs);
