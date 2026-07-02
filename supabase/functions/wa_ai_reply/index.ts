@@ -1015,7 +1015,9 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
 - "inversor_pasivo": compró para alquilar y no se mete.
 - "operador_profesional": gestor de patrimonio / dueño de varios edificios.
 - "institucional": fondo, SOCIMI, sociedad grande.
-- "desconocido": sin pistas suficientes.`;
+- "desconocido": sin pistas suficientes.
+
+RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto suelto fuera del JSON.`;
 
     const aiMessages = [
       { role: "system", content: systemPrompt },
@@ -1093,6 +1095,12 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
       if (a >= 0 && b > a) s = s.slice(a, b + 1);
       parsed = JSON.parse(s);
     } catch { parsed = { messages: [], qualification_update: {}, propose_meeting: false }; }
+
+    // Fallback: si el modelo respondió en texto plano válido, usarlo como único mensaje.
+    const looksLikeText = raw && raw.length >= 2 && raw.length <= 1200 && !raw.trim().startsWith("{") && !/"messages"\s*:/.test(raw);
+    if ((!Array.isArray(parsed.messages) || !parsed.messages.some((s: any) => typeof s === "string" && s.trim())) && looksLikeText) {
+      parsed = { ...parsed, messages: [raw.trim()], qualification_update: parsed.qualification_update ?? {}, propose_meeting: !!parsed.propose_meeting };
+    }
 
     // UN SOLO mensaje por turno: una persona no envía dos burbujas seguidas.
     const replyMsgs: string[] = Array.isArray(parsed.messages)
