@@ -87,15 +87,17 @@ async function autoTripOnDisconnect(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let conversation_id: string | null = null;
+  let admin: any = null;
   try {
-    const { conversation_id } = await req.json();
+    ({ conversation_id } = await req.json());
     if (!conversation_id) {
       return new Response(JSON.stringify({ error: "conversation_id requerido" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       return new Response(JSON.stringify({ error: "LOVABLE_API_KEY missing" }), {
@@ -1383,11 +1385,13 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
     // en 'running' para siempre → conversación muda. Marcarlo 'error' (envuelto en try
     // por si la excepción ocurrió antes de tener admin/conversation_id).
     try {
-      await admin.from("wa_ai_jobs").update({
-        status: "error",
-        error: `unhandled: ${String(e?.message ?? e).slice(0, 250)}`,
-        updated_at: new Date().toISOString(),
-      }).eq("conversation_id", conversation_id).eq("status", "running");
+      if (admin && conversation_id) {
+        await admin.from("wa_ai_jobs").update({
+          status: "error",
+          error: `unhandled: ${String(e?.message ?? e).slice(0, 250)}`,
+          updated_at: new Date().toISOString(),
+        }).eq("conversation_id", conversation_id).eq("status", "running");
+      }
     } catch (_e) { /* no romper el handler por el marcado */ }
     return new Response(JSON.stringify({ error: e?.message ?? String(e) }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
