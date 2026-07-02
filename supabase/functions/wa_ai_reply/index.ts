@@ -89,6 +89,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   let conversation_id: string | null = null;
   let admin: any = null;
+  let presenceTimer: ReturnType<typeof setInterval> | null = null;
+  const clearPresenceTimer = () => {
+    if (presenceTimer) { try { clearInterval(presenceTimer); } catch { /* noop */ } presenceTimer = null; }
+  };
   try {
     ({ conversation_id } = await req.json());
     if (!conversation_id) {
@@ -174,7 +178,7 @@ Deno.serve(async (req) => {
     // durante la espera llegó un entrante MÁS NUEVO (o ya se contestó), abortamos esta
     // invocación; la del último mensaje será la que responda, con el contexto consolidado.
     // ─────────────────────────────────────────────────────────────
-    const DEBOUNCE_MS = 3000;
+    const DEBOUNCE_MS = 1500;
     if (lastIn) {
       await sleep(DEBOUNCE_MS);
       const { data: newer } = await admin
@@ -198,9 +202,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Presencia temprana: mostrar "escribiendo…" al lead mientras la IA piensa,
-    // en vez de silencio de 30-60s. Cubre el prompt-build + llamada a IA.
-    try { await sendPresence(contact.phone, 12000); } catch { /* best-effort */ }
+    // Presencia CONTINUA: "escribiendo…" ininterrumpido mientras la IA piensa.
+    // Un único burst inicial de 25s + refresh cada 20s hasta el envío del primer mensaje.
+    try { await sendPresence(contact.phone, 25000); } catch { /* best-effort */ }
+    presenceTimer = setInterval(() => {
+      sendPresence(contact.phone, 25000).catch(() => {});
+    }, 20000);
 
     // ────────────────────────────────────────────────────────────
     // MEMORIA CROSS-CHANNEL: nombres de agentes humanos que han escrito por WhatsApp,
@@ -1047,7 +1054,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     let lastStatus = 0, lastTxt = "";
     for (const p of providers) {
       if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
-      const payloadObj: any = { model: p.model, messages: aiMessages, temperature: 0.4 };
+      const payloadObj: any = { model: p.model, messages: aiMessages, temperature: 0.4, max_tokens: 600 };
       if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
       const payload = JSON.stringify(payloadObj);
       let r: Response | null = null;
@@ -1282,35 +1289,19 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       }
     } catch (_e) { /* no bloquear el reply por esto */ }
 
-    // 4) TIEMPOS HUMANOS: delay total + presence typing + 1-3 mensajes con micro pausas
-    // Si la conversación está activa (último saliente del bot < 5 min), respondemos rápido.
-    // Si es primer contacto / lleva tiempo fría, mantenemos el delay humano largo.
-    const lastOut = [...realHistory].reverse().find((m: any) => m.direction === "out");
-    const lastOutAgeMs = lastOut?.created_at ? (Date.now() - new Date(lastOut.created_at).getTime()) : Infinity;
-    const isActive = lastOutAgeMs < 5 * 60 * 1000;
-    // Retardo de tecleo PROPORCIONAL A LA LONGITUD del mensaje: parecer una persona
-    // escribiendo. "Pensar" (0,7-1,6s) + teclear (~33 ms/carácter con ±15% de variación).
-    // Suelo 2s; techo 17s (22s en primer contacto frío). Así un párrafo de 4 líneas tarda
-    // ~9-13s en llegar, NUNCA 1s. (Antes el delay era aleatorio e independiente del texto.)
-    const MS_PER_CHAR = 33;
-
+    // 4) ENVÍO INMEDIATO: nada de tecleo humano artificial. El "escribiendo…" continuo
+    // ya se ha mostrado durante la generación de la IA (keep-alive). Primer mensaje
+    // sale al instante; mensajes siguientes con una micro-pausa mínima (400-900ms).
     for (let i = 0; i < finalReplies.length; i++) {
       const m = finalReplies[i];
-      let typingMs: number;
       if (i === 0) {
-        // Primer mensaje: descontar el tiempo ya invertido (debounce + IA) para que
-        // el lead reciba respuesta en ~9-12s desde su entrante.
-        const objetivoTotalMs = Math.max(8000, Math.min(3000 + m.length * 33, 14000));
-        const elapsed = Date.now() - jobStartMs;
-        typingMs = Math.max(1200, Math.min(objetivoTotalMs - elapsed, 6000));
+        // Parar el keep-alive del "escribiendo…" JUSTO antes de mandar el primer mensaje.
+        clearPresenceTimer();
       } else {
-        const thinkMs = 700 + Math.floor(Math.random() * 900);
-        const typeMs = Math.round(m.length * MS_PER_CHAR * (0.85 + Math.random() * 0.30));
-        typingMs = Math.max(1500, Math.min(thinkMs + typeMs, 7000));
+        const typingMs = 400 + Math.floor(Math.random() * 500);
+        await sendPresence(contact.phone, typingMs);
+        await sleep(typingMs);
       }
-      // El "escribiendo…" se mantiene visible durante toda la elaboración.
-      await sendPresence(contact.phone, typingMs);
-      await sleep(typingMs);
       let sendRes: any;
       try {
         sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
@@ -1346,9 +1337,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
         },
       });
       if (i < finalReplies.length - 1) {
-        await sleep(isActive
-          ? 300 + Math.floor(Math.random() * 600)
-          : 700 + Math.floor(Math.random() * 1600));
+        await sleep(300 + Math.floor(Math.random() * 500));
       }
     }
 
@@ -1419,5 +1408,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     return new Response(JSON.stringify({ error: e?.message ?? String(e) }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  } finally {
+    clearPresenceTimer();
   }
 });
