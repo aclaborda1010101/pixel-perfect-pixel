@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { scoreTier } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { ColaHoyCard } from "@/components/comercial/ColaHoyCard";
+import { StarBadge, AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
 
 function greet() {
   const h = new Date().getHours();
@@ -54,10 +55,35 @@ export default function ComercialDashboard() {
         };
       }
 
-      // 3. Scoring por edificio
-      const { data: scores } = await (supabase.from("v_building_score" as any) as any)
-        .select("id,direccion,ciudad,score,owners_count,num_viviendas,m2_total,division_horizontal")
-        .in("id", buildingIds);
+      // 3. Scoring por edificio: leemos directamente de `buildings`
+      // (cluster_score/score, es_estrella, avisos_inteligentes) + un lookup ligero
+      // a v_building_score para owners_count/num_viviendas/m2_total.
+      const [{ data: scoresRaw }, { data: bldgsRaw }] = await Promise.all([
+        (supabase.from("v_building_score" as any) as any)
+          .select("id,owners_count,num_viviendas,m2_total,division_horizontal")
+          .in("id", buildingIds),
+        (supabase.from("buildings" as any) as any)
+          .select("id,direccion,ciudad,cluster_score,score,es_estrella,avisos_inteligentes")
+          .in("id", buildingIds),
+      ]);
+      const shapeById = new Map<string, any>();
+      for (const r of (scoresRaw ?? []) as any[]) shapeById.set(r.id, r);
+      const scores = ((bldgsRaw ?? []) as any[]).map((b: any) => {
+        const sh = shapeById.get(b.id) ?? {};
+        return {
+          id: b.id,
+          direccion: b.direccion,
+          ciudad: b.ciudad,
+          score: Number(b.cluster_score ?? b.score ?? 0),
+          owners_count: sh.owners_count,
+          num_viviendas: sh.num_viviendas,
+          m2_total: sh.m2_total,
+          division_horizontal: sh.division_horizontal,
+          es_estrella: !!b.es_estrella,
+          avisos_inteligentes: b.avisos_inteligentes,
+          n_alarmas: countAlarmas(b.avisos_inteligentes),
+        };
+      });
 
       // 4. Propietarios + contactos previos
       const { data: owners } = await (supabase.from("v_owner_score" as any) as any)
@@ -114,7 +140,12 @@ export default function ComercialDashboard() {
           ownersContactados: contactados.length,
           pctContactado: pctTotal > 0 ? (pctContactado / pctTotal) * 100 : 0,
         };
-      }).sort((a: any, b: any) => Number(b.score ?? 0) - Number(a.score ?? 0));
+      }).sort((a: any, b: any) => {
+        // Orden: ⭐ primero, luego nº de alarmas, luego score
+        if (!!b.es_estrella !== !!a.es_estrella) return b.es_estrella ? 1 : -1;
+        if ((b.n_alarmas ?? 0) !== (a.n_alarmas ?? 0)) return (b.n_alarmas ?? 0) - (a.n_alarmas ?? 0);
+        return Number(b.score ?? 0) - Number(a.score ?? 0);
+      });
 
       const totalOwners = (owners ?? []).length;
       const noContact = (owners ?? []).filter((o: any) => (o.contactos_previos ?? 0) === 0).length;
@@ -337,11 +368,12 @@ export default function ComercialDashboard() {
                     <li key={b.id} className="px-5 py-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="truncate text-sm font-medium text-foreground">{b.direccion}</span>
                             {!allDone && b.ownersContactados === 0 && (
                               <AlertCircle className="h-3.5 w-3.5 text-destructive" />
                             )}
+                            <AlarmChips avisos={b.avisos_inteligentes} esEstrella={b.es_estrella} max={3} />
                           </div>
                           <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
                             {b.ciudad ?? "—"} · {b.num_viviendas ?? "?"} viv · {b.ownersTotal} propietarios

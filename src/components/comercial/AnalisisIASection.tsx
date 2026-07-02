@@ -179,14 +179,22 @@ export function AnalisisIASection({ buildingId }: { buildingId: string }) {
 
         {(analysis?.imgs?.length ?? 0) > 0 && (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
-            {analysis!.imgs!.map((img: any) => (
-              <a key={img.id} href={img.public_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border-faint">
-                <img src={img.public_url} alt={img.source} className="aspect-square w-full object-cover" loading="lazy" />
-                <div className="bg-surface-1 px-2 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                  {img.source}{img.heading != null ? ` · ${img.heading}°` : ""}
-                </div>
-              </a>
-            ))}
+            {analysis!.imgs!.map((img: any) => {
+              const bust = img.fetched_at ? `?v=${encodeURIComponent(img.fetched_at)}` : "";
+              const src = `${img.public_url}${bust}`;
+              const fecha = img.fetched_at
+                ? new Date(img.fetched_at).toLocaleDateString("es", { day: "2-digit", month: "short", year: "numeric" })
+                : null;
+              return (
+                <a key={img.id} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border-faint">
+                  <img src={src} alt={img.source} className="aspect-square w-full object-cover" loading="lazy" />
+                  <div className="bg-surface-1 px-2 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                    <div>{img.source}{img.heading != null ? ` · ${img.heading}°` : ""}</div>
+                    {fecha && <div className="text-[8px] normal-case tracking-normal text-muted-foreground/70">📅 {fecha}</div>}
+                  </div>
+                </a>
+              );
+            })}
           </div>
         )}
 

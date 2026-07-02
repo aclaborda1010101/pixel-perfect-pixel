@@ -53,6 +53,7 @@ import {
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
+import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
 import { NewBuildingDialog } from "@/components/buildings/NewBuildingDialog";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { Plus } from "lucide-react";
@@ -65,6 +66,8 @@ type Row = {
   barrio: string | null;
   distrito: string | null;
   score: number;
+  es_estrella: boolean;
+  n_alarmas: number;
   num_viviendas: number | null;
   m2_total: number | null;
   owners_count: number | null;
@@ -150,6 +153,7 @@ function BuildingCard({ r }: { r: Row }) {
             </h3>
             <div className="flex flex-wrap items-center gap-1.5">
               <ClusterChip cluster={r.cluster_asignado} />
+              <AlarmChips avisos={r.raw?.avisos_inteligentes} esEstrella={r.es_estrella} max={3} />
               <DocAlertBadge building={{ score: r.score, metadatos: r.raw?.metadatos, catastro_ref: r.raw?.catastro_ref, refcatastral: r.raw?.refcatastral, iee_estado: (r as any).raw?.iee_estado ?? (r as any).iee_estado }} />
               {r.assigned && (
                 <Badge
@@ -315,7 +319,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown, iee_estado")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
@@ -344,13 +348,15 @@ export default function ComercialEdificios() {
           ciudad: b.ciudad,
           barrio: b.barrio ?? null,
           distrito: b.distrito ?? null,
-          score: Number(extra.score ?? b.score ?? 0),
+          score: Number(extra.cluster_score ?? extra.score ?? b.score ?? 0),
+          es_estrella: !!extra.es_estrella,
+          n_alarmas: countAlarmas(extra.avisos_inteligentes),
           num_viviendas: viv,
           m2_total: m2,
           owners_count: b.owners_count,
           division_horizontal: !!b.division_horizontal,
           ratio: m2 && viv ? m2 / viv : null,
-          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null },
+          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
           avisos,
@@ -389,7 +395,7 @@ export default function ComercialEdificios() {
           .range(from, from + PAGE - 1);
       const fetchBldgsPage = (from: number) =>
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_breakdown, iee_estado")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
           // also need cluster_asignado for chips
           .range(from, from + PAGE - 1);
       const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
@@ -455,13 +461,15 @@ export default function ComercialEdificios() {
           ciudad: b.ciudad,
           barrio: b.barrio ?? null,
           distrito: b.distrito ?? null,
-          score: Number(extra.score ?? b.score ?? 0),
+          score: Number(extra.cluster_score ?? extra.score ?? b.score ?? 0),
+          es_estrella: !!extra.es_estrella,
+          n_alarmas: countAlarmas(extra.avisos_inteligentes),
           num_viviendas: viv,
           m2_total: m2,
           owners_count: b.owners_count,
           division_horizontal: !!b.division_horizontal,
           ratio: m2 && viv ? m2 / viv : null,
-          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null },
+          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
           avisos,
@@ -583,6 +591,9 @@ export default function ComercialEdificios() {
     });
 
     const cmp = (a: Row, b: Row) => {
+      // Prioridad global: ⭐ ESTRELLA → nº de alarmas → criterio elegido
+      if (a.es_estrella !== b.es_estrella) return a.es_estrella ? -1 : 1;
+      if (a.n_alarmas !== b.n_alarmas) return b.n_alarmas - a.n_alarmas;
       switch (sort) {
         case "score_asc":
           return a.score - b.score;

@@ -47,6 +47,7 @@ import { VerificacionInlinePanel } from "@/components/comercial/VerificacionInli
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { IeeBadge, IeeCard } from "@/components/buildings/IeeStatus";
+import { AlarmChips } from "@/components/comercial/AlarmChips";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -189,6 +190,7 @@ export default function ComercialEdificioDetalle() {
         subtitle={`${b.ciudad ?? ""} ${b.codigo_postal ?? ""}`}
         actions={
           <div className="flex gap-2">
+            <AlarmChips avisos={(b as any)?.avisos_inteligentes} esEstrella={(b as any)?.es_estrella} max={3} />
             <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral, iee_estado: (b as any)?.iee_estado }} />
             <IeeBadge building={b as any} />
             {assigned ? (
