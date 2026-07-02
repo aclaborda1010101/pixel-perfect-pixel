@@ -368,11 +368,12 @@ export default function ComercialDashboard() {
                     <li key={b.id} className="px-5 py-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="truncate text-sm font-medium text-foreground">{b.direccion}</span>
                             {!allDone && b.ownersContactados === 0 && (
                               <AlertCircle className="h-3.5 w-3.5 text-destructive" />
                             )}
+                            <AlarmChips avisos={b.avisos_inteligentes} esEstrella={b.es_estrella} max={3} />
                           </div>
                           <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
                             {b.ciudad ?? "—"} · {b.num_viviendas ?? "?"} viv · {b.ownersTotal} propietarios
