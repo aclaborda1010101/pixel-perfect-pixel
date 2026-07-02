@@ -50,6 +50,7 @@ const AdminEquipo = lazy(() => import("./pages/admin/Equipo"));
 const AdminZonas = lazy(() => import("./pages/admin/Zonas"));
 const AdminIA = lazy(() => import("./pages/admin/IA"));
 const AdminOps = lazy(() => import("./pages/admin/Ops"));
+const AdminSync = lazy(() => import("./pages/admin/Sync"));
 const WhatsappDashboard = lazy(() => import("./pages/whatsapp/WhatsappDashboard"));
 const RevisionEscaleras = lazy(() => import("./pages/RevisionEscaleras"));
 
@@ -139,6 +140,8 @@ const App = () => (
                 <Route path="/admin/zonas" element={<AdminZonas />} />
                 <Route path="/admin/ia" element={<AdminIA />} />
                 <Route path="/admin/_ops" element={<AdminOps />} />
+                <Route path="/admin" element={<AdminSync />} />
+                <Route path="/admin/sync" element={<AdminSync />} />
                 <Route path="/enriquecimiento" element={<Enriquecimiento />} />
                 <Route path="/whatsapp" element={<WhatsappDashboard />} />
                 <Route path="/revision-escaleras" element={<RevisionEscaleras />} />

@@ -1016,6 +1016,8 @@ export type Database = {
           current_phase: string | null
           error: string | null
           finished_at: string | null
+          phases: Json
+          pipeline_stage: string | null
           started_at: string | null
           status: string | null
           updated_at: string
@@ -1025,6 +1027,8 @@ export type Database = {
           current_phase?: string | null
           error?: string | null
           finished_at?: string | null
+          phases?: Json
+          pipeline_stage?: string | null
           started_at?: string | null
           status?: string | null
           updated_at?: string
@@ -1034,6 +1038,8 @@ export type Database = {
           current_phase?: string | null
           error?: string | null
           finished_at?: string | null
+          phases?: Json
+          pipeline_stage?: string | null
           started_at?: string | null
           status?: string | null
           updated_at?: string
