@@ -153,6 +153,7 @@ function BuildingCard({ r }: { r: Row }) {
             </h3>
             <div className="flex flex-wrap items-center gap-1.5">
               <ClusterChip cluster={r.cluster_asignado} />
+              <AlarmChips avisos={r.raw?.avisos_inteligentes} esEstrella={r.es_estrella} max={3} />
               <DocAlertBadge building={{ score: r.score, metadatos: r.raw?.metadatos, catastro_ref: r.raw?.catastro_ref, refcatastral: r.raw?.refcatastral, iee_estado: (r as any).raw?.iee_estado ?? (r as any).iee_estado }} />
               {r.assigned && (
                 <Badge
