@@ -37,11 +37,11 @@ function madridNow(): { h: number; m: number; ymd: string } {
   return { h: Number(parts.hour), m: Number(parts.minute), ymd: `${parts.year}-${parts.month}-${parts.day}` };
 }
 
-async function sendPresence(phone: string, ms: number) {
+async function sendPresence(phone: string, ms: number, presence = "composing") {
   try {
     await evoFetch(`/chat/sendPresence/${EVOLUTION_INSTANCE}`, {
       method: "POST",
-      body: JSON.stringify({ number: phone, delay: ms, presence: "composing" }),
+      body: JSON.stringify({ number: phone, delay: ms, presence }),
     });
   } catch { /* presence es opcional */ }
 }
