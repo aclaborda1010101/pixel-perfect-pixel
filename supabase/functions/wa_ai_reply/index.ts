@@ -37,11 +37,11 @@ function madridNow(): { h: number; m: number; ymd: string } {
   return { h: Number(parts.hour), m: Number(parts.minute), ymd: `${parts.year}-${parts.month}-${parts.day}` };
 }
 
-async function sendPresence(phone: string, ms: number) {
+async function sendPresence(phone: string, ms: number, presence = "composing") {
   try {
     await evoFetch(`/chat/sendPresence/${EVOLUTION_INSTANCE}`, {
       method: "POST",
-      body: JSON.stringify({ number: phone, delay: ms, presence: "composing" }),
+      body: JSON.stringify({ number: phone, delay: ms, presence }),
     });
   } catch { /* presence es opcional */ }
 }
@@ -204,10 +204,10 @@ Deno.serve(async (req) => {
 
     // Presencia CONTINUA: "escribiendo…" ininterrumpido mientras la IA piensa.
     // Un único burst inicial de 25s + refresh cada 20s hasta el envío del primer mensaje.
-    sendPresence(contact.phone, 25000).catch(() => {});
+    sendPresence(contact.phone, 8000).catch(() => {});
     presenceTimer = setInterval(() => {
-      sendPresence(contact.phone, 25000).catch(() => {});
-    }, 20000);
+      sendPresence(contact.phone, 8000).catch(() => {});
+    }, 6000);
 
     // ────────────────────────────────────────────────────────────
     // MEMORIA CROSS-CHANNEL: nombres de agentes humanos que han escrito por WhatsApp,
@@ -1338,7 +1338,9 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
           propose_meeting: !!parsed.propose_meeting,
         },
       });
-      if (i < finalReplies.length - 1) {
+      if (i === finalReplies.length - 1) {
+        sendPresence(contact.phone, 800, "paused").catch(() => {});
+      } else {
         await sleep(300 + Math.floor(Math.random() * 500));
       }
     }
