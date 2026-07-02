@@ -530,6 +530,9 @@ Deno.serve(async (req) => {
       // Sin 'pending' ni 'running' reciente → invocación manual/edge: seguimos sin reclamar.
     }
 
+    // Marca temporal para descontar tiempo ya transcurrido (debounce + IA) del primer typing.
+    const jobStartMs = Date.now();
+
     // 3) Playbook Voss (mejores tácticas registradas)
     let vossSnippets: string[] = [];
     try {
