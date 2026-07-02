@@ -116,19 +116,18 @@ async function logStart(admin: any, conversation_id: string): Promise<string | n
     const { data } = await admin.from("hubspot_sync_log").insert({
       entity: "wa_ficha",
       status: "running",
-      payload: { conversation_id },
+      metadatos: { conversation_id },
     }).select("id").single();
     return data?.id ?? null;
   } catch (_e) { return null; }
 }
-async function logFinish(admin: any, logId: string | null, status: string, extra: Record<string, any>) {
+async function logFinish(admin: any, logId: string | null, status: string, extra: { error?: string; metadatos?: Record<string, any> }) {
   if (!logId) return;
   try {
-    await admin.from("hubspot_sync_log").update({
-      status,
-      finished_at: new Date().toISOString(),
-      ...extra,
-    }).eq("id", logId);
+    const patch: Record<string, any> = { status, finished_at: new Date().toISOString() };
+    if (extra.error) patch.error_message = extra.error;
+    if (extra.metadatos) patch.metadatos = extra.metadatos;
+    await admin.from("hubspot_sync_log").update(patch).eq("id", logId);
   } catch (_e) { /* best-effort */ }
 }
 
@@ -152,7 +151,7 @@ Deno.serve(async (req) => {
     if (!conv) throw new Error("conversación no encontrada");
     const contact: any = (conv as any).wa_contacts;
     if (!contact) {
-      await logFinish(admin, logId, "skipped", { error: "no_contact" });
+      await logFinish(admin, logId, "error", { error: "no_contact" });
       return new Response(JSON.stringify({ ok: false, reason: "no_contact" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -288,7 +287,7 @@ Deno.serve(async (req) => {
     }
 
     await logFinish(admin, logId, "ok", {
-      payload: { conversation_id, hs_contact_id: hsContactId, note_id: noteId, created_contact: createdContact },
+      metadatos: { conversation_id, hs_contact_id: hsContactId, note_id: noteId, created_contact: createdContact },
     });
     return new Response(JSON.stringify({
       ok: true, hs_contact_id: hsContactId, note_id: noteId, created_contact: createdContact,
