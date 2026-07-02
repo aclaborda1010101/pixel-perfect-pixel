@@ -1182,7 +1182,9 @@ export type Database = {
           direccion: string
           division_horizontal: boolean
           es_esquina_manual: boolean | null
+          es_estrella: boolean
           estado: Database["public"]["Enums"]["building_status"]
+          grupo_barrio: string | null
           id: string
           iee_actualizado_at: string | null
           iee_deficiencias: Json | null
@@ -1194,6 +1196,7 @@ export type Database = {
           metadatos: Json
           notas: string | null
           numero_propietarios: number | null
+          pct_terciario: number | null
           refcatastral: string | null
           score: number | null
           score_breakdown: Json | null
@@ -1216,7 +1219,9 @@ export type Database = {
           direccion: string
           division_horizontal?: boolean
           es_esquina_manual?: boolean | null
+          es_estrella?: boolean
           estado?: Database["public"]["Enums"]["building_status"]
+          grupo_barrio?: string | null
           id?: string
           iee_actualizado_at?: string | null
           iee_deficiencias?: Json | null
@@ -1228,6 +1233,7 @@ export type Database = {
           metadatos?: Json
           notas?: string | null
           numero_propietarios?: number | null
+          pct_terciario?: number | null
           refcatastral?: string | null
           score?: number | null
           score_breakdown?: Json | null
@@ -1250,7 +1256,9 @@ export type Database = {
           direccion?: string
           division_horizontal?: boolean
           es_esquina_manual?: boolean | null
+          es_estrella?: boolean
           estado?: Database["public"]["Enums"]["building_status"]
+          grupo_barrio?: string | null
           id?: string
           iee_actualizado_at?: string | null
           iee_deficiencias?: Json | null
@@ -1262,6 +1270,7 @@ export type Database = {
           metadatos?: Json
           notas?: string | null
           numero_propietarios?: number | null
+          pct_terciario?: number | null
           refcatastral?: string | null
           score?: number | null
           score_breakdown?: Json | null
