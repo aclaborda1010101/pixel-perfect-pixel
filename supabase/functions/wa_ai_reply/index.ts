@@ -1046,7 +1046,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     if (OPENROUTER_API_KEY) providers.push({ url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY, model: MODEL_PRIMARY, jsonFmt: false });
     providers.push({ url: "https://ai.gateway.lovable.dev/v1/chat/completions", key: LOVABLE_API_KEY, model: MODEL_FALLBACK, jsonFmt: true });
 
-    const AI_TIMEOUT_MS = 30000;       // timeout por intento (evita cuelgues del proveedor)
+    const AI_TIMEOUT_MS = 10000;       // timeout por intento (evita cuelgues del proveedor)
     const AI_TOTAL_BUDGET_MS = 75000;  // presupuesto total de la fase IA (no agotar el wall-time del edge)
     const aiStart = Date.now();
     let aiRes: Response | null = null;
@@ -1069,6 +1069,8 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
           // abort por timeout o error de red: transitorio → reintenta / siguiente proveedor (NUNCA cuelga)
           r = null;
           lastTxt = `fetch abort/error (${p.model}): ${String((e as any)?.message ?? e).slice(0, 120)}`;
+          // Timeout en attempt 0: no reintenta con este proveedor; pasa directamente al siguiente
+          if (attempt === 0 && (e as any)?.name === "AbortError") break;
           if (attempt < 2) { await sleep(600 * (attempt + 1)); continue; }
           break;
         } finally {
