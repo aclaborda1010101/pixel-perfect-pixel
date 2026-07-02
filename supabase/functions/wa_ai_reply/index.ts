@@ -204,10 +204,10 @@ Deno.serve(async (req) => {
 
     // Presencia CONTINUA: "escribiendo…" ininterrumpido mientras la IA piensa.
     // Un único burst inicial de 25s + refresh cada 20s hasta el envío del primer mensaje.
-    sendPresence(contact.phone, 25000).catch(() => {});
+    sendPresence(contact.phone, 8000).catch(() => {});
     presenceTimer = setInterval(() => {
-      sendPresence(contact.phone, 25000).catch(() => {});
-    }, 20000);
+      sendPresence(contact.phone, 8000).catch(() => {});
+    }, 6000);
 
     // ────────────────────────────────────────────────────────────
     // MEMORIA CROSS-CHANNEL: nombres de agentes humanos que han escrito por WhatsApp,
