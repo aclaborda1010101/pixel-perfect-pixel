@@ -590,6 +590,9 @@ export default function ComercialEdificios() {
     });
 
     const cmp = (a: Row, b: Row) => {
+      // Prioridad global: ⭐ ESTRELLA → nº de alarmas → criterio elegido
+      if (a.es_estrella !== b.es_estrella) return a.es_estrella ? -1 : 1;
+      if (a.n_alarmas !== b.n_alarmas) return b.n_alarmas - a.n_alarmas;
       switch (sort) {
         case "score_asc":
           return a.score - b.score;
