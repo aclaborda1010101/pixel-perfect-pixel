@@ -72,13 +72,26 @@ Deno.serve(async (req) => {
 
   let body: any = {};
   try { body = await req.json(); } catch { /* empty body ok */ }
-  const onlySeed = body?.only_seed !== false; // default true: solo los 74
-  const limit = Number(body?.limit ?? 200);
+  // Fuente por defecto: TODOS los edificios con fila en building_analysis
+  // (el cohort real que hemos analizado). only_seed=true fuerza el filtro
+  // legacy por cartera_demo_seed.
+  const onlySeed = body?.only_seed === true;
+  const limit = Number(body?.limit ?? 500);
   const skipSignals = body?.skip_signals === true;
 
-  // 1. Selección de edificios
+  let buildingIds: string[] | null = null;
+  if (!onlySeed) {
+    const { data: anRows, error: anErr } = await sb
+      .from("building_analysis")
+      .select("building_id")
+      .limit(limit);
+    if (anErr) return json({ error: anErr.message }, 500);
+    buildingIds = Array.from(new Set(((anRows ?? []) as any[]).map((r) => r.building_id).filter(Boolean)));
+  }
+
   let q = sb.from("buildings").select("id, direccion, notas").limit(limit);
   if (onlySeed) q = q.eq("cartera_demo_seed", true);
+  else if (buildingIds && buildingIds.length) q = q.in("id", buildingIds);
   const { data: buildings, error } = await q;
   if (error) return json({ error: error.message }, 500);
   if (!buildings) return json({ ok: true, processed: 0 });
