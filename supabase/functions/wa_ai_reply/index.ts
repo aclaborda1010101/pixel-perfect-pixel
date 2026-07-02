@@ -1069,6 +1069,8 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
           // abort por timeout o error de red: transitorio → reintenta / siguiente proveedor (NUNCA cuelga)
           r = null;
           lastTxt = `fetch abort/error (${p.model}): ${String((e as any)?.message ?? e).slice(0, 120)}`;
+          // Timeout en attempt 0: no reintenta con este proveedor; pasa directamente al siguiente
+          if (attempt === 0 && (e as any)?.name === "AbortError") break;
           if (attempt < 2) { await sleep(600 * (attempt + 1)); continue; }
           break;
         } finally {
