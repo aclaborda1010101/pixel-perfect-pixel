@@ -2,6 +2,10 @@
 // SOLO responde a entrantes. Nunca inicia conversación, no envía plantillas salientes.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { evoFetch, EVOLUTION_INSTANCE } from "../_shared/evolution.ts";
+import {
+  detectModes, resolveRegister, buildTurnDirective, validateDraft,
+  repairInstruction, hardFallback, lastBotMessages,
+} from "../_shared/reply_guard.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1091,8 +1095,20 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
 
 RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto suelto fuera del JSON.`;
 
+    // ────────────────────────────────────────────────────────────
+    // GUARD (código, no prompt): detecta modos del turno (reproche / precio Nª vez /
+    // emoción / registro) e inyecta política dura para ESTE turno. La validación del
+    // borrador va DESPUÉS de generar (más abajo). "El prompt decide estilo; el código
+    // decide límites."
+    // ────────────────────────────────────────────────────────────
+    const turnModes = detectModes(lastInText, realHistory as any);
+    const register = resolveRegister(turnModes, (qual as any).registro);
+    if ((qual as any).registro !== register) (qual as any).registro = register;
+    const turnDirective = buildTurnDirective(turnModes, register);
+    const systemPromptFinal = systemPrompt + turnDirective;
+
     const aiMessages = [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: systemPromptFinal },
       ...realHistory.map((m: any) => ({
         role: m.direction === "in" ? "user" : "assistant",
         content: m.direction === "out" && m.sender_type === "human_agent"
@@ -1118,52 +1134,70 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     const AI_TIMEOUT_MS = 10000;       // timeout por intento (evita cuelgues del proveedor)
     const AI_TOTAL_BUDGET_MS = 75000;  // presupuesto total de la fase IA (no agotar el wall-time del edge)
     const aiStart = Date.now();
-    let aiRes: Response | null = null;
-    let modelUsed = "";
-    let lastStatus = 0, lastTxt = "";
-    for (const p of providers) {
-      if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
-      const payloadObj: any = { model: p.model, messages: aiMessages, temperature: 0.4, max_tokens: 600 };
-      if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
-      const payload = JSON.stringify(payloadObj);
-      let r: Response | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const remaining = AI_TOTAL_BUDGET_MS - (Date.now() - aiStart);
-        if (remaining <= 2000) break; // sin presupuesto: no arriesgar el wall-time
-        const ac = new AbortController();
-        const to = setTimeout(() => ac.abort(), Math.min(AI_TIMEOUT_MS, remaining));
-        try {
-          r = await fetch(p.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.key}` }, body: payload, signal: ac.signal });
-        } catch (e) {
-          // abort por timeout o error de red: transitorio → reintenta / siguiente proveedor (NUNCA cuelga)
-          r = null;
-          lastTxt = `fetch abort/error (${p.model}): ${String((e as any)?.message ?? e).slice(0, 120)}`;
-          // Timeout en attempt 0: no reintenta con este proveedor; pasa directamente al siguiente
-          if (attempt === 0 && (e as any)?.name === "AbortError") break;
-          if (attempt < 2) { await sleep(600 * (attempt + 1)); continue; }
-          break;
-        } finally {
-          clearTimeout(to);
+    // Una llamada de completion con failover de proveedores + reintentos. Reutilizable
+    // (generación inicial y paso de reparación del guard). Devuelve el texto crudo o el error.
+    async function runCompletion(msgs: any[]): Promise<{ ok: boolean; raw: string; modelUsed: string; status: number; txt: string }> {
+      let localRes: Response | null = null, modelUsed = "", lastStatus = 0, lastTxt = "";
+      for (const p of providers) {
+        if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
+        const payloadObj: any = { model: p.model, messages: msgs, temperature: 0.4, max_tokens: 600 };
+        if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
+        const payload = JSON.stringify(payloadObj);
+        let r: Response | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const remaining = AI_TOTAL_BUDGET_MS - (Date.now() - aiStart);
+          if (remaining <= 2000) break; // sin presupuesto: no arriesgar el wall-time
+          const ac = new AbortController();
+          const to = setTimeout(() => ac.abort(), Math.min(AI_TIMEOUT_MS, remaining));
+          try {
+            r = await fetch(p.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.key}` }, body: payload, signal: ac.signal });
+          } catch (e) {
+            r = null;
+            lastTxt = `fetch abort/error (${p.model}): ${String((e as any)?.message ?? e).slice(0, 120)}`;
+            if (attempt === 0 && (e as any)?.name === "AbortError") break;
+            if (attempt < 2) { await sleep(600 * (attempt + 1)); continue; }
+            break;
+          } finally { clearTimeout(to); }
+          if (r.ok) break;
+          if (r.status !== 429 && r.status < 500) break; // 4xx duro (p.ej. 402 sin saldo): pasa al siguiente
+          if (attempt < 2) await sleep(600 * (attempt + 1));
         }
-        if (r.ok) break;
-        if (r.status !== 429 && r.status < 500) break; // 4xx duro (p.ej. 402 sin saldo): pasa al siguiente proveedor
-        if (attempt < 2) await sleep(600 * (attempt + 1));
+        if (r && r.ok) { localRes = r; modelUsed = p.model; break; }
+        lastStatus = r?.status ?? lastStatus; lastTxt = r ? await r.text() : lastTxt;
       }
-      if (r && r.ok) { aiRes = r; modelUsed = p.model; break; }
-      lastStatus = r?.status ?? lastStatus; lastTxt = r ? await r.text() : lastTxt;
+      if (!localRes || !localRes.ok) return { ok: false, raw: "", modelUsed: "", status: lastStatus, txt: lastTxt };
+      const j = await localRes.json();
+      return { ok: true, raw: String(j?.choices?.[0]?.message?.content ?? "").trim(), modelUsed, status: 200, txt: "" };
     }
-    if (!aiRes || !aiRes.ok) {
+
+    // Extrae el mensaje único del JSON crudo del modelo (mismo parseo robusto que abajo).
+    function extractMsg(rawStr: string): string {
+      let p: any = {};
+      try {
+        let s = rawStr;
+        if (s.startsWith("```")) s = s.replace(/^```(json)?/i, "").replace(/```\s*$/, "").trim();
+        const a = s.indexOf("{"), b = s.lastIndexOf("}");
+        if (a >= 0 && b > a) s = s.slice(a, b + 1);
+        p = JSON.parse(s);
+      } catch { p = {}; }
+      if (Array.isArray(p.messages)) { const m = p.messages.find((x: any) => typeof x === "string" && x.trim()); if (m) return m.trim(); }
+      const looksTxt = rawStr && rawStr.length <= 1200 && !rawStr.trim().startsWith("{") && !/"messages"\s*:/.test(rawStr);
+      return looksTxt ? rawStr.trim() : "";
+    }
+
+    const first = await runCompletion(aiMessages);
+    if (!first.ok) {
       await admin.from("wa_ai_jobs").update({
         status: "error",
-        error: `AI ${lastStatus}: ${String(lastTxt).slice(0, 300)}`,
+        error: `AI ${first.status}: ${String(first.txt).slice(0, 300)}`,
         updated_at: new Date().toISOString(),
       }).eq("conversation_id", conversation_id).eq("status", "running");
-      return new Response(JSON.stringify({ error: `AI ${lastStatus}: ${lastTxt}` }), {
-        status: lastStatus || 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return new Response(JSON.stringify({ error: `AI ${first.status}: ${first.txt}` }), {
+        status: first.status || 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const aiJson = await aiRes.json();
-    const raw = String(aiJson?.choices?.[0]?.message?.content ?? "").trim();
+    let modelUsed = first.modelUsed;
+    const raw = first.raw;
     // Parseo ROBUSTO: quita fences ```json y extrae el primer objeto {...} por si el modelo lo envuelve.
     let parsed: any = {};
     try {
@@ -1211,6 +1245,40 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       return new Response(JSON.stringify({ ok: true, skip: "empty reply", logged: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // GUARD DE SALIDA (código > prompt): valida el borrador contra los límites duros
+    // (1 pregunta, longitud, muletillas, repetición de idea vs sus 2-3 últimos mensajes,
+    // registro tú/usted, y "no pedir dato" en turno de emoción/reproche). Si falla y queda
+    // presupuesto, UNA reparación dirigida (regeneración con las violaciones concretas);
+    // si aún falla, fallback determinista. Coste extra SOLO cuando el borrador incumple.
+    // ────────────────────────────────────────────────────────────
+    const botPrev = lastBotMessages(realHistory as any, 3);
+    const guardCtx = { lastBotMsgs: botPrev, register, modes: turnModes };
+    let guardMeta: any = { modes: turnModes, repaired: false };
+    {
+      let text = replyMsgs[0];
+      let v = validateDraft(text, guardCtx);
+      guardMeta.v1 = v.violations;
+      if (!v.ok && (Date.now() - aiStart) < AI_TOTAL_BUDGET_MS - 8000) {
+        const repairMsgs = [
+          ...aiMessages,
+          { role: "assistant", content: first.raw },
+          { role: "user", content: repairInstruction(v.violations, register) },
+        ];
+        const rep = await runCompletion(repairMsgs);
+        if (rep.ok) {
+          const cand = extractMsg(rep.raw);
+          const v2 = cand ? validateDraft(cand, guardCtx) : { ok: false, violations: v.violations };
+          if (cand && v2.violations.length < v.violations.length) {
+            text = cand; v = v2 as any; modelUsed = rep.modelUsed + "+repair"; guardMeta.repaired = true;
+          }
+        }
+      }
+      if (!v.ok) { text = hardFallback(text, guardCtx); guardMeta.repaired = true; guardMeta.fallback = true; }
+      guardMeta.v2 = v.violations;
+      replyMsgs[0] = text;
     }
 
     // Anti-duplicado: si el bot mandó literalmente lo mismo en los ÚLTIMOS 5 MINUTOS,
@@ -1405,6 +1473,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
           part: i + 1, of: finalReplies.length,
           qualification_update: cleanQu,
           propose_meeting: !!parsed.propose_meeting,
+          guard: guardMeta,
         },
       });
       if (i === finalReplies.length - 1) {
