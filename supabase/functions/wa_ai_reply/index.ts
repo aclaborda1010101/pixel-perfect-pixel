@@ -4,7 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { evoFetch, EVOLUTION_INSTANCE } from "../_shared/evolution.ts";
 import {
   detectModes, resolveRegister, buildTurnDirective, validateDraft,
-  repairInstruction, hardFallback, lastBotMessages,
+  repairInstruction, hardFallback, lastBotMessages, lastClientMessages,
 } from "../_shared/reply_guard.mjs";
 
 const corsHeaders = {
@@ -1255,7 +1255,8 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     // si aún falla, fallback determinista. Coste extra SOLO cuando el borrador incumple.
     // ────────────────────────────────────────────────────────────
     const botPrev = lastBotMessages(realHistory as any, 3);
-    const guardCtx = { lastBotMsgs: botPrev, register, modes: turnModes };
+    const clientPrev = lastClientMessages(realHistory as any, 2);
+    const guardCtx = { lastBotMsgs: botPrev, lastClientMsgs: clientPrev, register, modes: turnModes };
     let guardMeta: any = { modes: turnModes, repaired: false };
     {
       let text = replyMsgs[0];

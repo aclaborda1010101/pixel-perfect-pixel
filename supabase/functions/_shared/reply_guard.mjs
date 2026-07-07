@@ -110,7 +110,7 @@ export function buildTurnDirective(modes, register) {
 
 // ── validación del borrador ──────────────────────────────────────────────────
 export function validateDraft(text, ctx) {
-  const { lastBotMsgs = [], register = "usted", modes = {}, maxChars = 300, simThreshold = 0.58 } = ctx || {};
+  const { lastBotMsgs = [], lastClientMsgs = [], register = "usted", modes = {}, maxChars = 300, simThreshold = 0.58, espejoThreshold = 0.45 } = ctx || {};
   const violations = [];
   const t = String(text || "");
   const n = norm(t);
@@ -126,6 +126,15 @@ export function validateDraft(text, ctx) {
   for (const prev of lastBotMsgs) {
     const sim = maxSimilarity(t, prev);
     if (sim >= simThreshold) { violations.push({ rule: "repite_idea", detail: `sim ${sim.toFixed(2)} vs "${String(prev).slice(0, 60)}"` }); break; }
+  }
+  // Espejo AL CLIENTE: parrotea/parafrasea lo que el cliente acaba de decir (loro léxico).
+  // Caza el espejo léxico (palabras reutilizadas); el paráfrasis semántico profundo requiere
+  // embeddings o auto-crítica LLM (nivel 2). Excluye preguntas (referenciar un dato es legítimo).
+  if (!DATA_QUESTION.test(t)) {
+    for (const cm of lastClientMsgs) {
+      const sim = maxSimilarity(t, cm);
+      if (sim >= espejoThreshold) { violations.push({ rule: "espejo_cliente", detail: `sim ${sim.toFixed(2)} vs cliente "${String(cm).slice(0, 50)}"` }); break; }
+    }
   }
 
   // registro
@@ -153,6 +162,7 @@ export function repairInstruction(violations, register) {
     pide_dato_en_emocion: "NO pidas ningún dato: valida su emoción con algo concreto suyo y para ahí.",
     reproche_pide_dato: "NO pidas datos: reconoce el reproche en una frase y cambia de enfoque.",
     reproche_sin_reconocer: "Empieza reconociendo el reproche ('Tiene razón, disculpe') y cambia de enfoque.",
+    espejo_cliente: "Estás repitiendo/parafraseando lo que el cliente acaba de decir (le suena a loro). NO le devuelvas su frase; aporta algo NUEVO o haz una única pregunta que avance.",
   };
   const uniq = [...new Set(violations.map((v) => v.rule))];
   const fixes = uniq.map((r) => `- ${map[r] || r}`).join("\n");
@@ -185,6 +195,15 @@ export function hardFallback(text, ctx) {
 export function lastBotMessages(history, n = 3) {
   return (history || [])
     .filter((m) => m.role === "assistant" || m.direction === "out")
+    .map((m) => m.content ?? "")
+    .filter(Boolean)
+    .slice(-n);
+}
+
+// helper: últimos N mensajes entrantes (cliente) — para detectar espejo al cliente
+export function lastClientMessages(history, n = 2) {
+  return (history || [])
+    .filter((m) => m.role === "user" || m.direction === "in")
     .map((m) => m.content ?? "")
     .filter(Boolean)
     .slice(-n);
