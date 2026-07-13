@@ -576,7 +576,7 @@ Deno.serve(async (req) => {
       return `${i === 0 ? "HOY" : i === 1 ? "MAÑANA" : ""} ${f}${finde ? " (fin de semana: NO agendar)" : ""}`.trim();
     }).join("\n- ");
     const systemPrompt = `Eres una persona del equipo de Afflux (especialistas en proindivisos en Madrid desde 2015), no un guion ni un bot recitando.
-Hablas por WhatsApp con alguien que nos ha escrito a un canal público (revista, QR, web, carta). NO asumas que vino "por la carta".
+Hablas por WhatsApp con alguien que nos ha escrito a un canal público (QR, web u otros). NO asumas por qué vía nos conoció ni menciones "la carta" ni "la revista".
 
 ════════════════════════════════════════════════════════════════
 LAS 5 LEYES (mandan sobre TODO lo demás de este prompt, incluidas las fases y perfiles)
@@ -638,8 +638,9 @@ CONTEXTO REAL:
   tienes su nombre, teléfono, familiares ni dato personal alguno, ni menciones "bases de datos",
   "directorios de marketing", "el registro de la propiedad" ni "cruzar" fuentes para conseguir sus
   datos. Si pregunta cómo le hemos contactado: "En Afflux identificamos edificios en proindiviso en
-  Madrid con información pública y difundimos nuestra revista; por eso le llega el contacto" — sin
-  dar a entender que dispones de sus datos. Ante recelo, ofrece pasar con una persona del equipo.
+  Madrid con información pública; por eso podemos haber dado con el suyo" — sin dar a entender que
+  dispones de sus datos y SIN mencionar carta, revista ni buzoneo. Ante recelo, ofrece pasar con una
+  persona del equipo.
 - DATOS REALES DE AFFLUX (úsalos SIEMPRE tal cual; PROHIBIDO inventar otros):
   · Empresa: Afflux Property — compra de edificios residenciales y cuotas (proindivisos) en Madrid;
     más de 50 operaciones y +112 M€ invertidos; resuelve casos complejos (herencias, desacuerdos,
@@ -854,8 +855,8 @@ GUARDARRAÍLES — LÍNEAS ROJAS (no se cruzan NUNCA)
   familiares ni dato personal del cliente o de terceros. PROHIBIDO mencionar "bases de datos",
   "directorios de marketing", "registro de la propiedad" o "cruzar" fuentes para obtener sus datos.
   Solo conoces lo que él escriba en ESTE chat. Origen del contacto (si pregunta): "identificamos
-  edificios en proindiviso en Madrid con información pública y difundimos nuestra revista". NO uses
-  nombres ni teléfonos de otros copropietarios.
+  edificios en proindiviso en Madrid con información pública". PROHIBIDO mencionar "carta", "revista"
+  o "buzoneo" como vía de contacto. NO uses nombres ni teléfonos de otros copropietarios.
 - IDENTIDAD (R9): nunca confirmes ser un bot/IA ni admitas lagunas; reconduce como equipo de
   Afflux y, si insiste, ofrece pasar con un compañero humano.
 
@@ -1104,7 +1105,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     const turnModes = detectModes(lastInText, realHistory as any);
     const register = resolveRegister(turnModes, (qual as any).registro);
     if ((qual as any).registro !== register) (qual as any).registro = register;
-    const turnDirective = buildTurnDirective(turnModes, register);
+    const turnDirective = buildTurnDirective(turnModes, register, qual);
     const systemPromptFinal = systemPrompt + turnDirective;
 
     const aiMessages = [
@@ -1256,7 +1257,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     // ────────────────────────────────────────────────────────────
     const botPrev = lastBotMessages(realHistory as any, 3);
     const clientPrev = lastClientMessages(realHistory as any, 2);
-    const guardCtx = { lastBotMsgs: botPrev, lastClientMsgs: clientPrev, register, modes: turnModes };
+    const guardCtx = { lastBotMsgs: botPrev, lastClientMsgs: clientPrev, register, modes: turnModes, ficha: qual };
     let guardMeta: any = { modes: turnModes, repaired: false };
     {
       let text = replyMsgs[0];
