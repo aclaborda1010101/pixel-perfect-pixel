@@ -1154,8 +1154,8 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     // FALLBACK a Gemini Flash vía gateway de Lovable si OpenRouter falla (sin saldo, caído, sin key),
     // para que el bot NUNCA se quede mudo. Reintentos 3x en errores transitorios (429/5xx).
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    const MODEL_PRIMARY = "anthropic/claude-sonnet-4.6";     // titular: mejor cierre de objeciones
-    const MODEL_SECONDARY = "anthropic/claude-haiku-4.5";    // respaldo rápido (mismo OpenRouter)
+    const MODEL_PRIMARY = "openai/gpt-5.6-luna";             // titular (jul2026): igual/mejor calidad que sonnet-4.6 (R3/R4) a ~1/3 del coste (banco 15 sims)
+    const MODEL_SECONDARY = "anthropic/claude-sonnet-4.6";   // respaldo de calidad si Luna/OpenRouter falla (mismo OpenRouter)
     const MODEL_FALLBACK = "google/gemini-3-flash-preview";  // último recurso: gateway Lovable
     const providers: Array<{ url: string; key: string | undefined; model: string; jsonFmt: boolean }> = [];
     if (OPENROUTER_API_KEY) {
@@ -1173,7 +1173,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       let localRes: Response | null = null, modelUsed = "", lastStatus = 0, lastTxt = "";
       for (const p of providers) {
         if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
-        const payloadObj: any = { model: p.model, messages: msgs, temperature: 0.4, max_tokens: 600 };
+        const payloadObj: any = { model: p.model, messages: msgs, temperature: 0.4, max_tokens: 1400 };
         if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
         const payload = JSON.stringify(payloadObj);
         let r: Response | null = null;
