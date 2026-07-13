@@ -333,13 +333,18 @@ export function repairInstruction(violations, register) {
 export function hardFallback(text, ctx) {
   const { modes = {}, register = "usted", lastBotMsgs = [] } = ctx || {};
   const u = register === "tu"; // tú
-  // R6 · Apertura repetida: si el borrador abre con el mismo saludo que el mensaje anterior,
-  // quita la primera cláusula (el saludo) y deja el resto.
+  // R6 · Apertura repetida: si el borrador abre con el mismo saludo que su mensaje anterior,
+  // quita el saludo ("Perfecto, Nombre." completo) — pero SOLO si queda un mensaje entero y con
+  // sentido. Si fuera a dejar un fragmento (p.ej. "Cristina."), NO recorta (mejor saludo repetido
+  // que frase rota). Evita romper cierres de cita.
   {
     const apT = aperturaSaludo(text);
-    if (apT && lastBotMsgs.length && aperturaSaludo(lastBotMsgs[lastBotMsgs.length - 1]) === apT) {
-      const stripped = String(text || "").replace(/^\s*[¡¿"']?\s*[^.!?,]{0,40}[.,!]\s*/, "").trim();
-      if (stripped && stripped.length > 8) text = stripped[0].toUpperCase() + stripped.slice(1);
+    if (apT && lastBotMsgs.some((m) => aperturaSaludo(m) === apT)) {
+      const stripped = String(text || "")
+        .replace(/^\s*[¡¿"']?\s*[a-záéíóúñ]+[,.]?\s*([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+[,.]\s+)?/i, "")
+        .trim();
+      const esFragmento = stripped.length < 20 || /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+[.,!?]?$/.test(stripped);
+      if (stripped && !esFragmento) text = stripped[0].toUpperCase() + stripped.slice(1);
     }
   }
   // NO-PRESUPOSICIÓN: si el cliente no reveló propiedad y el borrador presupone, reescribe a la
