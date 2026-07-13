@@ -76,6 +76,8 @@ const FIELD_REASK = {
 const RE_PROPONE_HORA = /\b(a las?\s*\d{1,2}([:.]\d{2})?|\d{1,2}\s*h\b|\d{1,2}\s*de la (ma[ñn]ana|tarde|noche)|(este|el)\s+(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|ma[ñn]ana (por la|a las)|pasado ma[ñn]ana)\b/i;
 // R3 · el borrador confirma la cita (acusa día/hora + cierra).
 const RE_CONFIRMA = /(perfecto|estupendo|hecho|queda(mos)?|anotad|le llama|te llama|le llamamos|le pasa|hablamos entonces|nos vemos)/i;
+// R3 · el borrador de confirmación debe REPETIR el día/hora (plantilla Rev.4 "[día] a las [hora]").
+const RE_SENAL_TEMPORAL = /\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|ma[ñn]ana|hoy|pasado ma[ñn]ana|\d{1,2}\s*(h\b|:\d|de la (ma[ñn]ana|tarde|noche)))/i;
 const RE_REABRE_HORA = /\?[^?]*$/;
 const RE_PREGUNTA_HORA = /(a qu[eé] (hora|n[uú]mero)|qu[eé] (d[ií]a|hora|horario)|cu[aá]ndo le (viene|va)|en qu[eé] horario|le viene (mejor|bien).*\?)/i;
 // R4 · el borrador propone reunión/llamada.
@@ -97,12 +99,38 @@ const RE_EMOCION = [
   { re: /co[ñn]o|joder|hostia|me cago|estoy hasta/i, tema: "enfado/frustración" },
 ];
 
+// ¿El cliente ya se ha presentado en el historial? Red de seguridad para R1/R4/R5 cuando el
+// modelo no llega a extraer nombre_apellidos a la ficha a tiempo (evita repreguntar el nombre).
+const RE_CLIENTE_NOMBRE = /\b(soy|me llamo|mi nombre es|me llaman)\s+[a-záéíóúñ]{2,}/i;
+export function clientGaveName(history) {
+  const arr = history || [];
+  for (let i = 0; i < arr.length; i++) {
+    const m = arr[i];
+    const isClient = m.role === "user" || m.direction === "in";
+    if (!isClient) continue;
+    const c = String(m.content ?? "").trim();
+    if (RE_CLIENTE_NOMBRE.test(c)) return true;
+    // respuesta corta (1-3 palabras, con inicial mayúscula) justo tras el bot pidiendo el nombre
+    const prev = arr[i - 1];
+    const prevBot = prev && (prev.role === "assistant" || prev.direction === "out") ? String(prev.content ?? "") : "";
+    if (/con qui[eé]n tengo|c[oó]mo se llama|su nombre|qui[eé]n hablo/i.test(prevBot)) {
+      const STOP = new Set(["buenas", "buenos", "hola", "vale", "si", "no", "gracias", "ok", "perfecto", "dias", "días", "tardes", "noches", "que", "pues", "mire", "oiga", "usted"]);
+      const words = c.replace(/[.,;!?¡¿]/g, "").split(/\s+/).filter(Boolean);
+      if (words.length <= 4 && words.some((w) => /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{1,}$/.test(w) && !STOP.has(w.toLowerCase()))) return true;
+    }
+  }
+  return false;
+}
+
 export function detectModes(lastInText, history) {
   const t = String(lastInText || "");
   const inbound = (history || []).filter((m) => m.role === "user" || m.direction === "in");
   const contentOf = (m) => m.content ?? "";
   const precioVeces = inbound.filter((m) => RE_PRECIO.test(contentOf(m))).length + (RE_PRECIO.test(t) && !inbound.some((m)=>contentOf(m)===t) ? 1 : 0);
   const reproche = RE_REPROCHE.test(t);
+  // Nº de reproches de estilo en toda la conversación: si el cliente ya reprochó 2+ veces, no
+  // sirve seguir justificándose/disculpándose — hay que derivar a una persona (corta el bucle).
+  const reprocheCount = inbound.filter((m) => RE_REPROCHE.test(contentOf(m))).length + (reproche && !inbound.some((m) => contentOf(m) === t) ? 1 : 0);
   let emocion = null;
   for (const e of RE_EMOCION) if (e.re.test(t)) { emocion = e.tema; break; }
   const pideTuteo = RE_TUTEO_REQUEST.test(t) || (history || []).some((m) => (m.role === "user" || m.direction === "in") && RE_TUTEO_REQUEST.test(contentOf(m)));
@@ -111,7 +139,8 @@ export function detectModes(lastInText, history) {
   // escribo").
   const botOfrecioCita = (history || []).some((m) => (m.role === "assistant" || m.direction === "out") && RE_PROPONE_CITA.test(contentOf(m)));
   const clienteProponeHora = RE_PROPONE_HORA.test(t) && (botOfrecioCita || /qued|llam|ve[rn]|cita|reuni|\b(vale|ok|perfecto|de acuerdo|me viene|acepto|venga)\b/i.test(t));
-  return { reproche, precioVeces: Math.max(precioVeces, RE_PRECIO.test(t) ? 1 : 0), emocion, pideTuteo, clienteProponeHora };
+  const nombreDado = clientGaveName(history);
+  return { reproche, reprocheCount, precioVeces: Math.max(precioVeces, RE_PRECIO.test(t) ? 1 : 0), emocion, pideTuteo, clienteProponeHora, nombreDado };
 }
 
 // registro establecido: usted por defecto; sólo tú si el cliente lo pidió explícito.
@@ -134,7 +163,8 @@ export function buildTurnDirective(modes, register, ficha = {}) {
     .map(([k]) => k);
   if (conocidos.length) lines.push(`YA SABES estos datos (NO los vuelvas a preguntar, úsalos): ${conocidos.join(", ")}. Si el cliente ya dio el dato, se usa y se avanza a lo siguiente.`);
 
-  if (modes.reproche) lines.push(`⚠️ TURNO DE REPROCHE: el cliente critica tu estilo o te dice que te repites. Tu mensaje DEBE empezar reconociéndolo en una frase corta ("Tiene razón, disculpe") y NO puede contener NINGUNA pregunta de datos. Cambia de enfoque a algo concreto y útil de SU caso. Prohibido volver a usar la fórmula que le molestó.`);
+  if (modes.reprocheCount >= 2) lines.push(`⚠️ EL CLIENTE YA HA REPROCHADO VARIAS VECES tu forma de responder. NO te vuelvas a disculpar ni a justificar (eso alarga el bucle y suena a robot). Ofrécele directamente hablar con una persona del equipo ("Prefiero que le llame un compañero y lo vea con calma, ¿le parece?") y NO insistas más.`);
+  else if (modes.reproche) lines.push(`⚠️ TURNO DE REPROCHE: el cliente critica tu estilo o te dice que te repites. Tu mensaje DEBE empezar reconociéndolo en una frase corta ("Tiene razón, disculpe") y NO puede contener NINGUNA pregunta de datos. Cambia de enfoque a algo concreto y útil de SU caso. Prohibido volver a usar la fórmula que le molestó, y no repitas una disculpa que ya diste antes.`);
   if (modes.emocion) lines.push(`⚠️ EMOCIÓN DETECTADA (${modes.emocion}): tu PRIMERA frase valida eso con algo CONCRETO que él acaba de decir, sin prometer de más. PROHIBIDO pedir ningún dato en este turno. Nada de logística ni reunión aún.`);
   if (modes.precioVeces >= 2) lines.push(`⚠️ ${modes.precioVeces}ª VEZ QUE PIDE PRECIO: PROHIBIDO repetir que "lo ve el equipo/en la llamada". Haz esto: (1) reconoce que no le esquivas; (2) di los CRITERIOS concretos que miráis (zona, m², estado, situación legal/cargas, urgencia); (3) explica en una frase por qué sin verlos una cifra cerrada le perjudica; (4) ofrece llamada O visita. Una sola vez, sin muletilla.`);
   else if (modes.precioVeces === 1) lines.push(`El cliente pide precio (1ª vez): no des cifra, di brevemente de qué depende y ofrece la llamada donde se la concretan. Sin muletilla de "experto".`);
@@ -142,10 +172,11 @@ export function buildTurnDirective(modes, register, ficha = {}) {
   // R3 · Cierre confirmado.
   if (modes.clienteProponeHora) lines.push(`⚠️ CIERRE: el cliente acaba de proponer un día/hora. CONFÍRMALO en el acto en un solo mensaje ("Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número.") y PARA. No vuelvas a preguntar la hora, el día ni el número.`);
 
-  // R4 · Puerta de cierre: sin nombre no se agenda a secas.
-  if (!ficha.nombre_apellidos) lines.push(`AÚN NO tienes el nombre del propietario. Si propones o aceptas una llamada, PIDE su nombre con naturalidad en el MISMO mensaje ("Con gusto se la organizo. ¿Cómo se llama, para dejarlo anotado?"). No agendes con la ficha vacía.`);
-  // R5 · Apellido una vez (suave, no bloqueante).
-  else if (typeof ficha.nombre_apellidos === "string" && !/\s/.test(ficha.nombre_apellidos.trim()) && !ficha._apellido_pedido) lines.push(`Tienes el nombre de pila pero no el apellido: puedes pedirlo UNA vez con naturalidad ("¿y su apellido, para dejarlo bien anotado?"). Si no lo da, sigues sin insistir.`);
+  // R4 · Puerta de cierre: sin nombre no se agenda a secas (mira ficha Y lo que el cliente ya dijo).
+  const tieneNombre = !!ficha.nombre_apellidos || modes.nombreDado;
+  if (!tieneNombre) lines.push(`AÚN NO tienes el nombre del propietario. Si propones o aceptas una llamada, PIDE su nombre con naturalidad en el MISMO mensaje ("Con gusto se la organizo. ¿Cómo se llama, para dejarlo anotado?"). No agendes con la ficha vacía.`);
+  // R1+R5 · Si YA se presentó, NO repreguntes el nombre; a lo sumo pide el apellido UNA vez.
+  else lines.push(`El propietario YA te dio su nombre — NO se lo vuelvas a preguntar bajo ninguna forma (ni "su nombre", ni "nombre completo"). Si solo tienes el nombre de pila, puedes pedir el apellido UNA vez con naturalidad ("¿y su apellido, para dejarlo bien anotado?"); si no lo da, sigues sin insistir.`);
 
   return lines.length ? `\n════════ POLÍTICA OBLIGATORIA DE ESTE TURNO (gana a todo) ════════\n- ${lines.join("\n- ")}\n` : "";
 }
@@ -168,22 +199,32 @@ export function validateDraft(text, ctx) {
   // Contenido prohibido (auditoría): carta / revista / buzoneo como vía de contacto.
   if (PALABRAS_PROHIBIDAS.test(t)) violations.push({ rule: "menciona_via_contacto", detail: (t.match(PALABRAS_PROHIBIDAS) || [""])[0] });
 
-  // R1 · Ficha viva: no repreguntar un dato que ya está en la ficha.
+  // R1 · Ficha viva: no repreguntar un dato ya conocido (por ficha O por el historial en el caso
+  // del nombre, que el modelo a veces no extrae a tiempo).
   if (DATA_QUESTION.test(t)) {
     for (const [field, re] of Object.entries(FIELD_REASK)) {
-      const known = ficha && ficha[field] != null && ficha[field] !== "";
+      const known = (ficha && ficha[field] != null && ficha[field] !== "") || (field === "nombre_apellidos" && modes.nombreDado);
       if (known && re.test(t)) { violations.push({ rule: "repregunta_dato", detail: `repregunta ${field} (ya conocido)` }); break; }
     }
   }
 
-  // R3 · Cierre confirmado: si el cliente propuso hora, el borrador debe confirmarla y NO reabrirla.
+  // R3 · Cierre confirmado: si el cliente propuso hora, el borrador debe confirmarla, REPETIR el
+  // día/hora (plantilla Rev.4) y NO reabrirla.
   if (modes.clienteProponeHora) {
     if (RE_PREGUNTA_HORA.test(t)) violations.push({ rule: "cierre_reabre_hora", detail: "repregunta hora/número tras propuesta del cliente" });
     else if (!RE_CONFIRMA.test(t)) violations.push({ rule: "cierre_no_confirmado", detail: "no acusa/confirma la hora propuesta" });
+    else if (!RE_SENAL_TEMPORAL.test(t)) violations.push({ rule: "cierre_sin_repetir_hora", detail: "confirma pero no repite el día/hora acordado" });
   }
 
-  // R4 · Puerta de cierre: no proponer/aceptar llamada sin al menos el nombre en la ficha.
-  if (RE_PROPONE_CITA.test(t) && !(ficha && ficha.nombre_apellidos)) {
+  // Disculpa repetida: si el bot ya abrió con "tiene razón/disculpe" en su mensaje anterior y vuelve
+  // a abrir igual, suena a bucle (fallo Enrique). Debe variar o cambiar de enfoque.
+  const RE_DISCULPA = /^(\s*)(tiene raz[oó]n|disculpe|perd[oó]n|le pido perd|me repet)/i;
+  if (RE_DISCULPA.test(t) && lastBotMsgs.length && RE_DISCULPA.test(String(lastBotMsgs[lastBotMsgs.length - 1])))
+    violations.push({ rule: "disculpa_repetida", detail: "dos disculpas de apertura seguidas" });
+
+  // R4 · Puerta de cierre: no proponer/aceptar llamada sin al menos el nombre (ficha O historial).
+  const nombreConocido = (ficha && ficha.nombre_apellidos) || modes.nombreDado;
+  if (RE_PROPONE_CITA.test(t) && !nombreConocido) {
     // salvo que en el MISMO mensaje ya esté pidiendo el nombre (eso es lo correcto).
     if (!FIELD_REASK.nombre_apellidos.test(t) && !/(c[oó]mo se llama|su nombre|qui[eé]n (es|habla))/i.test(t))
       violations.push({ rule: "cierre_sin_nombre", detail: "propone cita sin tener el nombre" });
@@ -234,6 +275,8 @@ export function repairInstruction(violations, register) {
     cierre_no_confirmado: "El cliente propuso un día/hora. Confírmalo explícitamente ('Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número.') y para.",
     cierre_reabre_hora: "No vuelvas a preguntar la hora, el día ni el número: el cliente ya los dio. Solo confirma y cierra.",
     cierre_sin_nombre: "No agendes con la ficha vacía: acepta la llamada pero pide su nombre en el mismo mensaje ('¿cómo se llama, para dejarlo anotado?').",
+    cierre_sin_repetir_hora: "Al confirmar la cita, REPITE el día y la hora que el cliente propuso ('Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número.').",
+    disculpa_repetida: "Ya te disculpaste en el mensaje anterior. NO abras otra vez con 'tiene razón/disculpe': cambia de enfoque o, si el cliente sigue molesto, ofrécele hablar con una persona del equipo.",
   };
   const uniq = [...new Set(violations.map((v) => v.rule))];
   const fixes = uniq.map((r) => `- ${map[r] || r}`).join("\n");
