@@ -356,6 +356,168 @@ export type Database = {
           },
         ]
       }
+      backup_q4_building_owners: {
+        Row: {
+          building_id: string | null
+          created_at: string | null
+          cuota: number | null
+          es_influencer: boolean | null
+          influencer_reason: string | null
+          influencer_score: number | null
+          metadatos: Json | null
+          owner_id: string | null
+          owner_name_norm: string | null
+          rol_notas: string | null
+          subrole: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Insert: {
+          building_id?: string | null
+          created_at?: string | null
+          cuota?: number | null
+          es_influencer?: boolean | null
+          influencer_reason?: string | null
+          influencer_score?: number | null
+          metadatos?: Json | null
+          owner_id?: string | null
+          owner_name_norm?: string | null
+          rol_notas?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Update: {
+          building_id?: string | null
+          created_at?: string | null
+          cuota?: number | null
+          es_influencer?: boolean | null
+          influencer_reason?: string | null
+          influencer_score?: number | null
+          metadatos?: Json | null
+          owner_id?: string | null
+          owner_name_norm?: string | null
+          rol_notas?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Relationships: []
+      }
+      backup_q4_buildings: {
+        Row: {
+          avisos_inteligentes: Json | null
+          cartera_demo_seed: boolean | null
+          catastro_ref: string | null
+          ciudad: string | null
+          cluster_asignado: string | null
+          cluster_breakdown: Json | null
+          cluster_motivo: string | null
+          cluster_score: number | null
+          codigo_postal: string | null
+          comercial: string | null
+          confianza_media: number | null
+          created_at: string | null
+          direccion: string | null
+          division_horizontal: boolean | null
+          es_esquina_manual: boolean | null
+          es_estrella: boolean | null
+          estado: Database["public"]["Enums"]["building_status"] | null
+          grupo_barrio: string | null
+          hs_deal_id: string | null
+          id: string | null
+          iee_actualizado_at: string | null
+          iee_deficiencias: Json | null
+          iee_estado: Database["public"]["Enums"]["iee_estado"] | null
+          iee_fecha_inspeccion: string | null
+          iee_fuente: string | null
+          iee_proxima_revision: string | null
+          last_synced_at: string | null
+          metadatos: Json | null
+          notas: string | null
+          numero_propietarios: number | null
+          pct_terciario: number | null
+          refcatastral: string | null
+          score: number | null
+          score_breakdown: Json | null
+          score_summary: string | null
+          score_updated_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          avisos_inteligentes?: Json | null
+          cartera_demo_seed?: boolean | null
+          catastro_ref?: string | null
+          ciudad?: string | null
+          cluster_asignado?: string | null
+          cluster_breakdown?: Json | null
+          cluster_motivo?: string | null
+          cluster_score?: number | null
+          codigo_postal?: string | null
+          comercial?: string | null
+          confianza_media?: number | null
+          created_at?: string | null
+          direccion?: string | null
+          division_horizontal?: boolean | null
+          es_esquina_manual?: boolean | null
+          es_estrella?: boolean | null
+          estado?: Database["public"]["Enums"]["building_status"] | null
+          grupo_barrio?: string | null
+          hs_deal_id?: string | null
+          id?: string | null
+          iee_actualizado_at?: string | null
+          iee_deficiencias?: Json | null
+          iee_estado?: Database["public"]["Enums"]["iee_estado"] | null
+          iee_fecha_inspeccion?: string | null
+          iee_fuente?: string | null
+          iee_proxima_revision?: string | null
+          last_synced_at?: string | null
+          metadatos?: Json | null
+          notas?: string | null
+          numero_propietarios?: number | null
+          pct_terciario?: number | null
+          refcatastral?: string | null
+          score?: number | null
+          score_breakdown?: Json | null
+          score_summary?: string | null
+          score_updated_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          avisos_inteligentes?: Json | null
+          cartera_demo_seed?: boolean | null
+          catastro_ref?: string | null
+          ciudad?: string | null
+          cluster_asignado?: string | null
+          cluster_breakdown?: Json | null
+          cluster_motivo?: string | null
+          cluster_score?: number | null
+          codigo_postal?: string | null
+          comercial?: string | null
+          confianza_media?: number | null
+          created_at?: string | null
+          direccion?: string | null
+          division_horizontal?: boolean | null
+          es_esquina_manual?: boolean | null
+          es_estrella?: boolean | null
+          estado?: Database["public"]["Enums"]["building_status"] | null
+          grupo_barrio?: string | null
+          hs_deal_id?: string | null
+          id?: string | null
+          iee_actualizado_at?: string | null
+          iee_deficiencias?: Json | null
+          iee_estado?: Database["public"]["Enums"]["iee_estado"] | null
+          iee_fecha_inspeccion?: string | null
+          iee_fuente?: string | null
+          iee_proxima_revision?: string | null
+          last_synced_at?: string | null
+          metadatos?: Json | null
+          notas?: string | null
+          numero_propietarios?: number | null
+          pct_terciario?: number | null
+          refcatastral?: string | null
+          score?: number | null
+          score_breakdown?: Json | null
+          score_summary?: string | null
+          score_updated_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       building_analysis: {
         Row: {
           accesos_codigos: Json | null
@@ -1177,6 +1339,7 @@ export type Database = {
           cluster_motivo: string | null
           cluster_score: number | null
           codigo_postal: string | null
+          comercial: string | null
           confianza_media: number | null
           created_at: string
           direccion: string
@@ -1185,6 +1348,7 @@ export type Database = {
           es_estrella: boolean
           estado: Database["public"]["Enums"]["building_status"]
           grupo_barrio: string | null
+          hs_deal_id: string | null
           id: string
           iee_actualizado_at: string | null
           iee_deficiencias: Json | null
@@ -1214,6 +1378,7 @@ export type Database = {
           cluster_motivo?: string | null
           cluster_score?: number | null
           codigo_postal?: string | null
+          comercial?: string | null
           confianza_media?: number | null
           created_at?: string
           direccion: string
@@ -1222,6 +1387,7 @@ export type Database = {
           es_estrella?: boolean
           estado?: Database["public"]["Enums"]["building_status"]
           grupo_barrio?: string | null
+          hs_deal_id?: string | null
           id?: string
           iee_actualizado_at?: string | null
           iee_deficiencias?: Json | null
@@ -1251,6 +1417,7 @@ export type Database = {
           cluster_motivo?: string | null
           cluster_score?: number | null
           codigo_postal?: string | null
+          comercial?: string | null
           confianza_media?: number | null
           created_at?: string
           direccion?: string
@@ -1259,6 +1426,7 @@ export type Database = {
           es_estrella?: boolean
           estado?: Database["public"]["Enums"]["building_status"]
           grupo_barrio?: string | null
+          hs_deal_id?: string | null
           id?: string
           iee_actualizado_at?: string | null
           iee_deficiencias?: Json | null
@@ -3338,6 +3506,48 @@ export type Database = {
         }
         Relationships: []
       }
+      import_q4_lista: {
+        Row: {
+          address: string | null
+          ciudad: string | null
+          comercial: string | null
+          cp: string | null
+          etapa: string | null
+          hs_id: string
+          match_via: string | null
+          matched_building_id: string | null
+          nombre_negocio: string | null
+          refcat: string | null
+          refcat14: string | null
+        }
+        Insert: {
+          address?: string | null
+          ciudad?: string | null
+          comercial?: string | null
+          cp?: string | null
+          etapa?: string | null
+          hs_id: string
+          match_via?: string | null
+          matched_building_id?: string | null
+          nombre_negocio?: string | null
+          refcat?: string | null
+          refcat14?: string | null
+        }
+        Update: {
+          address?: string | null
+          ciudad?: string | null
+          comercial?: string | null
+          cp?: string | null
+          etapa?: string | null
+          hs_id?: string
+          match_via?: string | null
+          matched_building_id?: string | null
+          nombre_negocio?: string | null
+          refcat?: string | null
+          refcat14?: string | null
+        }
+        Relationships: []
+      }
       investors: {
         Row: {
           ciudades: string[]
@@ -3380,6 +3590,18 @@ export type Database = {
           ticket_min?: number | null
           tipos_activo?: Database["public"]["Enums"]["asset_type"][]
           updated_at?: string
+        }
+        Relationships: []
+      }
+      keep_q4: {
+        Row: {
+          id: string | null
+        }
+        Insert: {
+          id?: string | null
+        }
+        Update: {
+          id?: string | null
         }
         Relationships: []
       }
