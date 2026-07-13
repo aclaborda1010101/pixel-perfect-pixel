@@ -76,6 +76,8 @@ const FIELD_REASK = {
 const RE_PROPONE_HORA = /\b(a las?\s*\d{1,2}([:.]\d{2})?|\d{1,2}\s*h\b|\d{1,2}\s*de la (ma[ñn]ana|tarde|noche)|(este|el)\s+(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|ma[ñn]ana (por la|a las)|pasado ma[ñn]ana)\b/i;
 // R3 · el borrador confirma la cita (acusa día/hora + cierra).
 const RE_CONFIRMA = /(perfecto|estupendo|hecho|queda(mos)?|anotad|le llama|te llama|le llamamos|le pasa|hablamos entonces|nos vemos)/i;
+// R3 · marca de CIERRE de cita (llamada/visita agendada), para detectar que ya se cerró.
+const RE_CITA_CIERRE = /(le (llama|llamar[aá]|llamamos|llamar[aá]n)|te (llama|llamar[eé]|llamamos)|llama(r[aá])? alguien|queda anotad|queda cerrad|le pasa (con|el|a un)|le pongo con un compa|se pasa (un compa|alguien))/i;
 // R3 · el borrador de confirmación debe REPETIR el día/hora (plantilla Rev.4 "[día] a las [hora]").
 const RE_SENAL_TEMPORAL = /\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|ma[ñn]ana|hoy|pasado ma[ñn]ana|\d{1,2}\s*(h\b|:\d|de la (ma[ñn]ana|tarde|noche)))/i;
 const RE_REABRE_HORA = /\?[^?]*$/;
@@ -248,6 +250,12 @@ export function validateDraft(text, ctx) {
     if (RE_CONFIRMA.test(t) && DATA_QUESTION.test(t) && DATA_TOPIC.test(t))
       violations.push({ rule: "cierre_con_pregunta_extra", detail: "confirma la cita pero añade otra pregunta de dato" });
   }
+  // R3 · Cita ya cerrada: si en un mensaje reciente el bot YA confirmó la cita (cierre + día/hora)
+  // y el borrador vuelve a confirmarla, es re-confirmar de más (fallo Cristina: cierra bien pero
+  // repite). Debe responder breve a lo que dice el cliente, sin repetir la hora.
+  const citaYaCerrada = lastBotMsgs.some((m) => RE_CITA_CIERRE.test(String(m)) && RE_SENAL_TEMPORAL.test(String(m)));
+  if (citaYaCerrada && RE_CITA_CIERRE.test(t) && RE_SENAL_TEMPORAL.test(t))
+    violations.push({ rule: "cita_repite_confirmacion", detail: "re-confirma una cita ya cerrada" });
 
   // Disculpa repetida: si el bot ya abrió con "tiene razón/disculpe" en su mensaje anterior y vuelve
   // a abrir igual, suena a bucle (fallo Enrique). Debe variar o cambiar de enfoque.
@@ -323,6 +331,7 @@ export function repairInstruction(violations, register) {
     saludo_repetido: "Ya abriste tu mensaje ANTERIOR con ese mismo saludo ('Perfecto, …' / 'Encantado, …' / 'Buenas, …'). NO lo repitas: entra DIRECTO al contenido, sin saludo ni el nombre al principio.",
     repregunta_nombre: "Ya le pediste el nombre en un mensaje reciente. NO lo vuelvas a pedir (ni con otras palabras): si no lo dio, sigue sin él y avanza con lo siguiente; si lo dio, úsalo.",
     cierre_con_pregunta_extra: "El cliente ya propuso día/hora: tu mensaje debe ser SOLO la confirmación ('Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número.') y nada más. Quita cualquier otra pregunta o petición de dato de este mensaje.",
+    cita_repite_confirmacion: "La cita YA quedó confirmada en tu mensaje anterior (día, hora y que le llaman). NO la repitas ni vuelvas a dar la hora. Responde breve y natural a lo que acaba de decir el cliente (p.ej. 'Perfecto, cualquier cosa por aquí estoy.') sin re-confirmar.",
   };
   const uniq = [...new Set(violations.map((v) => v.rule))];
   const fixes = uniq.map((r) => `- ${map[r] || r}`).join("\n");
@@ -353,6 +362,12 @@ export function hardFallback(text, ctx) {
     return u
       ? "Encantado. Cuéntame, ¿qué te ha traído a escribirnos?"
       : "Encantado. Cuénteme, ¿qué le ha traído a escribirnos?";
+  }
+  // R3 · Cita ya cerrada y el borrador la re-confirma → cierre breve sin repetir la hora.
+  {
+    const citaYaCerrada = lastBotMsgs.some((m) => RE_CITA_CIERRE.test(String(m)) && RE_SENAL_TEMPORAL.test(String(m)));
+    if (citaYaCerrada && RE_CITA_CIERRE.test(String(text || "")) && RE_SENAL_TEMPORAL.test(String(text || "")))
+      return u ? "Perfecto, pues queda así. Cualquier cosa, por aquí me tienes." : "Perfecto, pues queda así. Cualquier cosa, por aquí me tiene.";
   }
   if (modes.reproche) {
     return u
