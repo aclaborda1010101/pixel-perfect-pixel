@@ -18,7 +18,16 @@ export default function Login() {
   const { role, loading: roleLoading } = useCurrentRole();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from || "/";
+  // Preserve intended destination across all sign-in methods. Priority:
+  // 1) ?next= query param (used by the OAuth consent route)
+  // 2) location.state.from (used by ProtectedRoute redirects)
+  // Only accept same-origin relative paths.
+  const searchParams = new URLSearchParams(location.search);
+  const nextParam = searchParams.get("next");
+  const stateFrom = (location.state as { from?: string } | null)?.from;
+  const rawNext = nextParam || stateFrom || "/";
+  const from = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+  const returnUrl = `${window.location.origin}${from}`;
 
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -44,7 +53,7 @@ export default function Login() {
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: `${window.location.origin}/` },
+        options: { emailRedirectTo: returnUrl },
       });
       if (error) throw error;
       setMagicSent(true);
@@ -66,7 +75,7 @@ export default function Login() {
         if (error) throw error;
         toast.success("Sesión iniciada");
       } else {
-        const redirectUrl = `${window.location.origin}/`;
+        const redirectUrl = returnUrl;
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -89,7 +98,7 @@ export default function Login() {
   async function handleGoogle() {
     try {
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: `${window.location.origin}/`,
+        redirect_uri: returnUrl,
       });
       if (result.error) throw result.error;
     } catch (err: unknown) {
