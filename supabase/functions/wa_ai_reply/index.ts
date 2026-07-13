@@ -92,6 +92,56 @@ async function autoTripOnDisconnect(
   return true;
 }
 
+// Aviso de HANDOFF por email: cuando el bot traspasa a un humano, manda un correo con el resumen
+// y los datos para que alguien del equipo se haga cargo (evita que la conversación quede muda).
+// Requiere RESEND_API_KEY. Si falta, degrada: deja SOLO la nota de sistema y no bloquea el flujo.
+async function notifyHandoff(admin: any, conversation_id: string, contact: any, reason: string, qual: any, history: any[]): Promise<void> {
+  const to = Deno.env.get("HANDOFF_EMAIL") || "agustin.cifuentes@afflux.es";
+  const from = Deno.env.get("HANDOFF_FROM") || "Afflux Bot <onboarding@resend.dev>";
+  const RESEND = Deno.env.get("RESEND_API_KEY");
+  const phone = String(contact?.phone ?? "").replace(/[^\d]/g, "");
+  const name = contact?.name || "(sin nombre)";
+  const waLink = phone ? `https://wa.me/${phone}` : "";
+  const recent = (history || []).filter((m: any) => m.type !== "system" && m.content)
+    .slice(-10).map((m: any) => `${m.direction === "in" ? "Cliente" : "Bot"}: ${String(m.content).slice(0, 220)}`).join("\n");
+  const datos = Object.entries(qual || {})
+    .filter(([k, v]) => v != null && v !== "" && !k.startsWith("_") && !["categoria", "fase_actual", "handoff_reason", "oportunidad_flags"].includes(k))
+    .map(([k, v]) => `- ${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n");
+  const motivos: Record<string, string> = { operativo: "Pide gestión/llamada (operativo)", comprador: "Comprador/inversor", fuera_madrid: "Fuera de Madrid", otro: "Otro" };
+  const asunto = `🤝 Handoff Afflux — ${name} (${phone})`;
+  const cuerpo =
+`Una conversación del bot de WhatsApp necesita que alguien del equipo se haga cargo.
+
+CONTACTO: ${name}
+TELÉFONO: ${phone}${waLink ? `  ·  ${waLink}` : ""}
+MOTIVO: ${motivos[reason] || reason}
+
+DATOS CAPTURADOS:
+${datos || "(ninguno todavía)"}
+
+ÚLTIMOS MENSAJES:
+${recent || "(sin historial)"}
+`;
+  // Nota de sistema SIEMPRE (queda registro en la bandeja aunque el email falle o no esté configurado).
+  try {
+    await admin.from("wa_messages").insert({
+      conversation_id, contact_id: contact.id, direction: "out", type: "system",
+      content: `📧 Handoff: conversación pasada al equipo (aviso a ${to}). Motivo: ${motivos[reason] || reason}.`,
+      ai_generated: false, sender_type: "system",
+      metadata: { kind: "handoff_notify", reason, to },
+    });
+  } catch { /* best-effort */ }
+  if (!RESEND) { console.warn("[handoff] RESEND_API_KEY ausente; email NO enviado (queda la nota de sistema)"); return; }
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
+      body: JSON.stringify({ from, to, subject: asunto, text: cuerpo }),
+    });
+    if (!r.ok) console.error("[handoff] Resend", r.status, (await r.text()).slice(0, 200));
+  } catch (e) { console.error("[handoff] email fallo", (e as any)?.message); }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   let conversation_id: string | null = null;
@@ -1493,6 +1543,8 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     // DESPUÉS de enviar la respuesta del modelo, para que un humano retome.
     if (handoffReason) {
       await admin.from("wa_contacts").update({ stage: "handoff" }).eq("id", contact.id);
+      // Avisar al equipo por email con el resumen para que alguien se haga cargo (no dejar mudo).
+      await notifyHandoff(admin, conversation_id, contact, handoffReason, newQual, realHistory);
     }
 
     // Resumen: forzar si propuesta de reunión, nueva flag de oportunidad, o cambio de stage.
