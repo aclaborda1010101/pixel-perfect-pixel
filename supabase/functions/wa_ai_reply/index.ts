@@ -32,13 +32,16 @@ function detectHandoff(text: string): { hit: boolean; reason?: string } {
   return { hit: false };
 }
 
-function madridNow(): { h: number; m: number; ymd: string } {
+function madridNow(): { h: number; m: number; ymd: string; dow: number } {
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit",
     year: "numeric", month: "2-digit", day: "2-digit", hour12: false,
+    weekday: "short",
   });
   const parts = Object.fromEntries(fmt.formatToParts(new Date()).map((p) => [p.type, p.value]));
-  return { h: Number(parts.hour), m: Number(parts.minute), ymd: `${parts.year}-${parts.month}-${parts.day}` };
+  // dow: 0=domingo .. 6=sábado (igual que Date.getDay()).
+  const DOW: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { h: Number(parts.hour), m: Number(parts.minute), ymd: `${parts.year}-${parts.month}-${parts.day}`, dow: DOW[parts.weekday] ?? 1 };
 }
 
 async function sendPresence(phone: string, ms: number, presence = "composing") {
@@ -456,50 +459,26 @@ Deno.serve(async (req) => {
     //    pregunte por humano/IA o esté incómodo. Solo se pausa con el toggle manual
     //    desde /whatsapp (ai_enabled = false), comprobado más arriba.
 
-    // 2) ACTIVE HOURS (Europe/Madrid)
-    const ah = (cfg as any)?.active_hours ?? { from: "09:00", to: "21:00" };
-    const fromH = Number(String(ah.from || "09:00").split(":")[0]) || 9;
-    const toH   = Number(String(ah.to   || "21:00").split(":")[0]) || 21;
-    const { h: nowH } = madridNow();
-    const inHours = nowH >= fromH && nowH < toH;
+    // 2) HORARIO ACTIVO (Europe/Madrid) — L-V 09:00-20:30, fin de semana CERRADO.
+    // Configurable vía wa_bot_config.active_hours: { from:"09:00", to:"20:30", days:[1,2,3,4,5] }
+    // days usa 0=domingo..6=sábado (como Date.getDay()); por defecto lunes(1) a viernes(5).
+    // FUERA DE HORARIO = SILENCIO TOTAL: no se envía nada (ni mensaje de espera). El entrante
+    // queda registrado y su job se aparca; se atenderá cuando el cliente escriba en horario.
+    const ah = (cfg as any)?.active_hours ?? {};
+    const activeDays: number[] = Array.isArray(ah.days) && ah.days.length ? ah.days.map((d: any) => Number(d)) : [1, 2, 3, 4, 5];
+    const [fH, fM] = String(ah.from || "09:00").split(":").map((x: string) => Number(x));
+    const [tH, tM] = String(ah.to || "20:30").split(":").map((x: string) => Number(x));
+    const { h: nowH, m: nowM, dow } = madridNow();
+    const nowMin = nowH * 60 + nowM;
+    const openMin = (Number.isFinite(fH) ? fH : 9) * 60 + (Number.isFinite(fM) ? fM : 0);
+    const closeMin = (Number.isFinite(tH) ? tH : 20) * 60 + (Number.isFinite(tM) ? tM : 30);
+    const isWorkday = activeDays.includes(dow);
+    const inHours = isWorkday && nowMin >= openMin && nowMin < closeMin;
     if (!inHours) {
-      // Si el usuario insiste mucho (≥3 entrantes seguidos sin respuesta nuestra), mandar off_hours_message una vez.
-      let incomingStreak = 0;
-      for (let i = realHistory.length - 1; i >= 0; i--) {
-        if (realHistory[i].direction === "in") incomingStreak++;
-        else break;
-      }
-      const lastOffHoursSent = [...realHistory].reverse().find((m: any) => m.direction === "out");
-      const offMsg: string = (cfg as any)?.off_hours_message ?? "Te respondo mañana sin falta 🙌";
-      const alreadyToldTonight = lastOffHoursSent && (Date.now() - new Date(lastOffHoursSent.created_at).getTime()) < 8 * 60 * 60 * 1000;
-      if (incomingStreak >= 3 && offMsg && !alreadyToldTonight) {
-        sendPresence(contact.phone, 1800).catch(() => {});
-        await sleep(2000);
-        let sendRes: any;
-        try {
-          sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
-            method: "POST",
-            body: JSON.stringify({ number: contact.phone, text: offMsg }),
-          });
-        } catch (e) {
-          if (await autoTripOnDisconnect(admin, (cfg as any)?.id, conversation_id, contact.id, e)) {
-            return new Response(JSON.stringify({ ok: false, kill_switch: "auto_tripped" }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-          throw e; // transitorio: lo gestiona el catch global / reaper
-        }
-        await admin.from("wa_messages").insert({
-          conversation_id, contact_id: contact.id,
-          direction: "out", type: "text", content: offMsg, ai_generated: true,
-          evolution_message_id: sendRes?.key?.id ?? null,
-          sender_type: "bot",
-          metadata: { off_hours: true },
-        });
-      }
+      // Silencio total: aparcar el job pendiente y salir sin enviar ningún mensaje.
       await admin.from("wa_ai_jobs").update({ status: "deferred", updated_at: new Date().toISOString() })
         .eq("conversation_id", conversation_id).eq("status", "pending");
-      return new Response(JSON.stringify({ ok: true, off_hours: true }), {
+      return new Response(JSON.stringify({ ok: true, off_hours: true, reason: isWorkday ? "fuera_de_horario" : "fin_de_semana" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
