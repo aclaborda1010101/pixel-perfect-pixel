@@ -115,6 +115,15 @@ export function clientRevealedProperty(history, lastInText) {
   if (RE_PROP_REVELADA.test(String(lastInText || ""))) return true;
   return (history || []).some((m) => (m.role === "user" || m.direction === "in") && RE_PROP_REVELADA.test(String(m.content ?? "")));
 }
+
+// R6 · Variación: saludos/aperturas que NO deben repetirse en mensajes seguidos del bot
+// ("Perfecto, Carlos." / "Encantado, Agustín." / "Buenas, ..."). El fallo medido con Luna: el bot
+// abre 2-3 mensajes seguidos con la misma fórmula. Detecta la palabra-saludo de apertura.
+const SALUDOS_APERTURA = new Set(["perfecto", "encantado", "estupendo", "genial", "buenas", "hola", "vale", "bien", "de", "muy", "claro", "entendido", "marchando"]);
+export function aperturaSaludo(s) {
+  const first = String(s || "").trim().toLowerCase().replace(/^[¡¿"'\s]+/, "").split(/[\s,.:;!?]+/)[0];
+  return SALUDOS_APERTURA.has(first) ? first : null;
+}
 export function clientGaveName(history) {
   const arr = history || [];
   for (let i = 0; i < arr.length; i++) {
@@ -254,6 +263,10 @@ export function validateDraft(text, ctx) {
     const sim = maxSimilarity(t, prev);
     if (sim >= simThreshold) { violations.push({ rule: "repite_idea", detail: `sim ${sim.toFixed(2)} vs "${String(prev).slice(0, 60)}"` }); break; }
   }
+  // R6 · Apertura repetida: abre con el mismo saludo que su mensaje anterior ("Perfecto, X." / "Encantado, X.").
+  const apT = aperturaSaludo(t);
+  if (apT && lastBotMsgs.length && aperturaSaludo(lastBotMsgs[lastBotMsgs.length - 1]) === apT)
+    violations.push({ rule: "saludo_repetido", detail: `abre otra vez con "${apT}"` });
   // Espejo AL CLIENTE: parrotea/parafrasea lo que el cliente acaba de decir (loro léxico).
   // Caza el espejo léxico (palabras reutilizadas); el paráfrasis semántico profundo requiere
   // embeddings o auto-crítica LLM (nivel 2). Excluye preguntas (referenciar un dato es legítimo).
@@ -298,6 +311,7 @@ export function repairInstruction(violations, register) {
     cierre_sin_repetir_hora: "Al confirmar la cita, REPITE el día y la hora que el cliente propuso ('Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número.').",
     disculpa_repetida: "Ya te disculpaste en el mensaje anterior. NO abras otra vez con 'tiene razón/disculpe': cambia de enfoque o, si el cliente sigue molesto, ofrécele hablar con una persona del equipo.",
     presupone_situacion: "El cliente TODAVÍA no ha dicho que tenga ninguna propiedad, caso ni situación. QUITA por completo 'su situación', 'su caso', 'en qué punto está', 'su inmueble/edificio/propiedad'. Tras su nombre, pregunta SOLO abierto y corto, sin presuponer nada: 'Encantado, [nombre]. Cuénteme, ¿qué le ha traído a escribirnos?'.",
+    saludo_repetido: "Ya abriste tu mensaje ANTERIOR con ese mismo saludo ('Perfecto, …' / 'Encantado, …' / 'Buenas, …'). NO lo repitas: entra DIRECTO al contenido, sin saludo ni el nombre al principio.",
   };
   const uniq = [...new Set(violations.map((v) => v.rule))];
   const fixes = uniq.map((r) => `- ${map[r] || r}`).join("\n");
@@ -306,8 +320,17 @@ export function repairInstruction(violations, register) {
 
 // ── fallback determinista (si la reparación tampoco pasa) ─────────────────────
 export function hardFallback(text, ctx) {
-  const { modes = {}, register = "usted" } = ctx || {};
+  const { modes = {}, register = "usted", lastBotMsgs = [] } = ctx || {};
   const u = register === "tu"; // tú
+  // R6 · Apertura repetida: si el borrador abre con el mismo saludo que el mensaje anterior,
+  // quita la primera cláusula (el saludo) y deja el resto.
+  {
+    const apT = aperturaSaludo(text);
+    if (apT && lastBotMsgs.length && aperturaSaludo(lastBotMsgs[lastBotMsgs.length - 1]) === apT) {
+      const stripped = String(text || "").replace(/^\s*[¡¿"']?\s*[^.!?,]{0,40}[.,!]\s*/, "").trim();
+      if (stripped && stripped.length > 8) text = stripped[0].toUpperCase() + stripped.slice(1);
+    }
+  }
   // NO-PRESUPOSICIÓN: si el cliente no reveló propiedad y el borrador presupone, reescribe a la
   // pregunta abierta limpia (determinista; funciona con cualquier modelo).
   if (!modes.propiedadRevelada && RE_PRESUPONE.test(String(text || ""))) {
