@@ -133,8 +133,9 @@ Deno.serve(async (req) => {
       iee_actualizado_at: new Date().toISOString(),
     }).eq("id", building_id);
 
-    // Recomputar el score con la nueva info
-    await admin.rpc("compute_cluster_score", { p_building_id: building_id }).catch(() => {});
+    // Recomputar el score con la nueva info (mejor esfuerzo: el builder de
+    // supabase-js no tiene .catch — usar try/catch, si no toda la función da 500)
+    try { await admin.rpc("compute_cluster_score", { p_building_id: building_id }); } catch (_e) { /* noop */ }
 
     return new Response(JSON.stringify({
       ok: true, building_id, estado, fecha_inspeccion, deficiencias, fuente, antiguedad,
