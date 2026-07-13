@@ -95,7 +95,7 @@ const RE_TUTEO_REQUEST = /(p[uú]edes tutearme|h[aá]blame de t[uú]|no hace fal
 const RE_EMOCION = [
   { re: /de mi casa no me (mueve|echa|saca|mueven)|no me mueve nadie|llevo (aqu[ií]|toda la vida|\d+ años)|aqu[ií] me quedo|mi hogar|es mi casa/i, tema: "apego/miedo a perder su casa" },
   { re: /no me f[ií]o|no me fio|desconf[ií]|es una estafa|es un timo|me qued[oé] sin nada|luego viene el papeleo|eso dec[ií]s todos/i, tema: "desconfianza/recelo" },
-  { re: /es un l[ií]o|un desastre|estoy hart|no aguanto|agotad|cansad|no puedo m[aá]s|un infierno/i, tema: "hartazgo/carga" },
+  { re: /es un l[ií]o|un desastre|estoy hart|no aguanto|agotad|cansad|no puedo m[aá]s|un infierno|ni ganas|sin ganas|no tengo (ni )?(tiempo|ganas)|no me apetece|no quiero (l[ií]os|complicaci|movidas|historias)|paso de (esto|todo|esta)|qu[eé] pereza|menudo (l[ií]o|marr[oó]n)|vaya (l[ií]o|marr[oó]n)/i, tema: "hartazgo/carga" },
   { re: /co[ñn]o|joder|hostia|me cago|estoy hasta/i, tema: "enfado/frustración" },
 ];
 
@@ -193,7 +193,7 @@ export function buildTurnDirective(modes, register, ficha = {}) {
   else if (modes.precioVeces === 1) lines.push(`El cliente pide precio (1ª vez): no des cifra, di brevemente de qué depende y ofrece la llamada donde se la concretan. Sin muletilla de "experto".`);
 
   // R3 · Cierre confirmado.
-  if (modes.clienteProponeHora) lines.push(`⚠️ CIERRE: el cliente acaba de proponer un día/hora. CONFÍRMALO en el acto en un solo mensaje ("Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número.") y PARA. No vuelvas a preguntar la hora, el día ni el número.`);
+  if (modes.clienteProponeHora) lines.push(`⚠️ CIERRE: el cliente acaba de proponer un día/hora. Tu mensaje es SOLO la confirmación, en UNA frase: "Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número." y PARA AHÍ. PROHIBIDO en ese mensaje: otra pregunta, pedir otro dato, despedidas largas, o repetir la confirmación. Una frase y cierras.`);
 
   // R4 · Puerta de cierre: sin nombre no se agenda a secas (mira ficha Y lo que el cliente ya dijo).
   const tieneNombre = !!ficha.nombre_apellidos || modes.nombreDado;
@@ -243,6 +243,10 @@ export function validateDraft(text, ctx) {
     if (RE_PREGUNTA_HORA.test(t)) violations.push({ rule: "cierre_reabre_hora", detail: "repregunta hora/número tras propuesta del cliente" });
     else if (!RE_CONFIRMA.test(t)) violations.push({ rule: "cierre_no_confirmado", detail: "no acusa/confirma la hora propuesta" });
     else if (!RE_SENAL_TEMPORAL.test(t)) violations.push({ rule: "cierre_sin_repetir_hora", detail: "confirma pero no repite el día/hora acordado" });
+    // El mensaje de cierre debe ser SOLO la confirmación: si confirma la cita y además mete otra
+    // pregunta de dato, no cierra en seco (fallo R3: confirma pero sigue hablando).
+    if (RE_CONFIRMA.test(t) && DATA_QUESTION.test(t) && DATA_TOPIC.test(t))
+      violations.push({ rule: "cierre_con_pregunta_extra", detail: "confirma la cita pero añade otra pregunta de dato" });
   }
 
   // Disculpa repetida: si el bot ya abrió con "tiene razón/disculpe" en su mensaje anterior y vuelve
@@ -263,10 +267,15 @@ export function validateDraft(text, ctx) {
     const sim = maxSimilarity(t, prev);
     if (sim >= simThreshold) { violations.push({ rule: "repite_idea", detail: `sim ${sim.toFixed(2)} vs "${String(prev).slice(0, 60)}"` }); break; }
   }
-  // R6 · Apertura repetida: abre con el mismo saludo que su mensaje anterior ("Perfecto, X." / "Encantado, X.").
+  // R6 · Apertura repetida: abre con el mismo saludo que CUALQUIERA de sus últimos 2-3 mensajes
+  // ("Perfecto, X." / "Encantado, X." repetido, aunque no sea consecutivo).
   const apT = aperturaSaludo(t);
-  if (apT && lastBotMsgs.length && aperturaSaludo(lastBotMsgs[lastBotMsgs.length - 1]) === apT)
+  if (apT && lastBotMsgs.some((m) => aperturaSaludo(m) === apT))
     violations.push({ rule: "saludo_repetido", detail: `abre otra vez con "${apT}"` });
+  // R6 · Re-pregunta del nombre: ya pidió el nombre en un mensaje reciente y lo vuelve a pedir
+  // (aunque cambie las palabras). Suena a robot repetitivo (fallo Carlos).
+  if (FIELD_REASK.nombre_apellidos.test(t) && lastBotMsgs.some((m) => FIELD_REASK.nombre_apellidos.test(String(m))))
+    violations.push({ rule: "repregunta_nombre", detail: "vuelve a pedir el nombre ya solicitado" });
   // Espejo AL CLIENTE: parrotea/parafrasea lo que el cliente acaba de decir (loro léxico).
   // Caza el espejo léxico (palabras reutilizadas); el paráfrasis semántico profundo requiere
   // embeddings o auto-crítica LLM (nivel 2). Excluye preguntas (referenciar un dato es legítimo).
@@ -312,6 +321,8 @@ export function repairInstruction(violations, register) {
     disculpa_repetida: "Ya te disculpaste en el mensaje anterior. NO abras otra vez con 'tiene razón/disculpe': cambia de enfoque o, si el cliente sigue molesto, ofrécele hablar con una persona del equipo.",
     presupone_situacion: "El cliente TODAVÍA no ha dicho que tenga ninguna propiedad, caso ni situación. QUITA por completo 'su situación', 'su caso', 'en qué punto está', 'su inmueble/edificio/propiedad'. Tras su nombre, pregunta SOLO abierto y corto, sin presuponer nada: 'Encantado, [nombre]. Cuénteme, ¿qué le ha traído a escribirnos?'.",
     saludo_repetido: "Ya abriste tu mensaje ANTERIOR con ese mismo saludo ('Perfecto, …' / 'Encantado, …' / 'Buenas, …'). NO lo repitas: entra DIRECTO al contenido, sin saludo ni el nombre al principio.",
+    repregunta_nombre: "Ya le pediste el nombre en un mensaje reciente. NO lo vuelvas a pedir (ni con otras palabras): si no lo dio, sigue sin él y avanza con lo siguiente; si lo dio, úsalo.",
+    cierre_con_pregunta_extra: "El cliente ya propuso día/hora: tu mensaje debe ser SOLO la confirmación ('Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número.') y nada más. Quita cualquier otra pregunta o petición de dato de este mensaje.",
   };
   const uniq = [...new Set(violations.map((v) => v.rule))];
   const fixes = uniq.map((r) => `- ${map[r] || r}`).join("\n");
