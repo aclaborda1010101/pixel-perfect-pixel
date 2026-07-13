@@ -53,6 +53,7 @@ const AdminOps = lazy(() => import("./pages/admin/Ops"));
 const AdminSync = lazy(() => import("./pages/admin/Sync"));
 const WhatsappDashboard = lazy(() => import("./pages/whatsapp/WhatsappDashboard"));
 const RevisionEscaleras = lazy(() => import("./pages/RevisionEscaleras"));
+const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 
 // React Query: cachea datos entre navegaciones. Volver a una vista ya cargada es instantáneo.
 const queryClient = new QueryClient({
@@ -89,6 +90,7 @@ const App = () => (
               <Route path="/login" element={<Login />} />
               <Route path="/recuperar" element={<RecoverPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
               <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/propietarios" element={<Owners />} />
