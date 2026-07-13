@@ -102,6 +102,19 @@ const RE_EMOCION = [
 // ¿El cliente ya se ha presentado en el historial? Red de seguridad para R1/R4/R5 cuando el
 // modelo no llega a extraer nombre_apellidos a la ficha a tiempo (evita repreguntar el nombre).
 const RE_CLIENTE_NOMBRE = /\b(soy|me llamo|mi nombre es|me llaman)\s+[a-záéíóúñ]{2,}/i;
+
+// NO-PRESUPOSICIÓN (fallo real 13-jul): en la apertura, mientras el CLIENTE no haya revelado que
+// tiene una propiedad/caso, el bot NO puede hablar de "su situación / su caso / en qué punto está /
+// su inmueble". Frases que delatan la presuposición en el borrador:
+const RE_PRESUPONE = /\b(su (situaci[oó]n|caso|tema|inmueble|propiedad|edificio|piso|parte|proindiviso|herencia)|en qu[eé] (situaci[oó]n|punto)|qu[eé] situaci[oó]n)\b/i;
+// Señales de que el CLIENTE (no el bot) ya reveló que tiene una propiedad/contexto de proindiviso.
+const RE_PROP_REVELADA = /\b(edificio|inmueble|piso|vivienda|proindiviso|herenci|hered[eé]|copropiet|comuner|mi parte|mi porcentaje|mi cuota|compart(o|imos|ida)|local|finca|alquil|inquilin|propiedad|metros cuadrad|catastr|es mi casa|mi hogar)\b/i;
+
+// ¿El cliente ya reveló ÉL MISMO que tiene una propiedad/caso? (solo escanea mensajes entrantes).
+export function clientRevealedProperty(history, lastInText) {
+  if (RE_PROP_REVELADA.test(String(lastInText || ""))) return true;
+  return (history || []).some((m) => (m.role === "user" || m.direction === "in") && RE_PROP_REVELADA.test(String(m.content ?? "")));
+}
 export function clientGaveName(history) {
   const arr = history || [];
   for (let i = 0; i < arr.length; i++) {
@@ -140,7 +153,8 @@ export function detectModes(lastInText, history) {
   const botOfrecioCita = (history || []).some((m) => (m.role === "assistant" || m.direction === "out") && RE_PROPONE_CITA.test(contentOf(m)));
   const clienteProponeHora = RE_PROPONE_HORA.test(t) && (botOfrecioCita || /qued|llam|ve[rn]|cita|reuni|\b(vale|ok|perfecto|de acuerdo|me viene|acepto|venga)\b/i.test(t));
   const nombreDado = clientGaveName(history);
-  return { reproche, reprocheCount, precioVeces: Math.max(precioVeces, RE_PRECIO.test(t) ? 1 : 0), emocion, pideTuteo, clienteProponeHora, nombreDado };
+  const propiedadRevelada = clientRevealedProperty(history, lastInText);
+  return { reproche, reprocheCount, precioVeces: Math.max(precioVeces, RE_PRECIO.test(t) ? 1 : 0), emocion, pideTuteo, clienteProponeHora, nombreDado, propiedadRevelada };
 }
 
 // registro establecido: usted por defecto; sólo tú si el cliente lo pidió explícito.
@@ -198,6 +212,12 @@ export function validateDraft(text, ctx) {
 
   // Contenido prohibido (auditoría): carta / revista / buzoneo como vía de contacto.
   if (PALABRAS_PROHIBIDAS.test(t)) violations.push({ rule: "menciona_via_contacto", detail: (t.match(PALABRAS_PROHIBIDAS) || [""])[0] });
+
+  // NO-PRESUPOSICIÓN (fallo real 13-jul): si el cliente aún NO ha revelado que tiene una propiedad
+  // y el borrador ya habla de "su situación / su caso / en qué punto está / su inmueble", es
+  // presuposición → se bloquea. (Determinista: no depende de que el modelo obedezca el prompt.)
+  if (!modes.propiedadRevelada && RE_PRESUPONE.test(t))
+    violations.push({ rule: "presupone_situacion", detail: (t.match(RE_PRESUPONE) || [""])[0] });
 
   // R1 · Ficha viva: no repreguntar un dato ya conocido (por ficha O por el historial en el caso
   // del nombre, que el modelo a veces no extrae a tiempo).
@@ -277,6 +297,7 @@ export function repairInstruction(violations, register) {
     cierre_sin_nombre: "No agendes con la ficha vacía: acepta la llamada pero pide su nombre en el mismo mensaje ('¿cómo se llama, para dejarlo anotado?').",
     cierre_sin_repetir_hora: "Al confirmar la cita, REPITE el día y la hora que el cliente propuso ('Perfecto, [día] a las [hora]. Le llama alguien del equipo a este número.').",
     disculpa_repetida: "Ya te disculpaste en el mensaje anterior. NO abras otra vez con 'tiene razón/disculpe': cambia de enfoque o, si el cliente sigue molesto, ofrécele hablar con una persona del equipo.",
+    presupone_situacion: "El cliente TODAVÍA no ha dicho que tenga ninguna propiedad, caso ni situación. QUITA por completo 'su situación', 'su caso', 'en qué punto está', 'su inmueble/edificio/propiedad'. Tras su nombre, pregunta SOLO abierto y corto, sin presuponer nada: 'Encantado, [nombre]. Cuénteme, ¿qué le ha traído a escribirnos?'.",
   };
   const uniq = [...new Set(violations.map((v) => v.rule))];
   const fixes = uniq.map((r) => `- ${map[r] || r}`).join("\n");
@@ -287,6 +308,13 @@ export function repairInstruction(violations, register) {
 export function hardFallback(text, ctx) {
   const { modes = {}, register = "usted" } = ctx || {};
   const u = register === "tu"; // tú
+  // NO-PRESUPOSICIÓN: si el cliente no reveló propiedad y el borrador presupone, reescribe a la
+  // pregunta abierta limpia (determinista; funciona con cualquier modelo).
+  if (!modes.propiedadRevelada && RE_PRESUPONE.test(String(text || ""))) {
+    return u
+      ? "Encantado. Cuéntame, ¿qué te ha traído a escribirnos?"
+      : "Encantado. Cuénteme, ¿qué le ha traído a escribirnos?";
+  }
   if (modes.reproche) {
     return u
       ? "Tienes razón, disculpa. Sin rodeos: dime tú qué es lo que más te preocupa y vamos por ahí."
