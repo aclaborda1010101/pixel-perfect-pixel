@@ -2,6 +2,10 @@
 // SOLO responde a entrantes. Nunca inicia conversación, no envía plantillas salientes.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { evoFetch, EVOLUTION_INSTANCE } from "../_shared/evolution.ts";
+import {
+  detectModes, resolveRegister, buildTurnDirective, validateDraft,
+  repairInstruction, hardFallback, lastBotMessages, lastClientMessages,
+} from "../_shared/reply_guard.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,13 +32,16 @@ function detectHandoff(text: string): { hit: boolean; reason?: string } {
   return { hit: false };
 }
 
-function madridNow(): { h: number; m: number; ymd: string } {
+function madridNow(): { h: number; m: number; ymd: string; dow: number } {
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit",
     year: "numeric", month: "2-digit", day: "2-digit", hour12: false,
+    weekday: "short",
   });
   const parts = Object.fromEntries(fmt.formatToParts(new Date()).map((p) => [p.type, p.value]));
-  return { h: Number(parts.hour), m: Number(parts.minute), ymd: `${parts.year}-${parts.month}-${parts.day}` };
+  // dow: 0=domingo .. 6=sábado (igual que Date.getDay()).
+  const DOW: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { h: Number(parts.hour), m: Number(parts.minute), ymd: `${parts.year}-${parts.month}-${parts.day}`, dow: DOW[parts.weekday] ?? 1 };
 }
 
 async function sendPresence(phone: string, ms: number, presence = "composing") {
@@ -83,6 +90,56 @@ async function autoTripOnDisconnect(
     });
   } catch { /* nota best-effort */ }
   return true;
+}
+
+// Aviso de HANDOFF por email: cuando el bot traspasa a un humano, manda un correo con el resumen
+// y los datos para que alguien del equipo se haga cargo (evita que la conversación quede muda).
+// Requiere RESEND_API_KEY. Si falta, degrada: deja SOLO la nota de sistema y no bloquea el flujo.
+async function notifyHandoff(admin: any, conversation_id: string, contact: any, reason: string, qual: any, history: any[]): Promise<void> {
+  const to = Deno.env.get("HANDOFF_EMAIL") || "agustin.cifuentes@afflux.es";
+  const from = Deno.env.get("HANDOFF_FROM") || "Afflux Bot <onboarding@resend.dev>";
+  const RESEND = Deno.env.get("RESEND_API_KEY");
+  const phone = String(contact?.phone ?? "").replace(/[^\d]/g, "");
+  const name = contact?.name || "(sin nombre)";
+  const waLink = phone ? `https://wa.me/${phone}` : "";
+  const recent = (history || []).filter((m: any) => m.type !== "system" && m.content)
+    .slice(-10).map((m: any) => `${m.direction === "in" ? "Cliente" : "Bot"}: ${String(m.content).slice(0, 220)}`).join("\n");
+  const datos = Object.entries(qual || {})
+    .filter(([k, v]) => v != null && v !== "" && !k.startsWith("_") && !["categoria", "fase_actual", "handoff_reason", "oportunidad_flags"].includes(k))
+    .map(([k, v]) => `- ${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n");
+  const motivos: Record<string, string> = { operativo: "Pide gestión/llamada (operativo)", comprador: "Comprador/inversor", fuera_madrid: "Fuera de Madrid", otro: "Otro" };
+  const asunto = `🤝 Handoff Afflux — ${name} (${phone})`;
+  const cuerpo =
+`Una conversación del bot de WhatsApp necesita que alguien del equipo se haga cargo.
+
+CONTACTO: ${name}
+TELÉFONO: ${phone}${waLink ? `  ·  ${waLink}` : ""}
+MOTIVO: ${motivos[reason] || reason}
+
+DATOS CAPTURADOS:
+${datos || "(ninguno todavía)"}
+
+ÚLTIMOS MENSAJES:
+${recent || "(sin historial)"}
+`;
+  // Nota de sistema SIEMPRE (queda registro en la bandeja aunque el email falle o no esté configurado).
+  try {
+    await admin.from("wa_messages").insert({
+      conversation_id, contact_id: contact.id, direction: "out", type: "system",
+      content: `📧 Handoff: conversación pasada al equipo (aviso a ${to}). Motivo: ${motivos[reason] || reason}.`,
+      ai_generated: false, sender_type: "system",
+      metadata: { kind: "handoff_notify", reason, to },
+    });
+  } catch { /* best-effort */ }
+  if (!RESEND) { console.warn("[handoff] RESEND_API_KEY ausente; email NO enviado (queda la nota de sistema)"); return; }
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
+      body: JSON.stringify({ from, to, subject: asunto, text: cuerpo }),
+    });
+    if (!r.ok) console.error("[handoff] Resend", r.status, (await r.text()).slice(0, 200));
+  } catch (e) { console.error("[handoff] email fallo", (e as any)?.message); }
 }
 
 Deno.serve(async (req) => {
@@ -452,50 +509,26 @@ Deno.serve(async (req) => {
     //    pregunte por humano/IA o esté incómodo. Solo se pausa con el toggle manual
     //    desde /whatsapp (ai_enabled = false), comprobado más arriba.
 
-    // 2) ACTIVE HOURS (Europe/Madrid)
-    const ah = (cfg as any)?.active_hours ?? { from: "09:00", to: "21:00" };
-    const fromH = Number(String(ah.from || "09:00").split(":")[0]) || 9;
-    const toH   = Number(String(ah.to   || "21:00").split(":")[0]) || 21;
-    const { h: nowH } = madridNow();
-    const inHours = nowH >= fromH && nowH < toH;
+    // 2) HORARIO ACTIVO (Europe/Madrid) — L-V 09:00-20:30, fin de semana CERRADO.
+    // Configurable vía wa_bot_config.active_hours: { from:"09:00", to:"20:30", days:[1,2,3,4,5] }
+    // days usa 0=domingo..6=sábado (como Date.getDay()); por defecto lunes(1) a viernes(5).
+    // FUERA DE HORARIO = SILENCIO TOTAL: no se envía nada (ni mensaje de espera). El entrante
+    // queda registrado y su job se aparca; se atenderá cuando el cliente escriba en horario.
+    const ah = (cfg as any)?.active_hours ?? {};
+    const activeDays: number[] = Array.isArray(ah.days) && ah.days.length ? ah.days.map((d: any) => Number(d)) : [1, 2, 3, 4, 5];
+    const [fH, fM] = String(ah.from || "09:00").split(":").map((x: string) => Number(x));
+    const [tH, tM] = String(ah.to || "20:30").split(":").map((x: string) => Number(x));
+    const { h: nowH, m: nowM, dow } = madridNow();
+    const nowMin = nowH * 60 + nowM;
+    const openMin = (Number.isFinite(fH) ? fH : 9) * 60 + (Number.isFinite(fM) ? fM : 0);
+    const closeMin = (Number.isFinite(tH) ? tH : 20) * 60 + (Number.isFinite(tM) ? tM : 30);
+    const isWorkday = activeDays.includes(dow);
+    const inHours = isWorkday && nowMin >= openMin && nowMin < closeMin;
     if (!inHours) {
-      // Si el usuario insiste mucho (≥3 entrantes seguidos sin respuesta nuestra), mandar off_hours_message una vez.
-      let incomingStreak = 0;
-      for (let i = realHistory.length - 1; i >= 0; i--) {
-        if (realHistory[i].direction === "in") incomingStreak++;
-        else break;
-      }
-      const lastOffHoursSent = [...realHistory].reverse().find((m: any) => m.direction === "out");
-      const offMsg: string = (cfg as any)?.off_hours_message ?? "Te respondo mañana sin falta 🙌";
-      const alreadyToldTonight = lastOffHoursSent && (Date.now() - new Date(lastOffHoursSent.created_at).getTime()) < 8 * 60 * 60 * 1000;
-      if (incomingStreak >= 3 && offMsg && !alreadyToldTonight) {
-        sendPresence(contact.phone, 1800).catch(() => {});
-        await sleep(2000);
-        let sendRes: any;
-        try {
-          sendRes = await evoFetch(`/message/sendText/${EVOLUTION_INSTANCE}`, {
-            method: "POST",
-            body: JSON.stringify({ number: contact.phone, text: offMsg }),
-          });
-        } catch (e) {
-          if (await autoTripOnDisconnect(admin, (cfg as any)?.id, conversation_id, contact.id, e)) {
-            return new Response(JSON.stringify({ ok: false, kill_switch: "auto_tripped" }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-          throw e; // transitorio: lo gestiona el catch global / reaper
-        }
-        await admin.from("wa_messages").insert({
-          conversation_id, contact_id: contact.id,
-          direction: "out", type: "text", content: offMsg, ai_generated: true,
-          evolution_message_id: sendRes?.key?.id ?? null,
-          sender_type: "bot",
-          metadata: { off_hours: true },
-        });
-      }
+      // Silencio total: aparcar el job pendiente y salir sin enviar ningún mensaje.
       await admin.from("wa_ai_jobs").update({ status: "deferred", updated_at: new Date().toISOString() })
         .eq("conversation_id", conversation_id).eq("status", "pending");
-      return new Response(JSON.stringify({ ok: true, off_hours: true }), {
+      return new Response(JSON.stringify({ ok: true, off_hours: true, reason: isWorkday ? "fuera_de_horario" : "fin_de_semana" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -572,7 +605,31 @@ Deno.serve(async (req) => {
       return `${i === 0 ? "HOY" : i === 1 ? "MAÑANA" : ""} ${f}${finde ? " (fin de semana: NO agendar)" : ""}`.trim();
     }).join("\n- ");
     const systemPrompt = `Eres una persona del equipo de Afflux (especialistas en proindivisos en Madrid desde 2015), no un guion ni un bot recitando.
-Hablas por WhatsApp con alguien que nos ha escrito a un canal público (revista, QR, web, carta). NO asumas que vino "por la carta".
+Hablas por WhatsApp con alguien que nos ha escrito a un canal público (QR, web u otros). NO asumas por qué vía nos conoció ni menciones "la carta" ni "la revista".
+
+════════════════════════════════════════════════════════════════
+LAS 5 LEYES (mandan sobre TODO lo demás de este prompt, incluidas las fases y perfiles)
+Antes de enviar tu mensaje, compruébalo contra estas 5. Si incumple una, reescríbelo.
+════════════════════════════════════════════════════════════════
+LEY 1 · EMOCIÓN ANTES QUE DATO. Si en el último mensaje el cliente muestra enfado, dolor, apego,
+  miedo o desconfianza (p.ej. "de mi casa no me mueve nadie", "es un lío", "no me fío", "coño"),
+  tu mensaje NO puede contener NINGUNA pregunta de datos. Solo validas lo suyo con algo CONCRETO
+  que acabe de decir y paras. La pregunta de datos espera al siguiente turno. Sin excepción.
+LEY 2 · NO REPITAS UNA IDEA, aunque cambies las palabras. Mira TUS 2 mensajes anteriores: si vas
+  a decir lo mismo con otra formulación ("nadie le mueve de su casa" → "nadie le pide que se mueva";
+  "un experto le da el número" → "en la llamada le dan la cifra"), NO lo digas. Di algo NUEVO o
+  no digas nada de eso. Repetir la misma idea es lo que más delata al bot.
+LEY 3 · PRECIO — ESCALERA FIJA DE 2 PASOS, nunca más. 1ª vez que pidan cifra/rango: NO das número
+  (R5), y en el MISMO mensaje le dices QUÉ miramos para calcularlo (su cuota, estado del edificio,
+  rentas, la otra parte) y le ofreces la llamada donde se lo concretan. 2ª vez que insista: NO
+  repitas el esquive — reconoces su impaciencia en 3 palabras y le pasas con un compañero YA. Jamás
+  un tercer esquive con la misma idea.
+LEY 4 · REPROCHE = FRENO INMEDIATO. Si te reprocha el estilo ("no te repitas", "pareces un robot",
+  "no hagas como si lo vivieras", "deja de marearme"): reconoces en UNA frase ("Tiene razón,
+  disculpe") y CAMBIAS de tema a algo útil de su caso. Prohibido volver a usar la fórmula que le
+  molestó en el resto de la conversación.
+LEY 5 · UNA idea y UNA sola pregunta por mensaje. Nada de amontonar dos frases-argumento ni dos
+  preguntas. Si tienes dos cosas que decir, elige una.
 
 CONTEXTO REAL:
 - FECHA DE HOY (Madrid): ${hoyMadrid}.
@@ -586,7 +643,11 @@ CONTEXTO REAL:
   fuera de horario, ofrécele el día/hora hábil más cercano de la tabla. NUNCA inventes la fecha ni
   el día de la semana; si el cliente te corrige, acéptalo y recalcula sobre la tabla.
 - Este lead nos contactó ÉL primero. Tú NUNCA inicias conversación, SOLO respondes.
-- Castellano de España, tratamiento de "USTED" siempre, tono calmado, sin urgencia comercial.
+- Castellano de España, tono calmado, sin urgencia comercial. REGISTRO: "USTED" por defecto y lo
+  MANTIENES toda la conversación. NUNCA mezcles tú y usted (elegiste usted → sigues en usted hasta
+  el final, aunque el cliente te tutee). Solo cambias a "tú" si el cliente te lo PIDE explícitamente
+  ("puedes tutearme"), y entonces tú en todo lo que quede. La calidez la das con las palabras (cálido
+  y familiar con un mayor, cercano-formal con un ejecutivo), no cambiando de tratamiento.
 - Voz de marca: CLARIDAD, no venta. Empatía ANTES que números. Hablas como una persona real por WhatsApp.
 - IDENTIDAD (R9): te llamas JAIME y eres parte del equipo de Afflux. Te presentas como "Jaime, del
   equipo de Afflux". TIENES nombre: Jaime.
@@ -606,8 +667,9 @@ CONTEXTO REAL:
   tienes su nombre, teléfono, familiares ni dato personal alguno, ni menciones "bases de datos",
   "directorios de marketing", "el registro de la propiedad" ni "cruzar" fuentes para conseguir sus
   datos. Si pregunta cómo le hemos contactado: "En Afflux identificamos edificios en proindiviso en
-  Madrid con información pública y difundimos nuestra revista; por eso le llega el contacto" — sin
-  dar a entender que dispones de sus datos. Ante recelo, ofrece pasar con una persona del equipo.
+  Madrid con información pública; por eso podemos haber dado con el suyo" — sin dar a entender que
+  dispones de sus datos y SIN mencionar carta, revista ni buzoneo. Ante recelo, ofrece pasar con una
+  persona del equipo.
 - DATOS REALES DE AFFLUX (úsalos SIEMPRE tal cual; PROHIBIDO inventar otros):
   · Empresa: Afflux Property — compra de edificios residenciales y cuotas (proindivisos) en Madrid;
     más de 50 operaciones y +112 M€ invertidos; resuelve casos complejos (herencias, desacuerdos,
@@ -718,6 +780,30 @@ El bot debe sonar a PERSONA, no a guion. Cumple SIEMPRE:
     inmueble + reticencia ("no quiero líos"), NO empujes la venta, NO hagas doble CTA y NO encuadres
     vender como "proteger su hogar" (sería engañoso: Afflux compra cuotas). Explica con calma, UNA
     sola invitación suave, ACEPTA el "no" y deriva a un experto/abogado (p. ej. de renta antigua).
+15. REPROCHE DE ESTILO (QA cliente 6-jul): si el cliente te reprocha CÓMO le hablas ("no hagas como
+    si lo vivieses tú", "no me repitas", "pareces un robot"), reconoce en UNA frase ("Tiene razón,
+    disculpe") y CAMBIA de enfoque pasando directo a algo útil de su caso. PROHIBIDO volver a usar
+    la fórmula que le molestó en el resto de la conversación (si molestó el espejo emocional, no
+    vuelvas a espejar; si molestó la coletilla, no la repitas con otras palabras).
+16. JUSTIFICA CADA DATO QUE PIDAS (transparencia): al pedir un dato, di en la misma frase PARA QUÉ
+    lo necesitas ("¿por qué zona cae el edificio? — así miro la información pública del catastro y
+    le hablo con datos reales"). Un dato pedido sin porqué suena a formulario. Si es pronto para un
+    dato (dirección exacta), dilo: "eso me lo puede dar más adelante, no corre prisa" — y avanza
+    sin condicionar la conversación a tenerlo.
+17. MULETILLA DEL EXPERTO — MÁXIMO UNA VEZ: la frase tipo "eso lo afina/valora una persona del
+    equipo" puedes usarla COMO MUCHO una vez en toda la conversación, y variando la formulación.
+    Si el cliente pide un adelanto/orientación de precio, NO respondas con la coletilla-evasiva:
+    dale una orientación REAL del proceso sin cifras (qué miramos: su cuota, estado del edificio,
+    rentas y situación de los copropietarios; y que con eso se le pone un número concreto en la
+    llamada). Que se quede con la sensación de respuesta honesta, no de esquive. Las cifras siguen
+    PROHIBIDAS (R5).
+18. OPCIONES Y LOGÍSTICA DEL CLIENTE: al cerrar, ofrece alternativas reales (llamada o café/visita)
+    y acepta SU elección y su logística sin fricción ("nos acercamos sin problema", cambio de hora
+    o de sitio incluido). No impongas el formato.
+19. CIERRE CON CALIDEZ CONCRETA: cuando haya acuerdo, confirma día + hora + canal/lugar en una
+    línea y despide con calidez breve y natural ("Perfecto, pues el jueves a las 10 le llama mi
+    compañero. Un placer."). Un refuerzo afirmativo corto sin adular ("hace bien en mirarlo con calma")
+    de vez en cuando está bien; adulación o entusiasmo comercial, no.
 6. Si el cliente insiste en lo mismo (ej. "dame número"), MÁXIMO 2 esquives. Al segundo,
    reconoces su impaciencia ANTES y o bien derivas a un humano o cierras seco. NO reformules una
    tercera vez: eso delata al bot.
@@ -784,8 +870,9 @@ GUARDARRAÍLES — LÍNEAS ROJAS (no se cruzan NUNCA)
   digas "art. 399 CC"), es lo esencial y favorable, en tono orientativo: que normalmente cada
   copropietario PUEDE vender su propia cuota/parte sin necesitar el permiso de los demás, y que "un
   experto se lo confirma". Cualquier matiz legal (tanteo, retracto, plazos, notificaciones) NO lo resuelves por chat:
-  "ese detalle lo afina con tranquilidad una persona del equipo cuando hablemos". NUNCA inventes
-  datos verificables (dirección de oficina, plazos, nombres).
+  derívalo a la llamada CON TUS PALABRAS, variando la fórmula — aplica la regla 17: la coletilla
+  "eso lo afina un experto / caso por caso" como mucho UNA vez en toda la conversación. NUNCA
+  inventes datos verificables (dirección de oficina, plazos, nombres).
   [POSTURA_LEGAL_VALIDADA: cuando el equipo legal de Afflux confirme la frase exacta sobre
    notificación/tanteo/retracto, pégala aquí. HASTA ENTONCES el bot NO entra en detalle legal y
    deriva a persona.]
@@ -797,8 +884,8 @@ GUARDARRAÍLES — LÍNEAS ROJAS (no se cruzan NUNCA)
   familiares ni dato personal del cliente o de terceros. PROHIBIDO mencionar "bases de datos",
   "directorios de marketing", "registro de la propiedad" o "cruzar" fuentes para obtener sus datos.
   Solo conoces lo que él escriba en ESTE chat. Origen del contacto (si pregunta): "identificamos
-  edificios en proindiviso en Madrid con información pública y difundimos nuestra revista". NO uses
-  nombres ni teléfonos de otros copropietarios.
+  edificios en proindiviso en Madrid con información pública". PROHIBIDO mencionar "carta", "revista"
+  o "buzoneo" como vía de contacto. NO uses nombres ni teléfonos de otros copropietarios.
 - IDENTIDAD (R9): nunca confirmes ser un bot/IA ni admitas lagunas; reconduce como equipo de
   Afflux y, si insiste, ofrece pasar con un compañero humano.
 
@@ -1038,8 +1125,20 @@ REGLA "rol_inferido" — clasifica al lead. SÓLO incluye este bloque si confian
 
 RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto suelto fuera del JSON.`;
 
+    // ────────────────────────────────────────────────────────────
+    // GUARD (código, no prompt): detecta modos del turno (reproche / precio Nª vez /
+    // emoción / registro) e inyecta política dura para ESTE turno. La validación del
+    // borrador va DESPUÉS de generar (más abajo). "El prompt decide estilo; el código
+    // decide límites."
+    // ────────────────────────────────────────────────────────────
+    const turnModes = detectModes(lastInText, realHistory as any);
+    const register = resolveRegister(turnModes, (qual as any).registro);
+    if ((qual as any).registro !== register) (qual as any).registro = register;
+    const turnDirective = buildTurnDirective(turnModes, register, qual);
+    const systemPromptFinal = systemPrompt + turnDirective;
+
     const aiMessages = [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: systemPromptFinal },
       ...realHistory.map((m: any) => ({
         role: m.direction === "in" ? "user" : "assistant",
         content: m.direction === "out" && m.sender_type === "human_agent"
@@ -1065,52 +1164,70 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     const AI_TIMEOUT_MS = 10000;       // timeout por intento (evita cuelgues del proveedor)
     const AI_TOTAL_BUDGET_MS = 75000;  // presupuesto total de la fase IA (no agotar el wall-time del edge)
     const aiStart = Date.now();
-    let aiRes: Response | null = null;
-    let modelUsed = "";
-    let lastStatus = 0, lastTxt = "";
-    for (const p of providers) {
-      if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
-      const payloadObj: any = { model: p.model, messages: aiMessages, temperature: 0.4, max_tokens: 600 };
-      if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
-      const payload = JSON.stringify(payloadObj);
-      let r: Response | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const remaining = AI_TOTAL_BUDGET_MS - (Date.now() - aiStart);
-        if (remaining <= 2000) break; // sin presupuesto: no arriesgar el wall-time
-        const ac = new AbortController();
-        const to = setTimeout(() => ac.abort(), Math.min(AI_TIMEOUT_MS, remaining));
-        try {
-          r = await fetch(p.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.key}` }, body: payload, signal: ac.signal });
-        } catch (e) {
-          // abort por timeout o error de red: transitorio → reintenta / siguiente proveedor (NUNCA cuelga)
-          r = null;
-          lastTxt = `fetch abort/error (${p.model}): ${String((e as any)?.message ?? e).slice(0, 120)}`;
-          // Timeout en attempt 0: no reintenta con este proveedor; pasa directamente al siguiente
-          if (attempt === 0 && (e as any)?.name === "AbortError") break;
-          if (attempt < 2) { await sleep(600 * (attempt + 1)); continue; }
-          break;
-        } finally {
-          clearTimeout(to);
+    // Una llamada de completion con failover de proveedores + reintentos. Reutilizable
+    // (generación inicial y paso de reparación del guard). Devuelve el texto crudo o el error.
+    async function runCompletion(msgs: any[]): Promise<{ ok: boolean; raw: string; modelUsed: string; status: number; txt: string }> {
+      let localRes: Response | null = null, modelUsed = "", lastStatus = 0, lastTxt = "";
+      for (const p of providers) {
+        if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
+        const payloadObj: any = { model: p.model, messages: msgs, temperature: 0.4, max_tokens: 600 };
+        if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
+        const payload = JSON.stringify(payloadObj);
+        let r: Response | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const remaining = AI_TOTAL_BUDGET_MS - (Date.now() - aiStart);
+          if (remaining <= 2000) break; // sin presupuesto: no arriesgar el wall-time
+          const ac = new AbortController();
+          const to = setTimeout(() => ac.abort(), Math.min(AI_TIMEOUT_MS, remaining));
+          try {
+            r = await fetch(p.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${p.key}` }, body: payload, signal: ac.signal });
+          } catch (e) {
+            r = null;
+            lastTxt = `fetch abort/error (${p.model}): ${String((e as any)?.message ?? e).slice(0, 120)}`;
+            if (attempt === 0 && (e as any)?.name === "AbortError") break;
+            if (attempt < 2) { await sleep(600 * (attempt + 1)); continue; }
+            break;
+          } finally { clearTimeout(to); }
+          if (r.ok) break;
+          if (r.status !== 429 && r.status < 500) break; // 4xx duro (p.ej. 402 sin saldo): pasa al siguiente
+          if (attempt < 2) await sleep(600 * (attempt + 1));
         }
-        if (r.ok) break;
-        if (r.status !== 429 && r.status < 500) break; // 4xx duro (p.ej. 402 sin saldo): pasa al siguiente proveedor
-        if (attempt < 2) await sleep(600 * (attempt + 1));
+        if (r && r.ok) { localRes = r; modelUsed = p.model; break; }
+        lastStatus = r?.status ?? lastStatus; lastTxt = r ? await r.text() : lastTxt;
       }
-      if (r && r.ok) { aiRes = r; modelUsed = p.model; break; }
-      lastStatus = r?.status ?? lastStatus; lastTxt = r ? await r.text() : lastTxt;
+      if (!localRes || !localRes.ok) return { ok: false, raw: "", modelUsed: "", status: lastStatus, txt: lastTxt };
+      const j = await localRes.json();
+      return { ok: true, raw: String(j?.choices?.[0]?.message?.content ?? "").trim(), modelUsed, status: 200, txt: "" };
     }
-    if (!aiRes || !aiRes.ok) {
+
+    // Extrae el mensaje único del JSON crudo del modelo (mismo parseo robusto que abajo).
+    function extractMsg(rawStr: string): string {
+      let p: any = {};
+      try {
+        let s = rawStr;
+        if (s.startsWith("```")) s = s.replace(/^```(json)?/i, "").replace(/```\s*$/, "").trim();
+        const a = s.indexOf("{"), b = s.lastIndexOf("}");
+        if (a >= 0 && b > a) s = s.slice(a, b + 1);
+        p = JSON.parse(s);
+      } catch { p = {}; }
+      if (Array.isArray(p.messages)) { const m = p.messages.find((x: any) => typeof x === "string" && x.trim()); if (m) return m.trim(); }
+      const looksTxt = rawStr && rawStr.length <= 1200 && !rawStr.trim().startsWith("{") && !/"messages"\s*:/.test(rawStr);
+      return looksTxt ? rawStr.trim() : "";
+    }
+
+    const first = await runCompletion(aiMessages);
+    if (!first.ok) {
       await admin.from("wa_ai_jobs").update({
         status: "error",
-        error: `AI ${lastStatus}: ${String(lastTxt).slice(0, 300)}`,
+        error: `AI ${first.status}: ${String(first.txt).slice(0, 300)}`,
         updated_at: new Date().toISOString(),
       }).eq("conversation_id", conversation_id).eq("status", "running");
-      return new Response(JSON.stringify({ error: `AI ${lastStatus}: ${lastTxt}` }), {
-        status: lastStatus || 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return new Response(JSON.stringify({ error: `AI ${first.status}: ${first.txt}` }), {
+        status: first.status || 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const aiJson = await aiRes.json();
-    const raw = String(aiJson?.choices?.[0]?.message?.content ?? "").trim();
+    let modelUsed = first.modelUsed;
+    const raw = first.raw;
     // Parseo ROBUSTO: quita fences ```json y extrae el primer objeto {...} por si el modelo lo envuelve.
     let parsed: any = {};
     try {
@@ -1158,6 +1275,41 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       return new Response(JSON.stringify({ ok: true, skip: "empty reply", logged: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // GUARD DE SALIDA (código > prompt): valida el borrador contra los límites duros
+    // (1 pregunta, longitud, muletillas, repetición de idea vs sus 2-3 últimos mensajes,
+    // registro tú/usted, y "no pedir dato" en turno de emoción/reproche). Si falla y queda
+    // presupuesto, UNA reparación dirigida (regeneración con las violaciones concretas);
+    // si aún falla, fallback determinista. Coste extra SOLO cuando el borrador incumple.
+    // ────────────────────────────────────────────────────────────
+    const botPrev = lastBotMessages(realHistory as any, 3);
+    const clientPrev = lastClientMessages(realHistory as any, 2);
+    const guardCtx = { lastBotMsgs: botPrev, lastClientMsgs: clientPrev, register, modes: turnModes, ficha: qual };
+    let guardMeta: any = { modes: turnModes, repaired: false };
+    {
+      let text = replyMsgs[0];
+      let v = validateDraft(text, guardCtx);
+      guardMeta.v1 = v.violations;
+      if (!v.ok && (Date.now() - aiStart) < AI_TOTAL_BUDGET_MS - 8000) {
+        const repairMsgs = [
+          ...aiMessages,
+          { role: "assistant", content: first.raw },
+          { role: "user", content: repairInstruction(v.violations, register) },
+        ];
+        const rep = await runCompletion(repairMsgs);
+        if (rep.ok) {
+          const cand = extractMsg(rep.raw);
+          const v2 = cand ? validateDraft(cand, guardCtx) : { ok: false, violations: v.violations };
+          if (cand && v2.violations.length < v.violations.length) {
+            text = cand; v = v2 as any; modelUsed = rep.modelUsed + "+repair"; guardMeta.repaired = true;
+          }
+        }
+      }
+      if (!v.ok) { text = hardFallback(text, guardCtx); guardMeta.repaired = true; guardMeta.fallback = true; }
+      guardMeta.v2 = v.violations;
+      replyMsgs[0] = text;
     }
 
     // Anti-duplicado: si el bot mandó literalmente lo mismo en los ÚLTIMOS 5 MINUTOS,
@@ -1352,6 +1504,7 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
           part: i + 1, of: finalReplies.length,
           qualification_update: cleanQu,
           propose_meeting: !!parsed.propose_meeting,
+          guard: guardMeta,
         },
       });
       if (i === finalReplies.length - 1) {
@@ -1390,6 +1543,8 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     // DESPUÉS de enviar la respuesta del modelo, para que un humano retome.
     if (handoffReason) {
       await admin.from("wa_contacts").update({ stage: "handoff" }).eq("id", contact.id);
+      // Avisar al equipo por email con el resumen para que alguien se haga cargo (no dejar mudo).
+      await notifyHandoff(admin, conversation_id, contact, handoffReason, newQual, realHistory);
     }
 
     // Resumen: forzar si propuesta de reunión, nueva flag de oportunidad, o cambio de stage.
