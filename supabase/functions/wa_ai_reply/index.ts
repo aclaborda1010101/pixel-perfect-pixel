@@ -1173,7 +1173,9 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       let localRes: Response | null = null, modelUsed = "", lastStatus = 0, lastTxt = "";
       for (const p of providers) {
         if (Date.now() - aiStart > AI_TOTAL_BUDGET_MS) break;
-        const payloadObj: any = { model: p.model, messages: msgs, temperature: 0.4, max_tokens: 1400 };
+        // 3000 y no 1400: Luna razona DENTRO de max_tokens; con 1400 el JSON de salida
+        // se truncaba cuando la ficha de cualificación era larga (13-jul: empty_reply a lead real).
+        const payloadObj: any = { model: p.model, messages: msgs, temperature: 0.4, max_tokens: 3000 };
         if (p.jsonFmt) payloadObj.response_format = { type: "json_object" };
         const payload = JSON.stringify(payloadObj);
         let r: Response | null = null;
@@ -1201,6 +1203,28 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       if (!localRes || !localRes.ok) return { ok: false, raw: "", modelUsed: "", status: lastStatus, txt: lastTxt };
       const j = await localRes.json();
       return { ok: true, raw: String(j?.choices?.[0]?.message?.content ?? "").trim(), modelUsed, status: 200, txt: "" };
+    }
+
+    // Rescate de JSON TRUNCADO (max_tokens cortó la respuesta a mitad): extrae las cadenas
+    // COMPLETAS del array "messages" aunque el objeto nunca cierre. Una cadena a medias no
+    // matchea el regex de cadena completa, así que jamás se envía un mensaje cortado.
+    function salvageMessages(rawStr: string): string[] {
+      const m = rawStr.match(/"messages"\s*:\s*\[([\s\S]*)/);
+      if (!m) return [];
+      const out: string[] = [];
+      const re = /\s*"((?:[^"\\]|\\.)*)"/y;
+      let pos = 0;
+      const rest = m[1];
+      for (;;) {
+        re.lastIndex = pos;
+        const g = re.exec(rest);
+        if (!g) break;
+        try { out.push(JSON.parse(`"${g[1]}"`)); } catch { break; }
+        const sep = rest.slice(re.lastIndex).match(/^\s*([,\]])/);
+        if (!sep || sep[1] === "]") break; // fin del array (o truncado justo aquí)
+        pos = re.lastIndex + sep[0].length;
+      }
+      return out.filter((s) => typeof s === "string" && s.trim());
     }
 
     // Extrae el mensaje único del JSON crudo del modelo (mismo parseo robusto que abajo).
@@ -1239,7 +1263,11 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       const a = s.indexOf("{"), b = s.lastIndexOf("}");
       if (a >= 0 && b > a) s = s.slice(a, b + 1);
       parsed = JSON.parse(s);
-    } catch { parsed = { messages: [], qualification_update: {}, propose_meeting: false }; }
+    } catch {
+      // JSON roto (típicamente truncado por max_tokens): rescatar los mensajes completos
+      // en vez de callar. La ficha (qualification_update) se pierde este turno, no pasa nada.
+      parsed = { messages: salvageMessages(raw), qualification_update: {}, propose_meeting: false };
+    }
 
     // Fallback: si el modelo respondió en texto plano válido, usarlo como único mensaje.
     const looksLikeText = raw && raw.length >= 2 && raw.length <= 1200 && !raw.trim().startsWith("{") && !/"messages"\s*:/.test(raw);
