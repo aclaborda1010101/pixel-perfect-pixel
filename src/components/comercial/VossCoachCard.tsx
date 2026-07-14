@@ -60,6 +60,10 @@ export function VossCoachCard({
   const playbook = Array.isArray(voss?.playbook_priorizado) ? voss.playbook_priorizado : [];
   const enfoque = Array.isArray(voss?.enfoque_llamada) ? voss.enfoque_llamada : [];
   const plan = Array.isArray(voss?.plan_llamada) ? voss.plan_llamada : [];
+  const comoEnfocar: string = typeof voss?.como_enfocar === "string" ? voss.como_enfocar : "";
+  const hilo = Array.isArray(voss?.hilo) ? voss.hilo : [];
+  const lineasRojas: string[] = Array.isArray(voss?.lineas_rojas) ? voss.lineas_rojas : [];
+  const cierreFerrero: string = typeof voss?.cierre === "string" ? voss.cierre : "";
   const checklistPost = voss?.checklist ?? null;
 
   return (
