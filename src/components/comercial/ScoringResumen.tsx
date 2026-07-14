@@ -330,13 +330,27 @@ export function ScoringResumen({
       : []) as any[];
   const factors = factorsFrom(breakdown);
 
+  // Nº propietarios: se muestra SIEMPRE como positivo cuando el valor bruto es alto
+  // (más propietarios = mejor palanca de proindiviso).
+  const isPropietariosFactor = (f: Factor) =>
+    /propietari/i.test(f.key) || /propietari/i.test(f.label);
+  const rawIsHighPropietarios = (f: Factor) => {
+    const n = Number(f.raw);
+    return Number.isFinite(n) && n >= 3;
+  };
+
   // Separar positivos (pts>0) y penalizaciones (pts<0 o weight<0)
   const positivos = factors
-    .filter((f) => f.pts > 0 && f.weight > 0)
+    .filter((f) => (f.pts > 0 && f.weight > 0) || (isPropietariosFactor(f) && rawIsHighPropietarios(f)))
     .sort((a, b) => b.pts - a.pts);
-  const penalizaciones = factors.filter((f) => f.pts < 0 || f.weight < 0);
+  const penalizaciones = factors.filter(
+    (f) =>
+      (f.pts < 0 || f.weight < 0) &&
+      !(isPropietariosFactor(f) && rawIsHighPropietarios(f)),
+  );
 
-  const narrative = buildNarrative(b, analysis, s);
+  const clusterSec: string | null = b?.cluster_secundario ?? null;
+  const clusterSecInfo = clusterSec ? CLUSTER_LABELS[clusterSec] ?? null : null;
 
   const avisos: any[] = Array.isArray(b?.avisos_inteligentes) ? b.avisos_inteligentes : [];
   const highAvisos = avisos.filter((a) => a?.severity === "high" || a?.severity === "medium");
@@ -357,6 +371,17 @@ export function ScoringResumen({
                 <Badge className={cn("border font-mono uppercase tracking-eyebrow", clusterInfo.color)}>
                   <MapPin className="mr-1 h-3 w-3" /> {clusterInfo.label}
                 </Badge>
+                {clusterSecInfo && (
+                  <Badge
+                    className={cn(
+                      "border font-mono uppercase tracking-eyebrow opacity-90",
+                      clusterSecInfo.color,
+                    )}
+                    title="Tesis secundaria"
+                  >
+                    / {clusterSecInfo.label}
+                  </Badge>
+                )}
                 <span
                   className={cn(
                     "font-mono text-[11px] uppercase tracking-eyebrow",
@@ -366,7 +391,10 @@ export function ScoringResumen({
                   Potencial {tier === "high" ? "alto" : tier === "mid" ? "medio" : "bajo"}
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">{clusterInfo.tagline}.</p>
+              <p className="text-xs text-muted-foreground">
+                {clusterInfo.tagline}
+                {clusterSecInfo ? ` · secundaria: ${clusterSecInfo.tagline.toLowerCase()}` : ""}.
+              </p>
             </div>
           </div>
 
@@ -383,15 +411,6 @@ export function ScoringResumen({
               ))}
             </div>
           )}
-        </div>
-
-        {/* Narrativa */}
-        <div className="space-y-3 px-6">
-          {narrative.map((p, i) => (
-            <p key={i} className="text-sm leading-relaxed text-muted-foreground">
-              <RichText text={p} />
-            </p>
-          ))}
         </div>
 
         {/* Avisos inteligentes con detalle */}
