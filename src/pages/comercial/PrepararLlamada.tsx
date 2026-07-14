@@ -384,6 +384,7 @@ export default function ComercialPrepararLlamada() {
           ownerId={ownerId}
           buildingId={data?.ownerScore?.building_id}
           mode="brief"
+          targetKpis={targetKpis}
           initialVoss={(brief as any)?.voss ?? null}
           onLoaded={(v) => { setBrief({ voss: v }); if (sessionId) persistSession({ voss_brief: v }); }}
         />
