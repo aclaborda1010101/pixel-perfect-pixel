@@ -66,24 +66,42 @@ Deno.serve(async (req) => {
       hsIds = (eids ?? []).map((e: any) => String(e.provider_id)).filter(Boolean);
     } catch { /* opcional */ }
 
+    // HubSpot deal ids: por los edificios en los que el owner participa
+    let hsDealIds: string[] = [];
+    try {
+      const { data: bldgs } = await admin.from("building_owners").select("building_id").eq("owner_id", owner_id);
+      const buildingIds = (bldgs ?? []).map((b: any) => b.building_id).filter(Boolean);
+      if (buildingIds.length) {
+        const { data: exd } = await admin.from("external_ids")
+          .select("provider_id")
+          .eq("entity_type", "building").eq("provider", "hubspot").eq("provider_object_type", "deal")
+          .in("entity_id", buildingIds);
+        hsDealIds = (exd ?? []).map((r: any) => String(r.provider_id)).filter(Boolean);
+      }
+    } catch { /* opcional */ }
+
     let hsNotes: any[] = [];
     let hsWa: any[] = [];
-    if (hsIds.length) {
+    if (hsIds.length || hsDealIds.length) {
+      const seenN = new Set<string>();
+      const seenW = new Set<string>();
+      const runs: Promise<any>[] = [];
+      // Notas por contacto
+      if (hsIds.length) runs.push(admin.from("hubspot_notes").select("hs_id, hs_timestamp, hs_note_body").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
+      // Notas por deal
+      if (hsDealIds.length) runs.push(admin.from("hubspot_notes").select("hs_id, hs_timestamp, hs_note_body").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
+      // WhatsApp por contacto
+      if (hsIds.length) runs.push(admin.from("hubspot_whatsapp").select("hs_id, hs_timestamp, hs_communication_body").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
+      // WhatsApp por deal
+      if (hsDealIds.length) runs.push(admin.from("hubspot_whatsapp").select("hs_id, hs_timestamp, hs_communication_body").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
       try {
-        const { data } = await admin.from("hubspot_notes")
-          .select("hs_timestamp, hs_note_body")
-          .overlaps("associated_contact_ids", hsIds)
-          .order("hs_timestamp", { ascending: false })
-          .limit(30);
-        hsNotes = data ?? [];
-      } catch {}
-      try {
-        const { data } = await admin.from("hubspot_whatsapp")
-          .select("hs_timestamp, hs_communication_body")
-          .overlaps("associated_contact_ids", hsIds)
-          .order("hs_timestamp", { ascending: false })
-          .limit(30);
-        hsWa = data ?? [];
+        const results = await Promise.all(runs);
+        // orden de runs: notes/contact, notes/deal, wa/contact, wa/deal (según se hayan añadido)
+        let idx = 0;
+        if (hsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenN.has(id)) { seenN.add(id); hsNotes.push(r); } } idx++; }
+        if (hsDealIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenN.has(id)) { seenN.add(id); hsNotes.push(r); } } idx++; }
+        if (hsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenW.has(id)) { seenW.add(id); hsWa.push(r); } } idx++; }
+        if (hsDealIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenW.has(id)) { seenW.add(id); hsWa.push(r); } } idx++; }
       } catch {}
     }
 

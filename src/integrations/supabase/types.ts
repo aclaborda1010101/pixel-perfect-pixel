@@ -4267,6 +4267,94 @@ export type Database = {
         }
         Relationships: []
       }
+      owner_call_building_assignment: {
+        Row: {
+          assigned_by: string | null
+          building_id: string
+          created_at: string
+          hs_id: string
+          owner_id: string
+        }
+        Insert: {
+          assigned_by?: string | null
+          building_id: string
+          created_at?: string
+          hs_id: string
+          owner_id: string
+        }
+        Update: {
+          assigned_by?: string | null
+          building_id?: string
+          created_at?: string
+          hs_id?: string
+          owner_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_call_building_assignment_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       owner_call_prep_cache: {
         Row: {
           brief_generated_at: string | null
@@ -5838,6 +5926,19 @@ export type Database = {
       }
     }
     Views: {
+      v_building_calls: {
+        Row: {
+          building_id: string | null
+          direccion: string | null
+          duracion_seg: number | null
+          hs_id: string | null
+          hs_timestamp: string | null
+          nota: string | null
+          owner_id: string | null
+          tiene_grabacion: boolean | null
+        }
+        Relationships: []
+      }
       v_building_conversations: {
         Row: {
           associated_contact_ids: string[] | null
@@ -6120,6 +6221,7 @@ export type Database = {
           dias_desde_ultima_llamada: number | null
           entrantes: number | null
           intentos_totales: number | null
+          llamadas_sin_edificio: number | null
           owner_id: string | null
           salientes: number | null
           ultima_llamada: string | null
@@ -6130,6 +6232,8 @@ export type Database = {
       }
       v_owner_calls_enriched: {
         Row: {
+          building_id: string | null
+          conectada: boolean | null
           direccion: string | null
           duracion_seg: number | null
           hs_id: string | null
@@ -6137,6 +6241,7 @@ export type Database = {
           nota: string | null
           owner_id: string | null
           resultado: string | null
+          sin_edificio: boolean | null
           tiene_grabacion: boolean | null
         }
         Relationships: []
@@ -6449,6 +6554,7 @@ export type Database = {
         }[]
       }
       merge_duplicate_owners: { Args: { p_dry_run?: boolean }; Returns: Json }
+      norm_phone: { Args: { t: string }; Returns: string }
       normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
       normalize_pct_propiedad: {

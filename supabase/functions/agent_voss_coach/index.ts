@@ -334,24 +334,43 @@ Deno.serve(async (req) => {
         .eq('owner_id', owner_id).order('fecha', { ascending: false }).limit(12);
       historico = (cs || []).map(shortCall);
 
-      // Espejo HubSpot: contact_ids del owner
+      // Espejo HubSpot: contact_ids del owner + deal_ids de sus edificios
       const { data: ex } = await sb.from('external_ids')
         .select('provider_id').eq('entity_type', 'owner').eq('entity_id', owner_id).eq('provider', 'hubspot');
       const hsContactIds = (ex || []).map((r: any) => String(r.provider_id)).filter(Boolean);
-      if (hsContactIds.length) {
-        const [{ data: hc }, { data: hn }, { data: ht }] = await Promise.all([
-          sb.from('hubspot_calls')
-            .select('hs_id, hs_call_title, hs_call_body, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp')
-            .overlaps('associated_contact_ids', hsContactIds)
-            .order('hs_timestamp', { ascending: false }).limit(12),
-          sb.from('hubspot_notes')
-            .select('hs_id, hs_note_body, hs_timestamp')
-            .overlaps('associated_contact_ids', hsContactIds)
-            .order('hs_timestamp', { ascending: false }).limit(20),
-          sb.from('hubspot_tasks')
-            .select('hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_timestamp')
-            .overlaps('associated_contact_ids', hsContactIds)
-            .order('hs_timestamp', { ascending: false }).limit(20),
+      // deal_ids: edificios donde participa el owner
+      const { data: bldgs } = await sb.from('building_owners').select('building_id').eq('owner_id', owner_id);
+      const buildingIds = (bldgs || []).map((b: any) => b.building_id).filter(Boolean);
+      let hsDealIds: string[] = [];
+      if (buildingIds.length) {
+        const { data: exd } = await sb.from('external_ids')
+          .select('provider_id')
+          .eq('entity_type', 'building').eq('provider', 'hubspot').eq('provider_object_type', 'deal')
+          .in('entity_id', buildingIds);
+        hsDealIds = (exd || []).map((r: any) => String(r.provider_id)).filter(Boolean);
+      }
+      // Helper: fetch por contacto y por deal, dedup por hs_id
+      const fetchByOverlap = async (table: string, cols: string, order = 'hs_timestamp', limit = 20) => {
+        const queries: any[] = [];
+        if (hsContactIds.length) queries.push(sb.from(table).select(cols).overlaps('associated_contact_ids', hsContactIds).order(order, { ascending: false }).limit(limit));
+        if (hsDealIds.length) queries.push(sb.from(table).select(cols).overlaps('associated_deal_ids', hsDealIds).order(order, { ascending: false }).limit(limit));
+        if (!queries.length) return [];
+        const results = await Promise.all(queries);
+        const seen = new Set<string>();
+        const out: any[] = [];
+        for (const r of results) {
+          for (const row of (r.data || [])) {
+            const id = String((row as any).hs_id ?? '');
+            if (id && !seen.has(id)) { seen.add(id); out.push(row); }
+          }
+        }
+        return out;
+      };
+      if (hsContactIds.length || hsDealIds.length) {
+        const [hc, hn, ht] = await Promise.all([
+          fetchByOverlap('hubspot_calls', 'hs_id, hs_call_title, hs_call_body, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp', 'hs_timestamp', 12),
+          fetchByOverlap('hubspot_notes', 'hs_id, hs_note_body, hs_timestamp', 'hs_timestamp', 20),
+          fetchByOverlap('hubspot_tasks', 'hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_timestamp', 'hs_timestamp', 20),
         ]);
         // Dedupe calls por proximidad ±120s con histórico local
         const localTs = historico.map((h: any) => +new Date(h.fecha || 0));
