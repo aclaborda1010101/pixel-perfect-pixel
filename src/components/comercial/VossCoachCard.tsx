@@ -38,6 +38,7 @@ export function VossCoachCard({
   // Auto-carga desde caché (o regenera) al montar / cambiar owner, solo en modo brief
   useEffect(() => {
     if (!ownerId || mode !== "brief") return;
+    if (initialVoss) return; // ya viene precargado de la sesión
     let cancelled = false;
     (async () => { if (!cancelled) await load(false); })();
     return () => { cancelled = true; };
