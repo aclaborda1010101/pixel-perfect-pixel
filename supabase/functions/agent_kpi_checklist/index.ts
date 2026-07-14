@@ -5,7 +5,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const MODEL = "google/gemini-3-flash-preview";
+// Modelos con fallback. "GPT-5.6 Luna" NO está en la allowlist del gateway
+// (verificado); cambiar PRIMARY_MODEL a 'openai/gpt-5.6' cuando esté disponible.
+const PRIMARY_MODEL = "google/gemini-3-flash-preview";
+const FALLBACK_MODEL = "google/gemini-3-flash-preview";
 
 const KPIS: Array<{ clave: string; label: string; prioridad?: boolean }> = [
   { clave: "cuadro_rentas", label: "Cuadro de rentas y vencimientos", prioridad: true },
@@ -188,20 +191,27 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
       notas: notasCorpus.slice(0, 40),
     };
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: JSON.stringify(userPayload) },
-        ],
-        tools,
-        tool_choice: { type: "function", function: { name: "produce_kpis" } },
-      }),
-    });
-
+    async function callModel(model: string) {
+      return fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: sys },
+            { role: "user", content: JSON.stringify(userPayload) },
+          ],
+          tools,
+          tool_choice: { type: "function", function: { name: "produce_kpis" } },
+        }),
+      });
+    }
+    let aiRes = await callModel(PRIMARY_MODEL);
+    if (!aiRes.ok && PRIMARY_MODEL !== FALLBACK_MODEL) {
+      const txt = await aiRes.text();
+      console.error("agent_kpi_checklist primary model fail", aiRes.status, txt, "→ fallback", FALLBACK_MODEL);
+      aiRes = await callModel(FALLBACK_MODEL);
+    }
     if (!aiRes.ok) {
       const txt = await aiRes.text();
       console.error("agent_kpi_checklist AI error", aiRes.status, txt);

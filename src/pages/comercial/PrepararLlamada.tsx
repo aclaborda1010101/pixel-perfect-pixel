@@ -44,6 +44,9 @@ export default function ComercialPrepararLlamada() {
   const [now, setNow] = useState<number>(Date.now());
   const [targetKpis, setTargetKpis] = useState<string[]>([]);
   const [kpiContext, setKpiContext] = useState<Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }>>([]);
+  const [targetKpiClaves, setTargetKpiClaves] = useState<string[]>([]);
+  const [postKpiContext, setPostKpiContext] = useState<Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }> | null>(null);
+  const [scheduledAnalyzeAt, setScheduledAnalyzeAt] = useState<number | null>(null);
   const DEFAULT_CHECKLIST = [
     { k: "tipologia", label: "Tipología del propietario (T1–T10 / buyer persona)" },
     { k: "motor", label: "Qué le mueve (dinero, paz, herederos, miedo, control)" },
@@ -133,6 +136,7 @@ export default function ComercialPrepararLlamada() {
           .filter((k) => set.has(k.clave))
           .map((k) => k.label);
         setTargetKpis(labels);
+        setTargetKpiClaves(aAbordar);
         // Guarda TODO el checklist (tenemos + a_medias + falta con evidencia) para alimentar el brief.
         const full = ((res as any).kpis ?? []) as Array<{ clave: string; label: string; estado: any; evidencia: string | null }>;
         setKpiContext(full.map((k) => ({ clave: k.clave, label: k.label, estado: k.estado, evidencia: k.evidencia ?? null })));
@@ -209,9 +213,10 @@ export default function ComercialPrepararLlamada() {
     }
   }
 
-  // Calendario de reintentos tras "Llamada finalizada" si la transcripción aún no
-  // ha aterrizado desde HubSpot. Pull activo antes de cada reintento.
-  const RETRY_DELAYS_MS = [60_000, 120_000, 180_000, 300_000]; // 1', 2', 3', 5'
+  // Calendario de reintentos si la transcripción aún no ha aterrizado.
+  // Al pulsar "Continuar llamada" programamos auto-análisis a ~15 min.
+  const RETRY_DELAYS_MS = [120_000, 180_000, 300_000];
+  const AUTO_ANALYZE_DELAY_MS = 15 * 60 * 1000;
 
   async function tryFinalizeOnce({ pullHubspot }: { pullHubspot: boolean }): Promise<boolean> {
     if (!sessionId) return false;
@@ -253,7 +258,56 @@ export default function ComercialPrepararLlamada() {
     if (refreshed?.voss_post) setVossPost(refreshed.voss_post);
     if (refreshed?.notas) setNotas(refreshed.notas);
     setPaso(3);
+    // Cancelar auto-análisis pendiente y refrescar KPIs conseguidos.
+    setScheduledAnalyzeAt(null);
+    refreshKpisPostCall();
     return true;
+  }
+
+  // Deep link a HubSpot + programar auto-análisis a 15 min al pulsar "Continuar".
+  async function goToCallStep() {
+    if (!ownerId) return;
+    jumpTo(2);
+    try {
+      const { data: eid } = await supabase.from("external_ids")
+        .select("provider_id")
+        .eq("entity_type", "owner").eq("provider", "hubspot")
+        .eq("entity_id", ownerId).maybeSingle();
+      const contactId = (eid as any)?.provider_id;
+      if (contactId) {
+        let portalId = localStorage.getItem("hs_portal_id");
+        if (!portalId) {
+          try {
+            const { data: pj } = await supabase.functions.invoke("hubspot_ping", { body: {} });
+            const p = (pj as any)?.portal_id;
+            if (p) { portalId = String(p); localStorage.setItem("hs_portal_id", portalId); }
+          } catch { /* best-effort */ }
+        }
+        const url = portalId
+          ? `https://app.hubspot.com/contacts/${portalId}/record/0-1/${contactId}`
+          : `https://app.hubspot.com/contacts/list/view/all/?query=${encodeURIComponent(String(contactId))}`;
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        toast.message("Sin contacto HubSpot vinculado a este propietario");
+      }
+    } catch { /* best-effort */ }
+    const at = Date.now() + AUTO_ANALYZE_DELAY_MS;
+    setScheduledAnalyzeAt(at);
+    toast.success("Llamada abierta en HubSpot · analizaré automáticamente en 15 min");
+  }
+
+  // Re-computar KPIs tras la llamada e invalidar caché de preparación.
+  async function refreshKpisPostCall() {
+    if (!ownerId) return;
+    try {
+      await (supabase.from("owner_call_prep_cache" as any) as any)
+        .update({ kpis_last_activity_at: new Date().toISOString() })
+        .eq("owner_id", ownerId);
+      const { data: res } = await supabase.functions.invoke("agent_kpi_checklist", { body: { owner_id: ownerId } });
+      if (!res) return;
+      const kpis = ((res as any).kpis ?? []) as Array<{ clave: string; label: string; estado: any; evidencia: string | null }>;
+      setPostKpiContext(kpis.map((k) => ({ clave: k.clave, label: k.label, estado: k.estado, evidencia: k.evidencia ?? null })));
+    } catch { /* best-effort */ }
   }
 
   // Tick del countdown + disparo del reintento cuando llega su momento
@@ -274,6 +328,21 @@ export default function ComercialPrepararLlamada() {
     // El propio tryFinalizeOnce reprograma el siguiente o limpia awaiting.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [now, awaiting?.nextAt]);
+
+  // Tick + disparo del auto-análisis programado a 15 min tras "Continuar llamada".
+  useEffect(() => {
+    if (!scheduledAnalyzeAt) return;
+    const t = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(t);
+  }, [scheduledAnalyzeAt]);
+
+  useEffect(() => {
+    if (!scheduledAnalyzeAt || finalizing || awaiting) return;
+    if (now < scheduledAnalyzeAt) return;
+    setScheduledAnalyzeAt(null);
+    (async () => { try { await finalizeCall(); } catch {} })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [now, scheduledAnalyzeAt]);
 
   // Normaliza esquema viejo y nuevo a un mismo shape
   const normalizedBrief = (() => {
@@ -405,7 +474,9 @@ export default function ComercialPrepararLlamada() {
         />
       )}
         <div className="flex justify-end">
-          <Button variant="gold" onClick={() => jumpTo(2)}>Continuar a la llamada <ArrowRight className="h-4 w-4" /></Button>
+          <Button variant="gold" onClick={goToCallStep}>
+            <Phone className="h-4 w-4" /> Continuar llamada <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
       </>
       )}
@@ -417,6 +488,59 @@ export default function ComercialPrepararLlamada() {
             <CardTitle>Guía táctica · Checklist</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {targetKpis.length > 0 && (
+              <div className="rounded-[6px] border border-gold/40 bg-gold-soft/20 p-3">
+                <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  KPIs objetivo de esta llamada
+                </div>
+                <ul className="space-y-1.5 text-sm">
+                  {targetKpiClaves.map((clave, i) => {
+                    const label = targetKpis[i] ?? clave;
+                    const post = postKpiContext?.find((k) => k.clave === clave);
+                    const conseguido = post?.estado === "tenemos";
+                    const analyzed = !!postKpiContext;
+                    return (
+                      <li key={clave} className="flex items-start gap-2">
+                        {analyzed ? (
+                          conseguido
+                            ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
+                            : <XCircle className="mt-0.5 h-4 w-4 text-destructive" />
+                        ) : (
+                          <Target className="mt-0.5 h-4 w-4 text-gold" />
+                        )}
+                        <div className="flex-1">
+                          <div className="text-foreground">{label}</div>
+                          {post?.evidencia && conseguido && (
+                            <div className="mt-0.5 italic text-xs text-muted-foreground">"{post.evidencia}"</div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {postKpiContext && (() => {
+                  const targetSet = new Set(targetKpiClaves);
+                  const extras = postKpiContext.filter((k) => k.estado === "tenemos" && !targetSet.has(k.clave)
+                    && !kpiContext.find((prev) => prev.clave === k.clave && prev.estado === "tenemos"));
+                  if (extras.length === 0) return null;
+                  return (
+                    <div className="mt-3 border-t border-gold/20 pt-2">
+                      <div className="mb-1 font-mono text-[10px] uppercase tracking-eyebrow text-emerald-600">
+                        Conseguido extra (no era objetivo)
+                      </div>
+                      <ul className="space-y-1 text-xs">
+                        {extras.map((k) => (
+                          <li key={k.clave} className="flex items-start gap-2">
+                            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 text-emerald-500" />
+                            <span className="text-foreground">{k.label}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-mono uppercase tracking-eyebrow text-muted-foreground">Objetivo:</span>
               {[{ k: "reunion", label: "Reunión" }, { k: "whatsapp", label: "Enviar WhatsApp" }, { k: "pixel", label: "Enviar pixel" }].map((o) => (
@@ -441,13 +565,26 @@ export default function ComercialPrepararLlamada() {
                 </li>
               ))}
             </ul>
-            <div className="flex justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Button variant="outline" onClick={() => jumpTo(1)}>Volver al brief</Button>
-              <Button variant="gold" onClick={finalizeCall} disabled={finalizing || !!awaiting}>
-                <PhoneOff className="h-4 w-4" />
-                {finalizing ? "Analizando llamada…" : awaiting ? "Esperando transcripción…" : "Llamada finalizada · analizar"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={finalizeCall} disabled={finalizing || !!awaiting}>
+                  <Sparkles className="h-4 w-4" />
+                  {finalizing ? "Analizando…" : "Analizar ahora"}
+                </Button>
+                <Button variant="gold" onClick={finalizeCall} disabled={finalizing || !!awaiting}>
+                  <ArrowRight className="h-4 w-4" />
+                  {finalizing ? "Analizando…" : awaiting ? "Esperando transcripción…" : "Resultado"}
+                </Button>
+              </div>
             </div>
+            {scheduledAnalyzeAt && !finalizing && !awaiting && (
+              <div className="rounded border border-gold/30 bg-gold-soft/10 p-2 text-xs">
+                <Clock4 className="mr-1 inline h-3 w-3 text-gold" />
+                Auto-análisis programado en {Math.max(0, Math.ceil((scheduledAnalyzeAt - now) / 60000))} min.
+                Pulsa <b>Analizar ahora</b> para no esperar.
+              </div>
+            )}
             {awaiting && (
               <div className="rounded border border-gold/40 bg-gold-soft/20 p-3 text-xs">
                 <div className="flex items-center justify-between gap-3">
@@ -485,6 +622,71 @@ export default function ComercialPrepararLlamada() {
             {vossPost?.puntuacion?.justificacion && (
               <p className="text-foreground">{vossPost.puntuacion.justificacion}</p>
             )}
+            {/* KPIs objetivo · resultado */}
+            {targetKpiClaves.length > 0 && postKpiContext && (
+              <div className="rounded-[6px] border border-gold/30 bg-gold-soft/10 p-3">
+                <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  KPIs objetivo · resultado
+                </div>
+                <ul className="space-y-1.5">
+                  {targetKpiClaves.map((clave, i) => {
+                    const label = targetKpis[i] ?? clave;
+                    const post = postKpiContext.find((k) => k.clave === clave);
+                    const conseguido = post?.estado === "tenemos";
+                    return (
+                      <li key={clave} className="flex items-start gap-2">
+                        {conseguido
+                          ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
+                          : <XCircle className="mt-0.5 h-4 w-4 text-destructive" />}
+                        <div className="flex-1">
+                          <div className="text-foreground">{label}</div>
+                          {post?.evidencia && conseguido && (
+                            <div className="italic text-xs text-muted-foreground">"{post.evidencia}"</div>
+                          )}
+                          {!conseguido && (
+                            <div className="text-xs text-muted-foreground">— no conseguido en esta llamada</div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+            {/* Qué hizo bien */}
+            {Array.isArray(vossPost?.que_hizo_bien) && vossPost.que_hizo_bien.length > 0 && (
+              <section>
+                <Eyebrow className="mb-1">Qué hizo bien</Eyebrow>
+                <ul className="space-y-1.5 text-xs">
+                  {vossPost.que_hizo_bien.map((q: any, i: number) => (
+                    <li key={i} className="rounded border border-emerald-500/30 bg-emerald-500/5 p-2">
+                      <div className="italic text-muted-foreground">"{q.momento}"</div>
+                      <div className="mt-1 text-foreground">{q.tecnica_voss ? <span className="font-mono uppercase tracking-eyebrow text-emerald-600">{q.tecnica_voss} · </span> : null}{q.comentario}</div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {/* Momentos flojos / mejora */}
+            {Array.isArray(vossPost?.momentos_flojos) && vossPost.momentos_flojos.length > 0 && (
+              <section>
+                <Eyebrow className="mb-1"><MessageSquareWarning className="mr-1 inline h-3 w-3" /> Qué se podría mejorar</Eyebrow>
+                <ul className="space-y-1.5 text-xs">
+                  {vossPost.momentos_flojos.map((m: any, i: number) => (
+                    <li key={i} className="rounded border border-destructive/30 bg-destructive/5 p-2">
+                      <div className="italic text-muted-foreground">"{m.momento}"</div>
+                      <div className="mt-1 text-foreground">{m.que_paso}</div>
+                      {m.mejora_voss && (
+                        <div className="mt-1 rounded border-l-2 border-gold pl-2 text-foreground">
+                          <span className="font-mono uppercase tracking-eyebrow text-gold">Mejor: </span>«{m.mejora_voss}»
+                          {m.tecnica && <span className="ml-1 text-muted-foreground">· {m.tecnica}</span>}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <ul className="space-y-1.5">
               {checklist.map((c) => (
                 <li key={c.k} className="flex items-start gap-2">
@@ -503,6 +705,35 @@ export default function ComercialPrepararLlamada() {
                 <span className="font-mono uppercase tracking-eyebrow text-muted-foreground">Próxima acción:</span> {vossPost.proxima_accion}
               </div>
             )}
+            {/* Propuesta siguiente llamada */}
+            {(() => {
+              const faltan = (postKpiContext ?? kpiContext).filter((k) => k.estado !== "tenemos");
+              if (faltan.length === 0) return null;
+              const dias = (() => {
+                const p = String(vossPost?.proxima_accion ?? "").toLowerCase();
+                const m = p.match(/(\d+)\s*(d[ií]a|h)/);
+                if (m) return `${m[1]} ${m[2].startsWith("d") ? "días" : "horas"}`;
+                if (puntuacion != null && puntuacion >= 70) return "2-3 días";
+                if (puntuacion != null && puntuacion >= 40) return "5-7 días";
+                return "10-14 días";
+              })();
+              return (
+                <div className="rounded-[6px] border border-gold/40 bg-gold-soft/20 p-3">
+                  <Eyebrow className="mb-2">Propuesta · siguiente llamada</Eyebrow>
+                  <p className="text-foreground">
+                    Recomiendo la próxima llamada en <b>{dias}</b>, con estos KPIs objetivo:
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {faltan.slice(0, 5).map((k) => (
+                      <li key={k.clave} className="flex items-start gap-2">
+                        <Target className="mt-0.5 h-3.5 w-3.5 text-gold" />
+                        <span className="text-foreground">{k.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       )}
