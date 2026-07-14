@@ -90,7 +90,7 @@ export default function ComercialPrepararLlamada() {
     try {
       const buildingId = data?.ownerScore?.building_id;
       const { data: res, error } = await supabase.functions.invoke("agent_voss_coach", {
-        body: { mode: "brief", owner_id: ownerId, building_id: buildingId },
+        body: { mode: "brief", owner_id: ownerId, building_id: buildingId, target_kpis: targetKpis },
       });
       if (error) throw error;
       setBrief(res);
@@ -103,6 +103,28 @@ export default function ComercialPrepararLlamada() {
   }
 
   useEffect(() => { setBrief(null); }, [ownerId]);
+
+  // Cargar KPIs a abordar → los pasamos al brief para que se enfoque en esos datos concretos.
+  useEffect(() => {
+    if (!ownerId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: res } = await supabase.functions.invoke("agent_kpi_checklist", {
+          body: { owner_id: ownerId },
+        });
+        if (cancelled || !res) return;
+        const kpis = (res as any).kpis as Array<{ clave: string; label: string }> | undefined;
+        const aAbordar = ((res as any).a_abordar ?? []) as string[];
+        const set = new Set(aAbordar);
+        const labels = (kpis ?? [])
+          .filter((k) => set.has(k.clave))
+          .map((k) => k.label);
+        setTargetKpis(labels);
+      } catch { /* best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [ownerId]);
 
   // Crear/cargar session al entrar
   useEffect(() => {
