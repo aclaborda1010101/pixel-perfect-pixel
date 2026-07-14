@@ -45,7 +45,7 @@ async function extractIeeFromText(snippets: string): Promise<{
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "google/gemini-3-flash-preview",
       messages: [
         { role: "system", content: `Eres un extractor. Devuelves SOLO JSON: {"estado":"favorable|desfavorable_leve|desfavorable_grave|pendiente|caducada|no_procede|desconocido","fecha_inspeccion":"YYYY-MM-DD|null","deficiencias":[{"categoria":"...","gravedad":"leve|grave|muy_grave","descripcion":"..."}],"confianza":0..1}. "favorable"=sin deficiencias; "desfavorable_leve"=deficiencias leves; "desfavorable_grave"=graves/muy graves; "caducada"=presentado pero ya pasó la vigencia; "pendiente"=obligado y nunca presentado; "no_procede"=edificio <30 años o exento. Si no estás seguro, "desconocido" con confianza<0.4.` },
         { role: "user", content: snippets.slice(0, 12000) },
