@@ -863,6 +863,16 @@ export default function ComercialEdificios() {
                 <Label className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                   Potencial estructural
                 </Label>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="star"
+                    checked={advSoloEstrella}
+                    onCheckedChange={(c) => setAdvSoloEstrella(!!c)}
+                  />
+                  <Label htmlFor="star" className="cursor-pointer text-xs font-normal">
+                    ⭐ Solo edificios estrella
+                  </Label>
+                </div>
                 {[
                   { id: "esc", v: advSegundasEscaleras, s: setAdvSegundasEscaleras, l: "Tiene segundas escaleras" },
                   { id: "alt", v: advPlantasLevantables, s: setAdvPlantasLevantables, l: "Puede aumentar altura (plantas levantables)" },
