@@ -1,82 +1,46 @@
-## Contexto y diagnóstico
+## Cambio
 
-El bot está **funcionando como está configurado**, no hay bug:
+Aflojar el criterio de ⭐ **ESTRELLA** en la función `public.compute_cluster_score` (línea 202): pasar de AND a OR.
 
-- `wa_bot_config`: `is_active=true`, `active_hours = { from:"09:00", to:"20:30", days:[1..5], tz:"Europe/Madrid" }`.
-- En `wa_ai_reply/index.ts` (l. 512–534), fuera de horario se hace **silencio total**: el mensaje entrante se registra, el job pasa a `status='deferred'` y **no** se envía ni el `off_hours_message`.
-- Cuando llegan las 09:00 no se retoma nada: el bot sólo vuelve a contestar si el cliente escribe de nuevo dentro del horario. Por eso los mensajes de las 7:44 quedan sin respuesta indefinidamente si el cliente no reescribe.
-
-Decisión tomada: **mantener 09:00–20:30 L–V** y **retomar automáticamente** los jobs `deferred` en cuanto se abra la ventana.
-
-## Cambios
-
-### 1) Nueva edge function `wa_replay_deferred`
-
-Ruta: `supabase/functions/wa_replay_deferred/index.ts`.
-
-Responsabilidad: al abrir el horario, disparar `wa_ai_reply` una sola vez por conversación con jobs `deferred`.
-
-Lógica:
-1. Leer `wa_bot_config`. Si `is_active=false`, salir.
-2. Calcular `madridNow` (misma helper que `wa_ai_reply`, `Europe/Madrid`). Si NO estamos dentro de `active_hours` (día laborable y `now ∈ [from, to)`), salir sin hacer nada.
-3. Guardia anti-doble ejecución diaria: leer/escribir una fila en `app_settings` con `key='wa_replay_deferred_last'`, `value = { date: 'YYYY-MM-DD (Europe/Madrid)' }`. Si el `date` ya coincide con hoy, salir. Si no, escribirlo antes de continuar (evita duplicados si el cron ejecuta varias veces por DST/solape).
-4. Seleccionar los `conversation_id` DISTINTOS con al menos un `wa_ai_jobs.status='deferred'`.
-5. Para cada conversación:
-   - `UPDATE wa_ai_jobs SET status='pending', updated_at=now() WHERE conversation_id=$1 AND status='deferred'`.
-   - Llamar a `wa_ai_reply` con `{ conversation_id }` (fire-and-forget vía `fetch` al endpoint `/functions/v1/wa_ai_reply` con service-role key). No esperamos: el propio `wa_ai_reply` ya trae debounce, mutex atómico (`pending→running`) y anti-duplicado, así que reactivarlo por conversación es seguro. Añadir pequeño jitter entre llamadas (200–400 ms) para no saturar Evolution.
-6. Devolver `{ ok:true, conversations_relanzadas: N }`.
-
-Notas:
-- El `verify_jwt` queda por defecto (Lovable-managed).
-- Usa CORS estándar y validación mínima (no recibe input del cliente).
-- Registra un log de resumen (`console.log`) por ejecución.
-
-### 2) Cron
-
-Se programa vía SQL (pg_cron + pg_net, ya presentes en el proyecto por otros trabajos). Se ejecuta **cada 5 minutos entre 06:00 y 10:00 UTC de lunes a viernes**, cubriendo las dos posibles conversiones horarias:
-
-- Verano (CEST, UTC+2): 09:00 Madrid = 07:00 UTC.
-- Invierno (CET, UTC+1): 09:00 Madrid = 08:00 UTC.
-
-La ventana amplia + la guarda anti-doble-ejecución dentro de la función garantiza que se dispare exactamente una vez el primer minuto en el que Madrid entra en la franja activa, aunque cambie el DST. Y si además el cron llegara a fallar un tick, el siguiente reintenta.
-
-Se insertará vía `supabase--insert` (no migración, contiene URL y anon key del proyecto) siguiendo el patrón:
-
+### Antes
 ```sql
-select cron.schedule(
-  'wa-replay-deferred-open',
-  '*/5 6-9 * * 1-5',
-  $$
-  select net.http_post(
-    url:='https://<project-ref>.supabase.co/functions/v1/wa_replay_deferred',
-    headers:='{"Content-Type":"application/json","apikey":"<anon-key>"}'::jsonb,
-    body:='{}'::jsonb
-  );
-  $$
-);
+IF COALESCE(v_terciario_pct,0) >= 0.66
+   AND (v_2esc_confirmada OR v_n_escaleras_final >= 2) THEN
+  v_es_estrella := true; ...
+END IF;
 ```
 
-Antes de ese `cron.schedule` se ejecuta `create extension if not exists pg_cron; create extension if not exists pg_net;` si no estuvieran ya, y se borra cualquier job previo con el mismo nombre (`cron.unschedule('wa-replay-deferred-open')` con guard).
+### Después
+```sql
+IF COALESCE(v_terciario_pct,0) >= 0.66
+   OR v_2esc_confirmada
+   OR v_n_escaleras_final >= 2 THEN
+  v_es_estrella := true; ...
+END IF;
+```
 
-### 3) `app_settings` — nueva key
+Es decir: se marca estrella si se cumple **cualquiera** de:
+- Terciario ≥ 66 %, **o**
+- 2ª escalera confirmada, **o**
+- ≥ 2 escaleras detectadas (`n_escaleras_final ≥ 2`).
 
-- key: `wa_replay_deferred_last`
-- value (jsonb): `{ "date": "YYYY-MM-DD" }` (fecha Europe/Madrid del último replay ejecutado)
+También actualizo el `label`/`detail` del aviso `estrella` para que refleje qué condición disparó la marca (terciario / 2 escaleras / ambas), en vez del texto actual "Terciario ≥66% + 2ª escalera".
 
-No hace falta migración de esquema: `app_settings` ya existe. Sólo se hace un `UPSERT` desde la función.
+### No se toca
 
-## Qué NO se toca
+- Umbrales: 66 % terciario se mantiene (es el actual, y lo has reconfirmado). No cambio a 60 %.
+- Las alarmas independientes siguen igual: `alarma_terciario_alto` (≥66 %) y `alarma_protegido_2esc` (protegido + 2 escaleras).
+- El upgrade a `ultra_prime` sigue condicionado a que exista además `alarma_prot_2esc` (protegido + 2 escaleras). Marcar estrella por sí sola NO sube el cluster.
+- El score numérico no cambia por la estrella; la ordenación por `es_estrella` sigue haciéndose en frontend (ya implementado).
+- Nada del bot de WhatsApp, ni de otras funciones.
 
-- No se cambia `active_hours` (queda 09:00–20:30 L–V).
-- No se toca `wa_ai_reply` ni `reply_guard.mjs` ni el resto del pipeline (webhooks, envío, kill switch, mutex, debounce).
-- No se envía `off_hours_message`: los mensajes de fuera de horario siguen en silencio; sólo se responden al abrir.
+### Cómo se aplica
 
-## Verificación tras despliegue
+- Migración SQL con `CREATE OR REPLACE FUNCTION public.compute_cluster_score(...)` conteniendo el cuerpo completo con el `IF` cambiado. No se modifica la firma ni permisos.
+- Tras la migración, recalcular el score de todos los edificios para que `es_estrella` se actualice. Se hace invocando la edge function existente `recompute-all-scores` (ya en el proyecto), que recorre `buildings` llamando a `compute_cluster_score(id)`. Lo dispararé con `supabase--curl_edge_functions` una vez aplicada la migración.
 
-1. Comprobar en `wa_ai_jobs` que existen filas `status='deferred'` (ej. el caso de las 7:44 de hoy).
-2. Invocar manualmente `wa_replay_deferred` con `supabase--curl_edge_functions` (dentro del horario) y verificar:
-   - Respuesta `ok:true, conversations_relanzadas: N`.
-   - Los jobs pasan de `deferred` → `pending` → `running`/`done`.
-   - Se envía respuesta al contacto en WhatsApp.
-   - Segunda invocación seguida ⇒ `conversations_relanzadas: 0` (guarda diaria funciona).
-3. Confirmar el cron con `select * from cron.job where jobname='wa-replay-deferred-open'`.
+### Verificación
+
+1. `SELECT count(*) FROM buildings WHERE es_estrella` antes y después: debe crecer (ahora la condición es más laxa).
+2. Elegir 2-3 edificios: uno con solo ≥2 escaleras y otro con solo ≥66 % terciario — comprobar que ambos aparecen como estrella y con la nueva razón en `avisos_inteligentes`.
+3. En la vista comercial de Edificios, confirmar que aparecen ordenados con ⭐ arriba.
