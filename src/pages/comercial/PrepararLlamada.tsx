@@ -389,6 +389,7 @@ export default function ComercialPrepararLlamada() {
           buildingId={data?.ownerScore?.building_id}
           mode="brief"
           targetKpis={targetKpis}
+          kpiContext={kpiContext}
           initialVoss={(brief as any)?.voss ?? null}
           onLoaded={(v) => { setBrief({ voss: v }); if (sessionId) persistSession({ voss_brief: v }); }}
         />
