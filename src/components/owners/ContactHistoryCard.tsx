@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowDownLeft, ArrowUpRight, Mic, PhoneCall } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Mic, PhoneCall } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type OwnerCallStats = {
@@ -16,6 +16,7 @@ export type OwnerCallStats = {
   ultima_llamada: string | null;
   ultima_vez_conectado: string | null;
   dias_desde_ultima_llamada: number | null;
+  llamadas_sin_edificio?: number | null;
 };
 
 export type OwnerCallRow = {
@@ -26,6 +27,9 @@ export type OwnerCallRow = {
   duracion_seg: number | null;
   nota: string | null;
   tiene_grabacion: boolean;
+  hs_id?: string | null;
+  building_id?: string | null;
+  sin_edificio?: boolean | null;
 };
 
 const fmtDate = (d?: string | null) =>
@@ -99,6 +103,8 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
 
   const hasStats = stats && Number(stats.intentos_totales ?? 0) > 0;
 
+  const sinEdificio = Number(stats?.llamadas_sin_edificio ?? 0);
+
   return (
     <Card>
       <CardHeader>
@@ -115,6 +121,19 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
           <div className="text-sm text-muted-foreground">Sin llamadas registradas</div>
         ) : (
           <>
+            {sinEdificio > 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600 shrink-0" />
+                <div>
+                  <div className="font-medium text-amber-900 dark:text-amber-200">
+                    {sinEdificio} {sinEdificio === 1 ? "llamada sin asignar a edificio" : "llamadas sin asignar a edificio"}
+                  </div>
+                  <div className="text-xs text-amber-900/80 dark:text-amber-200/80">
+                    El propietario aparece en varios edificios y estas llamadas no traen deal en HubSpot. Asígnalas manualmente desde la fila.
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
               <div>
                 <Eyebrow>Intentos · cogidas</Eyebrow>
