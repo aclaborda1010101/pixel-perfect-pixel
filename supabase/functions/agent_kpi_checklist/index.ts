@@ -224,7 +224,7 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
       console.error(`agent_kpi_checklist provider fail ${p.name}/${p.model} status=${r.status} body=${txt.slice(0,300)}`);
       aiRes = r;
     }
-    if (!aiRes.ok) {
+    if (!aiRes || !aiRes.ok) {
       const txt = await aiRes.text();
       console.error("agent_kpi_checklist AI error", aiRes.status, txt);
       return new Response(JSON.stringify(emptyResult), {
