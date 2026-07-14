@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { CheckCircle2, CircleDashed, XCircle, Target, Star } from "lucide-react";
+import { CheckCircle2, CircleDashed, XCircle, Target, Star, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -16,20 +16,65 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"todos" | "pendientes">("todos");
+  const [source, setSource] = useState<"cache" | "fresh" | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [lastActivityAt, setLastActivityAt] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true); setError(null);
+  async function run(force = false) {
+    setLoading(true); setError(null);
+    try {
+      // 1) Actividad más reciente del propietario
+      const { data: laRaw } = await (supabase.rpc as any)("owner_last_activity_at", { _owner_id: ownerId });
+      const la: string | null = (laRaw as any) ?? null;
+      setLastActivityAt(la);
+
+      // 2) Caché
+      if (!force) {
+        const { data: cache } = await (supabase.from("owner_call_prep_cache" as any) as any)
+          .select("kpis_json, kpis_generated_at, kpis_last_activity_at")
+          .eq("owner_id", ownerId)
+          .maybeSingle();
+        const gen = (cache as any)?.kpis_generated_at;
+        const cachedLA = (cache as any)?.kpis_last_activity_at;
+        const stillValid = gen && (!la || new Date(la).getTime() <= new Date(gen).getTime());
+        if (cache && (cache as any).kpis_json && stillValid) {
+          setData((cache as any).kpis_json as Resp);
+          setGeneratedAt(gen);
+          setSource("cache");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 3) Regenerar
       const { data: res, error: err } = await supabase.functions.invoke("agent_kpi_checklist", {
         body: { owner_id: ownerId },
       });
-      if (cancelled) return;
-      if (err) setError(err.message);
-      else setData(res as Resp);
+      if (err) throw err;
+      setData(res as Resp);
+      const nowIso = new Date().toISOString();
+      setGeneratedAt(nowIso);
+      setSource("fresh");
+      // 4) Persistir caché
+      await (supabase.from("owner_call_prep_cache" as any) as any).upsert({
+        owner_id: ownerId,
+        kpis_json: res,
+        kpis_generated_at: nowIso,
+        kpis_last_activity_at: la,
+        kpis_model: "agent_kpi_checklist",
+      }, { onConflict: "owner_id" });
+    } catch (e: any) {
+      setError(e?.message ?? "Error");
+    } finally {
       setLoading(false);
-    })();
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => { if (!cancelled) await run(false); })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId]);
 
   const aAbordarSet = new Set(data?.a_abordar ?? []);
@@ -118,8 +163,18 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
                 </Button>
               </div>
             )}
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => run(true)} disabled={loading} title="Regenerar KPIs">
+              <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
+            </Button>
           </div>
         </CardTitle>
+        {generatedAt && !loading && (
+          <div className="mt-1 text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground">
+            {source === "cache"
+              ? `Preparación generada el ${new Date(generatedAt).toLocaleString("es-ES")} · sin cambios desde entonces`
+              : `Actualizada${lastActivityAt ? ` por actividad del ${new Date(lastActivityAt).toLocaleDateString("es-ES")}` : ""} · ${new Date(generatedAt).toLocaleString("es-ES")}`}
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-5 text-sm">
         {loading && <div className="text-muted-foreground">Analizando notas de llamadas y HubSpot…</div>}
