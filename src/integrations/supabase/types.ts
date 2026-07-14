@@ -6259,6 +6259,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      _owner_names_typo_match: {
+        Args: { a_nn: string; b_nn: string; p_token_threshold?: number }
+        Returns: boolean
+      }
       _safe_int_from_dir: { Args: { p: string }; Returns: number }
       calls_stats: {
         Args: never
