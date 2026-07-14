@@ -15,6 +15,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { VossCoachCard } from "@/components/comercial/VossCoachCard";
 import { CallWizardStepper } from "@/components/comercial/CallWizardStepper";
 import { Checkbox } from "@/components/ui/checkbox";
+import { KpiChecklistCard } from "@/components/comercial/KpiChecklistCard";
+import { ContactHistoryCard } from "@/components/owners/ContactHistoryCard";
 
 type Outcome = "interesado" | "no_interesa" | "volver" | "no_contesta";
 const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "success" | "outline" | "info" | "destructive" }> = [
@@ -389,6 +391,12 @@ export default function ComercialPrepararLlamada() {
 
       {/* Briefing IA */}
       {loadingBrief && !brief && <BriefSkeleton />}
+
+      {/* KPIs · qué tenemos / qué falta (motor IA sobre notas reales) */}
+      {ownerId && <KpiChecklistCard ownerId={ownerId} />}
+
+      {/* Historial de contacto (llamadas + resultados) */}
+      {ownerId && <ContactHistoryCard ownerId={ownerId} />}
 
       {/* Coach Voss · pre-llamada (plan completo con datos reales) */}
       {ownerId && (
