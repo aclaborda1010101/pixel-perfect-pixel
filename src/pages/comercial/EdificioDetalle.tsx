@@ -11,24 +11,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Phone,
-  MapPin,
   ArrowUpDown,
   Home,
   Ruler,
-  Layers,
-  Users,
   Calendar,
-  Check,
-  X,
   ShieldAlert,
   Store,
   Briefcase,
-  Package,
-  Car,
-  Building,
-  Hotel,
-  Factory,
-  Tag,
+  ShieldCheck,
+  Percent,
+  Building2,
 } from "lucide-react";
 import {
   ScorePill,
@@ -38,15 +30,9 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { syncBuildingTasks } from "@/lib/buildingTasks";
-import { AnalisisIASection } from "@/components/comercial/AnalisisIASection";
-import { CatastroDetalladoCard } from "@/components/comercial/CatastroDetalladoCard";
-import { AnalisisPlanoCatastralCard } from "@/components/comercial/AnalisisPlanoCatastralCard";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
-import { TeamFeedbackCard } from "@/components/comercial/TeamFeedbackCard";
-import { VerificacionInlinePanel } from "@/components/comercial/VerificacionInlinePanel";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
-import { IeeBadge, IeeCard } from "@/components/buildings/IeeStatus";
 import { AlarmChips } from "@/components/comercial/AlarmChips";
 
 type SortKey = "score" | "pct" | "last" | "estado";
