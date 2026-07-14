@@ -23,6 +23,7 @@ import { RagSearch } from "@/components/agents/RagSearch";
 import { WhatsappComposer } from "@/components/comms/WhatsappComposer";
 import { RelationshipGraph } from "@/components/graph/RelationshipGraph";
 import { SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
+import { ContactHistoryCard } from "@/components/owners/ContactHistoryCard";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
@@ -299,6 +300,8 @@ export default function OwnerDetail() {
         <Card><div className="p-4 md:p-5"><Eyebrow>Comms</Eyebrow><div className="mt-2"><MetricValue size="lg">{comms.length}</MetricValue></div></div></Card>
         <Card><div className="p-4 md:p-5"><Eyebrow>Documentos</Eyebrow><div className="mt-2"><MetricValue size="lg">{titulares.length}</MetricValue></div></div></Card>
       </div>
+
+      <ContactHistoryCard ownerId={id} />
 
       <Tabs defaultValue="resumen" className="space-y-4">
         <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
