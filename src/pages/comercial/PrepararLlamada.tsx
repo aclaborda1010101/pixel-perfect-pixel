@@ -474,7 +474,9 @@ export default function ComercialPrepararLlamada() {
         />
       )}
         <div className="flex justify-end">
-          <Button variant="gold" onClick={() => jumpTo(2)}>Continuar a la llamada <ArrowRight className="h-4 w-4" /></Button>
+          <Button variant="gold" onClick={goToCallStep}>
+            <Phone className="h-4 w-4" /> Continuar llamada <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
       </>
       )}
