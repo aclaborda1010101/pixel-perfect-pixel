@@ -91,6 +91,12 @@ export function VossCoachCard({
 
         {voss && mode === "brief" && (
           <>
+            {comoEnfocar && (
+              <div className="rounded-[6px] border border-gold/60 bg-gold-soft/20 p-3">
+                <div className="mb-1 text-[10px] font-mono uppercase tracking-eyebrow text-gold">Cómo enfocar esta llamada</div>
+                <p className="text-foreground whitespace-pre-line">{comoEnfocar}</p>
+              </div>
+            )}
             {plan.length > 0 && (
               <div className="rounded-[6px] border-2 border-gold bg-gold-soft/30 p-3">
                 <div className="mb-2 text-[10px] font-mono uppercase tracking-eyebrow text-gold">
