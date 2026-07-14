@@ -264,8 +264,11 @@ export default function ComercialEdificioDetalle() {
             {owners.map((o) => {
               const e = ownerEstado(o);
               const sinContacto = (o.contactos_previos ?? 0) === 0;
-              const pctKnown = o.pct_propiedad != null;
+              // Solo mostramos el % si viene normalizado (nunca % crudo engañoso)
+              const pctVerificado = o.pct_propiedad != null && o.pct_normalizado === true && !o.pct_invalido;
+              const pctKnown = pctVerificado;
               const pct = pctKnown ? Number(o.pct_propiedad) : 0;
+              const pctSinVerificar = o.pct_propiedad != null && !pctVerificado;
               const sub = Number(o.score ?? 0);
               const subTier = scoreTier(sub);
               const cargas =
@@ -308,15 +311,23 @@ export default function ComercialEdificioDetalle() {
                         >
                           {pctKnown ? `${pct.toFixed(1)}%` : "—"}
                         </span>
-                        {pctKnown && o.pct_normalizado && (
+                        {pctKnown && (
                           <span
-                            className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-amber-500"
-                            title={`Normalizado desde "${o.pct_raw ?? ""}"`}
+                            className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-emerald-500"
+                            title={`% verificado · origen ${o.pct_origen ?? "?"} · crudo "${o.pct_raw ?? ""}"`}
                           >
-                            norm
+                            verificado
                           </span>
                         )}
-                        {!pctKnown && o.pct_invalido && (
+                        {pctSinVerificar && (
+                          <span
+                            className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-amber-500"
+                            title={`% sin verificar · crudo "${o.pct_raw ?? ""}"`}
+                          >
+                            % sin verificar
+                          </span>
+                        )}
+                        {!pctKnown && !pctSinVerificar && o.pct_invalido && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-destructive"
                             title={`% inválido: "${o.pct_raw ?? ""}"`}
