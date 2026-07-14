@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { CheckCircle2, CircleDashed, Circle, Target, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 type Estado = "tenemos" | "a_medias" | "falta";
 type Kpi = { clave: string; label: string; estado: Estado; evidencia: string | null };
@@ -14,6 +15,7 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
   const [data, setData] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"todos" | "pendientes">("todos");
 
   useEffect(() => {
     let cancelled = false;
@@ -31,6 +33,7 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
   }, [ownerId]);
 
   const aAbordar = (data?.a_abordar ?? []).map((c) => data?.kpis.find((k) => k.clave === c)).filter(Boolean) as Kpi[];
+  const visibleKpis = (data?.kpis ?? []).filter((k) => filter === "todos" || k.estado !== "tenemos");
 
   const iconFor = (k: Kpi) => {
     if (k.estado === "tenemos") {
@@ -48,11 +51,33 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
         <Eyebrow>KPIs · qué tenemos / qué falta</Eyebrow>
         <CardTitle className="flex items-center justify-between text-base">
           <span>Cobertura de información</span>
-          {data && (
-            <span className="font-mono text-sm text-gold">
-              {data.completados} de {data.total} completados
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {data && (
+              <span className="font-mono text-sm text-gold">
+                {data.completados} de {data.total} completados
+              </span>
+            )}
+            {data && (
+              <div className="flex items-center gap-1 rounded-[4px] border border-border-faint p-0.5">
+                <Button
+                  size="sm"
+                  variant={filter === "todos" ? "gold" : "ghost"}
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => setFilter("todos")}
+                >
+                  Todos
+                </Button>
+                <Button
+                  size="sm"
+                  variant={filter === "pendientes" ? "gold" : "ghost"}
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => setFilter("pendientes")}
+                >
+                  Pendientes
+                </Button>
+              </div>
+            )}
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5 text-sm">
@@ -86,7 +111,7 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
             )}
 
             <ul className="space-y-2">
-              {data.kpis.map((k) => (
+              {visibleKpis.map((k) => (
                 <li key={k.clave} className="flex items-start gap-2">
                   {iconFor(k)}
                   <div className="min-w-0">
@@ -104,6 +129,11 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
                   </div>
                 </li>
               ))}
+              {visibleKpis.length === 0 && (
+                <li className="text-xs italic text-muted-foreground">
+                  No hay KPIs pendientes · todos cubiertos.
+                </li>
+              )}
             </ul>
           </>
         )}
