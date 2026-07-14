@@ -225,8 +225,8 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
       aiRes = r;
     }
     if (!aiRes || !aiRes.ok) {
-      const txt = await aiRes.text();
-      console.error("agent_kpi_checklist AI error", aiRes.status, txt);
+      const txt = aiRes ? await aiRes.text() : "no provider";
+      console.error("agent_kpi_checklist AI error", aiRes?.status ?? 0, txt);
       return new Response(JSON.stringify(emptyResult), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
