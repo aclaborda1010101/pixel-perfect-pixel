@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { CheckCircle2, CircleDashed, Circle, Target, Star } from "lucide-react";
+import { CheckCircle2, CircleDashed, XCircle, Target, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -32,18 +32,59 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
     return () => { cancelled = true; };
   }, [ownerId]);
 
-  const aAbordar = (data?.a_abordar ?? []).map((c) => data?.kpis.find((k) => k.clave === c)).filter(Boolean) as Kpi[];
-  const visibleKpis = (data?.kpis ?? []).filter((k) => filter === "todos" || k.estado !== "tenemos");
+  const aAbordarSet = new Set(data?.a_abordar ?? []);
 
-  const iconFor = (k: Kpi) => {
-    if (k.estado === "tenemos") {
-      return <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" />;
-    }
-    if (k.estado === "a_medias") {
-      return <CircleDashed className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />;
-    }
-    return <Circle className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />;
+  // Prioridad: naranja (a abordar / a medias) > verde (tenemos) > rojo (falta)
+  const naranja = (data?.kpis ?? []).filter(
+    (k) => aAbordarSet.has(k.clave) || k.estado === "a_medias"
+  );
+  const verde = (data?.kpis ?? []).filter(
+    (k) => !aAbordarSet.has(k.clave) && k.estado === "tenemos"
+  );
+  const rojo = (data?.kpis ?? []).filter(
+    (k) => !aAbordarSet.has(k.clave) && k.estado === "falta"
+  );
+
+  const visibleNaranja = naranja;
+  const visibleVerde = filter === "todos" ? verde : [];
+  const visibleRojo = rojo;
+
+  const isCuadroRentas = (k: Kpi) => k.clave === "cuadro_rentas";
+
+  const iconFor = (k: Kpi, color: "success" | "warning" | "destructive") => {
+    const cls = cn(
+      "mt-0.5 h-4 w-4 flex-shrink-0",
+      color === "success" && "text-success",
+      color === "warning" && "text-warning",
+      color === "destructive" && "text-destructive"
+    );
+    if (color === "success") return <CheckCircle2 className={cls} />;
+    if (color === "warning") return <CircleDashed className={cls} />;
+    return <XCircle className={cls} />;
   };
+
+  const renderKpi = (k: Kpi, color: "success" | "warning" | "destructive") => (
+    <li key={k.clave} className="flex items-start gap-2">
+      {isCuadroRentas(k) ? (
+        <Star className="mt-0.5 h-4 w-4 flex-shrink-0 fill-gold text-gold" />
+      ) : (
+        iconFor(k, color)
+      )}
+      <div className="min-w-0">
+        <div className={cn("text-foreground", isCuadroRentas(k) && "font-medium")}>
+          {k.label}
+          {isCuadroRentas(k) && (
+            <Badge variant="gold" className="ml-2 text-[10px]">prioridad</Badge>
+          )}
+        </div>
+        {k.estado === "tenemos" && k.evidencia && (
+          <div className="mt-0.5 text-xs italic text-muted-foreground">
+            "{k.evidencia}"
+          </div>
+        )}
+      </div>
+    </li>
+  );
 
   return (
     <Card>
@@ -85,56 +126,44 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
         {error && <div className="text-destructive">Error: {error}</div>}
         {!loading && data && (
           <>
-            {aAbordar.length > 0 && (
-              <div className="rounded-[6px] border border-gold/40 bg-gold-soft/30 p-3">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-eyebrow text-gold">
+            {visibleNaranja.length > 0 && (
+              <div className="rounded-[6px] border border-warning/40 bg-warning/10 p-3">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-eyebrow text-warning">
                   <Target className="h-3.5 w-3.5" /> A abordar en esta llamada
                 </div>
                 <ul className="mt-2 space-y-1.5">
-                  {aAbordar.map((k) => (
-                    <li key={k.clave} className="flex items-start gap-2">
-                      {k.clave === "cuadro_rentas" ? (
-                        <Star className="mt-0.5 h-4 w-4 flex-shrink-0 fill-gold text-gold" />
-                      ) : (
-                        <span className="mt-0.5 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gold" />
-                      )}
-                      <span className={cn("text-foreground", k.clave === "cuadro_rentas" && "font-medium")}>
-                        {k.label}
-                        {k.clave === "cuadro_rentas" && (
-                          <Badge variant="gold" className="ml-2 text-[10px]">prioridad</Badge>
-                        )}
-                      </span>
-                    </li>
-                  ))}
+                  {visibleNaranja.map((k) => renderKpi(k, "warning"))}
                 </ul>
               </div>
             )}
 
-            <ul className="space-y-2">
-              {visibleKpis.map((k) => (
-                <li key={k.clave} className="flex items-start gap-2">
-                  {iconFor(k)}
-                  <div className="min-w-0">
-                    <div className={cn("text-foreground", k.clave === "cuadro_rentas" && "font-medium")}>
-                      {k.label}
-                      {k.clave === "cuadro_rentas" && (
-                        <Star className="ml-1.5 inline-block h-3.5 w-3.5 align-text-bottom fill-gold text-gold" />
-                      )}
-                    </div>
-                    {k.estado === "tenemos" && k.evidencia && (
-                      <div className="mt-0.5 text-xs italic text-muted-foreground">
-                        "{k.evidencia}"
-                      </div>
-                    )}
-                  </div>
-                </li>
-              ))}
-              {visibleKpis.length === 0 && (
-                <li className="text-xs italic text-muted-foreground">
-                  No hay KPIs pendientes · todos cubiertos.
-                </li>
-              )}
-            </ul>
+            {visibleVerde.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 text-xs uppercase tracking-eyebrow text-success">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Tenemos
+                </div>
+                <ul className="mt-2 space-y-1.5">
+                  {visibleVerde.map((k) => renderKpi(k, "success"))}
+                </ul>
+              </div>
+            )}
+
+            {visibleRojo.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 text-xs uppercase tracking-eyebrow text-destructive">
+                  <XCircle className="h-3.5 w-3.5" /> Faltan
+                </div>
+                <ul className="mt-2 space-y-1.5">
+                  {visibleRojo.map((k) => renderKpi(k, "destructive"))}
+                </ul>
+              </div>
+            )}
+
+            {visibleNaranja.length === 0 && visibleVerde.length === 0 && visibleRojo.length === 0 && (
+              <div className="text-xs italic text-muted-foreground">
+                No hay KPIs pendientes · todos cubiertos.
+              </div>
+            )}
           </>
         )}
       </CardContent>
