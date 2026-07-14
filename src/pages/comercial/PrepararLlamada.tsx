@@ -44,6 +44,9 @@ export default function ComercialPrepararLlamada() {
   const [now, setNow] = useState<number>(Date.now());
   const [targetKpis, setTargetKpis] = useState<string[]>([]);
   const [kpiContext, setKpiContext] = useState<Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }>>([]);
+  const [targetKpiClaves, setTargetKpiClaves] = useState<string[]>([]);
+  const [postKpiContext, setPostKpiContext] = useState<Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }> | null>(null);
+  const [scheduledAnalyzeAt, setScheduledAnalyzeAt] = useState<number | null>(null);
   const DEFAULT_CHECKLIST = [
     { k: "tipologia", label: "Tipología del propietario (T1–T10 / buyer persona)" },
     { k: "motor", label: "Qué le mueve (dinero, paz, herederos, miedo, control)" },
