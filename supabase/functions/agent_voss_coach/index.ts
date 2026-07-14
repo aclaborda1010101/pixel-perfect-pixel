@@ -227,8 +227,13 @@ async function callAI(messages: any[], key: string): Promise<any> {
     throw new Error(`ai ${r.status}: ${t.slice(0, 300)}`);
   }
   const j = await r.json();
-  const txt = j?.choices?.[0]?.message?.content ?? '{}';
-  try { return JSON.parse(txt); } catch { return { raw: txt }; }
+  let txt = j?.choices?.[0]?.message?.content ?? '{}';
+  // Strip markdown fences if the model wraps JSON.
+  txt = String(txt).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  // Slice from first '{' to last '}' as safety net.
+  const s = txt.indexOf('{'); const e = txt.lastIndexOf('}');
+  const candidate = s >= 0 && e > s ? txt.slice(s, e + 1) : txt;
+  try { return JSON.parse(candidate); } catch { return { raw: txt }; }
 }
 
 function shortCall(c: any) {
