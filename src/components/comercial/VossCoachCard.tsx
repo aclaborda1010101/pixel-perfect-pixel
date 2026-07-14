@@ -30,16 +30,51 @@ export function VossCoachCard({
 }) {
   const [voss, setVoss] = useState<any>(initialVoss ?? null);
   const [busy, setBusy] = useState(false);
+  const [source, setSource] = useState<"cache" | "fresh" | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [lastActivityAt, setLastActivityAt] = useState<string | null>(null);
 
   useEffect(() => { if (initialVoss) setVoss(initialVoss); }, [initialVoss]);
+  // Auto-carga desde caché (o regenera) al montar / cambiar owner, solo en modo brief
   useEffect(() => {
-    if (autoload && !voss && ownerId) load();
+    if (!ownerId || mode !== "brief") return;
+    let cancelled = false;
+    (async () => { if (!cancelled) await load(false); })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId, mode]);
+  useEffect(() => {
+    if (autoload && !voss && ownerId && mode !== "brief") load(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoload, ownerId]);
 
-  async function load() {
+  async function load(force = false) {
     setBusy(true);
     try {
+      // Solo cacheamos el brief; el modo post-llamada siempre se regenera.
+      if (mode === "brief" && ownerId) {
+        const { data: laRaw } = await (supabase.rpc as any)("owner_last_activity_at", { _owner_id: ownerId });
+        const la: string | null = (laRaw as any) ?? null;
+        setLastActivityAt(la);
+        if (!force) {
+          const { data: cache } = await (supabase.from("owner_call_prep_cache" as any) as any)
+            .select("brief_json, brief_generated_at, brief_last_activity_at")
+            .eq("owner_id", ownerId)
+            .maybeSingle();
+          const gen = (cache as any)?.brief_generated_at;
+          const stillValid = gen && (!la || new Date(la).getTime() <= new Date(gen).getTime());
+          if (cache && (cache as any).brief_json && stillValid) {
+            const v = (cache as any).brief_json;
+            setVoss(v);
+            setGeneratedAt(gen);
+            setSource("cache");
+            onLoaded?.(v);
+            setBusy(false);
+            return;
+          }
+        }
+      }
+
       const { data, error } = await supabase.functions.invoke("agent_voss_coach", {
         body: { mode, owner_id: ownerId, building_id: buildingId, call_transcript: transcript, target_kpis: targetKpis, kpi_context: kpiContext },
       });
@@ -48,6 +83,18 @@ export function VossCoachCard({
       const v = (data as any).voss;
       setVoss(v);
       onLoaded?.(v);
+      if (mode === "brief" && ownerId) {
+        const nowIso = new Date().toISOString();
+        setGeneratedAt(nowIso);
+        setSource("fresh");
+        await (supabase.from("owner_call_prep_cache" as any) as any).upsert({
+          owner_id: ownerId,
+          brief_json: v,
+          brief_generated_at: nowIso,
+          brief_last_activity_at: lastActivityAt,
+          brief_model: "agent_voss_coach",
+        }, { onConflict: "owner_id" });
+      }
     } catch (e: any) {
       toast.error(e?.message || "No se pudo generar el plan Voss");
     } finally { setBusy(false); }
@@ -80,7 +127,7 @@ export function VossCoachCard({
             )}
           </CardTitle>
         </div>
-        <Button size="sm" variant="outline" onClick={load} disabled={busy}>
+        <Button size="sm" variant="outline" onClick={() => load(true)} disabled={busy}>
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
           {voss ? "Regenerar" : "Generar"}
         </Button>
@@ -88,6 +135,13 @@ export function VossCoachCard({
       <CardContent className="space-y-3 text-sm">
         {!voss && !busy && <p className="text-muted-foreground">Pulsa Generar para obtener el plan de llamada concreto.</p>}
         {busy && !voss && <p className="text-muted-foreground inline-flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Generando plan…</p>}
+        {voss && mode === "brief" && generatedAt && (
+          <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground">
+            {source === "cache"
+              ? `Preparación generada el ${new Date(generatedAt).toLocaleString("es-ES")} · sin cambios desde entonces`
+              : `Actualizada${lastActivityAt ? ` por actividad del ${new Date(lastActivityAt).toLocaleDateString("es-ES")}` : ""} · ${new Date(generatedAt).toLocaleString("es-ES")}`}
+          </div>
+        )}
 
         {voss && mode === "brief" && (
           <>
