@@ -6211,6 +6211,15 @@ export type Database = {
       }
     }
     Functions: {
+      _merge_owner_pair: {
+        Args: {
+          p_canonical: string
+          p_details?: Json
+          p_loser: string
+          p_reason?: string
+        }
+        Returns: undefined
+      }
       _safe_int_from_dir: { Args: { p: string }; Returns: number }
       calls_stats: {
         Args: never
@@ -6241,6 +6250,14 @@ export type Database = {
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      dedup_owners_fuzzy: {
+        Args: {
+          p_building_id?: string
+          p_dry_run?: boolean
+          p_threshold?: number
+        }
+        Returns: Json
       }
       get_pending_scoring_calls: {
         Args: { _limit?: number }
