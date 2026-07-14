@@ -192,8 +192,13 @@ function shortCall(c: any) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
-    const { mode = 'brief', owner_id, building_id, call_transcript, target_kpis } = await req.json();
+    const { mode = 'brief', owner_id, building_id, call_transcript, target_kpis, kpi_context } = await req.json();
     const targetKpis: string[] = Array.isArray(target_kpis) ? target_kpis.filter((s) => typeof s === 'string' && s.trim()) : [];
+    const kpiContext: Array<{ clave: string; label: string; estado: string; evidencia: string | null }> = Array.isArray(kpi_context)
+      ? kpi_context.filter((k: any) => k && typeof k === 'object' && k.label)
+      : [];
+    const kpiTenemos = kpiContext.filter((k) => k.estado === 'tenemos' || k.estado === 'a_medias');
+    const kpiFalta = kpiContext.filter((k) => k.estado === 'falta');
     const lk = Deno.env.get('LOVABLE_API_KEY');
     if (!lk) throw new Error('LOVABLE_API_KEY missing');
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -354,6 +359,12 @@ ${historico_tasks.length ? JSON.stringify(historico_tasks, null, 2) : '(sin tare
 ${mode === 'post' ? `TRANSCRIPCIÓN A EVALUAR:\n${call_transcript || '(sin transcripción provista)'}\n` : ''}
 ${mode === 'brief' ? `TARGET_KPIS (KPIs OBJETIVO de esta llamada — enfoca el plan en conseguir ESTOS datos concretos; usa el label EXACTO en "enfoque_llamada[].kpi"):
 ${targetKpis.length ? targetKpis.map((k, i) => `[${i + 1}] ${k}`).join('\n') : '(vacío — plan estándar)'}
+
+KPI_CONTEXT · LO QUE YA SABEMOS DE ESTA PERSONA (úsalo como base para el plan_llamada — cita la evidencia en "por_que"):
+${kpiTenemos.length ? kpiTenemos.map((k) => `- [${k.estado}] ${k.label}${k.evidencia ? ` — evidencia: "${k.evidencia}"` : ''}`).join('\n') : '(no consta info previa consolidada — trata como primer contacto informativo)'}
+
+KPI_CONTEXT · LO QUE NOS FALTA (a sacar en esta llamada):
+${kpiFalta.length ? kpiFalta.map((k) => `- ${k.label}`).join('\n') : '(sin huecos declarados)'}
 ` : ''}
 PLAYBOOK MEDIDO (tácticas con mejor tasa_exito para este perfil — PRIORÍZALAS y cítalas en por_que_funciona):
 ${playbook.length ? playbook.map((p: any, i: number) => `[${i+1}] tipo=${p.tactica_tipo} texto="${p.tactica_texto}" tasa=${p.tasa_exito} (n=${p.n_usos}/${p.n_exito})${p.ejemplo_literal ? ` ej: "${p.ejemplo_literal}"` : ''}`).join('\n') : '(playbook vacío — primera iteración, usa criterio Voss/Sandler)'}
