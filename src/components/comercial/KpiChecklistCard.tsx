@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { CheckCircle2, CircleDashed, XCircle, Target, Star } from "lucide-react";
+import { CheckCircle2, CircleDashed, Circle, Target, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Estado = "tenemos" | "a_medias" | "falta";
@@ -30,10 +30,17 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
     return () => { cancelled = true; };
   }, [ownerId]);
 
-  const tenemos = (data?.kpis ?? []).filter((k) => k.estado === "tenemos");
-  const aMedias = (data?.kpis ?? []).filter((k) => k.estado === "a_medias");
-  const faltan = (data?.kpis ?? []).filter((k) => k.estado === "falta");
   const aAbordar = (data?.a_abordar ?? []).map((c) => data?.kpis.find((k) => k.clave === c)).filter(Boolean) as Kpi[];
+
+  const iconFor = (k: Kpi) => {
+    if (k.estado === "tenemos") {
+      return <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" />;
+    }
+    if (k.estado === "a_medias") {
+      return <CircleDashed className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />;
+    }
+    return <Circle className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />;
+  };
 
   return (
     <Card>
@@ -78,63 +85,29 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
               </div>
             )}
 
-            <Group
-              title="Tenemos"
-              icon={<CheckCircle2 className="h-4 w-4 text-success" />}
-              tone="success"
-              items={tenemos}
-              showEvidence
-            />
-            <Group
-              title="A medias"
-              icon={<CircleDashed className="h-4 w-4 text-warning" />}
-              tone="warn"
-              items={aMedias}
-            />
-            <Group
-              title="Faltan"
-              icon={<XCircle className="h-4 w-4 text-muted-foreground" />}
-              tone="muted"
-              items={faltan}
-            />
+            <ul className="space-y-2">
+              {data.kpis.map((k) => (
+                <li key={k.clave} className="flex items-start gap-2">
+                  {iconFor(k)}
+                  <div className="min-w-0">
+                    <div className={cn("text-foreground", k.clave === "cuadro_rentas" && "font-medium")}>
+                      {k.label}
+                      {k.clave === "cuadro_rentas" && (
+                        <Star className="ml-1.5 inline-block h-3.5 w-3.5 align-text-bottom fill-gold text-gold" />
+                      )}
+                    </div>
+                    {k.estado === "tenemos" && k.evidencia && (
+                      <div className="mt-0.5 text-xs italic text-muted-foreground">
+                        "{k.evidencia}"
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </>
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function Group({
-  title, icon, tone, items, showEvidence,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  tone: "success" | "warn" | "muted";
-  items: Kpi[];
-  showEvidence?: boolean;
-}) {
-  if (items.length === 0) return null;
-  const toneCls =
-    tone === "success" ? "border-success/30 bg-success-soft/20"
-    : tone === "warn" ? "border-amber-500/30 bg-amber-500/10"
-    : "border-border-faint bg-surface-1/30";
-  return (
-    <div className={cn("rounded-[6px] border p-3", toneCls)}>
-      <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-eyebrow text-muted-foreground">
-        {icon} {title} <span className="font-mono">({items.length})</span>
-      </div>
-      <ul className="space-y-1.5">
-        {items.map((k) => (
-          <li key={k.clave}>
-            <div className="text-foreground">{k.label}</div>
-            {showEvidence && k.evidencia && (
-              <blockquote className="mt-1 border-l-2 border-success/40 pl-2 text-xs italic text-muted-foreground">
-                "{k.evidencia}"
-              </blockquote>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
