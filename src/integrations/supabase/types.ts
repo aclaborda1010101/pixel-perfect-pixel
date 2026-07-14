@@ -6002,6 +6002,32 @@ export type Database = {
         }
         Relationships: []
       }
+      v_owner_call_stats: {
+        Row: {
+          dias_desde_ultima_llamada: number | null
+          entrantes: number | null
+          intentos_totales: number | null
+          owner_id: string | null
+          salientes: number | null
+          ultima_llamada: string | null
+          ultima_vez_conectado: string | null
+          veces_conectado: number | null
+        }
+        Relationships: []
+      }
+      v_owner_calls_enriched: {
+        Row: {
+          direccion: string | null
+          duracion_seg: number | null
+          hs_id: string | null
+          hs_timestamp: string | null
+          nota: string | null
+          owner_id: string | null
+          resultado: string | null
+          tiene_grabacion: boolean | null
+        }
+        Relationships: []
+      }
       v_owner_graph: {
         Row: {
           buildings_count: number | null
