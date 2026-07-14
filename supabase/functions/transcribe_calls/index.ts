@@ -6,7 +6,6 @@
 //   { limit?: number, chain?: boolean } → batch (default 15).
 // Sin secretos nuevos: usa OPENROUTER_API_KEY + HUBSPOT_API_KEY (gateway) ya configurados.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { encodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -71,52 +70,21 @@ async function transcribeWithOpenRouter(bytes: Uint8Array, contentType: string, 
   const OK = Deno.env.get("OPENROUTER_API_KEY");
   if (!OK) return { ok: false, error: "OPENROUTER_API_KEY missing" };
   const ext = extForContentType(contentType);
-  // Umbral OpenRouter multipart: 25 MB. Con margen usamos 24 MB para el path multipart;
-  // si el audio es mayor, va como JSON base64 en el mismo endpoint (input_audio).
-  const MULTIPART_MAX = 24 * 1024 * 1024;
-  const commonHeaders = {
-    Authorization: `Bearer ${OK}`,
-    "HTTP-Referer": "https://affluxosv2.world",
-    "X-Title": "Afflux OS · Transcribe Calls",
-  };
-
-  async function trySend(useJson: boolean) {
-    if (useJson) {
-      // base64 del buffer (streaming-safe via std)
-      const b64 = encodeBase64(bytes);
-      const r = await fetch(OR_URL, {
-        method: "POST",
-        headers: { ...commonHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          language: "es",
-          response_format: "json",
-          input_audio: { data: b64, format: ext },
-        }),
-      });
-      return r;
-    }
-    const fd = new FormData();
-    fd.append("file", new Blob([bytes], { type: contentType || "audio/mpeg" }), `recording.${ext}`);
-    fd.append("model", model);
-    fd.append("language", "es");
-    fd.append("response_format", "json");
-    return await fetch(OR_URL, { method: "POST", headers: commonHeaders, body: fd });
-  }
-
-  const preferJson = bytes.byteLength > MULTIPART_MAX;
-  let r = await trySend(preferJson);
-  // Si multipart rechaza por tamaño, reintenta como JSON base64.
-  if (!r.ok && !preferJson) {
-    const peek = await r.clone().text().catch(() => "");
-    if (/25 ?MB|multipart upload limit|input_audio/i.test(peek)) {
-      r = await trySend(true);
-    } else {
-      // consumir el body original
-      await r.text().catch(() => "");
-      return { ok: false, error: `openrouter ${r.status}: ${peek.slice(0, 300)}`, status: r.status };
-    }
-  }
+  // OpenRouter STT multipart cap = 25 MB. Marcamos oversize aguas arriba (transcribeOne).
+  const fd = new FormData();
+  fd.append("file", new Blob([bytes], { type: contentType || "audio/mpeg" }), `recording.${ext}`);
+  fd.append("model", model);
+  fd.append("language", "es");
+  fd.append("response_format", "json");
+  const r = await fetch(OR_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OK}`,
+      "HTTP-Referer": "https://affluxosv2.world",
+      "X-Title": "Afflux OS · Transcribe Calls",
+    },
+    body: fd,
+  });
   if (!r.ok) {
     const txt = await r.text().catch(() => "");
     return { ok: false, error: `openrouter ${r.status}: ${txt.slice(0, 300)}`, status: r.status };
@@ -149,6 +117,15 @@ async function transcribeOne(supabase: any, row: any): Promise<{ ok: boolean; er
       raw: { ...raw, _transcribe_error: dl.error, _transcribe_error_at: new Date().toISOString() },
     }).eq("id", row.id);
     return { ok: false, error: dl.error };
+  }
+
+  // OpenRouter STT rechaza multipart >25 MB. Marcamos oversize y lo dejamos para Deepgram.
+  const OR_MAX = 25 * 1024 * 1024 - 128 * 1024; // margen para el boundary/headers
+  if (dl.bytes.byteLength > OR_MAX) {
+    await supabase.from("hubspot_calls").update({
+      raw: { ...raw, _transcribe_oversize: true, _transcribe_bytes: dl.bytes.byteLength, _transcribe_error: `oversize ${dl.bytes.byteLength}B > 25MB`, _transcribe_error_at: new Date().toISOString() },
+    }).eq("id", row.id);
+    return { ok: false, error: `oversize ${dl.bytes.byteLength}B (>25MB, usar Deepgram)` };
   }
 
   // STT primario, con fallback a whisper-1 si el primario falla (no en 429)
