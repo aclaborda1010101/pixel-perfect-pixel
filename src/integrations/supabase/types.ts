@@ -1066,6 +1066,45 @@ export type Database = {
           },
         ]
       }
+      building_overrides: {
+        Row: {
+          building_id: string
+          created_at: string | null
+          dimension: string
+          fuente: string | null
+          id: string
+          nota: string | null
+          updated_at: string | null
+          valor_bool: boolean | null
+          valor_num: number | null
+          valor_text: string | null
+        }
+        Insert: {
+          building_id: string
+          created_at?: string | null
+          dimension: string
+          fuente?: string | null
+          id?: string
+          nota?: string | null
+          updated_at?: string | null
+          valor_bool?: boolean | null
+          valor_num?: number | null
+          valor_text?: string | null
+        }
+        Update: {
+          building_id?: string
+          created_at?: string | null
+          dimension?: string
+          fuente?: string | null
+          id?: string
+          nota?: string | null
+          updated_at?: string | null
+          valor_bool?: boolean | null
+          valor_num?: number | null
+          valor_text?: string | null
+        }
+        Relationships: []
+      }
       building_owners: {
         Row: {
           building_id: string
@@ -6211,6 +6250,19 @@ export type Database = {
       }
     }
     Functions: {
+      _merge_owner_pair: {
+        Args: {
+          p_canonical: string
+          p_details?: Json
+          p_loser: string
+          p_reason?: string
+        }
+        Returns: undefined
+      }
+      _owner_names_typo_match: {
+        Args: { a_nn: string; b_nn: string; p_token_threshold?: number }
+        Returns: boolean
+      }
       _safe_int_from_dir: { Args: { p: string }; Returns: number }
       calls_stats: {
         Args: never
@@ -6241,6 +6293,14 @@ export type Database = {
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      dedup_owners_fuzzy: {
+        Args: {
+          p_building_id?: string
+          p_dry_run?: boolean
+          p_threshold?: number
+        }
+        Returns: Json
       }
       get_pending_scoring_calls: {
         Args: { _limit?: number }
