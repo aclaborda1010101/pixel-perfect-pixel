@@ -2919,6 +2919,7 @@ export type Database = {
           hs_call_recording_url: string | null
           hs_call_source: string | null
           hs_call_status: string | null
+          hs_call_summary: string | null
           hs_call_title: string | null
           hs_call_to_number: string | null
           hs_call_transcription: string | null
@@ -2943,6 +2944,7 @@ export type Database = {
           hs_call_recording_url?: string | null
           hs_call_source?: string | null
           hs_call_status?: string | null
+          hs_call_summary?: string | null
           hs_call_title?: string | null
           hs_call_to_number?: string | null
           hs_call_transcription?: string | null
@@ -2967,6 +2969,7 @@ export type Database = {
           hs_call_recording_url?: string | null
           hs_call_source?: string | null
           hs_call_status?: string | null
+          hs_call_summary?: string | null
           hs_call_title?: string | null
           hs_call_to_number?: string | null
           hs_call_transcription?: string | null
@@ -6286,6 +6289,7 @@ export type Database = {
           nota: string | null
           owner_id: string | null
           resultado: string | null
+          resumen_ia: string | null
           sin_edificio: boolean | null
           tiene_grabacion: boolean | null
         }

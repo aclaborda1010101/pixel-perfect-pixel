@@ -101,10 +101,10 @@ Deno.serve(async (req) => {
       if (hsIds.length) runs.push(admin.from("hubspot_whatsapp").select("hs_id, hs_timestamp, hs_communication_body").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
       // WhatsApp por deal
       if (hsDealIds.length) runs.push(admin.from("hubspot_whatsapp").select("hs_id, hs_timestamp, hs_communication_body").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
-      // Llamadas HubSpot (transcripción + body) por contacto
-      if (hsIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_transcription").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
+      // Llamadas HubSpot (resumen IA + transcripción + body) por contacto
+      if (hsIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_summary, hs_call_transcription").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
       // Llamadas HubSpot por deal
-      if (hsDealIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_transcription").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
+      if (hsDealIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_summary, hs_call_transcription").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
       try {
         const results = await Promise.all(runs);
         // orden de runs: notes/contact, notes/deal, wa/contact, wa/deal, calls/contact, calls/deal (según se hayan añadido)
@@ -120,17 +120,22 @@ Deno.serve(async (req) => {
 
     // 4) Construir el corpus de texto para la IA
     const notasCorpus: string[] = [];
-    // PRIORIDAD 1: transcripciones reales de llamadas HubSpot (contenido completo del propietario).
+    // PRIORIDAD 1: resumen IA de HubSpot (síntesis estructurada real de la llamada).
+    // Fallback dentro de la misma llamada: transcripción → nota manual (hs_call_body).
     for (const c of hsCalls) {
       const when = (c as any).hs_timestamp ? new Date((c as any).hs_timestamp).toLocaleDateString("es-ES") : "";
       const dir = (c as any).hs_call_direction ?? "";
       const disp = (c as any).hs_call_disposition ?? "";
+      const summary = stripHtml((c as any).hs_call_summary ?? "").slice(0, 4000);
+      if (summary) {
+        notasCorpus.push(`[RESUMEN IA LLAMADA ${when} · ${dir} · ${disp}] ${summary}`);
+        continue;
+      }
       const tr = String((c as any).hs_call_transcription ?? "").trim();
       if (tr) {
         notasCorpus.push(`[TRANSCRIPCIÓN LLAMADA ${when} · ${dir} · ${disp}] ${tr.slice(0, 6000)}`);
         continue;
       }
-      // Respaldo: body de la llamada si no hay transcripción
       const body = stripHtml((c as any).hs_call_body ?? "").slice(0, 1200);
       if (body) notasCorpus.push(`[LLAMADA HS ${when} · ${dir} · ${disp}] ${body}`);
     }

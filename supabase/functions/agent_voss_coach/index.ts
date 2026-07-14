@@ -376,7 +376,7 @@ Deno.serve(async (req) => {
       };
       if (hsContactIds.length || hsDealIds.length) {
         const [hc, hn, ht] = await Promise.all([
-          fetchByOverlap('hubspot_calls', 'hs_id, hs_call_title, hs_call_body, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp', 'hs_timestamp', 12),
+          fetchByOverlap('hubspot_calls', 'hs_id, hs_call_title, hs_call_body, hs_call_summary, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp', 'hs_timestamp', 12),
           fetchByOverlap('hubspot_notes', 'hs_id, hs_note_body, hs_timestamp', 'hs_timestamp', 20),
           fetchByOverlap('hubspot_tasks', 'hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_timestamp', 'hs_timestamp', 20),
         ]);
@@ -391,6 +391,7 @@ Deno.serve(async (req) => {
             direccion: k.hs_call_direction || null,
             duracion_seg: k.hs_call_duration ? Math.round(Number(k.hs_call_duration) / 1000) : null,
             resumen: k.hs_call_body ? String(k.hs_call_body).slice(0, 600) : null,
+            resumen_ia: k.hs_call_summary ? String(k.hs_call_summary).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2000) : null,
             transcripcion: k.hs_call_transcription ? String(k.hs_call_transcription).slice(0, 4000) : null,
             source: 'hubspot',
           });

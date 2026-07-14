@@ -17,7 +17,7 @@ const CALL_PROPS = [
   'hs_call_disposition', 'hs_call_duration', 'hs_call_recording_url',
   'hs_call_to_number', 'hs_call_from_number', 'hs_timestamp', 'hs_createdate',
   'hs_lastmodifieddate', 'hubspot_owner_id',
-  'hs_call_transcription', 'hs_call_source',
+  'hs_call_transcription', 'hs_call_source', 'hs_call_summary',
 ];
 const NOTE_PROPS = ['hs_note_body', 'hs_timestamp', 'hs_createdate', 'hs_lastmodifieddate'];
 const TASK_PROPS = [
@@ -140,6 +140,7 @@ function callMirrorRow(e: any, associatedContactIds: string[], existing?: any): 
     hs_id: String(e.id),
     hs_call_title: p.hs_call_title || null,
     hs_call_body: p.hs_call_body || null,
+    hs_call_summary: p.hs_call_summary || null,
     hs_call_status: p.hs_call_status || null,
     hs_call_direction: p.hs_call_direction || null,
     hs_call_disposition: p.hs_call_disposition || null,
