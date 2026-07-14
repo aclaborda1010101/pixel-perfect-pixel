@@ -488,6 +488,59 @@ export default function ComercialPrepararLlamada() {
             <CardTitle>Guía táctica · Checklist</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {targetKpis.length > 0 && (
+              <div className="rounded-[6px] border border-gold/40 bg-gold-soft/20 p-3">
+                <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  KPIs objetivo de esta llamada
+                </div>
+                <ul className="space-y-1.5 text-sm">
+                  {targetKpiClaves.map((clave, i) => {
+                    const label = targetKpis[i] ?? clave;
+                    const post = postKpiContext?.find((k) => k.clave === clave);
+                    const conseguido = post?.estado === "tenemos";
+                    const analyzed = !!postKpiContext;
+                    return (
+                      <li key={clave} className="flex items-start gap-2">
+                        {analyzed ? (
+                          conseguido
+                            ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
+                            : <XCircle className="mt-0.5 h-4 w-4 text-destructive" />
+                        ) : (
+                          <Target className="mt-0.5 h-4 w-4 text-gold" />
+                        )}
+                        <div className="flex-1">
+                          <div className="text-foreground">{label}</div>
+                          {post?.evidencia && conseguido && (
+                            <div className="mt-0.5 italic text-xs text-muted-foreground">"{post.evidencia}"</div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {postKpiContext && (() => {
+                  const targetSet = new Set(targetKpiClaves);
+                  const extras = postKpiContext.filter((k) => k.estado === "tenemos" && !targetSet.has(k.clave)
+                    && !kpiContext.find((prev) => prev.clave === k.clave && prev.estado === "tenemos"));
+                  if (extras.length === 0) return null;
+                  return (
+                    <div className="mt-3 border-t border-gold/20 pt-2">
+                      <div className="mb-1 font-mono text-[10px] uppercase tracking-eyebrow text-emerald-600">
+                        Conseguido extra (no era objetivo)
+                      </div>
+                      <ul className="space-y-1 text-xs">
+                        {extras.map((k) => (
+                          <li key={k.clave} className="flex items-start gap-2">
+                            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 text-emerald-500" />
+                            <span className="text-foreground">{k.label}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-mono uppercase tracking-eyebrow text-muted-foreground">Objetivo:</span>
               {[{ k: "reunion", label: "Reunión" }, { k: "whatsapp", label: "Enviar WhatsApp" }, { k: "pixel", label: "Enviar pixel" }].map((o) => (
@@ -512,13 +565,26 @@ export default function ComercialPrepararLlamada() {
                 </li>
               ))}
             </ul>
-            <div className="flex justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Button variant="outline" onClick={() => jumpTo(1)}>Volver al brief</Button>
-              <Button variant="gold" onClick={finalizeCall} disabled={finalizing || !!awaiting}>
-                <PhoneOff className="h-4 w-4" />
-                {finalizing ? "Analizando llamada…" : awaiting ? "Esperando transcripción…" : "Llamada finalizada · analizar"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={finalizeCall} disabled={finalizing || !!awaiting}>
+                  <Sparkles className="h-4 w-4" />
+                  {finalizing ? "Analizando…" : "Analizar ahora"}
+                </Button>
+                <Button variant="gold" onClick={finalizeCall} disabled={finalizing || !!awaiting}>
+                  <ArrowRight className="h-4 w-4" />
+                  {finalizing ? "Analizando…" : awaiting ? "Esperando transcripción…" : "Resultado"}
+                </Button>
+              </div>
             </div>
+            {scheduledAnalyzeAt && !finalizing && !awaiting && (
+              <div className="rounded border border-gold/30 bg-gold-soft/10 p-2 text-xs">
+                <Clock4 className="mr-1 inline h-3 w-3 text-gold" />
+                Auto-análisis programado en {Math.max(0, Math.ceil((scheduledAnalyzeAt - now) / 60000))} min.
+                Pulsa <b>Analizar ahora</b> para no esperar.
+              </div>
+            )}
             {awaiting && (
               <div className="rounded border border-gold/40 bg-gold-soft/20 p-3 text-xs">
                 <div className="flex items-center justify-between gap-3">
