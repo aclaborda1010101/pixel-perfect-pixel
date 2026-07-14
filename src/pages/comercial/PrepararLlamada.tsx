@@ -14,7 +14,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Skeleton } from "@/components/ui/skeleton";
 import { VossCoachCard } from "@/components/comercial/VossCoachCard";
 import { CallWizardStepper } from "@/components/comercial/CallWizardStepper";
-import { Checkbox } from "@/components/ui/checkbox";
 import { KpiChecklistCard } from "@/components/comercial/KpiChecklistCard";
 import { ContactHistoryCard } from "@/components/owners/ContactHistoryCard";
 
@@ -524,11 +523,16 @@ export default function ComercialPrepararLlamada() {
       {paso === 2 && (
         <Card>
           <CardHeader>
-            <Eyebrow>Durante la llamada</Eyebrow>
-            <CardTitle>Guía táctica · Checklist</CardTitle>
+            <Eyebrow>Llamada finalizada</Eyebrow>
+            <CardTitle>{postKpiContext ? "Resultado de la llamada" : "Analizar grabación"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {targetKpis.length > 0 && (
+            {!postKpiContext && (
+              <div className="rounded-[6px] border border-border-faint bg-surface-1/40 p-4 text-sm text-muted-foreground">
+                Aún no hay análisis de esta llamada. Pulsa <b className="text-foreground">Analizar ahora</b>, o se hará solo a los ~15 min tras la llamada.
+              </div>
+            )}
+            {postKpiContext && targetKpis.length > 0 && (
               <div className="rounded-[6px] border border-gold/40 bg-gold-soft/20 p-3">
                 <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                   KPIs objetivo de esta llamada
@@ -538,16 +542,11 @@ export default function ComercialPrepararLlamada() {
                     const label = targetKpis[i] ?? clave;
                     const post = postKpiContext?.find((k) => k.clave === clave);
                     const conseguido = post?.estado === "tenemos";
-                    const analyzed = !!postKpiContext;
                     return (
                       <li key={clave} className="flex items-start gap-2">
-                        {analyzed ? (
-                          conseguido
-                            ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
-                            : <XCircle className="mt-0.5 h-4 w-4 text-destructive" />
-                        ) : (
-                          <Target className="mt-0.5 h-4 w-4 text-gold" />
-                        )}
+                        {conseguido
+                          ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
+                          : <XCircle className="mt-0.5 h-4 w-4 text-destructive" />}
                         <div className="flex-1">
                           <div className="text-foreground">{label}</div>
                           {post?.evidencia && conseguido && (
@@ -581,6 +580,19 @@ export default function ComercialPrepararLlamada() {
                 })()}
               </div>
             )}
+            {postKpiContext && (vossPost?.puntuacion?.justificacion || puntuacion != null) && (
+              <div className="rounded-[6px] border border-border-faint bg-surface-1/40 p-3 text-sm">
+                <div className="mb-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                  Cómo fue la llamada
+                </div>
+                {puntuacion != null && (
+                  <div className="mb-1 text-xs text-muted-foreground">Puntuación: <span className="font-mono text-gold">{puntuacion}/100</span></div>
+                )}
+                {vossPost?.puntuacion?.justificacion && (
+                  <p className="text-foreground">{vossPost.puntuacion.justificacion}</p>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-mono uppercase tracking-eyebrow text-muted-foreground">Objetivo:</span>
               {[{ k: "reunion", label: "Reunión" }, { k: "whatsapp", label: "Enviar WhatsApp" }, { k: "pixel", label: "Enviar pixel" }].map((o) => (
@@ -589,22 +601,6 @@ export default function ComercialPrepararLlamada() {
                 </Button>
               ))}
             </div>
-            <ul className="space-y-2">
-              {checklist.map((c) => (
-                <li key={c.k} className="flex items-start gap-3 rounded-[4px] border border-border-faint bg-surface-1/30 p-3">
-                  <Checkbox checked={c.done} onCheckedChange={() => toggleCheck(c.k)} className="mt-0.5" />
-                  <div className="flex-1">
-                    <div className={c.done ? "text-muted-foreground line-through" : "text-foreground"}>{c.label}</div>
-                    {c.evidencia && (
-                      <div className="mt-1 rounded border-l-2 border-gold/40 bg-surface-1/40 px-2 py-1 text-xs italic text-muted-foreground">
-                        "{c.evidencia}"
-                      </div>
-                    )}
-                  </div>
-                  {c.auto_done && <Badge variant="gold" className="text-[10px]">auto</Badge>}
-                </li>
-              ))}
-            </ul>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Button variant="outline" onClick={() => jumpTo(1)}>Volver al brief</Button>
               <div className="flex flex-wrap gap-2">
