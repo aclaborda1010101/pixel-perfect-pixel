@@ -70,6 +70,9 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
     ],
     "cierre_micro_compromiso": "Frase literal de opt-in WhatsApp orientada al no. Máx 35 palabras. Ej: '¿Sería una locura que le mandara por WhatsApp un resumen de 3 líneas para que lo vea cuando le venga bien?'"
   },
+  "enfoque_llamada": [
+    {"kpi": "<label EXACTO del KPI objetivo tal como venga en TARGET_KPIS>", "pregunta_o_tactica": "pregunta LITERAL calibrada (empieza por qué/cómo) o táctica Voss concreta para sacar ese dato, apoyada en el histórico si existe", "tecnica": "espejo|etiqueta|pregunta_calibrada|orientación_al_no|auditoría"}
+  ],
   "info_minima_a_extraer": {
     "tipologia": "qué hay que confirmar/descubrir sobre su tipología",
     "que_le_mueve": "qué motor identificar (dinero, paz, herederos, miedo, control)",
@@ -81,6 +84,20 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 }
 
 Si un dato falta en el snapshot, decláralo en datos_faltantes y usa fórmula neutra ("la situación del edificio") en el guion. NO inventes nombres, cuotas, ni hechos.`;
+
+const KPI_FOCUS_RULES = `REGLA DE ENFOQUE POR KPIs (prioritaria): recibirás TARGET_KPIS = lista de KPIs que HAY QUE CONSEGUIR EN ESTA LLAMADA (los que faltan o están a medias en la ficha del propietario).
+  - Devuelve OBLIGATORIAMENTE el array "enfoque_llamada" con UNA entrada por cada KPI de TARGET_KPIS, en el mismo orden, con el label EXACTO en el campo "kpi".
+  - Para cada KPI, "pregunta_o_tactica" es una pregunta LITERAL calibrada (empieza por qué/cómo) o táctica Voss concreta para sacar ESE dato, apoyada en el histórico de llamadas/notas si existe (retoma, no arranques de cero).
+  - Las "preguntas_calibradas" del guion y las "objeciones_probables" DEBEN estar orientadas a esos KPIs, no genéricas.
+  - La apertura y el cierre_micro_compromiso siguen las reglas Voss: nunca precio por teléfono, una pregunta cada vez, gratitud + Registro + auditoría.
+  - Ejemplos de ángulos por KPI:
+    · "Cuadro de rentas y vencimientos" → "¿Cómo está hoy el edificio, vacío, alquilado, alguno cerrado? ¿Hay inquilinos de renta antigua, qué rentas y vencimientos manejan?"
+    · "Tipología del propietario" → "¿Cómo llegó usted a tener esta parte del edificio?"
+    · "¿Decide solo o en familia?" → "¿Cómo se organizan ustedes para tomar decisiones sobre el edificio?"
+    · "Nº de copropietarios y % de cada parte" → "¿Cuántos son ahora mismo en la propiedad y cómo tienen repartidas las partes?"
+    · "Qué le mueve / motor" → "¿Qué tendría que pasar para que esto dejara de ser un tema?"
+    · "Estado del edificio / obras / ITE" → "¿Cómo está el edificio hoy en cuanto a obras, ITE, derramas?"
+  - Si TARGET_KPIS viene vacío, devuelve "enfoque_llamada": [] y sigue con el plan estándar.`;
 
 const SYSTEM_POST = `Eres un EXPERTO Chris Voss EVALUANDO una llamada en frío YA OCURRIDA con un proindivisario. Tu trabajo: medir cuán efectivo fue el comercial contra el CHECKLIST MÍNIMO DE CATALOGACIÓN y dar feedback concreto citando momentos LITERALES de la transcripción.
 
@@ -159,7 +176,8 @@ function shortCall(c: any) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
-    const { mode = 'brief', owner_id, building_id, call_transcript } = await req.json();
+    const { mode = 'brief', owner_id, building_id, call_transcript, target_kpis } = await req.json();
+    const targetKpis: string[] = Array.isArray(target_kpis) ? target_kpis.filter((s) => typeof s === 'string' && s.trim()) : [];
     const lk = Deno.env.get('LOVABLE_API_KEY');
     if (!lk) throw new Error('LOVABLE_API_KEY missing');
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -318,6 +336,9 @@ TAREAS HUBSPOT DEL CONTACTO (${historico_tasks.length}):
 ${historico_tasks.length ? JSON.stringify(historico_tasks, null, 2) : '(sin tareas)'}
 
 ${mode === 'post' ? `TRANSCRIPCIÓN A EVALUAR:\n${call_transcript || '(sin transcripción provista)'}\n` : ''}
+${mode === 'brief' ? `TARGET_KPIS (KPIs OBJETIVO de esta llamada — enfoca el plan en conseguir ESTOS datos concretos; usa el label EXACTO en "enfoque_llamada[].kpi"):
+${targetKpis.length ? targetKpis.map((k, i) => `[${i + 1}] ${k}`).join('\n') : '(vacío — plan estándar)'}
+` : ''}
 PLAYBOOK MEDIDO (tácticas con mejor tasa_exito para este perfil — PRIORÍZALAS y cítalas en por_que_funciona):
 ${playbook.length ? playbook.map((p: any, i: number) => `[${i+1}] tipo=${p.tactica_tipo} texto="${p.tactica_texto}" tasa=${p.tasa_exito} (n=${p.n_usos}/${p.n_exito})${p.ejemplo_literal ? ` ej: "${p.ejemplo_literal}"` : ''}`).join('\n') : '(playbook vacío — primera iteración, usa criterio Voss/Sandler)'}
 
@@ -326,7 +347,7 @@ ${fragments.map((f, i) => `[${i+1}] (${f.source}) chunk_id=${f.chunk_id}\n${f.sn
 
 Devuelve el JSON estricto con la forma EXACTA del system.`;
 
-    const sys = mode === 'post' ? SYSTEM_POST : SYSTEM_BRIEF;
+    const sys = mode === 'post' ? SYSTEM_POST : (SYSTEM_BRIEF + '\n\n' + KPI_FOCUS_RULES);
     const ai = await callAI([
       { role: 'system', content: sys },
       { role: 'user', content: userMsg },
