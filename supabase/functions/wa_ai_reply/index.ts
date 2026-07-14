@@ -607,6 +607,17 @@ Deno.serve(async (req) => {
     const hoyMadrid = new Intl.DateTimeFormat("es-ES", {
       timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long", year: "numeric",
     }).format(new Date());
+    // Hora local Madrid + saludo horario canónico. El modelo no puede fiarse del
+    // timestamp del último mensaje del cliente (podría ser de ayer por la noche):
+    // le imponemos por prompt el saludo que le corresponde a AHORA.
+    const ahoraMadridHHMM = new Intl.DateTimeFormat("es-ES", {
+      timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(new Date());
+    const horaMadrid = Number(ahoraMadridHHMM.slice(0, 2));
+    const saludoHorario =
+      horaMadrid < 13 ? "buenos días"
+      : horaMadrid < 21 ? "buenas tardes"
+      : "buenas noches";
     // Calendario pre-calculado: los modelos fallan calculando fechas relativas.
     // Se inyecta una tabla exacta de los próximos 10 días en Europe/Madrid.
     const calendarioTabla = Array.from({ length: 10 }, (_, i) => {
