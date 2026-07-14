@@ -136,6 +136,7 @@ export default function ComercialPrepararLlamada() {
           .filter((k) => set.has(k.clave))
           .map((k) => k.label);
         setTargetKpis(labels);
+        setTargetKpiClaves(aAbordar);
         // Guarda TODO el checklist (tenemos + a_medias + falta con evidencia) para alimentar el brief.
         const full = ((res as any).kpis ?? []) as Array<{ clave: string; label: string; estado: any; evidencia: string | null }>;
         setKpiContext(full.map((k) => ({ clave: k.clave, label: k.label, estado: k.estado, evidencia: k.evidencia ?? null })));
