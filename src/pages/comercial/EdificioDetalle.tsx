@@ -139,28 +139,6 @@ export default function ComercialEdificioDetalle() {
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
-  const CatastroItem = ({
-    icon: Icon,
-    label,
-    value,
-  }: {
-    icon: any;
-    label: string;
-    value: React.ReactNode;
-  }) => (
-    <div className="flex items-start gap-3 rounded-md border border-border-faint bg-surface-1/40 p-3">
-      <div className="rounded-md bg-surface-1 p-2 text-gold">
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="min-w-0">
-        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-          {label}
-        </div>
-        <div className="font-mono text-base tabular-nums text-foreground">{value}</div>
-      </div>
-    </div>
-  );
-
   return (
     <div className="space-y-6">
       <PageHeader
