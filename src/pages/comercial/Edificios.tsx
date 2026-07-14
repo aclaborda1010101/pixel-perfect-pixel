@@ -387,7 +387,10 @@ export default function ComercialEdificios() {
     enabled: !!userId && tab === "todos",
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      // Fetch all scored buildings paginated (Supabase caps each request at 1000 rows).
+      // Rendimiento: cargamos SOLO los TOP 1000 por score (una sola página).
+      // El resto del catálogo se filtra en cliente igualmente si aparece en la lista.
+      // Los +2k inferiores no se pintan hasta que el usuario filtre por barrio/score,
+      // y en la práctica nunca son útiles para prospección.
       const PAGE = 1000;
       const fetchPage = (from: number) =>
         (supabase.from("v_building_score" as any) as any)
@@ -419,16 +422,8 @@ export default function ComercialEdificios() {
         })(),
         fetchPage(0),
       ]);
-      let scores: any[] = firstPage.data ?? [];
-      let from = PAGE;
-      while (scores.length === from) {
-        const next = await fetchPage(from);
-        const chunk = next.data ?? [];
-        if (!chunk.length) break;
-        scores = scores.concat(chunk);
-        if (chunk.length < PAGE) break;
-        from += PAGE;
-      }
+      // Solo la primera página (top 1000 por score) — evita 2-3 s de descargas extra.
+      const scores: any[] = firstPage.data ?? [];
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
       const bldgsById = new Map<string, any>();
       const demoIds = new Set<string>();
