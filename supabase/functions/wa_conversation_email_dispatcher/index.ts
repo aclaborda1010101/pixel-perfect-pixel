@@ -112,7 +112,7 @@ Deno.serve(async (req) => {
             text: `Nueva conversación WhatsApp\nLead: ${displayName}\nTeléfono: ${phone}\nPrimer mensaje:\n${body}`,
           });
           await admin.from("pending_conversation_emails").update({
-            status: send.ok ? "sent" : "error",
+            status: send.ok ? "sent" : "pending",
             sent_at: send.ok ? new Date().toISOString() : null,
             last_error: send.ok ? null : send.error ?? "unknown",
             updated_at: new Date().toISOString(),
@@ -155,7 +155,7 @@ Deno.serve(async (req) => {
             text: `Resumen WhatsApp 15 min\nLead: ${displayName}\nTeléfono: ${phone}\n\n${summary?.resumen ?? ""}\n\nDatos:\n${JSON.stringify(datos, null, 2)}`,
           });
           await admin.from("pending_conversation_emails").update({
-            status: send.ok ? "sent" : "error",
+            status: send.ok ? "sent" : "pending",
             sent_at: send.ok ? new Date().toISOString() : null,
             last_error: send.ok ? null : send.error ?? "unknown",
             metadata: { ...(row.metadata ?? {}), summary },
