@@ -9,3 +9,6 @@ verify_jwt = false
 
 [functions.wa_conversation_email_dispatcher]
 verify_jwt = false
+
+[functions.transcribe_calls]
+verify_jwt = false
