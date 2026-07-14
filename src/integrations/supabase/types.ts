@@ -4911,6 +4911,51 @@ export type Database = {
           },
         ]
       }
+      pending_conversation_emails: {
+        Row: {
+          contact_id: string | null
+          conversation_id: string
+          created_at: string
+          id: string
+          kind: string
+          last_error: string | null
+          metadata: Json
+          phone: string | null
+          send_at: string
+          sent_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          contact_id?: string | null
+          conversation_id: string
+          created_at?: string
+          id?: string
+          kind: string
+          last_error?: string | null
+          metadata?: Json
+          phone?: string | null
+          send_at: string
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_id?: string | null
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          last_error?: string | null
+          metadata?: Json
+          phone?: string | null
+          send_at?: string
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null

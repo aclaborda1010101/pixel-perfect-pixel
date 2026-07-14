@@ -77,22 +77,41 @@ ${stripHtml(transcript).slice(0, 24000)}
 
 async function aiAnalyze(transcript: string, dur: number): Promise<any> {
   const LK = Deno.env.get('LOVABLE_API_KEY')!;
-  const r = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${LK}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'google/gemini-3.1-flash-lite-preview',
-      messages: [{ role: 'user', content: buildPrompt(transcript, dur) }],
-      response_format: { type: 'json_object' },
-    }),
+  const OR = Deno.env.get('OPENROUTER_API_KEY') || '';
+  type P = { name: string; url: string; auth: string; model: string; extra?: Record<string,string> };
+  const providers: P[] = [];
+  if (OR) providers.push({
+    name: 'openrouter', url: 'https://openrouter.ai/api/v1/chat/completions', auth: `Bearer ${OR}`, model: 'openai/gpt-5.6-luna',
+    extra: { 'HTTP-Referer': 'https://affluxosv2.world', 'X-Title': 'Afflux OS · Call Analysis' },
   });
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error(`AI ${r.status}: ${txt.slice(0, 300)}`);
+  providers.push({ name: 'lovable', url: 'https://ai.gateway.lovable.dev/v1/chat/completions', auth: `Bearer ${LK}`, model: 'google/gemini-3-flash-preview' });
+  let lastBody = '', lastStatus = 0;
+  for (const p of providers) {
+    try {
+      const r = await fetch(p.url, {
+        method: 'POST',
+        headers: { Authorization: p.auth, 'Content-Type': 'application/json', ...(p.extra ?? {}) },
+        body: JSON.stringify({
+          model: p.model,
+          messages: [{ role: 'user', content: buildPrompt(transcript, dur) }],
+          response_format: { type: 'json_object' },
+        }),
+      });
+      if (!r.ok) {
+        lastStatus = r.status; lastBody = (await r.text()).slice(0, 300);
+        console.error(`[analyze_call] provider fail ${p.name}/${p.model} status=${r.status} body=${lastBody}`);
+        continue;
+      }
+      const j = await r.json();
+      let txt = j?.choices?.[0]?.message?.content || '{}';
+      txt = String(txt).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      return { parsed: JSON.parse(txt), usage: j?.usage || {}, provider: p.name };
+    } catch (e: any) {
+      lastBody = String(e?.message ?? e);
+      console.error(`[analyze_call] provider exception ${p.name}`, lastBody);
+    }
   }
-  const j = await r.json();
-  const txt = j?.choices?.[0]?.message?.content || '{}';
-  return { parsed: JSON.parse(txt), usage: j?.usage || {} };
+  throw new Error(`AI ${lastStatus}: ${lastBody}`);
 }
 
 function sanitizePivot(p: any): any | null {

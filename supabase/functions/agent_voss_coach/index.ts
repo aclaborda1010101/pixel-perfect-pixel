@@ -12,12 +12,10 @@ const corsHeaders = {
 
 const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const EMB_URL = 'https://ai.gateway.lovable.dev/v1/embeddings';
-// Modelos: PRIMARY_MODEL se prueba primero; si falla → FALLBACK_MODEL.
-// Nota: "GPT-5.6 Luna" NO está en la allowlist del gateway de Lovable (verificado
-// contra ai.gateway.lovable.dev). Los OpenAI disponibles llegan hasta
-// openai/gpt-5.5. Cuando Luna esté disponible, cambiar PRIMARY_MODEL a su id
-// exacto (p.ej. 'openai/gpt-5.6') sin tocar más código.
-const PRIMARY_MODEL = 'google/gemini-3-flash-preview';
+// PRIMARIO: OpenRouter · openai/gpt-5.6-luna (si hay OPENROUTER_API_KEY).
+// FALLBACK: Lovable AI Gateway · google/gemini-3-flash-preview.
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const LUNA_MODEL = 'openai/gpt-5.6-luna';
 const FALLBACK_MODEL = 'google/gemini-3-flash-preview';
 const EMB_MODEL = 'google/gemini-embedding-001';
 const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss', 'tipologias_qa', 'metodo_cold_call'];
@@ -223,13 +221,22 @@ async function embed(text: string, key: string): Promise<number[] | null> {
 }
 
 async function callAI(messages: any[], key: string): Promise<any> {
-  const attempt = async (model: string, useJsonFormat: boolean): Promise<{ ok: true; data: any } | { ok: false; status: number; body: string; err?: string }> => {
+  const OR_KEY = Deno.env.get('OPENROUTER_API_KEY') || '';
+  type Provider = { name: string; url: string; auth: string; model: string; extraHeaders?: Record<string,string> };
+  const providers: Provider[] = [];
+  if (OR_KEY) providers.push({
+    name: 'openrouter', url: OPENROUTER_URL, auth: `Bearer ${OR_KEY}`, model: LUNA_MODEL,
+    extraHeaders: { 'HTTP-Referer': 'https://affluxosv2.world', 'X-Title': 'Afflux OS · Voss Coach' },
+  });
+  providers.push({ name: 'lovable', url: AI_URL, auth: `Bearer ${key}`, model: FALLBACK_MODEL });
+
+  const attempt = async (p: Provider, useJsonFormat: boolean): Promise<{ ok: true; data: any } | { ok: false; status: number; body: string; err?: string }> => {
     try {
-      const body: any = { model, messages };
+      const body: any = { model: p.model, messages };
       if (useJsonFormat) body.response_format = { type: 'json_object' };
-      const r = await fetch(AI_URL, {
+      const r = await fetch(p.url, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: p.auth, 'Content-Type': 'application/json', ...(p.extraHeaders ?? {}) },
         body: JSON.stringify(body),
       });
       if (!r.ok) {
@@ -248,19 +255,17 @@ async function callAI(messages: any[], key: string): Promise<any> {
     }
   };
 
-  const models = PRIMARY_MODEL === FALLBACK_MODEL ? [PRIMARY_MODEL] : [PRIMARY_MODEL, FALLBACK_MODEL];
   let lastErr: { status: number; body: string } | null = null;
-  for (const model of models) {
-    // 1) json_object
-    let res = await attempt(model, true);
+  for (const p of providers) {
+    let res = await attempt(p, true);
     if (!res.ok) {
       const unsupported = /response_format|json_object|unsupported|invalid.*format/i.test(res.body);
-      if (unsupported) res = await attempt(model, false);
+      if (unsupported) res = await attempt(p, false);
     }
-    if (!res.ok) res = await attempt(model, false);
+    if (!res.ok) res = await attempt(p, false);
     if (res.ok) return res.data;
     lastErr = { status: res.status, body: res.body };
-    console.error(`[agent_voss_coach] AI gateway fail model=${model} status=${res.status} body=${res.body}`);
+    console.error(`[agent_voss_coach] AI fail provider=${p.name} model=${p.model} status=${res.status} body=${res.body}`);
   }
   const err: any = new Error(`ai_gateway ${lastErr?.status ?? 0}: ${lastErr?.body ?? ''}`);
   err.ai_gateway = true;
