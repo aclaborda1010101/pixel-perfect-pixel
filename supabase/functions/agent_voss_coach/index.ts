@@ -147,7 +147,7 @@ REGLAS ESTILO FERRERO/POZAS 3 (obligatorias — el brief debe LEERSE como un gui
   - "hilo" contiene 3-6 entradas ordenadas: primero la que rompe el hielo desde algo que ya sabemos, después las que sacan los KPIs de TARGET_KPIS (cuadro_rentas si aplica va PRIMERO), y una final orientada a palanca de venta.
   - "lineas_rojas" siempre incluye las de la tipología aplicable + "no hablar de precio" + cualquier línea roja específica que se deduzca del histórico (ej. familia enferma, duelo, okupa).
   - Cierre: WhatsApp + "la próxima llamada la hará mi compañero especialista de Afflux, {nombre_generico}, para poder darle números concretos".
-  - NUNCA plantilla genérica. Si la salida podría valer para otro propietario, NO ES VÁLIDA.`;
+  - NUNCA plantilla genérica. Si la salida podría valer para otro propietario, NO ES VÁLIDA.
 
 REGLA PLAN_LLAMADA (crítica, es lo PRIMERO que lee el comercial):
   - Devuelve entre 3 y 6 pasos ORDENADOS, específicos de ESTA persona y ESTA llamada. NADA GENÉRICO.
