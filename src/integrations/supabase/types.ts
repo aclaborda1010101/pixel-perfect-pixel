@@ -1338,6 +1338,7 @@ export type Database = {
           cluster_breakdown: Json | null
           cluster_motivo: string | null
           cluster_score: number | null
+          cluster_secundario: string | null
           codigo_postal: string | null
           comercial: string | null
           confianza_media: number | null
@@ -1377,6 +1378,7 @@ export type Database = {
           cluster_breakdown?: Json | null
           cluster_motivo?: string | null
           cluster_score?: number | null
+          cluster_secundario?: string | null
           codigo_postal?: string | null
           comercial?: string | null
           confianza_media?: number | null
@@ -1416,6 +1418,7 @@ export type Database = {
           cluster_breakdown?: Json | null
           cluster_motivo?: string | null
           cluster_score?: number | null
+          cluster_secundario?: string | null
           codigo_postal?: string | null
           comercial?: string | null
           confianza_media?: number | null
