@@ -1178,7 +1178,11 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
     const register = resolveRegister(turnModes, (qual as any).registro);
     if ((qual as any).registro !== register) (qual as any).registro = register;
     const turnDirective = buildTurnDirective(turnModes, register, qual);
-    const systemPromptFinal = systemPrompt + turnDirective;
+    // Doble candado: si es reanudación, un aviso corto y duro al final del prompt.
+    const resumeDirective = hasBotReplied
+      ? `\n\n[TURNO ACTUAL · CONTINUACIÓN] Ya hay ${outCount} mensaje(s) del equipo en este hilo${gapHoursSinceLastOut != null ? ` (último hace ~${gapHoursSinceLastOut} h)` : ""}. NO te presentes. NO digas "Soy Jaime" ni "¿con quién tengo el gusto?". Si vas a saludar, usa EXACTAMENTE "${saludoHorario}" (hora Madrid ${ahoraMadridHHMM}). Retoma el hilo.`
+      : `\n\n[TURNO ACTUAL · PRIMER CONTACTO] No hay respuestas previas del equipo. Si saludas, usa EXACTAMENTE "${saludoHorario}" (hora Madrid ${ahoraMadridHHMM}) — nunca otro saludo horario.`;
+    const systemPromptFinal = systemPrompt + turnDirective + resumeDirective;
 
     const aiMessages = [
       { role: "system", content: systemPromptFinal },
