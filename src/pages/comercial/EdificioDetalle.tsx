@@ -380,11 +380,16 @@ export default function ComercialEdificioDetalle() {
 function EdificioResumenCard({
   b, s, analysis, anioConstr, ownersCount,
 }: { b: any; s: any; analysis: any; anioConstr: any; ownersCount: number }) {
-  const m2Total = Number(s?.m2_total ?? 0);
-  const m2Viv = Number(s?.m2_viviendas ?? 0);
-  const m2Com = Number(s?.m2_comercio ?? 0);
-  const m2Ofi = Number(s?.m2_oficina ?? 0);
-  const numViv = Number(s?.num_viviendas ?? 0);
+  const md = (b?.metadatos ?? {}) as Record<string, any>;
+  const num = (v: any) => {
+    const n = typeof v === "string" ? parseFloat(v.replace(",", ".")) : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const m2Total = num(s?.m2_total) || num(md.metros_cuadrados__exactos_) || num(md.metros_cuadrados__exactos____clonada_);
+  const m2Viv = num(s?.m2_viviendas) || num(md.metros_cuadrados_viviendas) || num(md.metros_cuadrados_viviendas___clonada_);
+  const m2Com = num(s?.m2_comercio) || num(s?.m2_comercio_x) || num(md.metros_cuadrados_comercio);
+  const m2Ofi = num(s?.m2_oficina) || num(s?.m2_oficina_x) || num(md.metros_cuadrados_oficina) || num(md.metros_cuadrado_oficina);
+  const numViv = num(s?.num_viviendas) || num(s?.viviendas_unidades) || num(md.viviendas__unidades_) || num(md.viviendas__unidades___clonada_);
   const pctTerciario = m2Total > 0 ? Math.round(((m2Com + m2Ofi) / m2Total) * 100) : null;
   const protegido = !!(analysis?.protegido_historicamente);
   const clusterMain = b?.cluster_asignado ?? null;
