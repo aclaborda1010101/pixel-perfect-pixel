@@ -210,6 +210,34 @@ export function VossCoachCard({
                 <blockquote className="border-l-2 border-emerald-500 pl-3 italic text-foreground">"{guion.cierre_micro_compromiso}"</blockquote>
               </div>
             )}
+            {hilo.length > 0 && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">El hilo · frase + una pregunta</div>
+                <ol className="space-y-2 list-decimal pl-4">
+                  {hilo.map((h: any, i: number) => (
+                    <li key={i} className="rounded border border-border-faint p-2">
+                      {h.frase_confianza && <div className="italic text-muted-foreground">"{h.frase_confianza}"</div>}
+                      {h.pregunta && <div className="mt-1 text-foreground">→ {h.pregunta}</div>}
+                      {h.kpi_objetivo && <Badge variant="outline" className="mt-1 text-[10px]">KPI: {h.kpi_objetivo}</Badge>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {lineasRojas.length > 0 && (
+              <div className="rounded border border-destructive/40 bg-destructive/5 p-2">
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-destructive mb-1">Líneas rojas · NO hagas esto</div>
+                <ul className="space-y-0.5 text-foreground">
+                  {lineasRojas.map((r: string, i: number) => <li key={i}>• {r}</li>)}
+                </ul>
+              </div>
+            )}
+            {cierreFerrero && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Cierre · WhatsApp + especialista Afflux</div>
+                <blockquote className="border-l-2 border-emerald-500 pl-3 italic text-foreground">"{cierreFerrero}"</blockquote>
+              </div>
+            )}
             {info && (
               <div className="rounded border border-gold/30 bg-gold-soft/20 p-2">
                 <div className="text-[10px] font-mono uppercase tracking-eyebrow text-gold mb-1">Info mínima a extraer</div>
