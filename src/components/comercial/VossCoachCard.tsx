@@ -16,6 +16,7 @@ export function VossCoachCard({
   initialVoss,
   onLoaded,
   targetKpis,
+  kpiContext,
 }: {
   ownerId?: string;
   buildingId?: string;
@@ -25,6 +26,7 @@ export function VossCoachCard({
   initialVoss?: any;
   onLoaded?: (voss: any) => void;
   targetKpis?: string[];
+  kpiContext?: Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }>;
 }) {
   const [voss, setVoss] = useState<any>(initialVoss ?? null);
   const [busy, setBusy] = useState(false);
@@ -39,7 +41,7 @@ export function VossCoachCard({
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke("agent_voss_coach", {
-        body: { mode, owner_id: ownerId, building_id: buildingId, call_transcript: transcript, target_kpis: targetKpis },
+        body: { mode, owner_id: ownerId, building_id: buildingId, call_transcript: transcript, target_kpis: targetKpis, kpi_context: kpiContext },
       });
       if (error) throw error;
       if ((data as any)?.error) throw new Error((data as any).error);
@@ -57,6 +59,7 @@ export function VossCoachCard({
   const info = voss?.info_minima_a_extraer ?? null;
   const playbook = Array.isArray(voss?.playbook_priorizado) ? voss.playbook_priorizado : [];
   const enfoque = Array.isArray(voss?.enfoque_llamada) ? voss.enfoque_llamada : [];
+  const plan = Array.isArray(voss?.plan_llamada) ? voss.plan_llamada : [];
   const checklistPost = voss?.checklist ?? null;
 
   return (
