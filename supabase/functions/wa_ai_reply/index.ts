@@ -229,6 +229,18 @@ Deno.serve(async (req) => {
     const lastInText: string = lastIn?.content ?? "";
 
     // ─────────────────────────────────────────────────────────────
+    // REANUDACIÓN: detectar si ya hay respuestas previas del equipo (bot o
+    // agente humano) en este hilo. Si las hay, NO es un primer contacto:
+    // el modelo NO debe re-presentarse ni volver a preguntar el nombre.
+    // ─────────────────────────────────────────────────────────────
+    const hasBotReplied = realHistory.some((m: any) => m.direction === "out");
+    const lastOutMsg = [...realHistory].reverse().find((m: any) => m.direction === "out");
+    const gapHoursSinceLastOut = lastOutMsg
+      ? Math.round(((Date.now() - new Date(lastOutMsg.created_at).getTime()) / 3600000) * 10) / 10
+      : null;
+    const outCount = realHistory.filter((m: any) => m.direction === "out").length;
+
+    // ─────────────────────────────────────────────────────────────
     // DEBOUNCE / ANTI-RÁFAGA (R2) — arregla las 2-4 respuestas en cadena y reduce el
     // "se queda mudo". Cuando el cliente manda varios mensajes seguidos, el webhook lanza
     // una invocación por cada uno y todas compiten. Esperamos un margen de inactividad: si
