@@ -70,6 +70,7 @@ async function transcribeWithOpenRouter(bytes: Uint8Array, contentType: string, 
   const OK = Deno.env.get("OPENROUTER_API_KEY");
   if (!OK) return { ok: false, error: "OPENROUTER_API_KEY missing" };
   const ext = extForContentType(contentType);
+  // OpenRouter STT multipart cap = 25 MB. Marcamos oversize aguas arriba (transcribeOne).
   const fd = new FormData();
   fd.append("file", new Blob([bytes], { type: contentType || "audio/mpeg" }), `recording.${ext}`);
   fd.append("model", model);
@@ -116,6 +117,15 @@ async function transcribeOne(supabase: any, row: any): Promise<{ ok: boolean; er
       raw: { ...raw, _transcribe_error: dl.error, _transcribe_error_at: new Date().toISOString() },
     }).eq("id", row.id);
     return { ok: false, error: dl.error };
+  }
+
+  // OpenRouter STT rechaza multipart >25 MB. Marcamos oversize y lo dejamos para Deepgram.
+  const OR_MAX = 25 * 1024 * 1024 - 128 * 1024; // margen para el boundary/headers
+  if (dl.bytes.byteLength > OR_MAX) {
+    await supabase.from("hubspot_calls").update({
+      raw: { ...raw, _transcribe_oversize: true, _transcribe_bytes: dl.bytes.byteLength, _transcribe_error: `oversize ${dl.bytes.byteLength}B > 25MB`, _transcribe_error_at: new Date().toISOString() },
+    }).eq("id", row.id);
+    return { ok: false, error: `oversize ${dl.bytes.byteLength}B (>25MB, usar Deepgram)` };
   }
 
   // STT primario, con fallback a whisper-1 si el primario falla (no en 429)
