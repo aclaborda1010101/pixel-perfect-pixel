@@ -5,10 +5,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Modelos con fallback. "GPT-5.6 Luna" NO está en la allowlist del gateway
-// (verificado); cambiar PRIMARY_MODEL a 'openai/gpt-5.6' cuando esté disponible.
-const PRIMARY_MODEL = "google/gemini-3-flash-preview";
+// PRIMARIO: OpenRouter · openai/gpt-5.6-luna (si hay OPENROUTER_API_KEY).
+// FALLBACK: Lovable AI Gateway · google/gemini-3-flash-preview.
+const LUNA_MODEL = "openai/gpt-5.6-luna";
 const FALLBACK_MODEL = "google/gemini-3-flash-preview";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 const KPIS: Array<{ clave: string; label: string; prioridad?: boolean }> = [
   { clave: "cuadro_rentas", label: "Cuadro de rentas y vencimientos", prioridad: true },
@@ -191,12 +193,20 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
       notas: notasCorpus.slice(0, 40),
     };
 
-    async function callModel(model: string) {
-      return fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const OR_KEY = Deno.env.get("OPENROUTER_API_KEY") || "";
+    type Provider = { name: string; url: string; auth: string; model: string; extraHeaders?: Record<string,string> };
+    const providers: Provider[] = [];
+    if (OR_KEY) providers.push({
+      name: "openrouter", url: OPENROUTER_URL, auth: `Bearer ${OR_KEY}`, model: LUNA_MODEL,
+      extraHeaders: { "HTTP-Referer": "https://affluxosv2.world", "X-Title": "Afflux OS · KPI Checklist" },
+    });
+    providers.push({ name: "lovable", url: LOVABLE_URL, auth: `Bearer ${apiKey}`, model: FALLBACK_MODEL });
+    async function callProvider(p: Provider) {
+      return fetch(p.url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        headers: { Authorization: p.auth, "Content-Type": "application/json", ...(p.extraHeaders ?? {}) },
         body: JSON.stringify({
-          model,
+          model: p.model,
           messages: [
             { role: "system", content: sys },
             { role: "user", content: JSON.stringify(userPayload) },
@@ -206,15 +216,17 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
         }),
       });
     }
-    let aiRes = await callModel(PRIMARY_MODEL);
-    if (!aiRes.ok && PRIMARY_MODEL !== FALLBACK_MODEL) {
-      const txt = await aiRes.text();
-      console.error("agent_kpi_checklist primary model fail", aiRes.status, txt, "→ fallback", FALLBACK_MODEL);
-      aiRes = await callModel(FALLBACK_MODEL);
+    let aiRes: Response | null = null;
+    for (const p of providers) {
+      const r = await callProvider(p);
+      if (r.ok) { aiRes = r; break; }
+      const txt = await r.text();
+      console.error(`agent_kpi_checklist provider fail ${p.name}/${p.model} status=${r.status} body=${txt.slice(0,300)}`);
+      aiRes = r;
     }
-    if (!aiRes.ok) {
-      const txt = await aiRes.text();
-      console.error("agent_kpi_checklist AI error", aiRes.status, txt);
+    if (!aiRes || !aiRes.ok) {
+      const txt = aiRes ? await aiRes.text() : "no provider";
+      console.error("agent_kpi_checklist AI error", aiRes?.status ?? 0, txt);
       return new Response(JSON.stringify(emptyResult), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

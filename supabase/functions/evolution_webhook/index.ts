@@ -197,11 +197,13 @@ Deno.serve(async (req) => {
       const { data: existingConv } = await admin.from("wa_conversations").select("id, ai_enabled")
         .eq("contact_id", contact!.id).eq("status", "open").order("created_at", { ascending: false }).limit(1).maybeSingle();
       let aiEnabled = true;
+      let convJustCreated = false;
       if (existingConv) { convId = existingConv.id; aiEnabled = (existingConv as any).ai_enabled ?? true; }
       else {
         const { data: newConv } = await admin.from("wa_conversations")
           .insert({ contact_id: contact!.id, status: "open" }).select("id, ai_enabled").single();
         convId = newConv!.id; aiEnabled = (newConv as any).ai_enabled ?? true;
+        convJustCreated = true;
       }
 
       // message
@@ -239,6 +241,35 @@ Deno.serve(async (req) => {
         last_message_at: new Date().toISOString(),
         unread_count: fromMe ? 0 : ((existingConv as any)?.unread_count ?? 0) + 1,
       }).eq("id", convId!);
+
+      // ── Notificación email al iniciar una NUEVA conversación (primer mensaje entrante
+      // de un lead sin histórico). Programa también resumen a +15 min.
+      if (convJustCreated && !fromMe) {
+        try {
+          const { count: priorCount } = await admin.from("wa_messages")
+            .select("id", { count: "exact", head: true })
+            .eq("contact_id", contact!.id)
+            .neq("id", insertedMsg?.id ?? "00000000-0000-0000-0000-000000000000");
+          const isFirstEver = (priorCount ?? 0) === 0;
+          if (isFirstEver) {
+            const nowIso = new Date().toISOString();
+            const in15 = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+            // Filas idempotentes (unique(conversation_id, kind))
+            await admin.from("pending_conversation_emails").upsert([
+              { conversation_id: convId!, contact_id: contact!.id, phone, kind: "conv_started", send_at: nowIso, status: "pending" },
+              { conversation_id: convId!, contact_id: contact!.id, phone, kind: "summary_15m", send_at: in15, status: "pending" },
+            ], { onConflict: "conversation_id,kind" });
+            // Dispara el dispatcher inmediatamente para el conv_started (best-effort)
+            fetch(`${SUPABASE_URL}/functions/v1/wa_conversation_email_dispatcher`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
+              body: "{}",
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.warn("[evolution_webhook] pending_conversation_emails schedule failed", (e as any)?.message);
+        }
+      }
 
       // KILL SWITCH GLOBAL: si is_active=false seguimos REGISTRANDO el entrante (arriba),
       // pero NO disparamos auto-respuesta ni procesado de media. La ingesta no se pierde.

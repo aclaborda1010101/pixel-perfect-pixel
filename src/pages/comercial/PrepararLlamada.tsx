@@ -47,6 +47,8 @@ export default function ComercialPrepararLlamada() {
   const [targetKpiClaves, setTargetKpiClaves] = useState<string[]>([]);
   const [postKpiContext, setPostKpiContext] = useState<Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }> | null>(null);
   const [scheduledAnalyzeAt, setScheduledAnalyzeAt] = useState<number | null>(null);
+  const [autoAnalyzeAttempts, setAutoAnalyzeAttempts] = useState<number>(0);
+  const MAX_AUTO_ANALYZE_ATTEMPTS = 4;
   const DEFAULT_CHECKLIST = [
     { k: "tipologia", label: "Tipología del propietario (T1–T10 / buyer persona)" },
     { k: "motor", label: "Qué le mueve (dinero, paz, herederos, miedo, control)" },
@@ -340,7 +342,45 @@ export default function ComercialPrepararLlamada() {
     if (!scheduledAnalyzeAt || finalizing || awaiting) return;
     if (now < scheduledAnalyzeAt) return;
     setScheduledAnalyzeAt(null);
-    (async () => { try { await finalizeCall(); } catch {} })();
+    (async () => {
+      try {
+        // Auto-análisis silencioso: NO usa la cadena de reintentos cortos de awaiting;
+        // si HubSpot aún no tiene la llamada, reprogramamos otro +15 min (hasta N).
+        try {
+          await supabase.functions.invoke("hubspot_sync_engagements", { body: { types: ["calls"], max_pages: 2, background: false } });
+        } catch { /* best-effort */ }
+        const { data: res, error } = await supabase.functions.invoke("finalize_call_session", { body: { session_id: sessionId } });
+        if (error) throw error;
+        if ((res as any)?.ok === false) {
+          const nextAttempt = autoAnalyzeAttempts + 1;
+          if (nextAttempt < MAX_AUTO_ANALYZE_ATTEMPTS) {
+            setAutoAnalyzeAttempts(nextAttempt);
+            setScheduledAnalyzeAt(Date.now() + AUTO_ANALYZE_DELAY_MS);
+            toast.message("Llamada no detectada aún", {
+              description: `Reintento automático en 15 min (intento ${nextAttempt}/${MAX_AUTO_ANALYZE_ATTEMPTS - 1}).`,
+            });
+          } else {
+            toast.error("No se detectó la llamada tras varios reintentos. Pulsa 'Resultado' cuando quieras cerrar manualmente.");
+          }
+          return;
+        }
+        // OK: aplicar resultado sin pasar por finalizeCall (evita loop de UI)
+        setAutoAnalyzeAttempts(0);
+        toast.success(`Llamada analizada · score ${(res as any)?.puntuacion ?? "—"}/100`);
+        if (Array.isArray((res as any)?.checks)) setChecklist((res as any).checks);
+        if ((res as any)?.puntuacion != null) setPuntuacion(Number((res as any).puntuacion));
+        if (sessionId) {
+          const { data: refreshed } = await (supabase.from("call_sessions" as any) as any)
+            .select("voss_post, notas").eq("id", sessionId).maybeSingle();
+          if (refreshed?.voss_post) setVossPost(refreshed.voss_post);
+          if (refreshed?.notas) setNotas(refreshed.notas);
+        }
+        setPaso(3);
+        refreshKpisPostCall();
+      } catch (e) {
+        console.error("[auto-analyze]", e);
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [now, scheduledAnalyzeAt]);
 
@@ -581,8 +621,18 @@ export default function ComercialPrepararLlamada() {
             {scheduledAnalyzeAt && !finalizing && !awaiting && (
               <div className="rounded border border-gold/30 bg-gold-soft/10 p-2 text-xs">
                 <Clock4 className="mr-1 inline h-3 w-3 text-gold" />
-                Auto-análisis programado en {Math.max(0, Math.ceil((scheduledAnalyzeAt - now) / 60000))} min.
-                Pulsa <b>Analizar ahora</b> para no esperar.
+                {autoAnalyzeAttempts > 0 ? (
+                  <>
+                    Llamada no detectada aún · reintento en {Math.max(0, Math.ceil((scheduledAnalyzeAt - now) / 60000))} min
+                    {" "}(intento {autoAnalyzeAttempts + 1}/{MAX_AUTO_ANALYZE_ATTEMPTS}).
+                    Pulsa <b>Resultado</b> para cerrar manualmente.
+                  </>
+                ) : (
+                  <>
+                    Auto-análisis programado en {Math.max(0, Math.ceil((scheduledAnalyzeAt - now) / 60000))} min.
+                    Pulsa <b>Analizar ahora</b> para no esperar.
+                  </>
+                )}
               </div>
             )}
             {awaiting && (
