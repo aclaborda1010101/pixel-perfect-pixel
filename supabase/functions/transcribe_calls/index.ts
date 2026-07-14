@@ -6,6 +6,7 @@
 //   { limit?: number, chain?: boolean } → batch (default 15).
 // Sin secretos nuevos: usa OPENROUTER_API_KEY + HUBSPOT_API_KEY (gateway) ya configurados.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { encodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -81,10 +82,8 @@ async function transcribeWithOpenRouter(bytes: Uint8Array, contentType: string, 
 
   async function trySend(useJson: boolean) {
     if (useJson) {
-      // base64 del buffer
-      let bin = "";
-      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      const b64 = btoa(bin);
+      // base64 del buffer (streaming-safe via std)
+      const b64 = encodeBase64(bytes);
       const r = await fetch(OR_URL, {
         method: "POST",
         headers: { ...commonHeaders, "Content-Type": "application/json" },
