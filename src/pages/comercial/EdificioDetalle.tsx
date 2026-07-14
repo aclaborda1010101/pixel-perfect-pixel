@@ -178,7 +178,6 @@ export default function ComercialEdificioDetalle() {
           <div className="flex gap-2">
             <AlarmChips avisos={(b as any)?.avisos_inteligentes} esEstrella={(b as any)?.es_estrella} max={3} />
             <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral, iee_estado: (b as any)?.iee_estado }} />
-            <IeeBadge building={b as any} />
             {assigned ? (
               <Badge variant="gold">Tu cartera</Badge>
             ) : (
@@ -192,110 +191,17 @@ export default function ComercialEdificioDetalle() {
       />
 
       {/* Resumen narrativo + scoring visual */}
+      {/* Resumen del edificio: qué es y por qué es (o no) oportunidad */}
+      <EdificioResumenCard b={b} s={s} analysis={analysis} anioConstr={anioConstr} ownersCount={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} />
+
+      {/* Scoring: score + doble tesis + contribuciones (sin narrativa larga) */}
       <ScoringResumen b={b} s={s} analysis={analysis} />
-
-      <IeeCard buildingId={b.id} building={b as any} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Catastro */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <Eyebrow>Resumen scoring</Eyebrow>
-            <CardTitle>Métricas que alimentan el score</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <CatastroItem icon={Ruler} label="m² totales" value={s.m2_total ? Number(s.m2_total).toLocaleString() : "—"} />
-              <CatastroItem icon={Ruler} label="m² viviendas" value={s.m2_viviendas != null ? Number(s.m2_viviendas).toLocaleString() : "—"} />
-              <CatastroItem icon={Ruler} label="m² (rango)" value={s.m2_rango ?? "—"} />
-              <CatastroItem icon={Home} label="Nº viviendas" value={s.num_viviendas ?? "—"} />
-              <CatastroItem icon={Layers} label="Ratio m²/vivienda" value={ratio != null ? `${ratio.toFixed(1)} m²` : "—"} />
-              <CatastroItem icon={Users} label="Nº propietarios" value={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} />
-              <CatastroItem icon={Tag} label="Tipo oportunidad" value={s.tipo_oportunidad ?? "—"} />
-              <CatastroItem
-                icon={b.division_horizontal ? X : Check}
-                label="División horizontal"
-                value={
-                  <span className={b.division_horizontal ? "text-red-400" : "text-emerald-400"}>
-                    {b.division_horizontal ? "Sí" : "No"}
-                  </span>
-                }
-              />
-              <CatastroItem icon={Calendar} label="Año construcción" value={anioConstr ?? "—"} />
-            </div>
-            {b.catastro_ref && (
-              <div className="rounded-md border border-border-faint p-3">
-                <Eyebrow>Ref. catastral</Eyebrow>
-                <div className="mt-1 font-mono text-xs text-foreground">{b.catastro_ref}</div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Mapa */}
-        <Card className="overflow-hidden">
-          <CardHeader>
-            <Eyebrow>
-              <MapPin className="mr-1 inline h-3 w-3" /> Ubicación
-            </Eyebrow>
-            <CardTitle>{b.ciudad ?? "—"}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="relative h-[320px] w-full overflow-hidden">
-              <iframe
-                title="Mapa edificio"
-                src={`https://www.google.com/maps?q=${mapsQuery}&output=embed`}
-                className="h-full w-full border-0"
-                style={{
-                  filter:
-                    "invert(0.92) hue-rotate(180deg) saturate(0.55) brightness(0.95) contrast(0.95)",
-                }}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-              <div
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  background:
-                    "radial-gradient(circle at 50% 50%, transparent 55%, hsl(var(--background) / 0.55) 100%)",
-                  mixBlendMode: "multiply",
-                }}
-              />
-              <a
-                href={`https://www.google.com/maps?q=${mapsQuery}`}
-                target="_blank"
-                rel="noreferrer"
-                className="absolute right-3 top-3 rounded-md border border-border-faint bg-surface-1/80 px-2 py-1 font-mono text-[10px] uppercase tracking-eyebrow text-gold backdrop-blur hover:bg-surface-1"
-              >
-                Abrir en Maps ↗
-              </a>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Datos catastrales completos (OVC Consulta_DNPRC) */}
-      {id && <CatastroDetalladoCard buildingId={id} refCatastral={b.refcatastral ?? b.catastro_ref} />}
-
-      {/* Análisis del plano catastral (anotaciones IA) */}
-      {id && <AnalisisPlanoCatastralCard buildingId={id} />}
-
-      {/* Distribución del inmueble */}
-      <DistribucionInmueble s={s} />
-
-      {/* Análisis IA (Catastro + Google + Gemini) */}
-      {id && <AnalisisIASection buildingId={id} />}
 
       {/* PGOUM: protección + plantas levantables */}
       {id && <PgoumBlock buildingId={id} />}
 
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
-
-      {/* Validación humana inline (alimenta qa_ground_truth) */}
-      {id && <VerificacionInlinePanel buildingId={id} />}
-      {/* Correcciones del equipo */}
-      {id && <TeamFeedbackCard buildingId={id} />}
 
       {/* Sociedades propietarias */}
       {companies.length > 0 && (
