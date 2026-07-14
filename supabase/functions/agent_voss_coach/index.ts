@@ -49,6 +49,14 @@ Siempre empiezan por qué/cómo, nunca "por qué" causal.
 Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 {
   "modo": "brief",
+  "plan_llamada": [
+    {
+      "paso": "acción CONCRETA y específica de ESTA persona (verbo en imperativo, cita el hecho del histórico en el que te apoyas)",
+      "por_que": "en qué dato REAL del histórico/checklist te apoyas — cita literal breve + fecha si consta (ej. 'consta \"necesito vender rápido\" en la llamada del 12/06'). Si no hay contexto, di 'no tenemos contexto sobre X'.",
+      "kpi_objetivo": "label EXACTO del KPI que este paso busca sacar (uno de TARGET_KPIS) — o 'apertura'/'canal' si es apertura o cierre",
+      "como": "la pregunta o frase LITERAL para lograrlo (una pregunta cada vez, empieza por qué/cómo cuando aplique, respeta líneas rojas)"
+    }
+  ],
   "contexto_propietario": {
     "quien_es": "1-2 frases con nombre, tipología/buyer_persona, % cuota, subrole, edad/zona si consta",
     "situacion_edificio": "1-2 frases con dirección, banderas reales (proindiviso, ITE, conflicto, mala_gestion_score, protegido, cluster)",
@@ -83,7 +91,15 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
   "fragmentos_usados": [{"source": "libro_voss|correo_chris_voss", "chunk_id": "<uuid real>", "tecnica": "..."}]
 }
 
-Si un dato falta en el snapshot, decláralo en datos_faltantes y usa fórmula neutra ("la situación del edificio") en el guion. NO inventes nombres, cuotas, ni hechos.`;
+Si un dato falta en el snapshot, decláralo en datos_faltantes y usa fórmula neutra ("la situación del edificio") en el guion. NO inventes nombres, cuotas, ni hechos.
+
+REGLA PLAN_LLAMADA (crítica, es lo PRIMERO que lee el comercial):
+  - Devuelve entre 3 y 6 pasos ORDENADOS, específicos de ESTA persona y ESTA llamada. NADA GENÉRICO.
+  - Cada paso debe apoyarse en un HECHO REAL de KPI_CONTEXT (lo que YA sabemos, con su evidencia/cita) o del HISTÓRICO de llamadas/notas. Cita el hecho en "por_que" (ej. "en llamada del 12/06 dijo 'necesito liquidez'").
+  - Si un KPI de TARGET_KPIS no tiene NINGÚN dato de contexto en el histórico ni en KPI_CONTEXT, di explícitamente en "por_que": "no tenemos contexto sobre esto" y en "como" pon una pregunta calibrada directa.
+  - Estructura recomendada: (a) apertura personalizada al histórico o primer contacto, (b) 2-4 pasos para sacar los KPIs de TARGET_KPIS entrando por el ángulo emocional que YA conocemos (liquidez, herencia, conflicto, urgencia, okupa, oferta previa, etc.), (c) cierre/canal.
+  - Tono: JEFE DE VENTAS briefeando a un comercial sobre esta persona en concreto. No manual Voss teórico.
+  - Respeta reglas fijas: nunca precio por teléfono, una pregunta cada vez, líneas rojas del perfil (T1..T10), gratitud + Registro en apertura fría.`;
 
 const KPI_FOCUS_RULES = `REGLA DE ENFOQUE POR KPIs (prioritaria): recibirás TARGET_KPIS = lista de KPIs que HAY QUE CONSEGUIR EN ESTA LLAMADA (los que faltan o están a medias en la ficha del propietario).
   - Devuelve OBLIGATORIAMENTE el array "enfoque_llamada" con UNA entrada por cada KPI de TARGET_KPIS, en el mismo orden, con el label EXACTO en el campo "kpi".
