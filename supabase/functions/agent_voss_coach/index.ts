@@ -12,7 +12,13 @@ const corsHeaders = {
 
 const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const EMB_URL = 'https://ai.gateway.lovable.dev/v1/embeddings';
-const MODEL = 'google/gemini-3-flash-preview';
+// Modelos: PRIMARY_MODEL se prueba primero; si falla → FALLBACK_MODEL.
+// Nota: "GPT-5.6 Luna" NO está en la allowlist del gateway de Lovable (verificado
+// contra ai.gateway.lovable.dev). Los OpenAI disponibles llegan hasta
+// openai/gpt-5.5. Cuando Luna esté disponible, cambiar PRIMARY_MODEL a su id
+// exacto (p.ej. 'openai/gpt-5.6') sin tocar más código.
+const PRIMARY_MODEL = 'google/gemini-3-flash-preview';
+const FALLBACK_MODEL = 'google/gemini-3-flash-preview';
 const EMB_MODEL = 'google/gemini-embedding-001';
 const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss', 'tipologias_qa', 'metodo_cold_call'];
 
@@ -217,9 +223,9 @@ async function embed(text: string, key: string): Promise<number[] | null> {
 }
 
 async function callAI(messages: any[], key: string): Promise<any> {
-  const attempt = async (useJsonFormat: boolean): Promise<{ ok: true; data: any } | { ok: false; status: number; body: string; err?: string }> => {
+  const attempt = async (model: string, useJsonFormat: boolean): Promise<{ ok: true; data: any } | { ok: false; status: number; body: string; err?: string }> => {
     try {
-      const body: any = { model: MODEL, messages };
+      const body: any = { model, messages };
       if (useJsonFormat) body.response_format = { type: 'json_object' };
       const r = await fetch(AI_URL, {
         method: 'POST',
@@ -242,26 +248,23 @@ async function callAI(messages: any[], key: string): Promise<any> {
     }
   };
 
-  // 1) Intento con response_format json_object
-  let res = await attempt(true);
-  if (!res.ok) {
-    console.error(`[agent_voss_coach] AI gateway fail #1 status=${res.status} body=${res.body}`);
-    // Si el modelo no soporta response_format, reintenta sin él
-    const unsupported = /response_format|json_object|unsupported|invalid.*format/i.test(res.body);
-    res = await attempt(!unsupported ? true : false);
+  const models = PRIMARY_MODEL === FALLBACK_MODEL ? [PRIMARY_MODEL] : [PRIMARY_MODEL, FALLBACK_MODEL];
+  let lastErr: { status: number; body: string } | null = null;
+  for (const model of models) {
+    // 1) json_object
+    let res = await attempt(model, true);
     if (!res.ok) {
-      console.error(`[agent_voss_coach] AI gateway fail #2 status=${res.status} body=${res.body}`);
-      // Último intento sin json_object
-      res = await attempt(false);
-      if (!res.ok) {
-        console.error(`[agent_voss_coach] AI gateway fail final status=${res.status} body=${res.body}`);
-        const err: any = new Error(`ai_gateway ${res.status}: ${res.body}`);
-        err.ai_gateway = true;
-        throw err;
-      }
+      const unsupported = /response_format|json_object|unsupported|invalid.*format/i.test(res.body);
+      if (unsupported) res = await attempt(model, false);
     }
+    if (!res.ok) res = await attempt(model, false);
+    if (res.ok) return res.data;
+    lastErr = { status: res.status, body: res.body };
+    console.error(`[agent_voss_coach] AI gateway fail model=${model} status=${res.status} body=${res.body}`);
   }
-  return res.data;
+  const err: any = new Error(`ai_gateway ${lastErr?.status ?? 0}: ${lastErr?.body ?? ''}`);
+  err.ai_gateway = true;
+  throw err;
 }
 
 function shortCall(c: any) {
