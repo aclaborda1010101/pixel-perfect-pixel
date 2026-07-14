@@ -49,6 +49,14 @@ Siempre empiezan por qué/cómo, nunca "por qué" causal.
 Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 {
   "modo": "brief",
+  "plan_llamada": [
+    {
+      "paso": "acción CONCRETA y específica de ESTA persona (verbo en imperativo, cita el hecho del histórico en el que te apoyas)",
+      "por_que": "en qué dato REAL del histórico/checklist te apoyas — cita literal breve + fecha si consta (ej. 'consta \"necesito vender rápido\" en la llamada del 12/06'). Si no hay contexto, di 'no tenemos contexto sobre X'.",
+      "kpi_objetivo": "label EXACTO del KPI que este paso busca sacar (uno de TARGET_KPIS) — o 'apertura'/'canal' si es apertura o cierre",
+      "como": "la pregunta o frase LITERAL para lograrlo (una pregunta cada vez, empieza por qué/cómo cuando aplique, respeta líneas rojas)"
+    }
+  ],
   "contexto_propietario": {
     "quien_es": "1-2 frases con nombre, tipología/buyer_persona, % cuota, subrole, edad/zona si consta",
     "situacion_edificio": "1-2 frases con dirección, banderas reales (proindiviso, ITE, conflicto, mala_gestion_score, protegido, cluster)",
@@ -83,7 +91,15 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
   "fragmentos_usados": [{"source": "libro_voss|correo_chris_voss", "chunk_id": "<uuid real>", "tecnica": "..."}]
 }
 
-Si un dato falta en el snapshot, decláralo en datos_faltantes y usa fórmula neutra ("la situación del edificio") en el guion. NO inventes nombres, cuotas, ni hechos.`;
+Si un dato falta en el snapshot, decláralo en datos_faltantes y usa fórmula neutra ("la situación del edificio") en el guion. NO inventes nombres, cuotas, ni hechos.
+
+REGLA PLAN_LLAMADA (crítica, es lo PRIMERO que lee el comercial):
+  - Devuelve entre 3 y 6 pasos ORDENADOS, específicos de ESTA persona y ESTA llamada. NADA GENÉRICO.
+  - Cada paso debe apoyarse en un HECHO REAL de KPI_CONTEXT (lo que YA sabemos, con su evidencia/cita) o del HISTÓRICO de llamadas/notas. Cita el hecho en "por_que" (ej. "en llamada del 12/06 dijo 'necesito liquidez'").
+  - Si un KPI de TARGET_KPIS no tiene NINGÚN dato de contexto en el histórico ni en KPI_CONTEXT, di explícitamente en "por_que": "no tenemos contexto sobre esto" y en "como" pon una pregunta calibrada directa.
+  - Estructura recomendada: (a) apertura personalizada al histórico o primer contacto, (b) 2-4 pasos para sacar los KPIs de TARGET_KPIS entrando por el ángulo emocional que YA conocemos (liquidez, herencia, conflicto, urgencia, okupa, oferta previa, etc.), (c) cierre/canal.
+  - Tono: JEFE DE VENTAS briefeando a un comercial sobre esta persona en concreto. No manual Voss teórico.
+  - Respeta reglas fijas: nunca precio por teléfono, una pregunta cada vez, líneas rojas del perfil (T1..T10), gratitud + Registro en apertura fría.`;
 
 const KPI_FOCUS_RULES = `REGLA DE ENFOQUE POR KPIs (prioritaria): recibirás TARGET_KPIS = lista de KPIs que HAY QUE CONSEGUIR EN ESTA LLAMADA (los que faltan o están a medias en la ficha del propietario).
   - Devuelve OBLIGATORIAMENTE el array "enfoque_llamada" con UNA entrada por cada KPI de TARGET_KPIS, en el mismo orden, con el label EXACTO en el campo "kpi".
@@ -176,8 +192,13 @@ function shortCall(c: any) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
-    const { mode = 'brief', owner_id, building_id, call_transcript, target_kpis } = await req.json();
+    const { mode = 'brief', owner_id, building_id, call_transcript, target_kpis, kpi_context } = await req.json();
     const targetKpis: string[] = Array.isArray(target_kpis) ? target_kpis.filter((s) => typeof s === 'string' && s.trim()) : [];
+    const kpiContext: Array<{ clave: string; label: string; estado: string; evidencia: string | null }> = Array.isArray(kpi_context)
+      ? kpi_context.filter((k: any) => k && typeof k === 'object' && k.label)
+      : [];
+    const kpiTenemos = kpiContext.filter((k) => k.estado === 'tenemos' || k.estado === 'a_medias');
+    const kpiFalta = kpiContext.filter((k) => k.estado === 'falta');
     const lk = Deno.env.get('LOVABLE_API_KEY');
     if (!lk) throw new Error('LOVABLE_API_KEY missing');
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -338,6 +359,12 @@ ${historico_tasks.length ? JSON.stringify(historico_tasks, null, 2) : '(sin tare
 ${mode === 'post' ? `TRANSCRIPCIÓN A EVALUAR:\n${call_transcript || '(sin transcripción provista)'}\n` : ''}
 ${mode === 'brief' ? `TARGET_KPIS (KPIs OBJETIVO de esta llamada — enfoca el plan en conseguir ESTOS datos concretos; usa el label EXACTO en "enfoque_llamada[].kpi"):
 ${targetKpis.length ? targetKpis.map((k, i) => `[${i + 1}] ${k}`).join('\n') : '(vacío — plan estándar)'}
+
+KPI_CONTEXT · LO QUE YA SABEMOS DE ESTA PERSONA (úsalo como base para el plan_llamada — cita la evidencia en "por_que"):
+${kpiTenemos.length ? kpiTenemos.map((k) => `- [${k.estado}] ${k.label}${k.evidencia ? ` — evidencia: "${k.evidencia}"` : ''}`).join('\n') : '(no consta info previa consolidada — trata como primer contacto informativo)'}
+
+KPI_CONTEXT · LO QUE NOS FALTA (a sacar en esta llamada):
+${kpiFalta.length ? kpiFalta.map((k) => `- ${k.label}`).join('\n') : '(sin huecos declarados)'}
 ` : ''}
 PLAYBOOK MEDIDO (tácticas con mejor tasa_exito para este perfil — PRIORÍZALAS y cítalas en por_que_funciona):
 ${playbook.length ? playbook.map((p: any, i: number) => `[${i+1}] tipo=${p.tactica_tipo} texto="${p.tactica_texto}" tasa=${p.tasa_exito} (n=${p.n_usos}/${p.n_exito})${p.ejemplo_literal ? ` ej: "${p.ejemplo_literal}"` : ''}`).join('\n') : '(playbook vacío — primera iteración, usa criterio Voss/Sandler)'}
