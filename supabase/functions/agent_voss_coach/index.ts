@@ -16,6 +16,47 @@ const MODEL = 'google/gemini-2.5-flash';
 const EMB_MODEL = 'google/gemini-embedding-001';
 const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss', 'tipologias_qa', 'metodo_cold_call'];
 
+// ══════════════════════════════════════════════════════════════════════════
+// PLAYBOOK AFFLUX · Método real de las llamadas (estilo Ferrero/Pozas 3)
+// PARTE FIJA + Tipologías T1..T10. Se inyecta al prompt del modelo.
+// ══════════════════════════════════════════════════════════════════════════
+const PARTE_FIJA = `PARTE FIJA · Método Afflux (no negociable, aplica SIEMPRE):
+- Reglas de oro:
+  · NUNCA precio ni aproximados por teléfono. Si el propietario pregunta precio = SEÑAL DE INTERÉS → derivar a reunión con el especialista de Afflux.
+  · No sueltes datos que ya tenemos (cuota, direcciones, herederos): se confirman preguntando, nunca afirmando.
+  · Una pregunta cada vez. Escuchar, repetir por su nombre lo que dice, y encadenar la siguiente.
+  · No etiquetar emociones ni dar cosas por hecho ("veo que está harto", "seguro que le pesa"). Deja que él lo diga.
+  · No nombrar herramientas ni fuentes salvo "nota simple del Registro de la Propiedad".
+  · Nada de presión. Ritmo pausado. Silencios permitidos.
+- Ritmo: frase de confianza breve + UNA pregunta → escuchar → confirmar por su nombre ("entonces, {nombre}, me dice que…") → siguiente frase + pregunta.
+- Apertura en 2 pasos: (1) confirmar identidad ("¿Hablo con {nombre}?"), (2) presentación + motivo desde la nota simple del Registro.
+- Preguntas incómodas en 3 niveles: primero tranquilizar ("nada raro, es habitual…"), si insiste dar la fuente UNA vez ("figura en la nota simple del Registro"), si sigue tenso → control+retirada ("no hay problema, lo dejamos y ya me dice usted").
+- Cierre siempre: opt-in WhatsApp para mandarle resumen + AVISAR que la siguiente llamada la hace el ESPECIALISTA de Afflux (no el mismo comercial).`;
+
+const TIPOLOGIAS: Record<string, { nombre: string; enfoque: string; frases: string[]; preguntas: string[]; rojas: string[]; palancas: string[] }> = {
+  T1: { nombre: 'T1 Cansado de la gestión', enfoque: 'Buen target, quemado de gestionar. Que HABLE de lo que le supone. Empatía con la carga.', frases: ['Imagino que un edificio con tantos propietarios da bastante trabajo.', 'No es fácil llevar todo eso adelante sin que le absorba tiempo.'], preguntas: ['¿Quién lleva el día a día del edificio?', '¿Le come mucho tiempo esto?', '¿Los demás propietarios colaboran o al final tira usted del carro?', '¿Se ha planteado alguna vez quitarse ese peso?'], rojas: ['Minimizar su esfuerzo.', 'Hablarle solo de tasación / precio.', 'Tono frío o transaccional.'], palancas: ['Liberar la carga de gestión.', 'Compensación económica justa.', 'No dejar el marrón a los hijos.', 'Fiscalidad favorable (99% Madrid).'] },
+  T2: { nombre: 'T2 Desplazado / con menor %', enfoque: 'Muy buen target. Poco poder, resentimiento latente, falta de info. Darle voz y sensación de control.', frases: ['Con una parte pequeña cuesta estar al tanto de todo.', 'A veces el que tiene menos % es el último en enterarse.'], preguntas: ['¿Está usted al tanto de la gestión?', '¿Le llega la información de lo que se decide?', '¿Le compensa lo que recibe por su parte?', '¿Se ha planteado darle salida a esa parte por su cuenta?'], rojas: ['Paternalismo.', 'Tratar su parte como irrelevante.', 'Presionar sin darle seguridad.'], palancas: ['Salir individualmente sin depender del resto.', 'Justicia y control.', 'Mejores condiciones por ser el primero en salir.', 'Desbloquear capital parado.'] },
+  T3: { nombre: 'T3 El que controla', enfoque: 'DELICADO. Teme perder privilegios. Reconocer su papel. JAMÁS confrontar ni moralizar.', frases: ['Se nota que conoce bien el edificio.', 'Está claro que aquí lleva usted el timón.'], preguntas: ['¿Es usted quien gestiona el edificio?', '¿Cómo se organiza con el resto de propietarios?', '¿Le dejan hacer o hay discusiones?'], rojas: ['Señalarlo como abusivo.', 'Moralismo.', 'Insinuar que saldría igual que los demás.'], palancas: ['Reconocimiento de su rol.', 'Salir con ventaja sin perder estatus.', 'Ganar más que el reparto teórico por su gestión.'] },
+  T4: { nombre: 'T4 Ego dominante / conflictivo', enfoque: 'Emocional. Quiere quedar por encima. Dejar que SE DESAHOGUE. Validar sin darle la razón.', frases: ['Se ve que tiene las cosas claras.', 'Está claro que no se deja marear fácil.'], preguntas: ['¿Cómo está la relación con el resto?', '¿Cómo lo vive usted?', '¿Qué es lo que más le molesta de la situación?'], rojas: ['Tratarlo como caso racional.', 'Lógica fría.', 'Decirle que todos quedan igual.'], palancas: ['Salida diferencial POR ENCIMA del resto.', 'Trato preferente.', 'Estatus reconocido.'] },
+  T5: { nombre: 'T5 No heredar problemas a los hijos', enfoque: 'Senior, parte modesta, no residente. Ángulo SUCESORIO con calma. Nada de prisa.', frases: ['Estas cosas con tantos herederos se complican, ¿no le parece?', 'Uno quiere dejarlo todo ordenado en vida.'], preguntas: ['¿Lo tiene pensado dejar a los hijos?', '¿Cómo lo ven ellos?', '¿Se ha planteado dejarlo ordenado en vida?'], rojas: ['Prisa o agresividad.', 'Tratarlo como mero vendedor.', 'Reducir la conversación a rentabilidad.'], palancas: ['Herencia en dinero, no en % de un edificio.', 'Paz mental.', 'Cierre confidencial y discreto.'] },
+  T6: { nombre: 'T6 Vive en el edificio', enfoque: 'PARA EL FINAL. Apego + desconfianza. NO vas a por la venta. Escuchar. Es fuente de info, no target directo.', frases: ['Su opinión, viviendo ahí, es la que más me interesa.', 'Sin ninguna prisa, cuando le venga bien.'], preguntas: ['¿Vive usted en el edificio?', '¿Viven más propietarios ahí?', '¿Quién lleva los papeles?', '¿Son familia entre ustedes?', '¿Os lleváis bien?', '¿Habéis hablado alguna vez de vender?'], rojas: ['Insinuar que tenga que irse de su casa.', 'Hablar de muerte / herencia directamente.', 'Preguntar por su dinero o su renta.', 'Pedirle que convenza a otros.'], palancas: ['Poder quedarse a vivir (alquiler indefinido).', 'Protección familiar.', 'Recibir un activo equivalente.'] },
+  T7: { nombre: 'T7 Quiere vender pero no ser el primero', enfoque: 'Sin apego, INSEGURO, miedo al conflicto. Darle SEGURIDAD y confidencialidad.', frases: ['No hay que decidir nada hoy.', 'Lo que hablemos queda entre nosotros.'], preguntas: ['¿Cómo ve usted la situación del edificio?', '¿Cree que los demás venderían si se plantease bien?', '¿A usted le encajaría si se diera?'], rojas: ['Presionar.', 'Forzar un sí/no.', 'Hacerle liderar la conversación con los demás.'], palancas: ['Compra CONJUNTA (no ser el detonante).', 'Discreción total.', 'Casos de éxito similares.', 'Ventaja económica del primero.'] },
+  T8: { nombre: 'T8 Influenciador (familiar no titular)', enfoque: 'VÍA DE ENTRADA al titular real (mayor / fallecido). Entender su rol antes de nada.', frases: ['Me consta que está al tanto de los temas de la familia.', 'Se nota que es la persona con la que se puede hablar de esto.'], preguntas: ['¿Lleva usted los asuntos de {titular}?', '¿Quién decide en la familia estos temas?', '¿Cómo lo veis a futuro?'], rojas: ['Tratarlo como dueño legal.', 'Dar por hecho su capacidad de decisión.'], palancas: ['Ser el interlocutor de confianza.', 'Facilitarle la coordinación familiar.', 'NOTA: si decide de facto, MARCAR para reclasificar tipología.'] },
+  T9: { nombre: 'T9 No identificado', enfoque: 'DOBLE OBJETIVO = CLASIFICARLO + detectar interés. Escuchar mucho para deducir si es T1/T2/T5… y anotarlo.', frases: ['Le explico rápido, solo por hacerme una idea.', 'Sin compromiso, solo para situarnos.'], preguntas: ['¿Qué trato tiene con el resto de propietarios?', '¿Desde cuándo tiene usted esta parte?', '¿Le compensa o la tiene un poco aparcada?', '¿Se ha planteado darle salida?', '¿Lo decide usted o lo consulta con alguien?'], rojas: ['Dar por hecho perfil o sentimiento.', 'Presionar antes de saber quién es.'], palancas: ['Adaptar en tiempo real al perfil que asome.', 'Registrar señales para reclasificar.'] },
+  T10: { nombre: 'T10 Fallecido', enfoque: 'NO se llama al fallecido. LOCALIZAR HEREDEROS (tratarlos como T8) y aplicar enfoque T5 con ellos.', frases: ['Estos temas con tantos herederos suelen ser delicados.'], preguntas: ['¿Con quién de la familia sería mejor tratar este tema?', '¿Quién lleva ahora los asuntos del edificio?'], rojas: ['Contactar de forma insensible.', 'Dar por hecho quién hereda.', 'Insistir sin sensibilidad al duelo.'], palancas: ['Orden sucesorio.', 'Paz familiar.', 'Solución conjunta a herederos.'] },
+};
+
+function tipologiaBlock(bp?: string | null): string {
+  const key = (bp || '').toUpperCase().match(/T\d+/)?.[0];
+  const t = key && TIPOLOGIAS[key];
+  if (!t) {
+    // Si no está clasificado, usar T9 (doble objetivo) como base.
+    const t9 = TIPOLOGIAS.T9;
+    return `TIPOLOGÍA APLICABLE: sin clasificar → tratar como ${t9.nombre}\nEnfoque: ${t9.enfoque}\nFrases_confianza: ${t9.frases.map((s) => `"${s}"`).join(' · ')}\nPreguntas_hilo (usa estas adaptadas al histórico): ${t9.preguntas.map((s) => `"${s}"`).join(' · ')}\nLíneas_rojas: ${t9.rojas.map((s) => `"${s}"`).join(' · ')}\nPalancas: ${t9.palancas.map((s) => `"${s}"`).join(' · ')}`;
+  }
+  return `TIPOLOGÍA APLICABLE: ${t.nombre}\nEnfoque: ${t.enfoque}\nFrases_confianza (usa una adaptada al histórico como frase de apertura del hilo): ${t.frases.map((s) => `"${s}"`).join(' · ')}\nPreguntas_hilo (adáptalas a lo que YA sabemos y a los KPIs que faltan; una cada vez): ${t.preguntas.map((s) => `"${s}"`).join(' · ')}\nLíneas_rojas (NO hagas esto): ${t.rojas.map((s) => `"${s}"`).join(' · ')}\nPalancas (motores a activar si toca): ${t.palancas.map((s) => `"${s}"`).join(' · ')}`;
+}
+
 const SYSTEM_BRIEF = `Eres un EXPERTO Chris Voss especializado en LLAMADA EN FRÍO a proindivisarios de edificios de Madrid (herencias, copropiedad fragmentada, conflictos, mala gestión). NO eres un coach genérico de manual: produces un PLAN DE LLAMADA literal, accionable y referido a los DATOS REALES del SNAPSHOT.
 
 OBJETIVOS de la llamada (en orden, no negociables):
@@ -49,6 +90,7 @@ Siempre empiezan por qué/cómo, nunca "por qué" causal.
 Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 {
   "modo": "brief",
+  "como_enfocar": "2-4 líneas: por qué esta llamada es prioritaria o no, cuál es el objetivo concreto HOY, y (si tipología=T9) el DOBLE objetivo de clasificar. Cita al menos UN hecho real del histórico o de KPI_CONTEXT de ESTA persona.",
   "plan_llamada": [
     {
       "paso": "acción CONCRETA y específica de ESTA persona (verbo en imperativo, cita el hecho del histórico en el que te apoyas)",
@@ -57,6 +99,11 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
       "como": "la pregunta o frase LITERAL para lograrlo (una pregunta cada vez, empieza por qué/cómo cuando aplique, respeta líneas rojas)"
     }
   ],
+  "hilo": [
+    {"frase_confianza": "frase LITERAL de la tipología aplicable adaptada a ESTA persona (usa su contexto real, no plantilla)", "pregunta": "UNA pregunta calibrada literal, tomada del bloque de preguntas de la tipología y adaptada", "kpi_objetivo": "KPI que busca sacar (label EXACTO si es de TARGET_KPIS, o 'exploratoria' si es de rapport)"}
+  ],
+  "lineas_rojas": ["líneas rojas LITERALES del bloque de la tipología aplicable + reglas de oro relevantes para ESTA persona (ej. 'no hablar de precio', 'no insinuar que se vaya de su casa'...)"],
+  "cierre": "Frase LITERAL de cierre. DEBE incluir opt-in WhatsApp + aviso de que la siguiente llamada la hace el ESPECIALISTA de Afflux. Máx 45 palabras.",
   "contexto_propietario": {
     "quien_es": "1-2 frases con nombre, tipología/buyer_persona, % cuota, subrole, edad/zona si consta",
     "situacion_edificio": "1-2 frases con dirección, banderas reales (proindiviso, ITE, conflicto, mala_gestion_score, protegido, cluster)",
@@ -92,6 +139,15 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 }
 
 Si un dato falta en el snapshot, decláralo en datos_faltantes y usa fórmula neutra ("la situación del edificio") en el guion. NO inventes nombres, cuotas, ni hechos.
+
+REGLAS ESTILO FERRERO/POZAS 3 (obligatorias — el brief debe LEERSE como un guion real de Afflux, no como un manual):
+  - Aplica la PARTE FIJA (reglas de oro, ritmo, apertura en 2 pasos, incómodas en 3 niveles, cierre siempre con especialista).
+  - Usa el bloque de TIPOLOGÍA APLICABLE que te paso: sus frases_confianza y preguntas_hilo son la BASE del "hilo", adaptadas al histórico real (no las copies literales si tienes contexto que las mejora).
+  - "como_enfocar" y "plan_llamada" deben citar hechos concretos de ESTA persona (fecha, cita textual, KPI ya conseguido con su evidencia). Si no hay contexto para un KPI que falta, dilo explícitamente ("sin datos, pregunta directa: …").
+  - "hilo" contiene 3-6 entradas ordenadas: primero la que rompe el hielo desde algo que ya sabemos, después las que sacan los KPIs de TARGET_KPIS (cuadro_rentas si aplica va PRIMERO), y una final orientada a palanca de venta.
+  - "lineas_rojas" siempre incluye las de la tipología aplicable + "no hablar de precio" + cualquier línea roja específica que se deduzca del histórico (ej. familia enferma, duelo, okupa).
+  - Cierre: WhatsApp + "la próxima llamada la hará mi compañero especialista de Afflux, {nombre_generico}, para poder darle números concretos".
+  - NUNCA plantilla genérica. Si la salida podría valer para otro propietario, NO ES VÁLIDA.
 
 REGLA PLAN_LLAMADA (crítica, es lo PRIMERO que lee el comercial):
   - Devuelve entre 3 y 6 pasos ORDENADOS, específicos de ESTA persona y ESTA llamada. NADA GENÉRICO.
@@ -171,8 +227,13 @@ async function callAI(messages: any[], key: string): Promise<any> {
     throw new Error(`ai ${r.status}: ${t.slice(0, 300)}`);
   }
   const j = await r.json();
-  const txt = j?.choices?.[0]?.message?.content ?? '{}';
-  try { return JSON.parse(txt); } catch { return { raw: txt }; }
+  let txt = j?.choices?.[0]?.message?.content ?? '{}';
+  // Strip markdown fences if the model wraps JSON.
+  txt = String(txt).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  // Slice from first '{' to last '}' as safety net.
+  const s = txt.indexOf('{'); const e = txt.lastIndexOf('}');
+  const candidate = s >= 0 && e > s ? txt.slice(s, e + 1) : txt;
+  try { return JSON.parse(candidate); } catch { return { raw: txt }; }
 }
 
 function shortCall(c: any) {
@@ -344,6 +405,11 @@ Deno.serve(async (req) => {
 CABECERA (úsala literal en historico.resumen / contexto): ${header}
 NÚMERO DE LLAMADAS CON CONVERSACIÓN PREVIAS: ${n_previas}
 
+${mode === 'brief' ? `${PARTE_FIJA}
+
+${tipologiaBlock(snapshot?.propietario?.buyer_persona)}
+
+` : ''}
 SNAPSHOT REAL (no inventes lo que no esté aquí):
 ${JSON.stringify(snapshot, null, 2)}
 

@@ -60,6 +60,10 @@ export function VossCoachCard({
   const playbook = Array.isArray(voss?.playbook_priorizado) ? voss.playbook_priorizado : [];
   const enfoque = Array.isArray(voss?.enfoque_llamada) ? voss.enfoque_llamada : [];
   const plan = Array.isArray(voss?.plan_llamada) ? voss.plan_llamada : [];
+  const comoEnfocar: string = typeof voss?.como_enfocar === "string" ? voss.como_enfocar : "";
+  const hilo = Array.isArray(voss?.hilo) ? voss.hilo : [];
+  const lineasRojas: string[] = Array.isArray(voss?.lineas_rojas) ? voss.lineas_rojas : [];
+  const cierreFerrero: string = typeof voss?.cierre === "string" ? voss.cierre : "";
   const checklistPost = voss?.checklist ?? null;
 
   return (
@@ -87,6 +91,12 @@ export function VossCoachCard({
 
         {voss && mode === "brief" && (
           <>
+            {comoEnfocar && (
+              <div className="rounded-[6px] border border-gold/60 bg-gold-soft/20 p-3">
+                <div className="mb-1 text-[10px] font-mono uppercase tracking-eyebrow text-gold">Cómo enfocar esta llamada</div>
+                <p className="text-foreground whitespace-pre-line">{comoEnfocar}</p>
+              </div>
+            )}
             {plan.length > 0 && (
               <div className="rounded-[6px] border-2 border-gold bg-gold-soft/30 p-3">
                 <div className="mb-2 text-[10px] font-mono uppercase tracking-eyebrow text-gold">
@@ -198,6 +208,34 @@ export function VossCoachCard({
               <div>
                 <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Cierre · micro-compromiso</div>
                 <blockquote className="border-l-2 border-emerald-500 pl-3 italic text-foreground">"{guion.cierre_micro_compromiso}"</blockquote>
+              </div>
+            )}
+            {hilo.length > 0 && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">El hilo · frase + una pregunta</div>
+                <ol className="space-y-2 list-decimal pl-4">
+                  {hilo.map((h: any, i: number) => (
+                    <li key={i} className="rounded border border-border-faint p-2">
+                      {h.frase_confianza && <div className="italic text-muted-foreground">"{h.frase_confianza}"</div>}
+                      {h.pregunta && <div className="mt-1 text-foreground">→ {h.pregunta}</div>}
+                      {h.kpi_objetivo && <Badge variant="outline" className="mt-1 text-[10px]">KPI: {h.kpi_objetivo}</Badge>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {lineasRojas.length > 0 && (
+              <div className="rounded border border-destructive/40 bg-destructive/5 p-2">
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-destructive mb-1">Líneas rojas · NO hagas esto</div>
+                <ul className="space-y-0.5 text-foreground">
+                  {lineasRojas.map((r: string, i: number) => <li key={i}>• {r}</li>)}
+                </ul>
+              </div>
+            )}
+            {cierreFerrero && (
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Cierre · WhatsApp + especialista Afflux</div>
+                <blockquote className="border-l-2 border-emerald-500 pl-3 italic text-foreground">"{cierreFerrero}"</blockquote>
               </div>
             )}
             {info && (
