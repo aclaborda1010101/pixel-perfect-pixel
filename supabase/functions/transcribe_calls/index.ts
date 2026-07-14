@@ -306,7 +306,7 @@ Deno.serve(async (req) => {
       metadatos: { processed, ok, fail, pending, last_chunk_ms: elapsed, errors_sample: errors, concurrency: CONCURRENCY, model: PRIMARY_MODEL },
     }, { onConflict: "entity" });
 
-    if (chain && processed >= limit && pending > 0) {
+    if (chain && !buildingId && processed >= limit && pending > 0) {
       const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/transcribe_calls`;
       await fetch(url, {
         method: "POST",
