@@ -12,7 +12,7 @@ const corsHeaders = {
 
 const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const EMB_URL = 'https://ai.gateway.lovable.dev/v1/embeddings';
-const MODEL = 'google/gemini-2.5-flash';
+const MODEL = 'google/gemini-3-flash-preview';
 const EMB_MODEL = 'google/gemini-embedding-001';
 const VOSS_SOURCES = ['correo_chris_voss', 'libro_voss', 'tipologias_qa', 'metodo_cold_call'];
 
@@ -217,23 +217,51 @@ async function embed(text: string, key: string): Promise<number[] | null> {
 }
 
 async function callAI(messages: any[], key: string): Promise<any> {
-  const r = await fetch(AI_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, messages, response_format: { type: 'json_object' } }),
-  });
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error(`ai ${r.status}: ${t.slice(0, 300)}`);
+  const attempt = async (useJsonFormat: boolean): Promise<{ ok: true; data: any } | { ok: false; status: number; body: string; err?: string }> => {
+    try {
+      const body: any = { model: MODEL, messages };
+      if (useJsonFormat) body.response_format = { type: 'json_object' };
+      const r = await fetch(AI_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        return { ok: false, status: r.status, body: t.slice(0, 500) };
+      }
+      const j = await r.json();
+      let txt = j?.choices?.[0]?.message?.content ?? '{}';
+      txt = String(txt).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      const s = txt.indexOf('{'); const e = txt.lastIndexOf('}');
+      const candidate = s >= 0 && e > s ? txt.slice(s, e + 1) : txt;
+      try { return { ok: true, data: JSON.parse(candidate) }; }
+      catch { return { ok: true, data: { raw: txt } }; }
+    } catch (err: any) {
+      return { ok: false, status: 0, body: String(err?.message || err), err: 'fetch_failed' };
+    }
+  };
+
+  // 1) Intento con response_format json_object
+  let res = await attempt(true);
+  if (!res.ok) {
+    console.error(`[agent_voss_coach] AI gateway fail #1 status=${res.status} body=${res.body}`);
+    // Si el modelo no soporta response_format, reintenta sin él
+    const unsupported = /response_format|json_object|unsupported|invalid.*format/i.test(res.body);
+    res = await attempt(!unsupported ? true : false);
+    if (!res.ok) {
+      console.error(`[agent_voss_coach] AI gateway fail #2 status=${res.status} body=${res.body}`);
+      // Último intento sin json_object
+      res = await attempt(false);
+      if (!res.ok) {
+        console.error(`[agent_voss_coach] AI gateway fail final status=${res.status} body=${res.body}`);
+        const err: any = new Error(`ai_gateway ${res.status}: ${res.body}`);
+        err.ai_gateway = true;
+        throw err;
+      }
+    }
   }
-  const j = await r.json();
-  let txt = j?.choices?.[0]?.message?.content ?? '{}';
-  // Strip markdown fences if the model wraps JSON.
-  txt = String(txt).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-  // Slice from first '{' to last '}' as safety net.
-  const s = txt.indexOf('{'); const e = txt.lastIndexOf('}');
-  const candidate = s >= 0 && e > s ? txt.slice(s, e + 1) : txt;
-  try { return JSON.parse(candidate); } catch { return { raw: txt }; }
+  return res.data;
 }
 
 function shortCall(c: any) {
@@ -441,10 +469,38 @@ ${fragments.map((f, i) => `[${i+1}] (${f.source}) chunk_id=${f.chunk_id}\n${f.sn
 Devuelve el JSON estricto con la forma EXACTA del system.`;
 
     const sys = mode === 'post' ? SYSTEM_POST : (SYSTEM_BRIEF + '\n\n' + KPI_FOCUS_RULES);
-    const ai = await callAI([
-      { role: 'system', content: sys },
-      { role: 'user', content: userMsg },
-    ], lk);
+    let ai: any;
+    try {
+      ai = await callAI([
+        { role: 'system', content: sys },
+        { role: 'user', content: userMsg },
+      ], lk);
+    } catch (aiErr: any) {
+      if (aiErr?.ai_gateway) {
+        console.error('[agent_voss_coach] returning minimal fallback brief:', aiErr?.message);
+        const fallbackVoss: any = {
+          como_enfocar: 'No se pudo generar el plan automático (error temporal del modelo). Usa el histórico y los KPIs a abordar.',
+          plan_llamada: [],
+          enfoque_llamada: [],
+          lineas_rojas: [],
+          hilo: [],
+          header,
+        };
+        if (mode === 'brief') {
+          fallbackVoss.playbook_priorizado = playbook.slice(0, 3).map((p: any) => ({
+            tipo: p.tactica_tipo, tactica: p.tactica_texto, tasa_exito: p.tasa_exito, n_usos: p.n_usos,
+          }));
+          fallbackVoss.n_llamadas_previas = n_previas;
+        }
+        return new Response(JSON.stringify({
+          ok: false,
+          mode,
+          voss: fallbackVoss,
+          error: 'ai_gateway',
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      throw aiErr;
+    }
 
     if (!Array.isArray(ai.fragmentos_usados) || ai.fragmentos_usados.length === 0) {
       ai.fragmentos_usados = fragments.slice(0, 2).map((f) => ({ source: f.source, chunk_id: f.chunk_id, tecnica: 'corpus_voss' }));

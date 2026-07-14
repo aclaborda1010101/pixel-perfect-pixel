@@ -20,7 +20,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 const BATCH = 8;
 const MAX_MS = 110_000;
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "google/gemini-3-flash-preview";
 
 function durationBucket(sec: number | null | undefined): string {
   const s = Number(sec ?? 0);
