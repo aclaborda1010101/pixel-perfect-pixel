@@ -12,3 +12,6 @@ verify_jwt = false
 
 [functions.transcribe_calls]
 verify_jwt = false
+
+[functions.hubspot_backfill_call_summaries]
+verify_jwt = false
