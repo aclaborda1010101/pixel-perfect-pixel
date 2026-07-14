@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { CheckCircle2, CircleDashed, XCircle, Target, Star } from "lucide-react";
+import { CheckCircle2, CircleDashed, Circle, Target, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Estado = "tenemos" | "a_medias" | "falta";
