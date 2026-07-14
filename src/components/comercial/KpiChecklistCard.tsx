@@ -87,7 +87,7 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
             />
             <Group
               title="A medias"
-              icon={<CircleDashed className="h-4 w-4 text-warn" />}
+              icon={<CircleDashed className="h-4 w-4 text-warning" />}
               tone="warn"
               items={aMedias}
             />
