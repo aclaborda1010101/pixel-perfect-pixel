@@ -15,6 +15,7 @@ export function VossCoachCard({
   autoload,
   initialVoss,
   onLoaded,
+  targetKpis,
 }: {
   ownerId?: string;
   buildingId?: string;
@@ -23,6 +24,7 @@ export function VossCoachCard({
   autoload?: boolean;
   initialVoss?: any;
   onLoaded?: (voss: any) => void;
+  targetKpis?: string[];
 }) {
   const [voss, setVoss] = useState<any>(initialVoss ?? null);
   const [busy, setBusy] = useState(false);
@@ -37,7 +39,7 @@ export function VossCoachCard({
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke("agent_voss_coach", {
-        body: { mode, owner_id: ownerId, building_id: buildingId, call_transcript: transcript },
+        body: { mode, owner_id: ownerId, building_id: buildingId, call_transcript: transcript, target_kpis: targetKpis },
       });
       if (error) throw error;
       if ((data as any)?.error) throw new Error((data as any).error);
@@ -54,6 +56,7 @@ export function VossCoachCard({
   const hist = voss?.historico ?? null;
   const info = voss?.info_minima_a_extraer ?? null;
   const playbook = Array.isArray(voss?.playbook_priorizado) ? voss.playbook_priorizado : [];
+  const enfoque = Array.isArray(voss?.enfoque_llamada) ? voss.enfoque_llamada : [];
   const checklistPost = voss?.checklist ?? null;
 
   return (
@@ -81,6 +84,26 @@ export function VossCoachCard({
 
         {voss && mode === "brief" && (
           <>
+            {enfoque.length > 0 && (
+              <div className="rounded-[6px] border border-gold/50 bg-gold-soft/25 p-3">
+                <div className="mb-2 text-[10px] font-mono uppercase tracking-eyebrow text-gold">
+                  🎯 Enfoque de esta llamada · KPIs a conseguir
+                </div>
+                <ul className="space-y-2">
+                  {enfoque.map((e: any, i: number) => (
+                    <li key={i} className="rounded border border-gold/30 bg-background/40 p-2">
+                      <div className="font-medium text-foreground">{e.kpi}</div>
+                      {e.pregunta_o_tactica && (
+                        <div className="mt-1 italic text-muted-foreground">→ "{e.pregunta_o_tactica}"</div>
+                      )}
+                      {e.tecnica && (
+                        <div className="mt-1 text-[10px] font-mono uppercase tracking-eyebrow text-gold">{e.tecnica}</div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {ctx && (
               <div>
                 <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Quién es</div>
