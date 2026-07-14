@@ -70,20 +70,54 @@ async function transcribeWithOpenRouter(bytes: Uint8Array, contentType: string, 
   const OK = Deno.env.get("OPENROUTER_API_KEY");
   if (!OK) return { ok: false, error: "OPENROUTER_API_KEY missing" };
   const ext = extForContentType(contentType);
-  const fd = new FormData();
-  fd.append("file", new Blob([bytes], { type: contentType || "audio/mpeg" }), `recording.${ext}`);
-  fd.append("model", model);
-  fd.append("language", "es");
-  fd.append("response_format", "json");
-  const r = await fetch(OR_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OK}`,
-      "HTTP-Referer": "https://affluxosv2.world",
-      "X-Title": "Afflux OS · Transcribe Calls",
-    },
-    body: fd,
-  });
+  // Umbral OpenRouter multipart: 25 MB. Con margen usamos 24 MB para el path multipart;
+  // si el audio es mayor, va como JSON base64 en el mismo endpoint (input_audio).
+  const MULTIPART_MAX = 24 * 1024 * 1024;
+  const commonHeaders = {
+    Authorization: `Bearer ${OK}`,
+    "HTTP-Referer": "https://affluxosv2.world",
+    "X-Title": "Afflux OS · Transcribe Calls",
+  };
+
+  async function trySend(useJson: boolean) {
+    if (useJson) {
+      // base64 del buffer
+      let bin = "";
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      const b64 = btoa(bin);
+      const r = await fetch(OR_URL, {
+        method: "POST",
+        headers: { ...commonHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          language: "es",
+          response_format: "json",
+          input_audio: { data: b64, format: ext },
+        }),
+      });
+      return r;
+    }
+    const fd = new FormData();
+    fd.append("file", new Blob([bytes], { type: contentType || "audio/mpeg" }), `recording.${ext}`);
+    fd.append("model", model);
+    fd.append("language", "es");
+    fd.append("response_format", "json");
+    return await fetch(OR_URL, { method: "POST", headers: commonHeaders, body: fd });
+  }
+
+  const preferJson = bytes.byteLength > MULTIPART_MAX;
+  let r = await trySend(preferJson);
+  // Si multipart rechaza por tamaño, reintenta como JSON base64.
+  if (!r.ok && !preferJson) {
+    const peek = await r.clone().text().catch(() => "");
+    if (/25 ?MB|multipart upload limit|input_audio/i.test(peek)) {
+      r = await trySend(true);
+    } else {
+      // consumir el body original
+      await r.text().catch(() => "");
+      return { ok: false, error: `openrouter ${r.status}: ${peek.slice(0, 300)}`, status: r.status };
+    }
+  }
   if (!r.ok) {
     const txt = await r.text().catch(() => "");
     return { ok: false, error: `openrouter ${r.status}: ${txt.slice(0, 300)}`, status: r.status };
