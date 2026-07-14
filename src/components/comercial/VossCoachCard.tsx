@@ -87,6 +87,36 @@ export function VossCoachCard({
 
         {voss && mode === "brief" && (
           <>
+            {plan.length > 0 && (
+              <div className="rounded-[6px] border-2 border-gold bg-gold-soft/30 p-3">
+                <div className="mb-2 text-[10px] font-mono uppercase tracking-eyebrow text-gold">
+                  📞 Plan para esta llamada
+                </div>
+                <ol className="space-y-2">
+                  {plan.map((p: any, i: number) => (
+                    <li key={i} className="rounded border border-gold/40 bg-background/60 p-2">
+                      <div className="flex items-start gap-2">
+                        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gold text-[11px] font-semibold text-background">{i + 1}</span>
+                        <div className="flex-1 space-y-1">
+                          <div className="font-medium text-foreground">{p.paso}</div>
+                          {p.como && (
+                            <div className="italic text-muted-foreground">→ "{p.como}"</div>
+                          )}
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {p.kpi_objetivo && (
+                              <Badge variant="gold" className="text-[10px]">KPI: {p.kpi_objetivo}</Badge>
+                            )}
+                            {p.por_que && (
+                              <Badge variant="outline" className="text-[10px]">porque: {p.por_que}</Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
             {enfoque.length > 0 && (
               <div className="rounded-[6px] border border-gold/50 bg-gold-soft/25 p-3">
                 <div className="mb-2 text-[10px] font-mono uppercase tracking-eyebrow text-gold">
