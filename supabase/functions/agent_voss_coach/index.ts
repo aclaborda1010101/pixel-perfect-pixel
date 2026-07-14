@@ -90,6 +90,7 @@ Siempre empiezan por qué/cómo, nunca "por qué" causal.
 Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 {
   "modo": "brief",
+  "como_enfocar": "2-4 líneas: por qué esta llamada es prioritaria o no, cuál es el objetivo concreto HOY, y (si tipología=T9) el DOBLE objetivo de clasificar. Cita al menos UN hecho real del histórico o de KPI_CONTEXT de ESTA persona.",
   "plan_llamada": [
     {
       "paso": "acción CONCRETA y específica de ESTA persona (verbo en imperativo, cita el hecho del histórico en el que te apoyas)",
@@ -98,6 +99,11 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
       "como": "la pregunta o frase LITERAL para lograrlo (una pregunta cada vez, empieza por qué/cómo cuando aplique, respeta líneas rojas)"
     }
   ],
+  "hilo": [
+    {"frase_confianza": "frase LITERAL de la tipología aplicable adaptada a ESTA persona (usa su contexto real, no plantilla)", "pregunta": "UNA pregunta calibrada literal, tomada del bloque de preguntas de la tipología y adaptada", "kpi_objetivo": "KPI que busca sacar (label EXACTO si es de TARGET_KPIS, o 'exploratoria' si es de rapport)"}
+  ],
+  "lineas_rojas": ["líneas rojas LITERALES del bloque de la tipología aplicable + reglas de oro relevantes para ESTA persona (ej. 'no hablar de precio', 'no insinuar que se vaya de su casa'...)"],
+  "cierre": "Frase LITERAL de cierre. DEBE incluir opt-in WhatsApp + aviso de que la siguiente llamada la hace el ESPECIALISTA de Afflux. Máx 45 palabras.",
   "contexto_propietario": {
     "quien_es": "1-2 frases con nombre, tipología/buyer_persona, % cuota, subrole, edad/zona si consta",
     "situacion_edificio": "1-2 frases con dirección, banderas reales (proindiviso, ITE, conflicto, mala_gestion_score, protegido, cluster)",
@@ -133,6 +139,15 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 }
 
 Si un dato falta en el snapshot, decláralo en datos_faltantes y usa fórmula neutra ("la situación del edificio") en el guion. NO inventes nombres, cuotas, ni hechos.
+
+REGLAS ESTILO FERRERO/POZAS 3 (obligatorias — el brief debe LEERSE como un guion real de Afflux, no como un manual):
+  - Aplica la PARTE FIJA (reglas de oro, ritmo, apertura en 2 pasos, incómodas en 3 niveles, cierre siempre con especialista).
+  - Usa el bloque de TIPOLOGÍA APLICABLE que te paso: sus frases_confianza y preguntas_hilo son la BASE del "hilo", adaptadas al histórico real (no las copies literales si tienes contexto que las mejora).
+  - "como_enfocar" y "plan_llamada" deben citar hechos concretos de ESTA persona (fecha, cita textual, KPI ya conseguido con su evidencia). Si no hay contexto para un KPI que falta, dilo explícitamente ("sin datos, pregunta directa: …").
+  - "hilo" contiene 3-6 entradas ordenadas: primero la que rompe el hielo desde algo que ya sabemos, después las que sacan los KPIs de TARGET_KPIS (cuadro_rentas si aplica va PRIMERO), y una final orientada a palanca de venta.
+  - "lineas_rojas" siempre incluye las de la tipología aplicable + "no hablar de precio" + cualquier línea roja específica que se deduzca del histórico (ej. familia enferma, duelo, okupa).
+  - Cierre: WhatsApp + "la próxima llamada la hará mi compañero especialista de Afflux, {nombre_generico}, para poder darle números concretos".
+  - NUNCA plantilla genérica. Si la salida podría valer para otro propietario, NO ES VÁLIDA.`;
 
 REGLA PLAN_LLAMADA (crítica, es lo PRIMERO que lee el comercial):
   - Devuelve entre 3 y 6 pasos ORDENADOS, específicos de ESTA persona y ESTA llamada. NADA GENÉRICO.
