@@ -5,7 +5,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const MODEL = "google/gemini-3-flash-preview";
+// Modelos con fallback. "GPT-5.6 Luna" NO está en la allowlist del gateway
+// (verificado); cambiar PRIMARY_MODEL a 'openai/gpt-5.6' cuando esté disponible.
+const PRIMARY_MODEL = "google/gemini-3-flash-preview";
+const FALLBACK_MODEL = "google/gemini-3-flash-preview";
 
 const KPIS: Array<{ clave: string; label: string; prioridad?: boolean }> = [
   { clave: "cuadro_rentas", label: "Cuadro de rentas y vencimientos", prioridad: true },
