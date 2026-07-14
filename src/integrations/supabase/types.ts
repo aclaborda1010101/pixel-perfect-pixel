@@ -1066,6 +1066,45 @@ export type Database = {
           },
         ]
       }
+      building_overrides: {
+        Row: {
+          building_id: string
+          created_at: string | null
+          dimension: string
+          fuente: string | null
+          id: string
+          nota: string | null
+          updated_at: string | null
+          valor_bool: boolean | null
+          valor_num: number | null
+          valor_text: string | null
+        }
+        Insert: {
+          building_id: string
+          created_at?: string | null
+          dimension: string
+          fuente?: string | null
+          id?: string
+          nota?: string | null
+          updated_at?: string | null
+          valor_bool?: boolean | null
+          valor_num?: number | null
+          valor_text?: string | null
+        }
+        Update: {
+          building_id?: string
+          created_at?: string | null
+          dimension?: string
+          fuente?: string | null
+          id?: string
+          nota?: string | null
+          updated_at?: string | null
+          valor_bool?: boolean | null
+          valor_num?: number | null
+          valor_text?: string | null
+        }
+        Relationships: []
+      }
       building_owners: {
         Row: {
           building_id: string
