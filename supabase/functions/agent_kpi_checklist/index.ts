@@ -87,9 +87,11 @@ Deno.serve(async (req) => {
 
     let hsNotes: any[] = [];
     let hsWa: any[] = [];
+    let hsCalls: any[] = [];
     if (hsIds.length || hsDealIds.length) {
       const seenN = new Set<string>();
       const seenW = new Set<string>();
+      const seenC = new Set<string>();
       const runs: Promise<any>[] = [];
       // Notas por contacto
       if (hsIds.length) runs.push(admin.from("hubspot_notes").select("hs_id, hs_timestamp, hs_note_body").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
@@ -99,19 +101,39 @@ Deno.serve(async (req) => {
       if (hsIds.length) runs.push(admin.from("hubspot_whatsapp").select("hs_id, hs_timestamp, hs_communication_body").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
       // WhatsApp por deal
       if (hsDealIds.length) runs.push(admin.from("hubspot_whatsapp").select("hs_id, hs_timestamp, hs_communication_body").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
+      // Llamadas HubSpot (transcripción + body) por contacto
+      if (hsIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_transcription").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
+      // Llamadas HubSpot por deal
+      if (hsDealIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_transcription").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
       try {
         const results = await Promise.all(runs);
-        // orden de runs: notes/contact, notes/deal, wa/contact, wa/deal (según se hayan añadido)
+        // orden de runs: notes/contact, notes/deal, wa/contact, wa/deal, calls/contact, calls/deal (según se hayan añadido)
         let idx = 0;
         if (hsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenN.has(id)) { seenN.add(id); hsNotes.push(r); } } idx++; }
         if (hsDealIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenN.has(id)) { seenN.add(id); hsNotes.push(r); } } idx++; }
         if (hsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenW.has(id)) { seenW.add(id); hsWa.push(r); } } idx++; }
         if (hsDealIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenW.has(id)) { seenW.add(id); hsWa.push(r); } } idx++; }
+        if (hsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenC.has(id)) { seenC.add(id); hsCalls.push(r); } } idx++; }
+        if (hsDealIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenC.has(id)) { seenC.add(id); hsCalls.push(r); } } idx++; }
       } catch {}
     }
 
     // 4) Construir el corpus de texto para la IA
     const notasCorpus: string[] = [];
+    // PRIORIDAD 1: transcripciones reales de llamadas HubSpot (contenido completo del propietario).
+    for (const c of hsCalls) {
+      const when = (c as any).hs_timestamp ? new Date((c as any).hs_timestamp).toLocaleDateString("es-ES") : "";
+      const dir = (c as any).hs_call_direction ?? "";
+      const disp = (c as any).hs_call_disposition ?? "";
+      const tr = String((c as any).hs_call_transcription ?? "").trim();
+      if (tr) {
+        notasCorpus.push(`[TRANSCRIPCIÓN LLAMADA ${when} · ${dir} · ${disp}] ${tr.slice(0, 6000)}`);
+        continue;
+      }
+      // Respaldo: body de la llamada si no hay transcripción
+      const body = stripHtml((c as any).hs_call_body ?? "").slice(0, 1200);
+      if (body) notasCorpus.push(`[LLAMADA HS ${when} · ${dir} · ${disp}] ${body}`);
+    }
     for (const c of (callsView ?? [])) {
       const nota = String((c as any).nota ?? "").trim();
       if (!nota) continue;
