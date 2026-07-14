@@ -14,7 +14,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Skeleton } from "@/components/ui/skeleton";
 import { VossCoachCard } from "@/components/comercial/VossCoachCard";
 import { CallWizardStepper } from "@/components/comercial/CallWizardStepper";
-import { Checkbox } from "@/components/ui/checkbox";
 import { KpiChecklistCard } from "@/components/comercial/KpiChecklistCard";
 import { ContactHistoryCard } from "@/components/owners/ContactHistoryCard";
 
