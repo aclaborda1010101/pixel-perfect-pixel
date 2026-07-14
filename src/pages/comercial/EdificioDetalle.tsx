@@ -377,63 +377,85 @@ export default function ComercialEdificioDetalle() {
   );
 }
 
-function DistribucionInmueble({ s }: { s: any }) {
-  const items: { key: string; icon: any; label: string; units: number | null; m2: number | null }[] = [
-    { key: "viviendas", icon: Home, label: "Viviendas", units: s?.num_viviendas ?? null, m2: s?.m2_viviendas ?? null },
-    { key: "comercio", icon: Store, label: "Comercio", units: s?.comercio_unidades ?? null, m2: s?.m2_comercio ?? null },
-    { key: "oficina", icon: Briefcase, label: "Oficina", units: s?.oficina_unidades ?? null, m2: s?.m2_oficina ?? null },
-    { key: "almacen", icon: Package, label: "Almacén", units: s?.almacen_unidades ?? null, m2: s?.m2_almacen ?? null },
-    { key: "aparcamiento", icon: Car, label: "Aparcamiento", units: s?.aparcamiento_unidades ?? null, m2: null },
-    { key: "elementos_comunes", icon: Building, label: "Elementos comunes", units: s?.elementos_comunes_unidades ?? null, m2: s?.m2_elementos_comunes ?? null },
-    { key: "ocio_hostel", icon: Hotel, label: "Ocio / Hostel", units: s?.ocio_hostel_unidades ?? null, m2: s?.m2_ocio_hostel ?? null },
-    { key: "industrial", icon: Factory, label: "Industrial", units: s?.industrial_unidades ?? null, m2: s?.m2_industrial ?? null },
-  ];
-  const visible = items.filter((i) => (i.units ?? 0) > 0 || (i.m2 ?? 0) > 0);
+function EdificioResumenCard({
+  b, s, analysis, anioConstr, ownersCount,
+}: { b: any; s: any; analysis: any; anioConstr: any; ownersCount: number }) {
+  const m2Total = Number(s?.m2_total ?? 0);
+  const m2Viv = Number(s?.m2_viviendas ?? 0);
+  const m2Com = Number(s?.m2_comercio ?? 0);
+  const m2Ofi = Number(s?.m2_oficina ?? 0);
+  const numViv = Number(s?.num_viviendas ?? 0);
+  const pctTerciario = m2Total > 0 ? Math.round(((m2Com + m2Ofi) / m2Total) * 100) : null;
+  const protegido = !!(analysis?.protegido_historicamente);
+  const clusterMain = b?.cluster_asignado ?? null;
+  const clusterSec = b?.cluster_secundario ?? null;
+
+  // Resumen en 2-4 líneas (dinámico según datos)
+  const partes: string[] = [];
+  if (m2Total > 0) {
+    const bits: string[] = [`${m2Total.toLocaleString()} m² construidos`];
+    if (numViv > 0) bits.push(`${numViv} viviendas`);
+    if (anioConstr) bits.push(`de ${anioConstr}`);
+    partes.push(`Edificio de ${bits.join(", ")}.`);
+  }
+  if (m2Com > 0 || m2Ofi > 0) {
+    const usos: string[] = [];
+    if (m2Viv > 0) usos.push(`${m2Viv.toLocaleString()} m² residenciales`);
+    if (m2Com > 0) usos.push(`${m2Com.toLocaleString()} m² comercio`);
+    if (m2Ofi > 0) usos.push(`${m2Ofi.toLocaleString()} m² oficina`);
+    partes.push(`Mix de usos: ${usos.join(" · ")}${pctTerciario != null ? ` (${pctTerciario}% terciario)` : ""}.`);
+  }
+  if (protegido) partes.push("Protección histórica: implica limitaciones de reforma y elevación.");
+  if (ownersCount >= 3) {
+    partes.push(`${ownersCount} copropietarios · buena palanca de proindiviso para consolidar bloque.`);
+  } else if (ownersCount > 0) {
+    partes.push(`${ownersCount} ${ownersCount === 1 ? "propietario" : "propietarios"} · negociación acotada.`);
+  }
+
+  const Kpi = ({ icon: Icon, label, value, tint }: { icon: any; label: string; value: React.ReactNode; tint?: string }) => (
+    <div className="flex items-start gap-2 rounded-md border border-border-faint bg-surface-1/40 p-2.5">
+      <Icon className={cn("mt-0.5 h-3.5 w-3.5 flex-shrink-0", tint ?? "text-gold")} />
+      <div className="min-w-0">
+        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">{label}</div>
+        <div className="font-mono text-sm tabular-nums text-foreground">{value}</div>
+      </div>
+    </div>
+  );
 
   return (
     <Card>
-      <CardHeader>
-        <Eyebrow>Distribución del inmueble</Eyebrow>
-        <CardTitle>Usos por categoría</CardTitle>
+      <CardHeader className="pb-3">
+        <Eyebrow><Building2 className="mr-1 inline h-3 w-3" /> Resumen del edificio</Eyebrow>
+        <CardTitle className="flex items-center gap-2 text-base">
+          Qué es y qué potencial tiene
+          {clusterMain && (
+            <Badge variant="gold" className="text-[10px]">{clusterMain}</Badge>
+          )}
+          {clusterSec && (
+            <Badge variant="outline" className="text-[10px]">/ {clusterSec}</Badge>
+          )}
+        </CardTitle>
       </CardHeader>
-      <CardContent>
-        {visible.length === 0 ? (
-          <div className="text-sm text-muted-foreground">
-            No hay datos de distribución sincronizados desde HubSpot para este edificio.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {visible.map(({ key, icon: Icon, label, units, m2 }) => (
-              <div
-                key={key}
-                className="rounded-md border border-border-faint bg-surface-1/40 p-3"
-              >
-                <div className="flex items-center gap-2">
-                  <Icon className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-foreground">{label}</span>
-                </div>
-                <div className="mt-2 flex items-baseline justify-between">
-                  <div>
-                    <div className="font-mono text-lg tabular-nums text-foreground">
-                      {units ?? "—"}
-                    </div>
-                    <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                      unidades
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-mono text-sm tabular-nums text-foreground">
-                      {m2 != null ? Number(m2).toLocaleString() : "—"}
-                    </div>
-                    <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
-                      m²
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+      <CardContent className="space-y-4">
+        {partes.length > 0 && (
+          <p className="text-sm leading-relaxed text-muted-foreground">{partes.join(" ")}</p>
         )}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <Kpi icon={Home} label="m² viviendas" value={m2Viv > 0 ? m2Viv.toLocaleString() : "—"} />
+          <Kpi icon={Store} label="m² comercio" value={m2Com > 0 ? m2Com.toLocaleString() : "—"} />
+          <Kpi icon={Briefcase} label="m² oficina" value={m2Ofi > 0 ? m2Ofi.toLocaleString() : "—"} />
+          <Kpi icon={Ruler} label="Nº viviendas" value={numViv > 0 ? numViv : "—"} />
+          <Kpi icon={Calendar} label="Año" value={anioConstr ?? "—"} />
+          <Kpi
+            icon={protegido ? ShieldAlert : ShieldCheck}
+            tint={protegido ? "text-amber-400" : "text-emerald-400"}
+            label="Protección"
+            value={protegido ? "Sí" : "No"}
+          />
+          {pctTerciario != null && (
+            <Kpi icon={Percent} label="% terciario" value={`${pctTerciario}%`} />
+          )}
+        </div>
       </CardContent>
     </Card>
   );
