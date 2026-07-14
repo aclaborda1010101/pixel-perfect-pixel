@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Quote, Sparkles, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { perfilAsignado, normalizeTipologiaString } from "@/lib/tipologias";
 
 export function VossCoachCard({
   ownerId,
@@ -17,6 +18,7 @@ export function VossCoachCard({
   onLoaded,
   targetKpis,
   kpiContext,
+  buyerPersona,
 }: {
   ownerId?: string;
   buildingId?: string;
@@ -27,6 +29,7 @@ export function VossCoachCard({
   onLoaded?: (voss: any) => void;
   targetKpis?: string[];
   kpiContext?: Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }>;
+  buyerPersona?: string | null;
 }) {
   const [voss, setVoss] = useState<any>(initialVoss ?? null);
   const [busy, setBusy] = useState(false);
@@ -126,6 +129,18 @@ export function VossCoachCard({
                 {voss.header}
               </Badge>
             )}
+            {mode === "brief" && buyerPersona !== undefined && (() => {
+              const p = perfilAsignado(buyerPersona);
+              return (
+                <Badge
+                  variant={p.asignado ? "gold" : "outline"}
+                  className="text-[10px]"
+                  title={p.asignado ? `Perfil asignado ${p.code}: ${p.nombre}` : "Perfil sin clasificar · confirmar en llamada"}
+                >
+                  Perfil: {p.asignado ? `${p.code} · ${p.nombre}` : "Sin clasificar"}
+                </Badge>
+              );
+            })()}
           </CardTitle>
         </div>
         <Button size="sm" variant="outline" onClick={() => load(true)} disabled={busy}>
@@ -297,7 +312,9 @@ export function VossCoachCard({
               <div className="rounded border border-gold/30 bg-gold-soft/20 p-2">
                 <div className="text-[10px] font-mono uppercase tracking-eyebrow text-gold mb-1">Info mínima a extraer</div>
                 <ul className="space-y-0.5 text-foreground">
-                  {info.tipologia && <li>• <span className="font-medium">Tipología:</span> {info.tipologia}</li>}
+                  {info.tipologia && (
+                    <li>• <span className="font-medium">Tipología:</span> {normalizeTipologiaString(info.tipologia)}</li>
+                  )}
                   {info.que_le_mueve && <li>• <span className="font-medium">Motor:</span> {info.que_le_mueve}</li>}
                   {Array.isArray(info.info_edificio) && info.info_edificio.map((x: string, i: number) => <li key={i}>• <span className="font-medium">Edificio:</span> {x}</li>)}
                   {info.canal_abierto && <li>• <span className="font-medium">Canal:</span> {info.canal_abierto}</li>}

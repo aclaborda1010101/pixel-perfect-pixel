@@ -178,10 +178,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    const sys = `Eres un analista de originación inmobiliaria. Recibes las NOTAS reales de las llamadas y comunicaciones con un propietario, y una LISTA DE KPIs. Debes clasificar CADA KPI en:
-- "tenemos": SOLO si hay evidencia textual clara en las notas. Devuelve una cita textual breve (≤180 caracteres) en "evidencia".
-- "a_medias": hay indicio parcial pero no confirmado.
-- "falta": no hay información en las notas.
+    const sys = `Eres un analista de originación inmobiliaria. Recibes las NOTAS reales de las llamadas y comunicaciones con un propietario (cada nota va prefijada con su TIPO y FECHA, p. ej. "[LLAMADA 12/06/2026 · ENTRANTE · CONECTADO]" o "[WHATSAPP 03/07/2026]"), y una LISTA DE KPIs. Debes clasificar CADA KPI en:
+- "tenemos": SOLO si hay evidencia textual clara en las notas. En ese caso rellena OBLIGATORIAMENTE:
+   · "evidencia": cita textual literal breve (≤160 caracteres), sin comillas alrededor.
+   · "fuente": una de ["llamada", "resumen_ia_llamada", "transcripcion", "nota_hs", "whatsapp"] (deducida del prefijo).
+   · "fecha": la fecha del prefijo en formato dd/mm/aaaa exactamente como aparece.
+- "a_medias": indicio parcial pero no confirmado (rellena evidencia/fuente/fecha si es posible; si no, null).
+- "falta": no hay información. evidencia/fuente/fecha = null.
+
+CRÍTICO para el KPI "whatsapp_abierto" (canal WhatsApp / consentimiento): SOLO márcalo "tenemos" si hay una frase explícita del propietario autorizando el WhatsApp o su envío ("puede escribirme al WhatsApp", "sí, mándame por WhatsApp", "OK al WhatsApp", "sí, así lo veo"). La cita debe ser LITERAL — es prueba anti-baneo Meta.
 
 No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en la próxima llamada priorizando SIEMPRE "cuadro_rentas" si no está en "tenemos".`;
 
@@ -201,8 +206,10 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
                   clave: { type: "string", enum: KPIS.map((k) => k.clave) },
                   estado: { type: "string", enum: ["tenemos", "a_medias", "falta"] },
                   evidencia: { type: ["string", "null"] },
+                  fuente: { type: ["string", "null"], enum: ["llamada", "resumen_ia_llamada", "transcripcion", "nota_hs", "whatsapp", null] },
+                  fecha: { type: ["string", "null"] },
                 },
-                required: ["clave", "estado", "evidencia"],
+                required: ["clave", "estado", "evidencia", "fuente", "fecha"],
                 additionalProperties: false,
               },
             },
@@ -269,7 +276,9 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
       const m = byClave.get(k.clave);
       const estado = m?.estado === "tenemos" || m?.estado === "a_medias" || m?.estado === "falta" ? m.estado : "falta";
       const evidencia = estado === "tenemos" ? (typeof m?.evidencia === "string" ? m.evidencia.slice(0, 240) : null) : null;
-      return { clave: k.clave, label: k.label, estado, evidencia };
+      const fuente = estado === "tenemos" && typeof m?.fuente === "string" ? m.fuente : null;
+      const fecha = estado === "tenemos" && typeof m?.fecha === "string" ? m.fecha : null;
+      return { clave: k.clave, label: k.label, estado, evidencia, fuente, fecha };
     });
     const completados = kpis.filter((k) => k.estado === "tenemos").length;
 

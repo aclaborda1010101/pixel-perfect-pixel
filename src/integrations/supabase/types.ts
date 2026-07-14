@@ -38,6 +38,30 @@ export type Database = {
         }
         Relationships: []
       }
+      _ov_before: {
+        Row: {
+          cluster_asignado: string | null
+          cluster_secundario: string | null
+          id: string | null
+          owners_calc: number | null
+          score: number | null
+        }
+        Insert: {
+          cluster_asignado?: string | null
+          cluster_secundario?: string | null
+          id?: string | null
+          owners_calc?: number | null
+          score?: number | null
+        }
+        Update: {
+          cluster_asignado?: string | null
+          cluster_secundario?: string | null
+          id?: string | null
+          owners_calc?: number | null
+          score?: number | null
+        }
+        Relationships: []
+      }
       _p0_snapshot: {
         Row: {
           cluster_antes: string | null

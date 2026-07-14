@@ -8,8 +8,20 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 type Estado = "tenemos" | "a_medias" | "falta";
-type Kpi = { clave: string; label: string; estado: Estado; evidencia: string | null };
+type Kpi = { clave: string; label: string; estado: Estado; evidencia: string | null; fuente?: string | null; fecha?: string | null };
 type Resp = { total: number; completados: number; kpis: Kpi[]; a_abordar: string[] };
+
+const FUENTE_LABEL: Record<string, string> = {
+  llamada: "Llamada",
+  resumen_ia_llamada: "Resumen IA de llamada",
+  transcripcion: "Transcripción",
+  nota_hs: "Nota HubSpot",
+  whatsapp: "WhatsApp",
+};
+function fuenteLabel(f?: string | null): string {
+  if (!f) return "notas";
+  return FUENTE_LABEL[f] ?? f;
+}
 
 export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
   const [data, setData] = useState<Resp | null>(null);
@@ -123,13 +135,21 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
           )}
         </div>
         {k.estado === "tenemos" && k.evidencia && (
-          <div className="mt-0.5 text-xs italic text-muted-foreground">
-            "{k.evidencia}"
+          <div className="mt-0.5 space-y-0.5">
+            <div className="text-xs italic text-muted-foreground">
+              «{k.evidencia}»
+            </div>
+            {(k.fuente || k.fecha) && (
+              <div className="font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground/80">
+                fuente: {fuenteLabel(k.fuente)}{k.fecha ? ` · ${k.fecha}` : ""}
+              </div>
+            )}
           </div>
         )}
       </div>
     </li>
   );
+
 
   return (
     <Card>

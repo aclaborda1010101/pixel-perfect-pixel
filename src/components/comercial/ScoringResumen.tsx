@@ -356,6 +356,35 @@ export function ScoringResumen({
   const highAvisos = avisos.filter((a) => a?.severity === "high" || a?.severity === "medium");
   const avisosConDetalle = highAvisos.filter((a) => a?.detail);
 
+  // ─── "Por qué" breve del score (1 línea, criterios Carlos) ───
+  // Se compone en cliente sin llamar a IA, sobre datos ya cargados.
+  const shortWhy = (() => {
+    const bits: string[] = [];
+    const owners = Number(s?.owners_count ?? b?.numero_propietarios ?? 0);
+    const viv = Number(s?.num_viviendas ?? 0);
+    const m2 = Number(s?.m2_total ?? 0);
+    const ratio = m2 && viv ? m2 / viv : null;
+    const dh = !!b?.division_horizontal;
+    const m2Com = Number((s as any)?.m2_comercio_x ?? 0);
+    const m2Ofi = Number((s as any)?.m2_oficina_x ?? 0);
+    const pctTerc = m2 > 0 ? Math.round(((m2Com + m2Ofi) / m2) * 100) : null;
+    const protegido = !!(b?.metadatos as any)?.protegido || !!(b?.avisos_inteligentes as any[])?.some?.(
+      (a: any) => String(a?.key ?? a?.label ?? "").toLowerCase().includes("proteg"),
+    );
+    if (owners > 0) bits.push(owners === 1 ? "1 propietario" : `${owners} propietarios`);
+    if (viv > 0) bits.push(`${viv} viviendas`);
+    if (ratio) bits.push(`${ratio.toFixed(0)} m²/viv medio`);
+    if (pctTerc !== null) bits.push(pctTerc === 0 ? "0% terciario" : `${pctTerc}% terciario`);
+    if (protegido) bits.push("con protección PGOU");
+    else if (score >= 60) bits.push("sin protección");
+    if (!dh && score >= 50) bits.push("sin división horizontal");
+    const cabecera =
+      score >= 70 ? "Puntúa alto"
+      : score >= 45 ? "Puntúa medio"
+      : "Puntúa bajo";
+    return bits.length ? `${cabecera}: ${bits.join(", ")}.` : null;
+  })();
+
   return (
     <Card className="overflow-hidden border-border-faint">
       <CardContent className="space-y-6 p-0">
@@ -412,6 +441,16 @@ export function ScoringResumen({
             </div>
           )}
         </div>
+
+        {/* Por qué breve (1 línea, criterios Carlos) — sin IA */}
+        {shortWhy && (
+          <div className="border-b border-border-faint bg-background/40 px-6 py-2.5">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-gold">Por qué · </span>
+              <span className="text-foreground">{shortWhy}</span>
+            </p>
+          </div>
+        )}
 
         {/* Avisos inteligentes con detalle */}
         {avisosConDetalle.length > 0 && (

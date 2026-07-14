@@ -387,48 +387,32 @@ export default function ComercialEdificios() {
     enabled: !!userId && tab === "todos",
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      // Fetch all scored buildings paginated (Supabase caps each request at 1000 rows).
+      // Rendimiento: cargamos SOLO los TOP 1000 por score (una sola página).
+      // El resto del catálogo se filtra en cliente igualmente si aparece en la lista.
+      // Los +2k inferiores no se pintan hasta que el usuario filtre por barrio/score,
+      // y en la práctica nunca son útiles para prospección.
       const PAGE = 1000;
       const fetchPage = (from: number) =>
         (supabase.from("v_building_score" as any) as any)
           .select("*")
           .order("score", { ascending: false })
           .range(from, from + PAGE - 1);
-      const fetchBldgsPage = (from: number) =>
-        (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
-          // also need cluster_asignado for chips
-          .range(from, from + PAGE - 1);
-      const [{ data: assignments }, { data: demoBldgs }, firstPage] = await Promise.all([
+      const [{ data: assignments }, firstPage] = await Promise.all([
         (supabase.from("building_assignments" as any) as any)
           .select("building_id")
           .eq("user_id", userId)
           .eq("status", "active"),
-        (async () => {
-          let rows: any[] = [];
-          let from = 0;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            const { data } = await fetchBldgsPage(from);
-            const chunk = data ?? [];
-            rows = rows.concat(chunk);
-            if (chunk.length < PAGE) break;
-            from += PAGE;
-          }
-          return { data: rows };
-        })(),
         fetchPage(0),
       ]);
-      let scores: any[] = firstPage.data ?? [];
-      let from = PAGE;
-      while (scores.length === from) {
-        const next = await fetchPage(from);
-        const chunk = next.data ?? [];
-        if (!chunk.length) break;
-        scores = scores.concat(chunk);
-        if (chunk.length < PAGE) break;
-        from += PAGE;
-      }
+      // Solo la primera página (top 1000 por score) — evita 2-3 s de descargas extra.
+      const scores: any[] = firstPage.data ?? [];
+      // Fetch de columnas "extra" en buildings SOLO para los IDs que vamos a pintar.
+      const scoreIds = scores.map((b: any) => b.id);
+      const { data: demoBldgs } = scoreIds.length
+        ? await (supabase.from("buildings" as any) as any)
+            .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
+            .in("id", scoreIds)
+        : { data: [] as any[] };
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
       const bldgsById = new Map<string, any>();
       const demoIds = new Set<string>();
