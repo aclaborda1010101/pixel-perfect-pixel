@@ -96,6 +96,17 @@ export default function ComercialPrepararLlamada() {
       if (error) throw error;
       setBrief(res);
       if (sessionId) await persistSession({ voss_brief: (res as any)?.voss ?? res });
+      // Persistir en caché de preparación para no regenerar en futuras visitas
+      try {
+        const { data: laRaw } = await (supabase.rpc as any)("owner_last_activity_at", { _owner_id: ownerId });
+        await (supabase.from("owner_call_prep_cache" as any) as any).upsert({
+          owner_id: ownerId,
+          brief_json: (res as any)?.voss ?? res,
+          brief_generated_at: new Date().toISOString(),
+          brief_last_activity_at: (laRaw as any) ?? null,
+          brief_model: "agent_voss_coach",
+        }, { onConflict: "owner_id" });
+      } catch { /* best-effort */ }
     } catch (e: any) {
       toast.error(e?.message ?? "No se pudo generar el briefing");
     } finally {
@@ -160,8 +171,7 @@ export default function ComercialPrepararLlamada() {
           .select("id").maybeSingle();
         if (ins) {
           setSessionId((ins as any).id);
-          // brief automático
-          setTimeout(() => loadBrief(), 100);
+          // El VossCoachCard hace auto-carga desde caché (o genera si no hay).
         }
       }
     })();
