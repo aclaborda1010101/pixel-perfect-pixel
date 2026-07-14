@@ -346,49 +346,6 @@ export default function ComercialPrepararLlamada() {
 
       {paso === 1 && (
       <>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Resumen edificio */}
-        <Card>
-          <CardHeader><Eyebrow>Edificio · Oportunidad</Eyebrow><CardTitle>Resumen</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Score</span><span className="font-mono text-gold">{Number(building?.score ?? 0).toFixed(0)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">m² totales</span><span className="font-mono">{building?.m2_total ?? "—"}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Viviendas</span><span className="font-mono">{building?.num_viviendas ?? "—"}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">División horizontal</span><Badge variant={building?.division_horizontal ? "outline" : "gold"}>{building?.division_horizontal ? "Sí" : "No"}</Badge></div>
-          </CardContent>
-        </Card>
-
-        {/* Datos propietario */}
-        <Card>
-          <CardHeader><Eyebrow>Propietario</Eyebrow><CardTitle>Ficha</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">% propiedad</span><span className="font-mono text-gold">{data?.ownerScore?.pct_propiedad != null ? `${Number(data.ownerScore.pct_propiedad).toFixed(1)}%` : "—"}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Teléfono</span><span className="font-mono">{owner?.telefono ?? "—"}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Contactos previos</span><span className="font-mono">{data?.ownerScore?.contactos_previos ?? 0}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Cargas / embargos</span><span className="font-mono">{(data?.cargas ?? []).length}</span></div>
-            {owner?.telefono && (
-              <a href={`tel:${owner.telefono}`} className="mt-3 flex w-full items-center justify-center gap-2 rounded-[4px] border border-gold/40 bg-gold-soft/40 px-3 py-2 font-mono text-[11px] uppercase tracking-eyebrow text-gold hover:bg-gold-soft/60">
-                <Phone className="h-3.5 w-3.5" /> Llamar ahora
-              </a>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Historial */}
-        <Card>
-          <CardHeader><Eyebrow>Interacciones previas</Eyebrow><CardTitle>Últimas {data?.history?.length ?? 0}</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {(data?.history ?? []).length === 0 && <p className="text-muted-foreground">Sin llamadas registradas.</p>}
-            {(data?.history ?? []).map((h) => (
-              <div key={h.id} className="rounded border border-border-faint p-2">
-                <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">{new Date(h.fecha).toLocaleString()}</div>
-                <div className="line-clamp-2 text-foreground">{h.resumen ?? "—"}</div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Briefing IA */}
       {loadingBrief && !brief && <BriefSkeleton />}
 
