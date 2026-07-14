@@ -42,6 +42,7 @@ export default function ComercialPrepararLlamada() {
   // Espera activa a transcripción de HubSpot tras pulsar "Llamada finalizada"
   const [awaiting, setAwaiting] = useState<{ nextAt: number; attempt: number } | null>(null);
   const [now, setNow] = useState<number>(Date.now());
+  const [targetKpis, setTargetKpis] = useState<string[]>([]);
   const DEFAULT_CHECKLIST = [
     { k: "tipologia", label: "Tipología del propietario (T1–T10 / buyer persona)" },
     { k: "motor", label: "Qué le mueve (dinero, paz, herederos, miedo, control)" },
