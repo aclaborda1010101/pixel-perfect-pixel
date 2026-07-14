@@ -295,6 +295,7 @@ export default function ComercialEdificios() {
   const [advSinReforma, setAdvSinReforma] = useState(false);
   const [advSinGestionPro, setAdvSinGestionPro] = useState(false);
   const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
+  const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
 
   // --- Mi cartera: query ligera (~80 filas) que se carga siempre ---
   const { data: miaData, isLoading: loadingMia } = useQuery({
@@ -587,28 +588,40 @@ export default function ComercialEdificios() {
       if (advSinReforma && r.edificio_reformado) return false;
       if (advSinGestionPro && r.gestion_profesional) return false;
       if (advClusters.size > 0 && (!r.cluster_asignado || !advClusters.has(r.cluster_asignado))) return false;
+      if (advSoloEstrella && !r.es_estrella) return false;
       return true;
     });
 
     const cmp = (a: Row, b: Row) => {
-      // Prioridad global: ⭐ ESTRELLA → nº de alarmas → criterio elegido
-      if (a.es_estrella !== b.es_estrella) return a.es_estrella ? -1 : 1;
-      if (a.n_alarmas !== b.n_alarmas) return b.n_alarmas - a.n_alarmas;
+      // El criterio de orden elegido manda. La estrella NO altera el orden:
+      // es un flag visual y un filtro (ver "Solo edificios estrella"). Como
+      // desempate al final, si el criterio principal empata, mostramos antes
+      // los estrella y luego los que tienen más alarmas.
       switch (sort) {
         case "score_asc":
-          return a.score - b.score;
+          if (a.score !== b.score) return a.score - b.score;
+          break;
         case "viviendas_desc":
-          return (b.num_viviendas ?? -1) - (a.num_viviendas ?? -1);
+          if ((b.num_viviendas ?? -1) !== (a.num_viviendas ?? -1)) return (b.num_viviendas ?? -1) - (a.num_viviendas ?? -1);
+          break;
         case "m2_desc":
-          return (Number(b.m2_total) || -1) - (Number(a.m2_total) || -1);
+          if ((Number(b.m2_total) || -1) !== (Number(a.m2_total) || -1)) return (Number(b.m2_total) || -1) - (Number(a.m2_total) || -1);
+          break;
         case "ratio_desc":
-          return (b.ratio ?? -1) - (a.ratio ?? -1);
+          if ((b.ratio ?? -1) !== (a.ratio ?? -1)) return (b.ratio ?? -1) - (a.ratio ?? -1);
+          break;
         case "owners_desc":
-          return (b.owners_count ?? -1) - (a.owners_count ?? -1);
+          if ((b.owners_count ?? -1) !== (a.owners_count ?? -1)) return (b.owners_count ?? -1) - (a.owners_count ?? -1);
+          break;
         case "score_desc":
         default:
-          return b.score - a.score;
+          if (a.score !== b.score) return b.score - a.score;
+          break;
       }
+      // Desempate: estrella > más alarmas
+      if (a.es_estrella !== b.es_estrella) return a.es_estrella ? -1 : 1;
+      if (a.n_alarmas !== b.n_alarmas) return b.n_alarmas - a.n_alarmas;
+      return 0;
     };
     out = [...out].sort(cmp);
     return out;
@@ -635,6 +648,7 @@ export default function ComercialEdificios() {
     setAdvSinReforma(false);
     setAdvSinGestionPro(false);
     setAdvClusters(new Set());
+    setAdvSoloEstrella(false);
   };
 
   const advancedCount =
@@ -646,7 +660,8 @@ export default function ComercialEdificios() {
     (advSinProteccion ? 1 : 0) +
     (advSinReforma ? 1 : 0) +
     (advSinGestionPro ? 1 : 0) +
-    (advClusters.size > 0 ? 1 : 0);
+    (advClusters.size > 0 ? 1 : 0) +
+    (advSoloEstrella ? 1 : 0);
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0) +
