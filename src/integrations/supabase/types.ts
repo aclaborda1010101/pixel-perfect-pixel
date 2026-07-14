@@ -4267,6 +4267,77 @@ export type Database = {
         }
         Relationships: []
       }
+      owner_call_prep_cache: {
+        Row: {
+          brief_generated_at: string | null
+          brief_json: Json | null
+          brief_last_activity_at: string | null
+          brief_model: string | null
+          created_at: string
+          kpis_generated_at: string | null
+          kpis_json: Json | null
+          kpis_last_activity_at: string | null
+          kpis_model: string | null
+          owner_id: string
+          updated_at: string
+        }
+        Insert: {
+          brief_generated_at?: string | null
+          brief_json?: Json | null
+          brief_last_activity_at?: string | null
+          brief_model?: string | null
+          created_at?: string
+          kpis_generated_at?: string | null
+          kpis_json?: Json | null
+          kpis_last_activity_at?: string | null
+          kpis_model?: string | null
+          owner_id: string
+          updated_at?: string
+        }
+        Update: {
+          brief_generated_at?: string | null
+          brief_json?: Json | null
+          brief_last_activity_at?: string | null
+          brief_model?: string | null
+          created_at?: string
+          kpis_generated_at?: string | null
+          kpis_json?: Json | null
+          kpis_last_activity_at?: string | null
+          kpis_model?: string | null
+          owner_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_call_prep_cache_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: true
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_call_prep_cache_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: true
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_call_prep_cache_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: true
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "owner_call_prep_cache_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: true
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       owner_companies: {
         Row: {
           company_id: string
@@ -6441,6 +6512,7 @@ export type Database = {
           total_count: number
         }[]
       }
+      owner_last_activity_at: { Args: { _owner_id: string }; Returns: string }
       recompute_building_owner_metrics: {
         Args: { p_building_ids?: string[] }
         Returns: Json
