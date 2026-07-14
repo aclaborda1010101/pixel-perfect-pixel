@@ -508,6 +508,7 @@ export default function ComercialPrepararLlamada() {
           mode="brief"
           targetKpis={targetKpis}
           kpiContext={kpiContext}
+          buyerPersona={data?.owner?.buyer_persona ?? null}
           initialVoss={(brief as any)?.voss ?? null}
           onLoaded={(v) => { setBrief({ voss: v }); if (sessionId) persistSession({ voss_brief: v }); }}
         />

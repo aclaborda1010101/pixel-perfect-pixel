@@ -25,6 +25,7 @@ import { RelationshipGraph } from "@/components/graph/RelationshipGraph";
 import { SUBROLE_LABEL } from "@/components/forms/NewEntityDialogs";
 import { ContactHistoryCard } from "@/components/owners/ContactHistoryCard";
 import { cn } from "@/lib/utils";
+import { perfilAsignado } from "@/lib/tipologias";
 
 const PAGE_SIZE = 50;
 
@@ -280,9 +281,14 @@ export default function OwnerDetail() {
         subtitle={owner.email ?? owner.telefono ?? ""}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={owner.buyer_persona === "sin_clasificar" ? "outline" : "gold"}>
-              {PERSONA_LABEL[owner.buyer_persona] ?? owner.buyer_persona}
-            </Badge>
+            {(() => {
+              const p = perfilAsignado(owner.buyer_persona);
+              return (
+                <Badge variant={p.asignado ? "gold" : "outline"} title={p.asignado ? `Perfil ${p.code}: ${p.nombre}` : "Perfil sin clasificar · confirmar en llamada"}>
+                  {p.asignado ? `${p.code} · ${p.nombre}` : "Sin clasificar (a confirmar en llamada)"}
+                </Badge>
+              );
+            })()}
             {owner.subrole && owner.subrole !== "ninguno" && (
               <Badge variant="outline">{SUBROLE_LABEL[owner.subrole] ?? owner.subrole}</Badge>
             )}

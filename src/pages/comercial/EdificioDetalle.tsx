@@ -84,6 +84,16 @@ export default function ComercialEdificioDetalle() {
       const { data: companies } = await (supabase.from("building_companies" as any) as any)
         .select("*, companies:company_id(id, nombre, cif, metadatos)")
         .eq("building_id", id!);
+      // Backfill desde Catastro (authority cache) — año construcción y desglose por usos.
+      let catastro: any = null;
+      const rc14 = (b as any)?.refcatastral ? String((b as any).refcatastral).slice(0, 14) : null;
+      if (rc14) {
+        const { data: cac } = await (supabase.from("catastro_authority_cache" as any) as any)
+          .select("ano_construccion, viviendas_total, locales_total, superficie_parcela_m2, usos")
+          .eq("refcatastral_14", rc14)
+          .maybeSingle();
+        catastro = cac ?? null;
+      }
       return {
         b: b as any,
         score: score as any,
@@ -91,6 +101,7 @@ export default function ComercialEdificioDetalle() {
         assigned: !!assign,
         analysis: (analysis ?? null) as any,
         companies: (companies ?? []) as any[],
+        catastro,
       };
     },
   });
@@ -100,6 +111,7 @@ export default function ComercialEdificioDetalle() {
   const assigned = data?.assigned;
   const analysis = data?.analysis;
   const companies = data?.companies ?? [];
+  const catastro = (data as any)?.catastro ?? null;
   const { data: ownersCount } = useOwnersCount(b?.id);
 
   if (!data?.b) {
@@ -111,6 +123,7 @@ export default function ComercialEdificioDetalle() {
     b?.metadatos?.anio_construccion ??
     b?.metadatos?.year_built ??
     b?.metadatos?.ano_construccion ??
+    catastro?.ano_construccion ??
     null;
 
   const owners = [...(data.owners ?? [])].sort((a, b) => {
@@ -170,7 +183,7 @@ export default function ComercialEdificioDetalle() {
 
       {/* Resumen narrativo + scoring visual */}
       {/* Resumen del edificio: qué es y por qué es (o no) oportunidad */}
-      <EdificioResumenCard b={b} s={s} analysis={analysis} anioConstr={anioConstr} ownersCount={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} />
+      <EdificioResumenCard b={b} s={s} analysis={analysis} anioConstr={anioConstr} ownersCount={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} catastro={catastro} />
 
       {/* Scoring: score + doble tesis + contribuciones (sin narrativa larga) */}
       <ScoringResumen b={b} s={s} analysis={analysis} />
@@ -389,19 +402,27 @@ export default function ComercialEdificioDetalle() {
 }
 
 function EdificioResumenCard({
-  b, s, analysis, anioConstr, ownersCount,
-}: { b: any; s: any; analysis: any; anioConstr: any; ownersCount: number }) {
+  b, s, analysis, anioConstr, ownersCount, catastro,
+}: { b: any; s: any; analysis: any; anioConstr: any; ownersCount: number; catastro?: any }) {
   const md = (b?.metadatos ?? {}) as Record<string, any>;
   const num = (v: any) => {
     const n = typeof v === "string" ? parseFloat(v.replace(",", ".")) : Number(v);
     return Number.isFinite(n) ? n : 0;
   };
   const m2Total = num(s?.m2_total) || num(md.metros_cuadrados__exactos_) || num(md.metros_cuadrados__exactos____clonada_);
-  const m2Viv = num(s?.m2_viviendas) || num(md.metros_cuadrados_viviendas) || num(md.metros_cuadrados_viviendas___clonada_);
+  let m2Viv = num(s?.m2_viviendas) || num(md.metros_cuadrados_viviendas) || num(md.metros_cuadrados_viviendas___clonada_);
   const m2Com = num(s?.m2_comercio) || num(s?.m2_comercio_x) || num(md.metros_cuadrados_comercio);
   const m2Ofi = num(s?.m2_oficina) || num(s?.m2_oficina_x) || num(md.metros_cuadrados_oficina) || num(md.metros_cuadrado_oficina);
-  const numViv = num(s?.num_viviendas) || num(s?.viviendas_unidades) || num(md.viviendas__unidades_) || num(md.viviendas__unidades___clonada_);
+  let numViv = num(s?.num_viviendas) || num(s?.viviendas_unidades) || num(md.viviendas__unidades_) || num(md.viviendas__unidades___clonada_);
   const pctTerciario = m2Total > 0 ? Math.round(((m2Com + m2Ofi) / m2Total) * 100) : null;
+  // Backfill Catastro: si no hay m² viviendas y % terciario = 0 → m² total.
+  if (m2Viv === 0 && m2Total > 0 && (pctTerciario === 0 || pctTerciario === null)) {
+    m2Viv = m2Total;
+  }
+  // Backfill Catastro: si no hay nº viviendas usamos catastro_authority_cache.viviendas_total.
+  if (numViv === 0 && catastro?.viviendas_total) {
+    numViv = Number(catastro.viviendas_total) || 0;
+  }
   const protegido = !!(analysis?.protegido_historicamente);
   const clusterMain = b?.cluster_asignado ?? null;
   const clusterSec = b?.cluster_secundario ?? null;
