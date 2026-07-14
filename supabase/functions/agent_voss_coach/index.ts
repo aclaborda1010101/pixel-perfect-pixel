@@ -400,6 +400,11 @@ Deno.serve(async (req) => {
 CABECERA (úsala literal en historico.resumen / contexto): ${header}
 NÚMERO DE LLAMADAS CON CONVERSACIÓN PREVIAS: ${n_previas}
 
+${mode === 'brief' ? `${PARTE_FIJA}
+
+${tipologiaBlock(snapshot?.propietario?.buyer_persona)}
+
+` : ''}
 SNAPSHOT REAL (no inventes lo que no esté aquí):
 ${JSON.stringify(snapshot, null, 2)}
 
