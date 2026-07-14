@@ -258,7 +258,56 @@ export default function ComercialPrepararLlamada() {
     if (refreshed?.voss_post) setVossPost(refreshed.voss_post);
     if (refreshed?.notas) setNotas(refreshed.notas);
     setPaso(3);
+    // Cancelar auto-análisis pendiente y refrescar KPIs conseguidos.
+    setScheduledAnalyzeAt(null);
+    refreshKpisPostCall();
     return true;
+  }
+
+  // Deep link a HubSpot + programar auto-análisis a 15 min al pulsar "Continuar".
+  async function goToCallStep() {
+    if (!ownerId) return;
+    jumpTo(2);
+    try {
+      const { data: eid } = await supabase.from("external_ids")
+        .select("provider_id")
+        .eq("entity_type", "owner").eq("provider", "hubspot")
+        .eq("entity_id", ownerId).maybeSingle();
+      const contactId = (eid as any)?.provider_id;
+      if (contactId) {
+        let portalId = localStorage.getItem("hs_portal_id");
+        if (!portalId) {
+          try {
+            const { data: pj } = await supabase.functions.invoke("hubspot_ping", { body: {} });
+            const p = (pj as any)?.portal_id;
+            if (p) { portalId = String(p); localStorage.setItem("hs_portal_id", portalId); }
+          } catch { /* best-effort */ }
+        }
+        const url = portalId
+          ? `https://app.hubspot.com/contacts/${portalId}/record/0-1/${contactId}`
+          : `https://app.hubspot.com/contacts/list/view/all/?query=${encodeURIComponent(String(contactId))}`;
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        toast.message("Sin contacto HubSpot vinculado a este propietario");
+      }
+    } catch { /* best-effort */ }
+    const at = Date.now() + AUTO_ANALYZE_DELAY_MS;
+    setScheduledAnalyzeAt(at);
+    toast.success("Llamada abierta en HubSpot · analizaré automáticamente en 15 min");
+  }
+
+  // Re-computar KPIs tras la llamada e invalidar caché de preparación.
+  async function refreshKpisPostCall() {
+    if (!ownerId) return;
+    try {
+      await (supabase.from("owner_call_prep_cache" as any) as any)
+        .update({ kpis_last_activity_at: new Date().toISOString() })
+        .eq("owner_id", ownerId);
+      const { data: res } = await supabase.functions.invoke("agent_kpi_checklist", { body: { owner_id: ownerId } });
+      if (!res) return;
+      const kpis = ((res as any).kpis ?? []) as Array<{ clave: string; label: string; estado: any; evidencia: string | null }>;
+      setPostKpiContext(kpis.map((k) => ({ clave: k.clave, label: k.label, estado: k.estado, evidencia: k.evidencia ?? null })));
+    } catch { /* best-effort */ }
   }
 
   // Tick del countdown + disparo del reintento cuando llega su momento
@@ -279,6 +328,21 @@ export default function ComercialPrepararLlamada() {
     // El propio tryFinalizeOnce reprograma el siguiente o limpia awaiting.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [now, awaiting?.nextAt]);
+
+  // Tick + disparo del auto-análisis programado a 15 min tras "Continuar llamada".
+  useEffect(() => {
+    if (!scheduledAnalyzeAt) return;
+    const t = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(t);
+  }, [scheduledAnalyzeAt]);
+
+  useEffect(() => {
+    if (!scheduledAnalyzeAt || finalizing || awaiting) return;
+    if (now < scheduledAnalyzeAt) return;
+    setScheduledAnalyzeAt(null);
+    (async () => { try { await finalizeCall(); } catch {} })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [now, scheduledAnalyzeAt]);
 
   // Normaliza esquema viejo y nuevo a un mismo shape
   const normalizedBrief = (() => {
