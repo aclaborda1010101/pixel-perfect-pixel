@@ -187,18 +187,72 @@ Deno.serve(async (req) => {
   // BATCH
   const limit = Math.min(Math.max(Number(body.limit ?? DEFAULT_LIMIT), 1), 50);
   const chain: boolean = body.chain !== false;
+  const buildingId: string | null = body.building_id ? String(body.building_id) : null;
+
+  // Si viene building_id: resolvemos deal_hs_id + contact_hs_ids del edificio y
+  // filtramos hubspot_calls por overlap con associated_deal_ids/associated_contact_ids.
+  let callIdsFilter: string[] | null = null;
+  if (buildingId) {
+    const { data: dealRows } = await supabase.from("external_ids")
+      .select("provider_id")
+      .eq("entity_type", "building").eq("entity_id", buildingId)
+      .eq("provider", "hubspot").eq("provider_object_type", "deal");
+    const dealHsIds = (dealRows || []).map((r: any) => String(r.provider_id));
+
+    const { data: ownerRows } = await supabase.from("building_owners")
+      .select("owner_id").eq("building_id", buildingId);
+    const ownerIds = (ownerRows || []).map((r: any) => r.owner_id);
+
+    let contactHsIds: string[] = [];
+    if (ownerIds.length) {
+      const { data: cRows } = await supabase.from("external_ids")
+        .select("provider_id")
+        .eq("entity_type", "owner").eq("provider", "hubspot").eq("provider_object_type", "contact")
+        .in("entity_id", ownerIds);
+      contactHsIds = (cRows || []).map((r: any) => String(r.provider_id));
+    }
+
+    // Traer llamadas cuyos arrays contengan alguno de esos ids (overlap "&&" via PostgREST 'ov')
+    const orParts: string[] = [];
+    if (dealHsIds.length) orParts.push(`associated_deal_ids.ov.{${dealHsIds.join(",")}}`);
+    if (contactHsIds.length) orParts.push(`associated_contact_ids.ov.{${contactHsIds.join(",")}}`);
+    if (!orParts.length) {
+      return new Response(JSON.stringify({ ok: true, building_id: buildingId, accepted: 0, note: "no deal ni contactos vinculados" }, null, 2),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const { data: matched, error: mErr } = await supabase.from("hubspot_calls")
+      .select("id")
+      .or(orParts.join(","))
+      .not("hs_call_recording_url", "is", null)
+      .neq("hs_call_recording_url", "")
+      .gte("hs_call_duration", MIN_DURATION_MS)
+      .or("hs_call_transcription.is.null,hs_call_transcription.eq.");
+    if (mErr) {
+      return new Response(JSON.stringify({ ok: false, error: mErr.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    callIdsFilter = Array.from(new Set((matched || []).map((r: any) => r.id)));
+    if (!callIdsFilter.length) {
+      return new Response(JSON.stringify({ ok: true, building_id: buildingId, accepted: 0, note: "no hay llamadas pendientes en este edificio" }, null, 2),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+  }
 
   // Filtrar: recording no vacía + duración ≥ 45s + sin transcripción + sin error reciente
   const cutoff = new Date(Date.now() - RETRY_COOLDOWN_MS).toISOString();
-  const { data: rows, error } = await supabase.from("hubspot_calls")
+  let q = supabase.from("hubspot_calls")
     .select("id, hs_id, hs_call_recording_url, hs_call_duration, hs_call_transcription, raw")
     .not("hs_call_recording_url", "is", null)
     .neq("hs_call_recording_url", "")
     .gte("hs_call_duration", MIN_DURATION_MS)
-    .or("hs_call_transcription.is.null,hs_call_transcription.eq.")
-    .or(`raw->>_transcribe_error_at.is.null,raw->>_transcribe_error_at.lt.${cutoff}`)
-    .order("hs_timestamp", { ascending: false })
-    .limit(limit);
+    .or("hs_call_transcription.is.null,hs_call_transcription.eq.");
+  if (callIdsFilter) {
+    q = q.in("id", callIdsFilter);
+  } else {
+    q = q.or(`raw->>_transcribe_error_at.is.null,raw->>_transcribe_error_at.lt.${cutoff}`);
+  }
+  const effLimit = callIdsFilter ? Math.min(callIdsFilter.length, 50) : limit;
+  const { data: rows, error } = await q.order("hs_timestamp", { ascending: false }).limit(effLimit);
 
   if (error) {
     return new Response(JSON.stringify({ ok: false, error: error.message }),
@@ -252,7 +306,7 @@ Deno.serve(async (req) => {
       metadatos: { processed, ok, fail, pending, last_chunk_ms: elapsed, errors_sample: errors, concurrency: CONCURRENCY, model: PRIMARY_MODEL },
     }, { onConflict: "entity" });
 
-    if (chain && processed >= limit && pending > 0) {
+    if (chain && !buildingId && processed >= limit && pending > 0) {
       const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/transcribe_calls`;
       await fetch(url, {
         method: "POST",
