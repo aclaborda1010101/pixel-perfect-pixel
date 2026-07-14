@@ -213,9 +213,10 @@ export default function ComercialPrepararLlamada() {
     }
   }
 
-  // Calendario de reintentos tras "Llamada finalizada" si la transcripción aún no
-  // ha aterrizado desde HubSpot. Pull activo antes de cada reintento.
-  const RETRY_DELAYS_MS = [60_000, 120_000, 180_000, 300_000]; // 1', 2', 3', 5'
+  // Calendario de reintentos si la transcripción aún no ha aterrizado.
+  // Al pulsar "Continuar llamada" programamos auto-análisis a ~15 min.
+  const RETRY_DELAYS_MS = [120_000, 180_000, 300_000];
+  const AUTO_ANALYZE_DELAY_MS = 15 * 60 * 1000;
 
   async function tryFinalizeOnce({ pullHubspot }: { pullHubspot: boolean }): Promise<boolean> {
     if (!sessionId) return false;
