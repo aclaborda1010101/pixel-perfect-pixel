@@ -42,6 +42,7 @@ export default function ComercialPrepararLlamada() {
   // Espera activa a transcripción de HubSpot tras pulsar "Llamada finalizada"
   const [awaiting, setAwaiting] = useState<{ nextAt: number; attempt: number } | null>(null);
   const [now, setNow] = useState<number>(Date.now());
+  const [targetKpis, setTargetKpis] = useState<string[]>([]);
   const DEFAULT_CHECKLIST = [
     { k: "tipologia", label: "Tipología del propietario (T1–T10 / buyer persona)" },
     { k: "motor", label: "Qué le mueve (dinero, paz, herederos, miedo, control)" },
@@ -89,7 +90,7 @@ export default function ComercialPrepararLlamada() {
     try {
       const buildingId = data?.ownerScore?.building_id;
       const { data: res, error } = await supabase.functions.invoke("agent_voss_coach", {
-        body: { mode: "brief", owner_id: ownerId, building_id: buildingId },
+        body: { mode: "brief", owner_id: ownerId, building_id: buildingId, target_kpis: targetKpis },
       });
       if (error) throw error;
       setBrief(res);
@@ -102,6 +103,28 @@ export default function ComercialPrepararLlamada() {
   }
 
   useEffect(() => { setBrief(null); }, [ownerId]);
+
+  // Cargar KPIs a abordar → los pasamos al brief para que se enfoque en esos datos concretos.
+  useEffect(() => {
+    if (!ownerId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: res } = await supabase.functions.invoke("agent_kpi_checklist", {
+          body: { owner_id: ownerId },
+        });
+        if (cancelled || !res) return;
+        const kpis = (res as any).kpis as Array<{ clave: string; label: string }> | undefined;
+        const aAbordar = ((res as any).a_abordar ?? []) as string[];
+        const set = new Set(aAbordar);
+        const labels = (kpis ?? [])
+          .filter((k) => set.has(k.clave))
+          .map((k) => k.label);
+        setTargetKpis(labels);
+      } catch { /* best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [ownerId]);
 
   // Crear/cargar session al entrar
   useEffect(() => {
@@ -361,6 +384,7 @@ export default function ComercialPrepararLlamada() {
           ownerId={ownerId}
           buildingId={data?.ownerScore?.building_id}
           mode="brief"
+          targetKpis={targetKpis}
           initialVoss={(brief as any)?.voss ?? null}
           onLoaded={(v) => { setBrief({ voss: v }); if (sessionId) persistSession({ voss_brief: v }); }}
         />
