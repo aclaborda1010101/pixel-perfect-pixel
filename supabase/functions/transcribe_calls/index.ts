@@ -18,6 +18,7 @@ const CONCURRENCY = 3; // conservador: OpenRouter STT tiene rate limits
 const MIN_DURATION_MS = 45_000;
 const GW = "https://connector-gateway.lovable.dev/hubspot";
 const OR_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
+const LOVABLE_STT_URL = "https://ai.gateway.lovable.dev/v1/audio/transcriptions";
 const PRIMARY_MODEL = "openai/gpt-4o-mini-transcribe";
 const FALLBACK_MODEL = "openai/whisper-1";
 // Reintento diferido: si una llamada falló hace <6h, no la reintentamos en este ciclo.
@@ -95,6 +96,29 @@ async function transcribeWithOpenRouter(bytes: Uint8Array, contentType: string, 
   return { ok: true, text };
 }
 
+async function transcribeWithLovable(bytes: Uint8Array, contentType: string, model: string): Promise<{ ok: true; text: string } | { ok: false; error: string; status?: number }> {
+  const LK = Deno.env.get("LOVABLE_API_KEY");
+  if (!LK) return { ok: false, error: "LOVABLE_API_KEY missing" };
+  const ext = extForContentType(contentType);
+  const fd = new FormData();
+  fd.append("file", new Blob([bytes], { type: contentType || "audio/mpeg" }), `recording.${ext}`);
+  fd.append("model", model);
+  fd.append("language", "es");
+  const r = await fetch(LOVABLE_STT_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${LK}` },
+    body: fd,
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    return { ok: false, error: `lovable ${r.status}: ${txt.slice(0, 300)}`, status: r.status };
+  }
+  const j: any = await r.json().catch(() => ({}));
+  const text = String(j?.text ?? "").trim();
+  if (!text) return { ok: false, error: "empty transcription" };
+  return { ok: true, text };
+}
+
 async function transcribeOne(supabase: any, row: any): Promise<{ ok: boolean; error?: string; text_preview?: string; chars?: number }> {
   const t0 = Date.now();
   const raw = (row.raw && typeof row.raw === "object") ? row.raw : {};
@@ -128,12 +152,17 @@ async function transcribeOne(supabase: any, row: any): Promise<{ ok: boolean; er
     return { ok: false, error: `oversize ${dl.bytes.byteLength}B (>25MB, usar Deepgram)` };
   }
 
-  // STT primario, con fallback a whisper-1 si el primario falla (no en 429)
-  let out = await transcribeWithOpenRouter(dl.bytes, dl.contentType, PRIMARY_MODEL);
+  // STT primario via Lovable AI Gateway (sin dependencia de saldo OpenRouter).
+  // Fallback 1: OpenRouter con el mismo modelo. Fallback 2: whisper-1 en OpenRouter.
+  let out = await transcribeWithLovable(dl.bytes, dl.contentType, PRIMARY_MODEL);
   if (!out.ok && out.status !== 429) {
-    const fb = await transcribeWithOpenRouter(dl.bytes, dl.contentType, FALLBACK_MODEL);
-    if (fb.ok) out = fb;
-    else out = { ok: false, error: `${out.error} | fallback: ${fb.error}`, status: fb.status };
+    const fb1 = await transcribeWithOpenRouter(dl.bytes, dl.contentType, PRIMARY_MODEL);
+    if (fb1.ok) out = fb1;
+    else if (fb1.status !== 429) {
+      const fb2 = await transcribeWithOpenRouter(dl.bytes, dl.contentType, FALLBACK_MODEL);
+      if (fb2.ok) out = fb2;
+      else out = { ok: false, error: `${out.error} | or:${fb1.error} | wh:${fb2.error}`, status: fb2.status };
+    } else out = fb1;
   }
 
   if (!out.ok) {
