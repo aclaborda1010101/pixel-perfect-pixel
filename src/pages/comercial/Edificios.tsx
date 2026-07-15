@@ -387,25 +387,29 @@ export default function ComercialEdificios() {
     enabled: !!userId && tab === "todos",
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      // Rendimiento: cargamos SOLO los TOP 1000 por score (una sola página).
-      // El resto del catálogo se filtra en cliente igualmente si aparece en la lista.
-      // Los +2k inferiores no se pintan hasta que el usuario filtre por barrio/score,
-      // y en la práctica nunca son útiles para prospección.
+      // Paginación completa: Supabase limita a 1000 filas/request, así que
+      // iteramos hasta agotar el catálogo. El coste extra es marginal porque
+      // la query es lazy (enabled: tab==="todos") y cachea 5 min.
       const PAGE = 1000;
       const fetchPage = (from: number) =>
         (supabase.from("v_building_score" as any) as any)
           .select("*")
           .order("score", { ascending: false })
           .range(from, from + PAGE - 1);
-      const [{ data: assignments }, firstPage] = await Promise.all([
-        (supabase.from("building_assignments" as any) as any)
-          .select("building_id")
-          .eq("user_id", userId)
-          .eq("status", "active"),
-        fetchPage(0),
-      ]);
-      // Solo la primera página (top 1000 por score) — evita 2-3 s de descargas extra.
-      const scores: any[] = firstPage.data ?? [];
+      const { data: assignments } = await (supabase.from("building_assignments" as any) as any)
+        .select("building_id")
+        .eq("user_id", userId)
+        .eq("status", "active");
+      const scores: any[] = [];
+      let from = 0;
+      // Safety cap: 10 páginas (10k edificios) — más que suficiente.
+      for (let i = 0; i < 10; i++) {
+        const { data } = await fetchPage(from);
+        const batch = (data ?? []) as any[];
+        scores.push(...batch);
+        if (batch.length < PAGE) break;
+        from += PAGE;
+      }
       // Fetch de columnas "extra" en buildings SOLO para los IDs que vamos a pintar.
       const scoreIds = scores.map((b: any) => b.id);
       const { data: demoBldgs } = scoreIds.length
