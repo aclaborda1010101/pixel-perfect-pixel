@@ -292,6 +292,11 @@ export default function ComercialEdificios() {
   const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
   const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
 
+  // Windowing del catálogo "Todos": pintamos por lotes para que el DOM no
+  // se atragante con >1000 tarjetas de golpe.
+  const TODOS_PAGE = 60;
+  const [shownTodos, setShownTodos] = useState(TODOS_PAGE);
+
   // --- Mi cartera: query ligera (~80 filas) que se carga siempre ---
   const { data: miaData, isLoading: loadingMia } = useQuery({
     queryKey: ["comercial:edificios:mia", userId],
