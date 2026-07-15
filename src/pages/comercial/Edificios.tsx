@@ -627,6 +627,13 @@ export default function ComercialEdificios() {
   const filteredMias = apply(visibleMias);
   const filteredTodos = apply(rows);
 
+  // Al cambiar filtros/orden/tab, volvemos a la primera "página" de render.
+  useEffect(() => {
+    setShownTodos(TODOS_PAGE);
+  }, [tab, q, sort, scoreMin, barrios, ventanasMin, advSegundasEscaleras,
+      advPlantasLevantables, advAzotea, advEsquina, advSinProteccion,
+      advSinReforma, advSinGestionPro, advClusters, advSoloEstrella]);
+
   return (
     <div className="space-y-6">
       <PageHeader
