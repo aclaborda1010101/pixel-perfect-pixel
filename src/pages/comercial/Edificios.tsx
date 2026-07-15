@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,6 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { EmptyState } from "@/components/common/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { toast } from "sonner";
 import {
   Building2,
   ArrowRight,
@@ -38,8 +37,6 @@ import {
   MapPin,
   X,
   AppWindow,
-  Loader2,
-  Sparkles,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,9 +51,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
 import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
-import { NewBuildingDialog } from "@/components/buildings/NewBuildingDialog";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
-import { Plus } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Row = {
