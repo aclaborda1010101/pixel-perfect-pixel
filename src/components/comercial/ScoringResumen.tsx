@@ -356,10 +356,9 @@ export function ScoringResumen({
   const highAvisos = avisos.filter((a) => a?.severity === "high" || a?.severity === "medium");
   const avisosConDetalle = highAvisos.filter((a) => a?.detail);
 
-  // ─── "Por qué" breve del score (1 línea, criterios Carlos) ───
+  // ─── "Por qué" del score: explicación extensa y descriptiva (criterios Carlos) ───
   // Se compone en cliente sin llamar a IA, sobre datos ya cargados.
   const shortWhy = (() => {
-    const bits: string[] = [];
     const owners = Number(s?.owners_count ?? b?.numero_propietarios ?? 0);
     const viv = Number(s?.num_viviendas ?? 0);
     const m2 = Number(s?.m2_total ?? 0);
@@ -371,18 +370,50 @@ export function ScoringResumen({
     const protegido = !!(b?.metadatos as any)?.protegido || !!(b?.avisos_inteligentes as any[])?.some?.(
       (a: any) => String(a?.key ?? a?.label ?? "").toLowerCase().includes("proteg"),
     );
-    if (owners > 0) bits.push(owners === 1 ? "1 propietario" : `${owners} propietarios`);
-    if (viv > 0) bits.push(`${viv} viviendas`);
-    if (ratio) bits.push(`${ratio.toFixed(0)} m²/viv medio`);
-    if (pctTerc !== null) bits.push(pctTerc === 0 ? "0% terciario" : `${pctTerc}% terciario`);
-    if (protegido) bits.push("con protección PGOU");
-    else if (score >= 60) bits.push("sin protección");
-    if (!dh && score >= 50) bits.push("sin división horizontal");
+    const esquina = !!(b?.metadatos as any)?.esquina || !!(b?.analysis as any)?.esquina;
+    const plantas = num((b?.analysis as any)?.plantas_levantables) ?? num((b?.metadatos as any)?.plantas_levantables) ?? 0;
+    const ventanas = num((b?.analysis as any)?.ventanas_fachada_total) ?? 0;
+
     const cabecera =
-      score >= 70 ? "Puntúa alto"
-      : score >= 45 ? "Puntúa medio"
-      : "Puntúa bajo";
-    return bits.length ? `${cabecera}: ${bits.join(", ")}.` : null;
+      score >= 70 ? "Este edificio puntúa alto"
+      : score >= 45 ? "Este edificio puntúa medio"
+      : "Este edificio puntúa bajo";
+
+    const drivers: string[] = [];
+    if (owners > 0) drivers.push(owners === 1 ? "1 propietario" : `${owners} propietarios`);
+    if (viv > 0) drivers.push(`${viv} viviendas`);
+    if (ratio) drivers.push(`${ratio.toFixed(0)} m² de media por vivienda`);
+    if (pctTerc !== null) drivers.push(pctTerc === 0 ? "0% terciario" : `${pctTerc}% de superficie terciaria`);
+    if (!dh && score >= 40) drivers.push("sin división horizontal constituida");
+    if (protegido) drivers.push("protegido PGOU");
+    else if (score >= 60) drivers.push("sin protección conocida");
+    if (esquina) drivers.push("hace esquina");
+    if (plantas > 0) drivers.push(`potencial de elevación de ${plantas} ${plantas === 1 ? "planta" : "plantas"}`);
+    if (ventanas >= 50) drivers.push("alta segregabilidad por fachada");
+
+    let explicacion = `${cabecera}`;
+    if (drivers.length) {
+      explicacion += ` porque combina ${drivers.slice(0, 3).join(", ")}`;
+      if (drivers.length > 3) explicacion += ` y también ${drivers.slice(3).join(", ")}`;
+    }
+    explicacion += ". ";
+
+    if (score >= 70) {
+      explicacion += "Reúne los activos clave que buscamos: tamaño suficiente para operación, concentración de propiedad manejable, tipología predominantemente residencial y ausencia de bloques normativos importantes. ";
+      if (!dh) explicacion += "El hecho de que no exista división horizontal constituida simplifica la negociación de bloque y abre opciones de estructura de compra. ";
+    } else if (score >= 45) {
+      explicacion += "Tiene rasgos interesantes —como el tamaño o la distribución de propietarios— pero arrastra algún condicionante que frena la puntuación: puede ser menor dimensión, mix terciario, protección puntual o un ratio poco eficiente. ";
+    } else {
+      explicacion += "La puntuación baja refleja que varios de los filtros de la tesis no se cumplen de forma simultánea: tamaño reducido, propiedad muy fragmentada o concentrada de forma adversa, presencia terciaria significativa, o restricciones normativas que limitan la operación. ";
+    }
+
+    if (cluster !== "baja_prioridad") {
+      explicacion += `Esto lo sitúa dentro de la tesis **${clusterInfo.label}**: ${clusterInfo.tagline.toLowerCase()}.`;
+    } else {
+      explicacion += "Aunque el score numérico no sea bajo, el barrio no está en el mapa de tesis prioritarias de Madrid, así que aplicamos pesos genéricos y conviene revisarlo caso a caso.";
+    }
+
+    return explicacion;
   })();
 
   return (
@@ -442,12 +473,14 @@ export function ScoringResumen({
           )}
         </div>
 
-        {/* Por qué breve (1 línea, criterios Carlos) — sin IA */}
+        {/* Por qué del score: explicación descriptiva extensa — sin IA */}
         {shortWhy && (
-          <div className="border-b border-border-faint bg-background/40 px-6 py-2.5">
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-gold">Por qué · </span>
-              <span className="text-foreground">{shortWhy}</span>
+          <div className="border-b border-border-faint bg-background/40 px-6 py-4">
+            <Eyebrow className="mb-1.5">
+              <Sparkles className="mr-1 inline h-3 w-3 text-gold" /> Por qué este score
+            </Eyebrow>
+            <p className="text-sm leading-relaxed text-foreground">
+              <RichText text={shortWhy} />
             </p>
           </div>
         )}
