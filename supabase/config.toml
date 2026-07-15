@@ -18,3 +18,6 @@ verify_jwt = false
 
 [functions.auto_analyze_hubspot_calls]
 verify_jwt = false
+
+[functions.hubspot_sync_incremental]
+verify_jwt = false
