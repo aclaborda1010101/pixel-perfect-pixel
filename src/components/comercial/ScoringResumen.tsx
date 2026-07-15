@@ -473,12 +473,14 @@ export function ScoringResumen({
           )}
         </div>
 
-        {/* Por qué breve (1 línea, criterios Carlos) — sin IA */}
+        {/* Por qué del score: explicación descriptiva extensa — sin IA */}
         {shortWhy && (
-          <div className="border-b border-border-faint bg-background/40 px-6 py-2.5">
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-gold">Por qué · </span>
-              <span className="text-foreground">{shortWhy}</span>
+          <div className="border-b border-border-faint bg-background/40 px-6 py-4">
+            <Eyebrow className="mb-1.5">
+              <Sparkles className="mr-1 inline h-3 w-3 text-gold" /> Por qué este score
+            </Eyebrow>
+            <p className="text-sm leading-relaxed text-foreground">
+              <RichText text={shortWhy} />
             </p>
           </div>
         )}
