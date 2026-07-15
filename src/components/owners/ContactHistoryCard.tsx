@@ -59,9 +59,23 @@ function fmtDur(s: number | null): string {
   return m > 0 ? `${m}m ${String(r).padStart(2, "0")}s` : `${r}s`;
 }
 
+function stripHtml(input: string | null | undefined): string {
+  if (!input) return "";
+  let t = String(input).replace(/<[^>]+>/g, " ");
+  const entities: Record<string, string> = {
+    "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
+    "&quot;": '"', "&#39;": "'", "&apos;": "'", "&ndash;": "-", "&mdash;": "—",
+  };
+  t = t.replace(/&(nbsp|amp|lt|gt|quot|#39|apos|ndash|mdash);/g, (m) => entities[m] ?? m);
+  t = t.replace(/&#(\d+);/g, (_, n) => {
+    try { return String.fromCharCode(parseInt(n, 10)); } catch { return ""; }
+  });
+  return t.replace(/\s+/g, " ").trim();
+}
+
 function NoteCell({ text }: { text: string | null }) {
   const [open, setOpen] = useState(false);
-  const t = (text ?? "").trim();
+  const t = stripHtml(text);
   if (!t) return <span className="text-xs text-muted-foreground">—</span>;
   const short = t.length > 90;
   if (!short) return <span className="text-sm">{t}</span>;
