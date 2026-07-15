@@ -6753,6 +6753,7 @@ export type Database = {
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      strip_html_to_text: { Args: { _in: string }; Returns: string }
     }
     Enums: {
       app_role:
