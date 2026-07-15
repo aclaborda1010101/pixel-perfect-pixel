@@ -634,7 +634,7 @@ export default function ComercialEdificios() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
             <TabsTrigger value="mia">Mi cartera ({mias.length})</TabsTrigger>
-            <TabsTrigger value="todos">
+            <TabsTrigger value="todos" onMouseEnter={prefetchTodos} onFocus={prefetchTodos}>
               Todos los edificios{todosRows.length ? ` (${todosRows.length})` : ""}
             </TabsTrigger>
           </TabsList>
@@ -849,15 +849,27 @@ export default function ComercialEdificios() {
               description="Ajusta los filtros o vuelve a intentarlo."
             />
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredTodos.map((r) => (
-                <BuildingCard key={r.id} r={r} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {filteredTodos.slice(0, shownTodos).map((r) => (
+                  <BuildingCard key={r.id} r={r} />
+                ))}
+              </div>
+              {shownTodos < filteredTodos.length && (
+                <div className="mt-6 flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShownTodos((n) => n + TODOS_PAGE)}
+                  >
+                    Cargar más ({Math.min(TODOS_PAGE, filteredTodos.length - shownTodos)} de {filteredTodos.length - shownTodos} restantes)
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
       </Tabs>
-      <NewBuildingDialog open={showNewBuilding} onOpenChange={setShowNewBuilding} />
     </div>
   );
 }
