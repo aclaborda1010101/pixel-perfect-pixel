@@ -38,7 +38,7 @@ async function findHubspotCall(sb: any, ownerId: string, sinceIso: string | null
   const hsContactId = ext?.provider_id;
   if (!hsContactId) return null;
   let q = sb.from("hubspot_calls")
-    .select("id, hs_id, hs_timestamp, hs_call_body, hs_call_duration, associated_contact_ids")
+    .select("id, hs_id, hs_timestamp, hs_call_body, hs_call_transcription, hs_call_recording_url, hs_call_duration, associated_contact_ids")
     .contains("associated_contact_ids", [hsContactId])
     .order("hs_timestamp", { ascending: false }).limit(1);
   if (sinceIso) q = q.gte("hs_timestamp", sinceIso);
@@ -90,8 +90,31 @@ Deno.serve(async (req) => {
 
     if (hsCall) {
       hubspotCallId = hsCall.hs_id;
-      transcript = hsCall.hs_call_body || null;
+      transcript = hsCall.hs_call_transcription || hsCall.hs_call_body || null;
       foundSource = "hubspot_calls";
+      // Si no hay transcripción pero SÍ hay grabación, transcribimos en el momento.
+      const shortTranscript = !transcript || String(transcript).trim().length < 20;
+      if (shortTranscript && hsCall.hs_call_recording_url && (hsCall.hs_call_duration ?? 0) >= 45000) {
+        try {
+          const tRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/transcribe_calls`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({ call_id: hsCall.hs_id }),
+          });
+          if (tRes.ok) {
+            const tj = await tRes.json().catch(() => ({}));
+            if (tj?.ok && tj?.text_preview) {
+              // Releer la fila para tener el texto completo
+              const { data: reread } = await sb.from("hubspot_calls")
+                .select("hs_call_transcription").eq("hs_id", hsCall.hs_id).maybeSingle();
+              transcript = reread?.hs_call_transcription || transcript;
+            }
+          }
+        } catch (e) { console.warn("[finalize_call_session] transcribe inline fail", (e as Error).message); }
+      }
       // Espejo en public.calls si no existe
       if (!callId) {
         const { data: ins } = await sb.from("calls").insert({
