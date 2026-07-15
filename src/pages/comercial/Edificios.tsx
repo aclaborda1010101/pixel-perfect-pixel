@@ -614,52 +614,12 @@ export default function ComercialEdificios() {
   const filteredMias = apply(visibleMias);
   const filteredTodos = apply(rows);
 
-  const [showNewBuilding, setShowNewBuilding] = useState(false);
-
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Edificios"
         title="Cartera y catálogo"
         subtitle={`${mias.length} en tu cartera${todosRows.length ? ` · ${todosRows.length} edificios totales` : ""}`}
-        actions={
-          <div className="flex gap-2">
-          <Button
-            onClick={() => setShowNewBuilding(true)}
-            variant="gold"
-            size="sm"
-          >
-            <Plus className="h-3 w-3" />
-            Dar de alta nuevo edificio
-          </Button>
-          <Button
-            onClick={launchClusterRecompute}
-            disabled={batchBusy}
-            variant="default"
-            size="sm"
-          >
-            {batchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            Recalcular clusters (74)
-          </Button>
-          <Button
-            onClick={() => launchBatch(true)}
-            disabled={batchBusy || !userId}
-            variant="gold"
-            size="sm"
-          >
-            {batchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            Procesar pendientes ({mias.filter(m => !m.has_analysis).length})
-          </Button>
-          <Button
-            onClick={() => launchBatch(false)}
-            disabled={batchBusy || !userId}
-            variant="outline"
-            size="sm"
-          >
-            Reprocesar todos los {mias.length}
-          </Button>
-          </div>
-        }
       />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="space-y-4">
