@@ -479,7 +479,7 @@ export function ScoringResumen({
             <Eyebrow className="mb-1.5">
               <Sparkles className="mr-1 inline h-3 w-3 text-gold" /> Por qué este score
             </Eyebrow>
-            <p className="text-sm leading-relaxed text-foreground">
+            <p className="text-justify text-sm leading-relaxed text-foreground">
               <RichText text={shortWhy} />
             </p>
           </div>
