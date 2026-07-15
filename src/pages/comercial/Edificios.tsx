@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,6 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { EmptyState } from "@/components/common/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { toast } from "sonner";
 import {
   Building2,
   ArrowRight,
@@ -38,8 +37,6 @@ import {
   MapPin,
   X,
   AppWindow,
-  Loader2,
-  Sparkles,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,9 +51,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
 import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
-import { NewBuildingDialog } from "@/components/buildings/NewBuildingDialog";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
-import { Plus } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Row = {
@@ -297,6 +292,11 @@ export default function ComercialEdificios() {
   const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
   const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
 
+  // Windowing del catálogo "Todos": pintamos por lotes para que el DOM no
+  // se atragante con >1000 tarjetas de golpe.
+  const TODOS_PAGE = 60;
+  const [shownTodos, setShownTodos] = useState(TODOS_PAGE);
+
   // --- Mi cartera: query ligera (~80 filas) que se carga siempre ---
   const { data: miaData, isLoading: loadingMia } = useQuery({
     queryKey: ["comercial:edificios:mia", userId],
@@ -382,14 +382,12 @@ export default function ComercialEdificios() {
   });
 
   // --- Catálogo completo: lazy, sólo al activar tab "todos" ---
-  const { data: todosData, isLoading: loadingTodos } = useQuery({
-    queryKey: ["comercial:edificios:todos", userId],
-    enabled: !!userId && tab === "todos",
-    staleTime: 5 * 60_000,
-    queryFn: async () => {
+  const qc = useQueryClient();
+  const todosQueryKey = ["comercial:edificios:todos", userId] as const;
+  const todosQueryFn = async () => {
       // Paginación completa: Supabase limita a 1000 filas/request, así que
       // iteramos hasta agotar el catálogo. El coste extra es marginal porque
-      // la query es lazy (enabled: tab==="todos") y cachea 5 min.
+      // la query es lazy (enabled: tab==="todos") y cachea 10 min.
       const PAGE = 1000;
       const fetchPage = (from: number) =>
         (supabase.from("v_building_score" as any) as any)
@@ -479,52 +477,23 @@ export default function ComercialEdificios() {
         };
       });
       return { rows };
-    },
+    };
+  const { data: todosData, isLoading: loadingTodos } = useQuery({
+    queryKey: todosQueryKey,
+    enabled: !!userId && tab === "todos",
+    staleTime: 10 * 60_000,
+    placeholderData: keepPreviousData,
+    queryFn: todosQueryFn,
   });
+  const prefetchTodos = () => {
+    if (!userId) return;
+    qc.prefetchQuery({ queryKey: todosQueryKey, queryFn: todosQueryFn, staleTime: 10 * 60_000 });
+  };
 
   const miasRows: Row[] = miaData?.rows ?? [];
   const todosRows: Row[] = todosData?.rows ?? [];
   const rows: Row[] = tab === "todos" && todosRows.length > 0 ? todosRows : miasRows;
   const isLoading = loadingMia || (tab === "todos" && loadingTodos);
-  const [batchBusy, setBatchBusy] = useState(false);
-
-  const launchBatch = async (onlyMissing: boolean) => {
-    if (!userId) return;
-    setBatchBusy(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("batch-process-cartera", {
-        body: { user_id: userId, only_missing: onlyMissing, force: !onlyMissing },
-      });
-      if (error) throw error;
-      const d = data as any;
-      if (d?.status === "nothing_to_do") {
-        toast.info("Todos los edificios ya tienen análisis. Usa 'Reprocesar todos' para forzar.");
-      } else {
-        toast.success(`Procesando ${d?.total ?? "?"} edificios en segundo plano. Refresca en unos minutos.`);
-      }
-    } catch (e: any) {
-      toast.error("Error al lanzar batch: " + (e?.message ?? String(e)));
-    } finally {
-      setBatchBusy(false);
-    }
-  };
-
-  const launchClusterRecompute = async () => {
-    setBatchBusy(true);
-    try {
-      toast.info("Recalculando scoring por clusters de los 74 edificios… esto tardará 2-5 min.");
-      const { data, error } = await supabase.functions.invoke("recompute-cluster-scoring", {
-        body: { only_seed: true },
-      });
-      if (error) throw error;
-      const d = data as any;
-      toast.success(`Listo: ${d?.processed ?? 0} edificios recalculados. Refresca la página.`);
-    } catch (e: any) {
-      toast.error("Error al recalcular: " + (e?.message ?? String(e)));
-    } finally {
-      setBatchBusy(false);
-    }
-  };
 
   // "Mi cartera" = asignados al user actual OR cartera_demo_seed=true
   const mias = useMemo(
@@ -658,7 +627,12 @@ export default function ComercialEdificios() {
   const filteredMias = apply(visibleMias);
   const filteredTodos = apply(rows);
 
-  const [showNewBuilding, setShowNewBuilding] = useState(false);
+  // Al cambiar filtros/orden/tab, volvemos a la primera "página" de render.
+  useEffect(() => {
+    setShownTodos(TODOS_PAGE);
+  }, [tab, q, sort, scoreMin, barrios, ventanasMin, advSegundasEscaleras,
+      advPlantasLevantables, advAzotea, advEsquina, advSinProteccion,
+      advSinReforma, advSinGestionPro, advClusters, advSoloEstrella]);
 
   return (
     <div className="space-y-6">
@@ -666,51 +640,13 @@ export default function ComercialEdificios() {
         eyebrow="Edificios"
         title="Cartera y catálogo"
         subtitle={`${mias.length} en tu cartera${todosRows.length ? ` · ${todosRows.length} edificios totales` : ""}`}
-        actions={
-          <div className="flex gap-2">
-          <Button
-            onClick={() => setShowNewBuilding(true)}
-            variant="gold"
-            size="sm"
-          >
-            <Plus className="h-3 w-3" />
-            Dar de alta nuevo edificio
-          </Button>
-          <Button
-            onClick={launchClusterRecompute}
-            disabled={batchBusy}
-            variant="default"
-            size="sm"
-          >
-            {batchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            Recalcular clusters (74)
-          </Button>
-          <Button
-            onClick={() => launchBatch(true)}
-            disabled={batchBusy || !userId}
-            variant="gold"
-            size="sm"
-          >
-            {batchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            Procesar pendientes ({mias.filter(m => !m.has_analysis).length})
-          </Button>
-          <Button
-            onClick={() => launchBatch(false)}
-            disabled={batchBusy || !userId}
-            variant="outline"
-            size="sm"
-          >
-            Reprocesar todos los {mias.length}
-          </Button>
-          </div>
-        }
       />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
             <TabsTrigger value="mia">Mi cartera ({mias.length})</TabsTrigger>
-            <TabsTrigger value="todos">
+            <TabsTrigger value="todos" onMouseEnter={prefetchTodos} onFocus={prefetchTodos}>
               Todos los edificios{todosRows.length ? ` (${todosRows.length})` : ""}
             </TabsTrigger>
           </TabsList>
@@ -925,15 +861,27 @@ export default function ComercialEdificios() {
               description="Ajusta los filtros o vuelve a intentarlo."
             />
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredTodos.map((r) => (
-                <BuildingCard key={r.id} r={r} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {filteredTodos.slice(0, shownTodos).map((r) => (
+                  <BuildingCard key={r.id} r={r} />
+                ))}
+              </div>
+              {shownTodos < filteredTodos.length && (
+                <div className="mt-6 flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShownTodos((n) => n + TODOS_PAGE)}
+                  >
+                    Cargar más ({Math.min(TODOS_PAGE, filteredTodos.length - shownTodos)} de {filteredTodos.length - shownTodos} restantes)
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
       </Tabs>
-      <NewBuildingDialog open={showNewBuilding} onOpenChange={setShowNewBuilding} />
     </div>
   );
 }
