@@ -377,14 +377,12 @@ export default function ComercialEdificios() {
   });
 
   // --- Catálogo completo: lazy, sólo al activar tab "todos" ---
-  const { data: todosData, isLoading: loadingTodos } = useQuery({
-    queryKey: ["comercial:edificios:todos", userId],
-    enabled: !!userId && tab === "todos",
-    staleTime: 5 * 60_000,
-    queryFn: async () => {
+  const qc = useQueryClient();
+  const todosQueryKey = ["comercial:edificios:todos", userId] as const;
+  const todosQueryFn = async () => {
       // Paginación completa: Supabase limita a 1000 filas/request, así que
       // iteramos hasta agotar el catálogo. El coste extra es marginal porque
-      // la query es lazy (enabled: tab==="todos") y cachea 5 min.
+      // la query es lazy (enabled: tab==="todos") y cachea 10 min.
       const PAGE = 1000;
       const fetchPage = (from: number) =>
         (supabase.from("v_building_score" as any) as any)
@@ -474,8 +472,18 @@ export default function ComercialEdificios() {
         };
       });
       return { rows };
-    },
+    };
+  const { data: todosData, isLoading: loadingTodos } = useQuery({
+    queryKey: todosQueryKey,
+    enabled: !!userId && tab === "todos",
+    staleTime: 10 * 60_000,
+    placeholderData: keepPreviousData,
+    queryFn: todosQueryFn,
   });
+  const prefetchTodos = () => {
+    if (!userId) return;
+    qc.prefetchQuery({ queryKey: todosQueryKey, queryFn: todosQueryFn, staleTime: 10 * 60_000 });
+  };
 
   const miasRows: Row[] = miaData?.rows ?? [];
   const todosRows: Row[] = todosData?.rows ?? [];
