@@ -481,45 +481,6 @@ export default function ComercialEdificios() {
   const todosRows: Row[] = todosData?.rows ?? [];
   const rows: Row[] = tab === "todos" && todosRows.length > 0 ? todosRows : miasRows;
   const isLoading = loadingMia || (tab === "todos" && loadingTodos);
-  const [batchBusy, setBatchBusy] = useState(false);
-
-  const launchBatch = async (onlyMissing: boolean) => {
-    if (!userId) return;
-    setBatchBusy(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("batch-process-cartera", {
-        body: { user_id: userId, only_missing: onlyMissing, force: !onlyMissing },
-      });
-      if (error) throw error;
-      const d = data as any;
-      if (d?.status === "nothing_to_do") {
-        toast.info("Todos los edificios ya tienen análisis. Usa 'Reprocesar todos' para forzar.");
-      } else {
-        toast.success(`Procesando ${d?.total ?? "?"} edificios en segundo plano. Refresca en unos minutos.`);
-      }
-    } catch (e: any) {
-      toast.error("Error al lanzar batch: " + (e?.message ?? String(e)));
-    } finally {
-      setBatchBusy(false);
-    }
-  };
-
-  const launchClusterRecompute = async () => {
-    setBatchBusy(true);
-    try {
-      toast.info("Recalculando scoring por clusters de los 74 edificios… esto tardará 2-5 min.");
-      const { data, error } = await supabase.functions.invoke("recompute-cluster-scoring", {
-        body: { only_seed: true },
-      });
-      if (error) throw error;
-      const d = data as any;
-      toast.success(`Listo: ${d?.processed ?? 0} edificios recalculados. Refresca la página.`);
-    } catch (e: any) {
-      toast.error("Error al recalcular: " + (e?.message ?? String(e)));
-    } finally {
-      setBatchBusy(false);
-    }
-  };
 
   // "Mi cartera" = asignados al user actual OR cartera_demo_seed=true
   const mias = useMemo(
