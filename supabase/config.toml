@@ -21,3 +21,6 @@ verify_jwt = false
 
 [functions.hubspot_sync_incremental]
 verify_jwt = false
+
+[functions.link_orphan_contacts]
+verify_jwt = false

@@ -3176,6 +3176,83 @@ export type Database = {
         }
         Relationships: []
       }
+      hubspot_link_review: {
+        Row: {
+          candidates: Json
+          created_at: string
+          email: string | null
+          firstname: string | null
+          hs_contact_id: string
+          id: string
+          lastname: string | null
+          phone: string | null
+          reason: string | null
+          refs_count: number
+          resolved_owner_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          candidates?: Json
+          created_at?: string
+          email?: string | null
+          firstname?: string | null
+          hs_contact_id: string
+          id?: string
+          lastname?: string | null
+          phone?: string | null
+          reason?: string | null
+          refs_count?: number
+          resolved_owner_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          candidates?: Json
+          created_at?: string
+          email?: string | null
+          firstname?: string | null
+          hs_contact_id?: string
+          id?: string
+          lastname?: string | null
+          phone?: string | null
+          reason?: string | null
+          refs_count?: number
+          resolved_owner_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hubspot_link_review_resolved_owner_id_fkey"
+            columns: ["resolved_owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hubspot_link_review_resolved_owner_id_fkey"
+            columns: ["resolved_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "hubspot_link_review_resolved_owner_id_fkey"
+            columns: ["resolved_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "hubspot_link_review_resolved_owner_id_fkey"
+            columns: ["resolved_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       hubspot_list_memberships: {
         Row: {
           added_at: string | null
@@ -6616,6 +6693,19 @@ export type Database = {
           p_threshold?: number
         }
         Returns: Json
+      }
+      find_owner_for_orphan_contact: {
+        Args: {
+          p_email: string
+          p_first: string
+          p_last: string
+          p_phone: string
+        }
+        Returns: {
+          confidence: number
+          method: string
+          owner_id: string
+        }[]
       }
       get_pending_scoring_calls: {
         Args: { _limit?: number }
