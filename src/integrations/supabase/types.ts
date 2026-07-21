@@ -1636,6 +1636,7 @@ export type Database = {
           call_id: string | null
           cerrada_at: string | null
           checklist: Json
+          comercial_email: string | null
           comercial_id: string
           created_at: string
           estado: string
@@ -1650,6 +1651,7 @@ export type Database = {
           paso: number
           puntuacion: number | null
           resultado: string | null
+          retroactiva: boolean
           updated_at: string
           voss_brief: Json | null
           voss_post: Json | null
@@ -1659,6 +1661,7 @@ export type Database = {
           call_id?: string | null
           cerrada_at?: string | null
           checklist?: Json
+          comercial_email?: string | null
           comercial_id: string
           created_at?: string
           estado?: string
@@ -1673,6 +1676,7 @@ export type Database = {
           paso?: number
           puntuacion?: number | null
           resultado?: string | null
+          retroactiva?: boolean
           updated_at?: string
           voss_brief?: Json | null
           voss_post?: Json | null
@@ -1682,6 +1686,7 @@ export type Database = {
           call_id?: string | null
           cerrada_at?: string | null
           checklist?: Json
+          comercial_email?: string | null
           comercial_id?: string
           created_at?: string
           estado?: string
@@ -1696,6 +1701,7 @@ export type Database = {
           paso?: number
           puntuacion?: number | null
           resultado?: string | null
+          retroactiva?: boolean
           updated_at?: string
           voss_brief?: Json | null
           voss_post?: Json | null
@@ -6496,6 +6502,42 @@ export type Database = {
           telefono: string | null
           tipo: string | null
           updated_at: string | null
+        }
+        Relationships: []
+      }
+      v_retro_audit_progress: {
+        Row: {
+          auditadas: number | null
+          pct: number | null
+          pendientes: number | null
+          total_universo: number | null
+        }
+        Relationships: []
+      }
+      v_retro_audit_queue: {
+        Row: {
+          associated_contact_ids: string[] | null
+          hs_call_disposition: string | null
+          hs_call_duration: number | null
+          hs_id: string | null
+          hs_owner_id: string | null
+          hs_timestamp: string | null
+        }
+        Insert: {
+          associated_contact_ids?: string[] | null
+          hs_call_disposition?: string | null
+          hs_call_duration?: number | null
+          hs_id?: string | null
+          hs_owner_id?: string | null
+          hs_timestamp?: string | null
+        }
+        Update: {
+          associated_contact_ids?: string[] | null
+          hs_call_disposition?: string | null
+          hs_call_duration?: number | null
+          hs_id?: string | null
+          hs_owner_id?: string | null
+          hs_timestamp?: string | null
         }
         Relationships: []
       }
