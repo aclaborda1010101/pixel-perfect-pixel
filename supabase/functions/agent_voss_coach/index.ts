@@ -326,7 +326,7 @@ function shortCall(c: any) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
-    const { mode = 'brief', owner_id, building_id, call_transcript, target_kpis, kpi_context } = await req.json();
+    const { mode = 'brief', owner_id, building_id, call_transcript, call_duration_seg, call_summary, target_kpis, kpi_context } = await req.json();
     const targetKpis: string[] = Array.isArray(target_kpis) ? target_kpis.filter((s) => typeof s === 'string' && s.trim()) : [];
     const kpiContext: Array<{ clave: string; label: string; estado: string; evidencia: string | null }> = Array.isArray(kpi_context)
       ? kpi_context.filter((k: any) => k && typeof k === 'object' && k.label)
@@ -513,7 +513,13 @@ ${historico_notas.length ? JSON.stringify(historico_notas, null, 2) : '(sin nota
 TAREAS HUBSPOT DEL CONTACTO (${historico_tasks.length}):
 ${historico_tasks.length ? JSON.stringify(historico_tasks, null, 2) : '(sin tareas)'}
 
-${mode === 'post' ? `TRANSCRIPCIÓN A EVALUAR:\n${call_transcript || '(sin transcripción provista)'}\n` : ''}
+${mode === 'post' ? `METADATOS DE LA LLAMADA:
+- CALL_DURATION_SEG: ${call_duration_seg ?? 'desconocida'}
+- CALL_SUMMARY_HUBSPOT (referencia — NO es la fuente de verdad): ${call_summary ? String(call_summary).slice(0, 800) : '(no disponible)'}
+
+VERBATIM (fuente de verdad — cita literal de aquí, no del summary):
+${call_transcript || '(sin transcripción provista — informe BREVE obligatorio, informe_completo=false)'}
+` : ''}
 ${mode === 'brief' ? `TARGET_KPIS (KPIs OBJETIVO de esta llamada — enfoca el plan en conseguir ESTOS datos concretos; usa el label EXACTO en "enfoque_llamada[].kpi"):
 ${targetKpis.length ? targetKpis.map((k, i) => `[${i + 1}] ${k}`).join('\n') : '(vacío — plan estándar)'}
 
