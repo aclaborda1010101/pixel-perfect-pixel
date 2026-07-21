@@ -273,7 +273,6 @@ export default function ComercialEdificios() {
   const [searchParams] = useSearchParams();
   const urlFilter = searchParams.get("filter");
   const [tab, setTab] = useState<"todos" | "jesus" | "david">("todos");
-  const [profileName, setProfileName] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("score_desc");
   const [scoreMin, setScoreMin] = useState<string>("");
@@ -305,7 +304,6 @@ export default function ComercialEdificios() {
     (async () => {
       const { data } = await supabase.from("profiles").select("full_name, email").eq("id", userId).maybeSingle();
       const name = String((data as any)?.full_name ?? (data as any)?.email ?? "").toLowerCase();
-      setProfileName(name);
       if (name.includes("jes")) setTab("jesus");
       else if (name.includes("david") || name.includes("casero")) setTab("david");
     })();
@@ -501,10 +499,6 @@ export default function ComercialEdificios() {
     placeholderData: keepPreviousData,
     queryFn: todosQueryFn,
   });
-  const prefetchTodos = () => {
-    if (!userId) return;
-    qc.prefetchQuery({ queryKey: todosQueryKey, queryFn: todosQueryFn, staleTime: 10 * 60_000 });
-  };
 
   const miasRows: Row[] = miaData?.rows ?? [];
   const todosRows: Row[] = todosData?.rows ?? [];
