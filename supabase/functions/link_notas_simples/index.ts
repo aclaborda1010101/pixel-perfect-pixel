@@ -123,6 +123,8 @@ Deno.serve(async (req) => {
     building_match_fuzzy: 0,
     building_created_auto: 0,
     building_no_match: 0,
+    building_rejected_malformed: 0,
+    building_rejected_refcat_conflict: 0,
     errors: [] as Array<{ nota_id: string; error: string }>,
   };
 
@@ -191,24 +193,65 @@ Deno.serve(async (req) => {
 
       // 1c) Auto-crear building si no hay match
       if (!buildingId && !dryRun && (extracted || refCat)) {
-        const direccionFinal = extracted?.direccion || `[Sin dirección] ${refCat ?? "ref desconocida"}`;
-        const ciudadFinal = extracted?.ciudad || "Desconocida";
-        const { data: created, error: cErr } = await sb.from("buildings").insert({
-          direccion: direccionFinal,
-          ciudad: ciudadFinal,
-          catastro_ref: refCat || null,
-          estado: "identificado",
-          metadatos: {
-            source: "nota_simple_auto",
-            nota_simple_id: nota.id,
-            sync_to_hubspot: false,
-            linderos_excerpt: (sj.linderos ?? "").toString().slice(0, 240),
-          },
-        }).select("id").single();
-        if (cErr) throw new Error(`buildings auto-insert: ${cErr.message}`);
-        buildingId = created!.id;
-        matchKind = "auto_created";
-        stats.building_created_auto++;
+        const direccionFinal = extracted?.direccion || "";
+        const ciudadFinal = extracted?.ciudad || "";
+
+        // Guardas anti-basura:
+        // (a) La dirección DEBE contener un número (portal). Sin número = no creamos.
+        const hasNumber = /\b\d{1,4}[a-zA-Z]?\b/.test(direccionFinal);
+        // (b) La ciudad no puede coincidir con el nombre de la calle
+        //     (patrón típico: direccion="Calle Topete" + ciudad="Topete").
+        const streetName = direccionFinal
+          .replace(/^(calle|c\/|plaza|pza\.?|paseo|p[ºo°]\.?|avenida|av\.?|ronda|travesía|carretera|ctra\.?|camino|via)\s+/i, "")
+          .replace(/\s+\d.*$/, "")
+          .trim()
+          .toLowerCase();
+        const cityLc = ciudadFinal.trim().toLowerCase();
+        const cityLooksLikeStreet = !!cityLc && !!streetName && (cityLc === streetName || streetName.includes(cityLc) || cityLc.includes(streetName));
+
+        let reject: string | null = null;
+        if (!direccionFinal || direccionFinal.length < 6) reject = "direccion_vacia";
+        else if (!hasNumber) reject = "direccion_sin_numero";
+        else if (cityLooksLikeStreet) reject = "ciudad_es_calle";
+
+        // (c) Si hay refcat y ya pertenece a otro building, nunca crear duplicado.
+        if (!reject && refCat) {
+          const { data: rcOwner } = await sb.from("buildings")
+            .select("id, catastro_ref")
+            .filter("catastro_ref", "not.is", null)
+            .limit(50);
+          const conflict = (rcOwner ?? []).find((b: any) => normDoc(b.catastro_ref).slice(0, 14) === refCat.slice(0, 14));
+          if (conflict) {
+            buildingId = conflict.id;
+            matchKind = "existing_catastro";
+            stats.building_match_catastro++;
+          }
+        }
+
+        if (!buildingId && reject) {
+          stats.building_rejected_malformed++;
+          await sb.from("notas_simples").update({
+            error_message: `[review] auto-create rechazado: ${reject} · dir="${direccionFinal}" · ciudad="${ciudadFinal}"`,
+          }).eq("id", nota.id);
+          console.warn(`[link_notas_simples] rechazado nota=${nota.id} reason=${reject} dir="${direccionFinal}" ciudad="${ciudadFinal}"`);
+        } else if (!buildingId) {
+          const { data: created, error: cErr } = await sb.from("buildings").insert({
+            direccion: direccionFinal,
+            ciudad: ciudadFinal || "Madrid",
+            catastro_ref: refCat || null,
+            estado: "identificado",
+            metadatos: {
+              source: "nota_simple_auto",
+              nota_simple_id: nota.id,
+              sync_to_hubspot: false,
+              linderos_excerpt: (sj.linderos ?? "").toString().slice(0, 240),
+            },
+          }).select("id").single();
+          if (cErr) throw new Error(`buildings auto-insert: ${cErr.message}`);
+          buildingId = created!.id;
+          matchKind = "auto_created";
+          stats.building_created_auto++;
+        }
       }
 
       if (!buildingId) {
