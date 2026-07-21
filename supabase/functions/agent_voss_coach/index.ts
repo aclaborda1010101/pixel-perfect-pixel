@@ -565,7 +565,7 @@ ${fragments.map((f, i) => `[${i+1}] (${f.source}) chunk_id=${f.chunk_id}\n${f.sn
 
 Devuelve el JSON estricto con la forma EXACTA del system.`;
 
-    const sys = mode === 'post' ? SYSTEM_POST : (SYSTEM_BRIEF + '\n\n' + KPI_FOCUS_RULES);
+    const sys = (mode === 'post' ? SYSTEM_POST : (SYSTEM_BRIEF + '\n\n' + KPI_FOCUS_RULES)) + '\n\n' + VOZ_ES_ES;
     let ai: any;
     try {
       ai = await callAI([
