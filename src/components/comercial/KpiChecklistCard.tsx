@@ -35,9 +35,21 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
   async function run(force = false) {
     setLoading(true); setError(null);
     try {
-      // 1) Actividad más reciente del propietario
-      const { data: laRaw } = await (supabase.rpc as any)("owner_last_activity_at", { _owner_id: ownerId });
-      const la: string | null = (laRaw as any) ?? null;
+      // 1) Actividad más reciente del propietario (incluye llamadas solo-deal
+      // atribuidas por teléfono, además de la RPC clásica basada en contacto).
+      const [{ data: laRaw }, { data: lastCall }] = await Promise.all([
+        (supabase.rpc as any)("owner_last_activity_at", { _owner_id: ownerId }),
+        (supabase.from("v_owner_calls_enriched" as any) as any)
+          .select("hs_timestamp")
+          .eq("owner_id", ownerId)
+          .order("hs_timestamp", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      const laA = (laRaw as any) ?? null;
+      const laB = (lastCall as any)?.hs_timestamp ?? null;
+      const la: string | null =
+        laA && laB ? (new Date(laA) >= new Date(laB) ? laA : laB) : (laA ?? laB ?? null);
       setLastActivityAt(la);
 
       // 2) Caché
