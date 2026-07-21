@@ -639,8 +639,7 @@ export default function ComercialEdificios() {
     (barrios.size > 0 ? 1 : 0) +
     advancedCount;
 
-  const filteredMias = apply(visibleMias);
-  const filteredTodos = apply(rows);
+  const filteredTodos = apply(rowsByTab);
 
   // Al cambiar filtros/orden/tab, volvemos a la primera "página" de render.
   useEffect(() => {
@@ -654,16 +653,17 @@ export default function ComercialEdificios() {
       <PageHeader
         eyebrow="Edificios"
         title="Cartera y catálogo"
-        subtitle={`${mias.length} en tu cartera${todosRows.length ? ` · ${todosRows.length} edificios totales` : ""}`}
+        subtitle={`${countJesus} Jesús · ${countDavid} David${todosRows.length ? ` · ${todosRows.length} totales` : ""}`}
       />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
-            <TabsTrigger value="mia">Mi cartera ({mias.length})</TabsTrigger>
-            <TabsTrigger value="todos" onMouseEnter={prefetchTodos} onFocus={prefetchTodos}>
+            <TabsTrigger value="todos">
               Todos los edificios{todosRows.length ? ` (${todosRows.length})` : ""}
             </TabsTrigger>
+            <TabsTrigger value="jesus">Jesús ({countJesus})</TabsTrigger>
+            <TabsTrigger value="david">David ({countDavid})</TabsTrigger>
           </TabsList>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -849,25 +849,9 @@ export default function ComercialEdificios() {
           )}
         </div>
 
-        <TabsContent value="mia" className="mt-0">
-          {filteredMias.length === 0 ? (
-            <EmptyState
-              icon={Building2}
-              title={isLoading ? "Cargando…" : "Sin resultados en tu cartera"}
-              description="Ajusta los filtros o contacta con tu administrador para que te asigne edificios."
-            />
-          ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredMias.map((r) => (
-                <BuildingCard key={r.id} r={r} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="todos" className="mt-0">
+        <TabsContent value={tab} className="mt-0">
           <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-            Mostrando {filteredTodos.length} de {rows.length}
+            Mostrando {filteredTodos.length} de {rowsByTab.length}
           </div>
           {filteredTodos.length === 0 ? (
             <EmptyState
