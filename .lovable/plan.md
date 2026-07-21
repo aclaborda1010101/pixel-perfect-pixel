@@ -1,162 +1,67 @@
+# Plan — lote reunión (9 puntos)
 
-Cuatro entregables. Todo compatible hacia atrás: `buildings.score` sigue existiendo y pasa a ser `score_total` (fórmula nueva); `score_activo` queda como el score físico "de siempre".
+Lote grande y heterogéneo. Propongo ejecutarlo en 3 tandas para poder validar entre medias, en lugar de un único commit gigante que sea difícil de revisar.
 
-## 1) Fix del sidebar
+## Tanda A — arreglos rápidos y de alto impacto (hoy)
 
-`src/components/layout/AppSidebar.tsx` — `active = pathname.startsWith(item.url)` marca `/comercial` como activo cuando estás en `/comercial/edificios`. Cambio:
+**1. Ratio M²/viv en UI** — reemplazar todos los cálculos ad-hoc `m2_total/viviendas` por `ratio_m2_viv` de `v_building_score`. Grep en `src/` de `m2_total`, `/ viviendas`, `M²/VIV`, `m2_por_vivienda`. Cambiar cards de `Edificios.tsx` y bloques de `EdificioDetalle.tsx` + `ScoringResumen.tsx`. Fallback a `m2_total/viviendas` sólo si `ratio_m2_viv` es null.
 
-```ts
-const active =
-  location.pathname === item.url ||
-  location.pathname.startsWith(item.url + "/");
-```
+**4. VOSS en castellano natural** — editar los system prompts de `agent_voss_coach` (SYSTEM_PRE y SYSTEM_POST) y `wa_ai_reply` con:
+- Prohibiciones: "¿Parecería una locura si…?", "¿Sería terrible si…?", "Parece que usted…", dos preguntas por mensaje, etiquetar emociones, gratitud melosa.
+- Reemplazos naturales: "¿Le encaja si…?" / "¿Le viene mal que…?" / "Por lo que me cuenta…" / "Corríjame si me equivoco, pero…" / "¿Ha descartado del todo…?".
+- Mantener la lógica Voss (orientación al no, espejos, calibradas).
 
-Así "Inicio" (`/comercial`) solo se ilumina en su ruta exacta.
+**5. Reintentos post-llamada 3/5/10 min** — sustituir el timer actual (15m) en el flujo del paso 2 (`PrepararLlamada.tsx` + `finalize_call_session`) por una cola de 3 intentos a T+3, T+5, T+10 min. Implementación: fila de la sesión con `next_retry_at` + `retries_left` y un cron cada minuto que dispare `finalize_call_session` cuando toque; o setTimeouts encadenados en cliente si la sesión sigue abierta. Preferido: cron server-side para que funcione aunque el comercial cierre la app.
 
-## 2) Renombrar entrada del menú
+**9d. Bot: una sola pregunta por mensaje** — reforzar en el prompt de `wa_ai_reply` la regla dura "exactamente UNA pregunta por mensaje, prohibido dos interrogantes seguidos"; añadir post-check regex que corte todo lo que venga tras la segunda `?`.
 
-En el array de `operativa` para el rol `comercial_zona`:
+## Tanda B — mecánica de datos (siguiente turno)
 
-- `"Edificios"` → **"Scoring total"** (icono `Building2` se mantiene).
+**2. KPIs acumulativos** — el estado de KPIs es del propietario, no de la llamada. Cambios:
+- Nueva vista/función `owner_kpis_state(owner_id)` que devuelve, para cada KPI (whatsapp/pixel/reunion/tipologia/motor/info_edificio/canal_abierto), la primera fecha en que se marcó `done=true` a lo largo de todas las `call_sessions` del propietario.
+- `agent_voss_coach` mode=post recibe ese estado y, si un KPI ya estaba conseguido antes de la llamada actual, lo marca `previamente_conseguido: {fecha, hubspot_call_id}` en el checklist y NO penaliza el `score_0_100`.
+- `KpiChecklistCard.tsx` renderiza chip verde "ya conseguido — 16/07" en vez de rojo "no conseguido".
 
-## 3) Score a dos ejes — SQL, recálculo en tiempo real, UI con toggle
+**3. Bloque "Info del edificio"** — datos agregados de las llamadas de TODOS los propietarios del edificio:
+- Nueva vista `v_building_common_intel(building_id)` que extrae de las auditorías VOSS (`call_sessions.voss_post`) y summaries: precio/oferta discutida, quién bloquea, gestor/portavoz, estado de venta, conflicto entre hermanos.
+- Detección de discrepancias: si dos llamadas mencionan precios distintos con delta > 500k€ o > 10%, marcarlas como "verificar".
+- Consumido por `agent_pre_call_brief` y `VossCoachCard` — sección "Info compartida del edificio" separada de "Info personal" (esta última sí se filtra por owner).
 
-### 3.a Migración: columnas y funciones
+**8. Sección Oportunidades** — página nueva `/oportunidades` con entrada en sidebar (fuera del panel WhatsApp):
+- Fuente: `wa_conversations` con flag `is_lead=true` o heurística (última mención de compra/venta/dirección/zona).
+- Columnas: nombre/tel, resumen (3 líneas), zona detectada, comercial asignado.
+- Pestañas Sin asignar · Jesús · David (mismo patrón que `Edificios.tsx`).
+- Auto-asignación por zona configurable en `app_settings` (default: David = Vallecas/Carabanchel/Chamberí, Jesús = Salamanca/Centro).
 
-Nuevas columnas en `public.buildings`:
+## Tanda C — bot y notificaciones (siguiente turno)
 
-- `score_activo numeric` — copia del score físico actual.
-- `score_propietarios numeric` — nuevo (0–100).
-- `score_propietarios_breakdown jsonb` — desglose ({ señales, pesos, notas }).
-- `score_total numeric` — combinado (fórmula abajo).
-- `score_propietarios_updated_at timestamptz`.
+**6. Emails al comercial** — usar `_shared/mailer.ts`:
+- Al terminar el auto-análisis (fin de `finalize_call_session` con éxito): mail a `agustin.cifuentes@outlook.es` con "Llamada analizada — X/100 — [link expediente]".
+- Cuando el bot agende reunión (detección en `wa_ai_reply` o hook nuevo `wa_meeting_booked`): mail a ese buzón + `carlos.moreno@afflux.es` con fecha/hora, lead y resumen.
+- Buzón configurable por comercial en tabla `profiles.notification_email` (default outlook), pero en esta tanda hardcodeado en `app_settings`.
+- **No** se crea la reunión en el calendario HubSpot — dejar `TODO` comentado.
 
-`score` (columna legacy) queda como alias sincronizado a `score_total` para no romper la UI actual.
+**9a-c. Bot: agenda, pausa, palabra de cierre**:
+- (a) Al detectar "reunión agendada" en `wa_ai_reply`: setear `wa_conversations.bot_paused_until = '2099-01-01'` y disparar mails (punto 6).
+- (b) Trigger en `wa_messages` INSERT: si `direction='outbound'` y `source != 'bot'`, marcar `bot_paused=true` en la conversación.
+- (c) Config `wa_bot_config.stop_words` (array); si el último outbound humano contiene una stop word, pausar bot para ese chat.
 
-Fórmula del `score_total` (multiplicativa suavizada, documentada en el breakdown):
+## Punto 7 — investigación en paralelo
 
-```
-score_total = score_activo × (0.30 + 0.70 × score_propietarios / 100)
-```
+Un subagente está comprobando si HubSpot expone la transcripción literal por API (propiedad, endpoint calling v1 o asociación v4). Según el resultado:
+- Si SÍ hay endpoint → modificar `transcribe_calls` para bajarla de HubSpot y usar STT sólo como fallback (ahorro directo en costes).
+- Si NO → mantener STT actual y reportar el hallazgo.
 
-- `score_propietarios = 0` → `score_total = 0.30 × score_activo` (hunde).
-- `score_propietarios = 100` → `score_total = score_activo` (máximo).
-- `score_propietarios = 50` → `score_total = 0.65 × score_activo`.
+## Verificación del brief (ganchos por frescura)
 
-### 3.b Función `compute_owner_score(p_building_id)`
-
-Agrega señales por edificio a partir de:
-
-- `owners` vinculados vía `building_owners`.
-- `owner_call_prep_cache.kpis_json` (predisposición_a_vender, necesidad_liquidez, urgencia, oferta_previa, quien_bloquea, tipologia_confirmada, cobertura_kpi).
-- Perfil (`owners.buyer_persona`, tipología T1–T10 normalizada).
-- Llamadas analizadas (`call_sessions.voss_post`, `kpis_conseguidos`).
-- Cuota de propiedad (`building_owners.cuota`).
-
-Puntuación (0–100), suma de deltas partiendo de 50:
-
-| Señal (ponderada por cuota si aplica) | Δ |
-|---|---|
-| Predisposición: "quiere/necesita vender" | +18 por propietario ponderado |
-| Predisposición: "condicionado" | +6 |
-| Predisposición: "bloqueado / no quiere" | −20 |
-| Urgencia declarada (herencia, deuda, mudanza) | +10 |
-| Necesidad de liquidez confirmada | +8 |
-| Oferta previa concreta discutida | +6 |
-| Tipología T1 / T2 / T5 / T7 | +4 cada uno |
-| Tipología T3 / T6 | −3 |
-| Nº propietarios ≥ 4 | +6 (más puertas) |
-| Nº propietarios = 1 y bloqueado | −25 (mata) |
-| Cobertura KPI (% propietarios cualificados) | +0..+10 lineal |
-| Todos los contactados cerrados | tope score ≤ 15 |
-
-Clamp 0–100. Guarda breakdown JSON con cada señal, contribuyente y evidencia (call_id / owner_id).
-
-### 3.c Recálculo del edificio
-
-`compute_score_total(building_id)` recalcula `score_activo` (mantiene lógica existente de `compute_score`), llama `compute_owner_score`, aplica la fórmula multiplicativa, escribe las 4 columnas.
-
-### 3.d Trigger en tiempo real post-llamada
-
-- Trigger `AFTER UPDATE OF kpis_conseguidos, voss_post ON call_sessions` → resuelve `building_id` del owner asociado y recalcula.
-- Trigger `AFTER INSERT OR UPDATE ON owner_call_prep_cache` → recalcula edificios asociados al owner.
-- Función `pg_notify` opcional para invalidar caché front (fuera de scope inmediato).
-
-Así, cuando el auto-análisis de 15m escribe el resultado, el score del edificio se mueve solo.
-
-### 3.e UI
-
-`src/pages/comercial/Edificios.tsx` y `EdificioDetalle.tsx`:
-
-- Toggle en la cabecera: **"Sin propietarios"** (checkbox). ON → ordena y muestra `score_activo`; OFF (default) → `score_total`.
-- `BuildingCard` muestra:
-  - `ScorePill` con el score activo (total o activo según toggle).
-  - Chip fino con los tres: **`Activo 86 · Propietarios 45 · Total 62`**.
-- En la ficha, panel "Scoring" añade barra dual (Activo / Propietarios) y texto: "El score total se hunde porque los propietarios están cerrados".
-
-Estado del toggle sincronizado con `?view=activo|total` en URL para poder compartir.
-
-## 4) Productividad — rediseño orientado a coaching
-
-`src/pages/Productividad.tsx` reescrita en 4 secciones (una pestaña cada una, KPI cabecera compartido). Todo se alimenta de datos existentes: `calls`, `call_sessions.puntuacion`, `call_sessions.kpis_conseguidos`, `call_sessions.voss_post.mejoras|fortalezas`, `coach_reports`.
-
-### Sección 1 · Foto semanal por comercial
-
-Por comercial (Jesús / David / resto), tarjeta con:
-
-- **Intentos** (llamadas totales), **Conectadas** (`duracion_seg ≥ 30`), **% conexión**.
-- **Nota media** (media de `call_sessions.puntuacion` de esta semana).
-- **Δ semana vs anterior** (badge verde/rojo con tendencia).
-- **KPIs / conectada** — media de `kpis_conseguidos.length` entre conectadas.
-- **Pendientes**: nº de llamadas conectadas sin analizar + nº de "siguientes llamadas propuestas" con fecha vencida.
-
-### Sección 2 · Qué mejorar (top patrones)
-
-Agrupa `voss_post.mejoras[]` de las llamadas analizadas del comercial (últimos 30 días), normaliza por keyword/etiqueta y muestra top 3 con:
-
-- Etiqueta del patrón, nº de veces detectado.
-- Ejemplo real (link al expediente `/comercial/llamada/:hsId`).
-
-### Sección 3 · Qué hace bien
-
-Mismo agregador con `voss_post.fortalezas[]` — top 3 técnicas recurrentes con ejemplo.
-
-### Sección 4 · Actividad por edificio y pendientes
-
-Tabla ligera:
-
-- Edificios trabajados esta semana (llamadas + owners contactados).
-- Cola de "siguientes llamadas" propuestas por VOSS con fecha objetivo → botón "Preparar" → `/comercial/edificios/{id}/preparar/{ownerId}`.
-
-### Sección 5 · Comparativa sana
-
-Radar Jesús vs David (conexión %, nota media, KPIs/conectada, análisis realizados) — sin ranking numérico, foco en spread.
-
-Mantengo las vistas legacy (`v_productividad_comercial/global` y "Movimientos ganadores") en una pestaña **"Legacy"** por si Carlos quiere consultar histórico.
+Al final de la tanda A confirmo que la apertura del brief ordena por `fecha DESC` los ganchos (vacaciones → madre → edificio para Inés), releyendo la sección relevante de `agent_pre_call_brief` / `agent_voss_coach` mode=pre.
 
 ## Detalles técnicos
 
-**Migraciones (una sola):**
-1. `ALTER TABLE public.buildings ADD COLUMN score_activo/score_propietarios/score_propietarios_breakdown/score_total/score_propietarios_updated_at`.
-2. Backfill: `score_activo := score`, `score_propietarios := NULL` → recomputará al primer trigger.
-3. `CREATE FUNCTION compute_owner_score(uuid) RETURNS jsonb`.
-4. `CREATE FUNCTION compute_score_total(uuid) RETURNS void`.
-5. Triggers `AFTER UPDATE ON call_sessions` y `AFTER INSERT OR UPDATE ON owner_call_prep_cache`.
-6. Job de backfill: recomputar `score_total` para todos los edificios en batches (cron nocturno). Primera ejecución manual.
+- Archivos previsiblemente tocados en tanda A: `src/pages/comercial/Edificios.tsx`, `src/pages/comercial/EdificioDetalle.tsx`, `src/components/comercial/ScoringResumen.tsx`, `supabase/functions/agent_voss_coach/index.ts`, `supabase/functions/wa_ai_reply/index.ts`, `supabase/functions/finalize_call_session/index.ts`, migración SQL para `call_sessions.next_retry_at`/`retries_left` + cron `finalize_pending_sessions_1m`.
+- Todas las llamadas AI mantienen Luna primario / Gemini fallback vía OpenRouter.
+- El punto 7 puede posponer la migración de `transcribe_calls`; si el subagente reporta que hay endpoint, entra en tanda A.
 
-**Front:**
-- `src/pages/comercial/Edificios.tsx` — toggle, columnas nuevas en query slim.
-- `src/components/comercial/scoring.tsx` — helper `ScoreDualChip` (Activo · Propietarios · Total).
-- `src/pages/comercial/EdificioDetalle.tsx` — panel Scoring con las dos barras.
-- `src/pages/Productividad.tsx` — reescritura en 4 secciones nuevas + pestaña Legacy.
-- `src/components/layout/AppSidebar.tsx` — fix active + rename.
+## Pregunta antes de arrancar
 
-**Riesgos / trade-offs:**
-
-- Recomputar `score_total` para 1.156 edificios costará ~2–4 min de CPU en el primer backfill. Se hace en batches de 50 vía función SQL.
-- Si `owner_call_prep_cache.kpis_json` no tiene todavía datos ricos para un edificio, `score_propietarios` cae al valor neutro (50) y no penaliza — así los edificios sin trabajar no se hunden artificialmente.
-
-**Fuera de scope aquí (lo pregunto si lo quieres):**
-
-- Cambiar el ranking o alertas basadas en score (mantengo las actuales).
-- Notificaciones push cuando un `score_total` cae bruscamente.
+¿Ejecuto directamente la tanda A al terminar la investigación del punto 7, o quieres reordenar prioridades (p.ej. punto 8 Oportunidades primero, o punto 3 Info del edificio antes que 2)?

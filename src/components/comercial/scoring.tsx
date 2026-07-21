@@ -212,8 +212,12 @@ export function buildingScoreFactors(s: any) {
     });
   }
   // Fallback (legacy)
+  // Preferimos ratio_m2_viv (m² sólo vivienda) que expone v_building_score;
+  // sólo caemos al ratio total si no está disponible.
   const ratio =
-    s?.m2_total && s?.num_viviendas
+    s?.ratio_m2_viv != null
+      ? Number(s.ratio_m2_viv)
+      : s?.m2_total && s?.num_viviendas
       ? Number(s.m2_total) / Number(s.num_viviendas)
       : null;
   return [

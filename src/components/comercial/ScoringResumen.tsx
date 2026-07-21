@@ -112,7 +112,8 @@ function buildNarrative(b: any, an: any | null, s: any): string[] {
   // 2) Composición física (m² + viviendas + ratio + propietarios + DH) — en prosa
   const m2 = num(s?.m2_total);
   const viv = num(s?.num_viviendas);
-  const ratio = m2 && viv ? m2 / viv : null;
+  const m2Viv = num((s as any)?.m2_vivienda_calc);
+  const ratio = num((s as any)?.ratio_m2_viv) ?? (m2Viv && viv ? m2Viv / viv : (m2 && viv ? m2 / viv : null));
   const owners = num(s?.owners_count) ?? 0;
   const dh = b?.division_horizontal;
   const dhTxt = dh ? "ya tiene división horizontal constituida" : "**no tiene división horizontal**";
@@ -373,7 +374,8 @@ export function ScoringResumen({
   const shortWhy = (() => {
     const viv = num(s?.num_viviendas);
     const m2 = num(s?.m2_total);
-    const ratio = m2 && viv ? m2 / viv : null;
+    const m2Viv = num((s as any)?.m2_vivienda_calc);
+    const ratio = num((s as any)?.ratio_m2_viv) ?? (m2Viv && viv ? m2Viv / viv : (m2 && viv ? m2 / viv : null));
     const m2Com = num((s as any)?.m2_comercio_x) ?? 0;
     const m2Ofi = num((s as any)?.m2_oficina_x) ?? 0;
     const pctTerc = m2 ? Math.round(((m2Com + m2Ofi) / m2) * 100) : null;
