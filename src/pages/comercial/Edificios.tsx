@@ -899,6 +899,19 @@ export default function ComercialEdificios() {
         </div>
 
         <TabsContent value={tab} className="mt-0">
+          {todosError && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <div>
+                <strong>No se pudo cargar el catálogo completo.</strong>{" "}
+                <span className="opacity-80">
+                  {(todosError as Error)?.message?.slice(0, 200) ?? "Error desconocido"}
+                </span>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetchTodos()} disabled={fetchingTodos}>
+                {fetchingTodos ? "Reintentando…" : "Reintentar"}
+              </Button>
+            </div>
+          )}
           <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
             Mostrando {filteredTodos.length} de {rowsByTab.length}
           </div>
