@@ -1387,6 +1387,7 @@ function ConversationDetail({ conv, messages, regenerateSummary, toggleAi, setRo
             <LeadCard
               current={conv}
               qual={qual}
+              messages={messages ?? []}
               regenerateSummary={() => {}}
               setRol={setRol}
             />
