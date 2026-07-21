@@ -183,6 +183,19 @@ export default function ComercialPrepararLlamada() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId]);
 
+  // Persiste los KPIs objetivo (a_abordar) fijados en el paso 1 como parte
+  // del expediente inmutable de la sesión. Solo se escribe una vez, mientras
+  // la sesión sigue "preparada".
+  useEffect(() => {
+    if (!sessionId || targetKpiClaves.length === 0) return;
+    void (async () => {
+      await (supabase.from("call_sessions" as any) as any)
+        .update({ kpis_objetivo: { claves: targetKpiClaves, labels: targetKpis } })
+        .eq("id", sessionId)
+        .eq("estado", "preparada");
+    })();
+  }, [sessionId, targetKpiClaves, targetKpis]);
+
   async function persistSession(patch: Record<string, any>) {
     if (!sessionId) return;
     await (supabase.from("call_sessions" as any) as any).update(patch).eq("id", sessionId);
