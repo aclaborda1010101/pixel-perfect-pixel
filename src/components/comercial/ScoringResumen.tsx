@@ -650,7 +650,7 @@ export function ScoringResumen({
               <TrendingUp className="mr-1 inline h-3 w-3 text-emerald-400" /> Aporta al score
             </Eyebrow>
             <div className="space-y-2.5">
-              {positivos.length === 0 && (
+              {positivos.length === 0 && (!showActivo ? ownerPositivos.length === 0 : true) && (
                 <div className="text-xs text-muted-foreground">
                   Sin factores positivos relevantes.
                 </div>
@@ -677,6 +677,24 @@ export function ScoringResumen({
                   </div>
                 );
               })}
+              {!showActivo && ownerPositivos.length > 0 && (
+                <>
+                  {positivos.length > 0 && (
+                    <div className="pt-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                      · Eje propietarios ·
+                    </div>
+                  )}
+                  {ownerPositivos.map((f, i) => (
+                    <div key={`op-${i}`} className="flex items-baseline justify-between gap-2 text-xs">
+                      <span className="text-foreground">
+                        {f.label}
+                        {f.evidence ? <span className="ml-1 text-muted-foreground">· {f.evidence}</span> : null}
+                      </span>
+                      <span className="font-mono tabular-nums text-emerald-400">+{f.delta}</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           </div>
 
@@ -685,10 +703,11 @@ export function ScoringResumen({
               <TrendingDown className="mr-1 inline h-3 w-3 text-red-400" /> Penalizaciones
             </Eyebrow>
             <div className="space-y-2.5">
-              {penalizaciones.length === 0 ? (
+              {penalizaciones.length === 0 && (showActivo || ownerNegativos.length === 0) ? (
                 <div className="text-xs text-muted-foreground">Sin penalizaciones aplicadas.</div>
               ) : (
-                penalizaciones.map((f) => (
+                <>
+                {penalizaciones.map((f) => (
                   <div
                     key={f.key}
                     className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2.5"
@@ -701,53 +720,35 @@ export function ScoringResumen({
                       </div>
                     </div>
                   </div>
-                ))
+                ))}
+                {!showActivo && ownerNegativos.length > 0 && (
+                  <>
+                    {penalizaciones.length > 0 && (
+                      <div className="pt-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                        · Eje propietarios ·
+                      </div>
+                    )}
+                    {ownerNegativos.map((f, i) => (
+                      <div key={`on-${i}`} className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2.5">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none text-red-400" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs text-foreground">
+                            {f.label}
+                            {f.evidence ? <span className="ml-1 text-muted-foreground">· {f.evidence}</span> : null}
+                          </div>
+                          <div className="font-mono text-[10px] uppercase tracking-eyebrow text-red-400">
+                            {f.delta} pts
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+                </>
               )}
             </div>
           </div>
         </div>
-
-        {/* Propietarios: APORTA AL SCORE (nuevo eje) */}
-        {!showActivo && (ownerPositivos.length > 0 || ownerNegativos.length > 0) && (
-          <div className="grid grid-cols-1 gap-6 border-t border-border-faint px-6 py-6 md:grid-cols-2">
-            <div className="space-y-3">
-              <Eyebrow>
-                <TrendingUp className="mr-1 inline h-3 w-3 text-emerald-400" /> Propietarios · aporta al score
-              </Eyebrow>
-              <div className="space-y-2.5">
-                {ownerPositivos.length === 0 && (
-                  <div className="text-xs text-muted-foreground">Sin señales positivas detectadas todavía.</div>
-                )}
-                {ownerPositivos.map((f, i) => (
-                  <div key={i} className="flex items-baseline justify-between gap-2 text-xs">
-                    <span className="text-foreground">{f.label}{f.evidence ? <span className="ml-1 text-muted-foreground">· {f.evidence}</span> : null}</span>
-                    <span className="font-mono tabular-nums text-emerald-400">+{f.delta}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-3">
-              <Eyebrow>
-                <TrendingDown className="mr-1 inline h-3 w-3 text-red-400" /> Propietarios · penaliza
-              </Eyebrow>
-              <div className="space-y-2.5">
-                {ownerNegativos.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">Sin penalizaciones en el eje de propietarios.</div>
-                ) : (
-                  ownerNegativos.map((f, i) => (
-                    <div key={i} className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2.5">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none text-red-400" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs text-foreground">{f.label}{f.evidence ? <span className="ml-1 text-muted-foreground">· {f.evidence}</span> : null}</div>
-                        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-red-400">{f.delta} pts</div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        )}
 
         {b?.cluster_motivo && (
           <div className="border-t border-border-faint bg-surface-1/40 px-6 py-3">
