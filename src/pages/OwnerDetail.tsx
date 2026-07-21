@@ -314,14 +314,11 @@ export default function OwnerDetail() {
           <TabsList className="w-max md:w-auto">
             <TabsTrigger value="resumen">Resumen</TabsTrigger>
             <TabsTrigger value="edificios">Edificios {buildings.length || ""}</TabsTrigger>
-            <TabsTrigger value="activos">Activos {assets.length || ""}</TabsTrigger>
-            <TabsTrigger value="relaciones">Relaciones {relations.length || ""}</TabsTrigger>
-            <TabsTrigger value="empresas">Empresas {companies.length || ""}</TabsTrigger>
             <TabsTrigger value="comms">Comunicaciones {comms.length || ""}</TabsTrigger>
             <TabsTrigger value="docs">Documentos {titulares.length || ""}</TabsTrigger>
-            <TabsTrigger value="deals">Deals</TabsTrigger>
-            <TabsTrigger value="grafo"><Network className="mr-1 h-3 w-3" /> Grafo</TabsTrigger>
-            <TabsTrigger value="ai"><Sparkles className="mr-1 h-3 w-3" /> IA</TabsTrigger>
+            {companies.length > 0 && (
+              <TabsTrigger value="empresas">Empresas {companies.length}</TabsTrigger>
+            )}
           </TabsList>
         </div>
 
