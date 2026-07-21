@@ -184,7 +184,12 @@ export default function ComercialEdificioDetalle() {
       <EdificioResumenCard b={b} s={s} analysis={analysis} anioConstr={anioConstr} ownersCount={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} catastro={catastro} />
 
       {/* Scoring: score + doble tesis + contribuciones (sin narrativa larga) */}
-      <ScoringResumen b={b} s={s} analysis={analysis} />
+      <ScoringResumen
+        b={b}
+        s={s}
+        analysis={analysis}
+        showActivo={new URLSearchParams(window.location.search).get("view") === "activo"}
+      />
 
       {/* PGOUM: protección + plantas levantables */}
       {id && <PgoumBlock buildingId={id} />}
