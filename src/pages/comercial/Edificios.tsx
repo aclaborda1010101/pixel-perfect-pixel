@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -394,8 +394,7 @@ export default function ComercialEdificios() {
     },
   });
 
-  // --- Catálogo completo: lazy, sólo al activar tab "todos" ---
-  const qc = useQueryClient();
+  // --- Catálogo completo (cacheado 10 min) ---
   const todosQueryKey = ["comercial:edificios:todos", userId] as const;
   const todosQueryFn = async () => {
       // Paginación completa: Supabase limita a 1000 filas/request, así que
