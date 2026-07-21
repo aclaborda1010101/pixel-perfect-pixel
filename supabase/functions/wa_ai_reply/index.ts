@@ -55,6 +55,75 @@ async function sendPresence(phone: string, ms: number, presence = "composing") {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// ─────────────────────────────────────────────────────────────
+// HUMANIZACIÓN DE TIEMPO DE ESCRITURA
+// Nadie escribe 800 caracteres en 200 ms. Estos helpers alinean el envío
+// con el ritmo humano: delay proporcional a la longitud del mensaje,
+// presence "composing" durante ese delay, split natural si >300 chars,
+// y un poll que descarta la respuesta si entra un mensaje nuevo mientras
+// "estamos escribiendo".
+// ─────────────────────────────────────────────────────────────
+
+// ~1 s cada 17 chars, con jitter ±20%. Clamp [2500, 28000] ms.
+function typingDelayMs(text: string): number {
+  const base = Math.round(((text?.length ?? 0) / 17) * 1000);
+  const clamped = Math.min(28000, Math.max(2500, base));
+  const jitter = clamped * (0.8 + Math.random() * 0.4);
+  return Math.round(jitter);
+}
+
+// Split natural en 2 burbujas cuando el mensaje es largo (>300 chars) y
+// no rompe la regla de "1 pregunta por turno" (la interrogación se queda
+// en UNA sola burbuja). Si no encuentra un corte natural, devuelve el
+// mensaje entero en una única burbuja.
+function splitLongMessage(text: string): string[] {
+  const t = String(text ?? "").trim();
+  if (t.length <= 300) return [t];
+  const qCount = (t.match(/\?/g) || []).length;
+  if (qCount > 1) return [t]; // varias preguntas ⇒ no partimos, dejará que otro guard corte
+  const mid = Math.floor(t.length / 2);
+  const re = /[.!?…]\s+/g;
+  let best = -1;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t)) !== null) {
+    const idx = m.index + m[0].length;
+    if (best === -1 || Math.abs(idx - mid) < Math.abs(best - mid)) best = idx;
+  }
+  if (best <= 60 || best >= t.length - 60) return [t]; // sin corte suficientemente centrado
+  const a = t.slice(0, best).trim();
+  const b = t.slice(best).trim();
+  if (!a || !b) return [t];
+  // La pregunta (si hay) queda en UNA sola burbuja.
+  const qa = (a.match(/\?/g) || []).length;
+  const qb = (b.match(/\?/g) || []).length;
+  if (qa > 0 && qb > 0) return [t];
+  return [a, b];
+}
+
+// Espera "totalMs" en pasos de 1s, comprobando si entró un mensaje NUEVO
+// del cliente después de `sinceISO`. Devuelve true si hay que abortar
+// porque el mensaje actual ya no encaja (lo relevará el nuevo webhook).
+async function sleepWatchingInbound(
+  admin: any, conversation_id: string, sinceISO: string | null, totalMs: number,
+): Promise<boolean> {
+  if (!sinceISO) { await sleep(totalMs); return false; }
+  const end = Date.now() + totalMs;
+  while (Date.now() < end) {
+    const step = Math.min(1000, end - Date.now());
+    await sleep(step);
+    const { data: newer } = await admin
+      .from("wa_messages")
+      .select("id")
+      .eq("conversation_id", conversation_id)
+      .eq("direction", "in")
+      .neq("type", "system")
+      .gt("created_at", sinceISO)
+      .limit(1);
+    if (newer && newer.length > 0) return true;
+  }
+  return false;
+}
+
 // KILL SWITCH · detección de baneo/desconexión a partir de un error de Evolution.
 // Solo señales CLARAS (401/403/404 o cuerpo de "logged out"/"disconnected"/"closed").
 // Los transitorios (429/5xx) NO cuentan: esos ya reintentan/retoma el reaper.
