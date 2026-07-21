@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
           owner_id: ownerId,
           fecha: hsCall.hs_timestamp ?? new Date().toISOString(),
           direccion: "saliente",
-          duracion_seg: hsCall.hs_call_duration ?? null,
+          duracion_seg: hsCall.hs_call_duration == null ? null : Math.round(Number(hsCall.hs_call_duration) / 1000),
           transcripcion: transcript,
           transcripcion_source: "hubspot",
           metadatos: { hubspot_call_id: hsCall.hs_id },
