@@ -1,6 +1,6 @@
 // hubspot_sync_incremental
 // Sync incremental por hs_lastmodifieddate para engagements HubSpot:
-// calls, notes, tasks, meetings. Upsert idempotente por hs_id en hubspot_<type>.
+// calls, notes, communications, tasks, meetings. Upsert idempotente por hs_id en hubspot_<type>.
 // Cursor por entidad guardado en hubspot_sync_state.metadatos.since_ts (ISO ms).
 // Al finalizar calls, encadena auto_analyze_hubspot_calls (transcripción+VOSS).
 //
@@ -8,11 +8,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { hubspotFetch, corsHeaders } from "../_shared/hubspot.ts";
 
-type EngType = "calls" | "notes" | "tasks" | "meetings";
+type EngType = "calls" | "notes" | "communications" | "tasks" | "meetings";
 
 const TABLE: Record<EngType, string> = {
   calls: "hubspot_calls",
   notes: "hubspot_notes",
+  communications: "hubspot_communications",
   tasks: "hubspot_tasks",
   meetings: "hubspot_meetings",
 };
@@ -20,6 +21,7 @@ const TABLE: Record<EngType, string> = {
 const PROPS: Record<EngType, string[]> = {
   calls: ["hs_call_title","hs_call_body","hs_call_summary","hs_call_status","hs_call_direction","hs_call_disposition","hs_call_duration","hs_call_recording_url","hs_call_to_number","hs_call_from_number","hs_call_transcription","hs_timestamp","hs_createdate","hs_lastmodifieddate","hubspot_owner_id"],
   notes: ["hs_note_body","hs_timestamp","hs_createdate","hs_lastmodifieddate"],
+  communications: ["hs_communication_channel_type","hs_communication_body","hs_communication_logged_from","hs_timestamp","hs_createdate","hs_lastmodifieddate","hubspot_owner_id"],
   tasks: ["hs_task_subject","hs_task_body","hs_task_status","hs_task_priority","hs_task_type","hs_timestamp","hs_task_completion_date","hs_createdate","hs_lastmodifieddate"],
   meetings: ["hs_meeting_title","hs_meeting_body","hs_meeting_start_time","hs_meeting_end_time","hs_meeting_outcome","hs_timestamp","hs_createdate","hs_lastmodifieddate"],
 };
@@ -72,6 +74,15 @@ function toRow(type: EngType, e: any): Record<string, unknown> {
   if (type === "notes") {
     return { ...base, hs_note_body: p.hs_note_body || null };
   }
+  if (type === "communications") {
+    return {
+      ...base,
+      hs_communication_channel_type: p.hs_communication_channel_type || null,
+      hs_communication_body: p.hs_communication_body || null,
+      hs_communication_logged_from: p.hs_communication_logged_from || null,
+      hs_owner_id: p.hubspot_owner_id || null,
+    };
+  }
   if (type === "tasks") {
     return {
       ...base,
@@ -116,7 +127,17 @@ async function syncType(supabase: any, type: EngType, pages: number, sinceIsoOve
 
   const { data: logRow } = await supabase.from("hubspot_sync_log").insert({ entity: entityKey, status: "running", metadatos: { since: sinceIso } }).select("id").single();
   const logId = logRow?.id;
-  await supabase.from("hubspot_sync_state").update({ last_run_status: "running", last_run_at: new Date().toISOString(), last_error: null }).eq("entity", entityKey);
+    const runStartedAt = new Date().toISOString();
+    await supabase.from("hubspot_sync_state").update({ last_run_status: "running", last_run_at: runStartedAt, last_error: null }).eq("entity", entityKey);
+    // Mantiene actualizadas las filas legacy (`calls`, `notes`, etc.) para que
+    // el panel de salud no parezca congelado: el cursor real sigue siendo *_inc.
+    await supabase.from("hubspot_sync_state").upsert({
+      entity: type,
+      last_run_status: "running",
+      last_run_at: runStartedAt,
+      last_error: null,
+      metadatos: { alias_of: entityKey, since_ts: sinceIso },
+    }, { onConflict: "entity" });
 
   let after: string | undefined = undefined;
   let upserted = 0, failed = 0, pagesFetched = 0;
@@ -178,8 +199,18 @@ async function syncType(supabase: any, type: EngType, pages: number, sinceIsoOve
     }).eq("id", logId);
     await supabase.from("hubspot_sync_state").update({
       last_run_status: "ok", last_run_at: finishedAt,
+      cursor: maxSeenIso,
+      last_error: null,
       metadatos: { ...meta, since_ts: maxSeenIso, last_upserted: upserted },
     }).eq("entity", entityKey);
+    await supabase.from("hubspot_sync_state").upsert({
+      entity: type,
+      cursor: maxSeenIso,
+      last_run_status: "ok",
+      last_run_at: finishedAt,
+      last_error: null,
+      metadatos: { alias_of: entityKey, since_ts: maxSeenIso, last_upserted: upserted },
+    }, { onConflict: "entity" });
 
     return { ok: true, type, pages_fetched: pagesFetched, upserted, failed, since: sinceIso, since_after: maxSeenIso, new_calls_with_recording: newIdsWithRecording };
   } catch (e: any) {
@@ -190,6 +221,12 @@ async function syncType(supabase: any, type: EngType, pages: number, sinceIsoOve
       pages_fetched: pagesFetched, records_upserted: upserted, records_failed: failed, error_message: msg,
     }).eq("id", logId);
     await supabase.from("hubspot_sync_state").update({ last_run_status: "error", last_error: msg }).eq("entity", entityKey);
+    await supabase.from("hubspot_sync_state").upsert({
+      entity: type,
+      last_run_status: "error",
+      last_error: msg,
+      metadatos: { alias_of: entityKey, since_ts: sinceIso },
+    }, { onConflict: "entity" });
     return { ok: false, type, error: msg, upserted, pages_fetched: pagesFetched };
   }
 }
@@ -201,41 +238,53 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUP, SR);
   let body: any = {};
   try { body = await req.json(); } catch { /* ok */ }
-  const types: EngType[] = (Array.isArray(body.types) && body.types.length ? body.types : ["calls","notes","tasks","meetings"]) as EngType[];
+  const types: EngType[] = (Array.isArray(body.types) && body.types.length ? body.types : ["calls","notes","communications","tasks","meetings"]) as EngType[];
   const pages: number = Math.max(1, Math.min(50, body.pages ?? DEFAULT_PAGES));
   const sinceIso: string | null = body.since_iso ?? null;
   const fallbackDays: number = body.fallback_days ?? 7;
 
-  const results: any[] = [];
-  let anyNewCallForAnalysis = false;
-  for (const t of types) {
-    const r = await syncType(supabase, t, pages, sinceIso, fallbackDays);
-    results.push(r);
-    if (t === "calls" && r.ok && (r.new_calls_with_recording?.length ?? 0) > 0) anyNewCallForAnalysis = true;
+  const run = async () => {
+    const results: any[] = [];
+    let anyNewCallForAnalysis = false;
+    for (const t of types) {
+      const r = await syncType(supabase, t, pages, sinceIso, fallbackDays);
+      results.push(r);
+      if (t === "calls" && r.ok && (r.new_calls_with_recording?.length ?? 0) > 0) anyNewCallForAnalysis = true;
+    }
+
+    // Encadenar: si entraron llamadas nuevas con grabación, dispara transcripción + auto-análisis.
+    const chained: any = { transcribed: null, auto_analyzed: null };
+    if (anyNewCallForAnalysis) {
+      try {
+        const rt = await fetch(`${SUP}/functions/v1/transcribe_calls`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
+          body: JSON.stringify({ limit: 25 }),
+        });
+        chained.transcribed = { status: rt.status, ok: rt.ok };
+      } catch (e) { chained.transcribed = { error: (e as Error).message }; }
+      try {
+        const ra = await fetch(`${SUP}/functions/v1/auto_analyze_hubspot_calls`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
+          body: JSON.stringify({ limit: 15 }),
+        });
+        chained.auto_analyzed = { status: ra.status, ok: ra.ok };
+      } catch (e) { chained.auto_analyzed = { error: (e as Error).message }; }
+    }
+    return { ok: true, results, chained };
+  };
+
+  const background = body.background === true;
+  if (background && (globalThis as any).EdgeRuntime?.waitUntil) {
+    (globalThis as any).EdgeRuntime.waitUntil(run());
+    return new Response(JSON.stringify({ ok: true, accepted: true, mode: "background", types }), {
+      status: 202,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
-  // Encadenar: si entraron llamadas nuevas con grabación, dispara transcripción + auto-análisis.
-  const chained: any = { transcribed: null, auto_analyzed: null };
-  if (anyNewCallForAnalysis) {
-    try {
-      const rt = await fetch(`${SUP}/functions/v1/transcribe_calls`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
-        body: JSON.stringify({ limit: 25 }),
-      });
-      chained.transcribed = { status: rt.status, ok: rt.ok };
-    } catch (e) { chained.transcribed = { error: (e as Error).message }; }
-    try {
-      const ra = await fetch(`${SUP}/functions/v1/auto_analyze_hubspot_calls`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
-        body: JSON.stringify({ limit: 15 }),
-      });
-      chained.auto_analyzed = { status: ra.status, ok: ra.ok };
-    } catch (e) { chained.auto_analyzed = { error: (e as Error).message }; }
-  }
-
-  return new Response(JSON.stringify({ ok: true, results, chained }), {
+  return new Response(JSON.stringify(await run()), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

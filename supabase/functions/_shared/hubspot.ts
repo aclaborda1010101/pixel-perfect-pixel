@@ -99,7 +99,7 @@ export const DEAL_PROPERTIES = [
 // Properties para Contacts (propietarios + leads + inversores)
 export const CONTACT_PROPERTIES = [
   // estándar
-  'firstname', 'lastname', 'email', 'phone', 'lifecyclestage', 'hs_lead_status',
+  'firstname', 'lastname', 'email', 'phone', 'mobilephone', 'lifecyclestage', 'hs_lead_status',
   'createdate', 'lastmodifieddate',
   // custom Afflux
   'dni__nif__cif', 'biografia_historia_del_propietario', 'porcentaje_de_participacion',
