@@ -73,6 +73,7 @@ type Row = {
   owners_count: number | null;
   division_horizontal: boolean;
   ratio: number | null;
+  m2_vivienda_calc: number | null;
   raw: any;
   assigned: boolean;
   cartera_demo: boolean;
