@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
-import { ScoreGauge, scoreTier, tierBarClass, tierTextClass } from "@/components/comercial/scoring";
+import { ScoreGauge, scoreTier, tierBarClass, tierTextClass, getDisplayScore, scoreModeLabel } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import {
   TrendingUp,
@@ -315,13 +315,18 @@ export function ScoringResumen({
 }) {
   const cluster: ClusterKey = b?.cluster_asignado ?? "baja_prioridad";
   const clusterInfo = CLUSTER_LABELS[cluster] ?? CLUSTER_LABELS.baja_prioridad;
-  // Usamos siempre el score de v_building_score (s.score) como fuente única,
-  // que es el que se muestra en la lista de edificios. Esto evita que el
-  // cluster recompute (que puede bajar a "baja_prioridad" barrios no mapeados)
-  // contradiga al usuario lo que ve en la card.
-  const hasClusterBreakdown = Array.isArray(b?.score_breakdown) && b.score_breakdown.length > 0;
-  const score = Number((hasClusterBreakdown ? b?.score : s?.score) ?? b?.score ?? b?.cluster_score ?? 0);
+  // Fuente ÚNICA para el score mostrado — mismo helper que usan la card,
+  // el orden del listado y el tier. `showActivo` viene del toggle
+  // "Sin propietarios" desde la ficha.
+  const mode: "total" | "activo" = showActivo ? "activo" : "total";
+  const scoreSource = {
+    score_total: s?.score_total ?? b?.score_total,
+    score_activo: s?.score_activo ?? b?.score_activo,
+    score: s?.score ?? b?.score ?? b?.cluster_score,
+  };
+  const score = getDisplayScore(scoreSource, mode);
   const tier = scoreTier(score);
+  const hasClusterBreakdown = Array.isArray(b?.score_breakdown) && b.score_breakdown.length > 0;
   const breakdown =
     (hasClusterBreakdown
       ? b.score_breakdown
@@ -472,7 +477,7 @@ export function ScoringResumen({
         {/* Cabecera: cluster + score */}
         <div className="flex flex-col gap-4 border-b border-border-faint bg-surface-1/40 p-6 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-4">
-            <ScoreGauge score={score} size={120} thickness={10} label="Score" />
+            <ScoreGauge score={score} size={120} thickness={10} label={scoreModeLabel(mode)} />
             <div className="space-y-1.5">
               <Eyebrow>
                 <Sparkles className="mr-1 inline h-3 w-3" /> Resumen del scoring
