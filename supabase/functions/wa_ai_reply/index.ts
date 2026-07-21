@@ -2,6 +2,8 @@
 // SOLO responde a entrantes. Nunca inicia conversación, no envía plantillas salientes.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { evoFetch, EVOLUTION_INSTANCE } from "../_shared/evolution.ts";
+import { sendEmail, escapeHtml } from "../_shared/mailer.ts";
+import { RECIPIENTES_REUNION_BOT, sanitizeRecipients } from "../_shared/comerciales.ts";
 import {
   detectModes, resolveRegister, buildTurnDirective, validateDraft,
   repairInstruction, hardFallback, lastBotMessages, lastClientMessages,
@@ -237,7 +239,7 @@ Deno.serve(async (req) => {
 
     const { data: conv } = await admin
       .from("wa_conversations")
-      .select("id, ai_enabled, qualification, contact_id, rol_owner, subrol_owner, rol_source, wa_contacts(id, phone, name, stage, lead_id)")
+      .select("id, ai_enabled, qualification, contact_id, rol_owner, subrol_owner, rol_source, bot_paused_until, wa_contacts(id, phone, name, stage, lead_id)")
       .eq("id", conversation_id).single();
     if (!conv) {
       return new Response(JSON.stringify({ error: "conversation not found" }), {
@@ -250,8 +252,44 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // Pausa temporal del bot (Tanda C · 9): agenda cerrada (2099) o intervención humana.
+    const pausedUntil = (conv as any).bot_paused_until;
+    if (pausedUntil && new Date(pausedUntil).getTime() > Date.now()) {
+      await admin.from("wa_ai_jobs").update({
+        status: "skipped_bot_paused", updated_at: new Date().toISOString(),
+      }).eq("conversation_id", conversation_id).eq("status", "pending");
+      return new Response(JSON.stringify({ ok: true, skip: "bot_paused_until", until: pausedUntil }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const { data: cfg } = await admin.from("wa_bot_config").select("*").limit(1).maybeSingle();
+
+    // Stop-words (Tanda C · 9c): si el ÚLTIMO outbound de la conversación contiene
+    // alguna palabra de cierre configurada, se considera conversación finalizada
+    // por decisión humana y se pausa la IA para ese chat 24 h.
+    try {
+      const stopWords: string[] = Array.isArray((cfg as any)?.stop_words) ? (cfg as any).stop_words : [];
+      if (stopWords.length) {
+        const { data: lastOut } = await admin.from("wa_messages")
+          .select("content, sender_type").eq("conversation_id", conversation_id)
+          .eq("direction", "out").neq("type", "system")
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        const txt = String((lastOut as any)?.content ?? "").toLowerCase();
+        if (txt && stopWords.some((w) => w && txt.includes(String(w).toLowerCase()))) {
+          const until = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+          await admin.from("wa_conversations").update({
+            ai_enabled: false, bot_paused_until: until, handoff_reason: "stop_word",
+          }).eq("id", conversation_id);
+          await admin.from("wa_ai_jobs").update({
+            status: "skipped_stop_word", updated_at: new Date().toISOString(),
+          }).eq("conversation_id", conversation_id).eq("status", "pending");
+          return new Response(JSON.stringify({ ok: true, skip: "stop_word", until }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+    } catch (_e) { /* no bloquear el flujo por esto */ }
 
     // ─────────────────────────────────────────────────────────────
     // KILL SWITCH GLOBAL. is_active === false ⇒ NINGÚN envío automático sale.
@@ -1728,6 +1766,55 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       await admin.from("wa_contacts").update({ stage: "handoff" }).eq("id", contact.id);
       // Avisar al equipo por email con el resumen para que alguien se haga cargo (no dejar mudo).
       await notifyHandoff(admin, conversation_id, contact, handoffReason, newQual, realHistory);
+    }
+
+    // ── REUNIÓN AGENDADA POR EL BOT (Tanda C · puntos 6 y 9a) ────────────
+    // Si el clasificador marca interes_reunion='agendar' o propose_meeting=true
+    // y en el último turno el bot cerró fecha/hora, se considera reunión agendada:
+    //   · pausa la IA en esa conversación (bot_paused_until = 2099-01-01)
+    //   · dispara email a jesus + david + carlos con fecha/hora/lead/teléfono/resumen
+    try {
+      const propuestaCierre = !!parsed.propose_meeting || newQual.interes_reunion === "agendar";
+      if (propuestaCierre) {
+        // Congelar la conversación (equivale a "hasta que un humano la reactive")
+        await admin.from("wa_conversations").update({
+          ai_enabled: false,
+          bot_paused_until: new Date("2099-01-01T00:00:00Z").toISOString(),
+          handoff_reason: "meeting_booked",
+          updated_at: new Date().toISOString(),
+        }).eq("id", conversation_id);
+
+        // Recuperar resumen humano-legible más reciente
+        const { data: convRow } = await admin.from("wa_conversations")
+          .select("summary").eq("id", conversation_id).maybeSingle();
+        const summary = (convRow as any)?.summary || "(sin resumen)";
+        // Extraer fecha/hora del último borrador del bot: buscamos patrón AAAA-MM-DD HH:MM
+        const lastBotText = (finalReplies || []).join(" \n ");
+        const fechaHora =
+          (lastBotText.match(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s+a\s+las?\s+\d{1,2}[:h]\d{2}?\b/i)?.[0]) ||
+          (lastBotText.match(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/)?.[0]) ||
+          "(pendiente en HubSpot)";
+
+        const to = sanitizeRecipients(RECIPIENTES_REUNION_BOT);
+        if (to.length) {
+          const asunto = `Reunión agendada por el bot — ${contact.name || contact.phone || "lead"}`;
+          const html = `
+            <div style="font-family:Inter,Arial,sans-serif;color:#111">
+              <p><b>Reunión agendada por el bot de WhatsApp.</b></p>
+              <p><b>Lead:</b> ${escapeHtml(contact.name || "(sin nombre)")}<br/>
+                 <b>Teléfono:</b> ${escapeHtml(contact.phone || "-")}<br/>
+                 <b>Fecha/hora:</b> ${escapeHtml(fechaHora)}</p>
+              <p><b>Resumen de la conversación:</b><br/>${escapeHtml(String(summary)).replace(/\n/g,"<br/>")}</p>
+              <p style="color:#666;font-size:12px">Afflux OS · notificación automática · el bot ha quedado en pausa hasta que un humano retome la conversación.</p>
+            </div>`;
+          await sendEmail({
+            to, subject: asunto, html,
+            text: `Reunión agendada · ${contact.name || contact.phone} · ${fechaHora}\n\n${String(summary).slice(0, 2000)}`,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[wa_ai_reply] meeting-booked hook fail:", (e as Error).message);
     }
 
     // Resumen: forzar si propuesta de reunión, nueva flag de oportunidad, o cambio de stage.

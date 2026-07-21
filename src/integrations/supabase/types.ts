@@ -1645,12 +1645,14 @@ export type Database = {
           id: string
           iniciada_at: string
           kpis_objetivo: Json | null
+          next_retry_at: string | null
           notas: string | null
           objetivo: string | null
           owner_id: string | null
           paso: number
           puntuacion: number | null
           resultado: string | null
+          retries_left: number
           retroactiva: boolean
           updated_at: string
           voss_brief: Json | null
@@ -1670,12 +1672,14 @@ export type Database = {
           id?: string
           iniciada_at?: string
           kpis_objetivo?: Json | null
+          next_retry_at?: string | null
           notas?: string | null
           objetivo?: string | null
           owner_id?: string | null
           paso?: number
           puntuacion?: number | null
           resultado?: string | null
+          retries_left?: number
           retroactiva?: boolean
           updated_at?: string
           voss_brief?: Json | null
@@ -1695,12 +1699,14 @@ export type Database = {
           id?: string
           iniciada_at?: string
           kpis_objetivo?: Json | null
+          next_retry_at?: string | null
           notas?: string | null
           objetivo?: string | null
           owner_id?: string | null
           paso?: number
           puntuacion?: number | null
           resultado?: string | null
+          retries_left?: number
           retroactiva?: boolean
           updated_at?: string
           voss_brief?: Json | null
@@ -5602,6 +5608,7 @@ export type Database = {
           persona: string
           reply_delay_max: number
           reply_delay_min: number
+          stop_words: Json
           tone: string
           updated_at: string
         }
@@ -5616,6 +5623,7 @@ export type Database = {
           persona?: string
           reply_delay_max?: number
           reply_delay_min?: number
+          stop_words?: Json
           tone?: string
           updated_at?: string
         }
@@ -5630,6 +5638,7 @@ export type Database = {
           persona?: string
           reply_delay_max?: number
           reply_delay_min?: number
+          stop_words?: Json
           tone?: string
           updated_at?: string
         }
@@ -5830,6 +5839,7 @@ export type Database = {
       wa_conversations: {
         Row: {
           ai_enabled: boolean
+          bot_paused_until: string | null
           campaign_id: string | null
           contact_id: string
           created_at: string
@@ -5851,6 +5861,7 @@ export type Database = {
         }
         Insert: {
           ai_enabled?: boolean
+          bot_paused_until?: string | null
           campaign_id?: string | null
           contact_id: string
           created_at?: string
@@ -5872,6 +5883,7 @@ export type Database = {
         }
         Update: {
           ai_enabled?: boolean
+          bot_paused_until?: string | null
           campaign_id?: string | null
           contact_id?: string
           created_at?: string
@@ -6099,6 +6111,16 @@ export type Database = {
       }
     }
     Views: {
+      owner_kpis_state: {
+        Row: {
+          first_done_at: string | null
+          first_hubspot_call_id: string | null
+          k: string | null
+          owner_id: string | null
+          times_done: number | null
+        }
+        Relationships: []
+      }
       v_building_calls: {
         Row: {
           building_id: string | null
@@ -6111,6 +6133,56 @@ export type Database = {
           tiene_grabacion: boolean | null
         }
         Relationships: []
+      }
+      v_building_common_intel: {
+        Row: {
+          bloqueadores: Json | null
+          building_id: string | null
+          conflictos: Json | null
+          estados_venta: Json | null
+          gestores: Json | null
+          max_amount: number | null
+          min_amount: number | null
+          precio_discrepancia: boolean | null
+          precios_mencionados: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
       }
       v_building_conversations: {
         Row: {

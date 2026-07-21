@@ -393,6 +393,33 @@ Deno.serve(async (req) => {
       snapshot.copropietarios_top = (copros || []).map((c: any) => ({ nombre: c.owners?.nombre, cuota: c.cuota, subrole: c.subrole, es_yo: c.owner_id === owner_id }));
       if (!rel?.cuota) snapshot.datos_faltantes.push('cuota_propiedad');
       if (ba?.mala_gestion_score == null) snapshot.datos_faltantes.push('mala_gestion_score');
+
+      // Info COMPARTIDA del edificio (Tanda B · punto 3): datos agregados de
+      // TODAS las llamadas de todos los propietarios de este edificio. Separado
+      // de la info personal del propietario. Incluye discrepancia de precio.
+      try {
+        const { data: intel } = await (sb.from('v_building_common_intel' as any) as any)
+          .select('*').eq('building_id', building_id).maybeSingle();
+        if (intel) snapshot.info_compartida_edificio = intel;
+      } catch (_) { /* vista vacía o inexistente */ }
+    }
+
+    // KPIs ya conseguidos históricamente por este propietario (Tanda B · punto 2).
+    // Sirve para que el post NO penalice un KPI que ya se logró en llamadas
+    // anteriores, y para que el brief no lo pida de nuevo.
+    let kpisPreviamenteConseguidos: any[] = [];
+    if (owner_id) {
+      try {
+        const { data: ks } = await sb.from('owner_kpis_state')
+          .select('k, first_done_at, first_hubspot_call_id, times_done')
+          .eq('owner_id', owner_id);
+        kpisPreviamenteConseguidos = (ks || []).map((r: any) => ({
+          kpi: r.k,
+          conseguido_desde: r.first_done_at,
+          hubspot_call_id: r.first_hubspot_call_id,
+          veces: r.times_done,
+        }));
+      } catch (_) { /* ignore */ }
     }
 
     // 2) Histórico de llamadas (solo en brief; en post viene la transcripción)
@@ -547,6 +574,23 @@ ${mode === 'post' ? `METADATOS DE LA LLAMADA:
 
 VERBATIM (fuente de verdad — cita literal de aquí, no del summary):
 ${call_transcript || '(sin transcripción provista — informe BREVE obligatorio, informe_completo=false)'}
+
+KPIS YA CONSEGUIDOS PREVIAMENTE POR ESTE PROPIETARIO (${kpisPreviamenteConseguidos.length}):
+${kpisPreviamenteConseguidos.length ? JSON.stringify(kpisPreviamenteConseguidos, null, 2) : '(ninguno — primera vez que se toca este propietario)'}
+
+REGLA POST · KPIs ACUMULATIVOS (crítica):
+  · Un KPI listado arriba como YA CONSEGUIDO en una llamada previa NO se penaliza aunque en esta llamada no se haya vuelto a mencionar.
+  · Si el KPI ya estaba conseguido y en esta llamada NO se ha vuelto a citar, en checklist marca ok=true y en evidencia escribe "ya conseguido previamente (fecha)".
+  · El desglose "extraccion_info" NO baja por KPIs previamente conseguidos.
+` : ''}
+${mode === 'brief' && kpisPreviamenteConseguidos.length ? `KPIS YA CONSEGUIDOS PREVIAMENTE POR ESTE PROPIETARIO (no volver a preguntarlos salvo confirmar):
+${JSON.stringify(kpisPreviamenteConseguidos, null, 2)}
+
+` : ''}
+${snapshot.info_compartida_edificio ? `INFO COMPARTIDA DEL EDIFICIO (agregado de todas las llamadas de todos los copropietarios — SEPARADO de la info personal de este propietario):
+${JSON.stringify(snapshot.info_compartida_edificio, null, 2)}
+${snapshot.info_compartida_edificio?.precio_discrepancia ? '⚠ DISCREPANCIA DE PRECIO ENTRE LLAMADAS — verificar antes de citar cifra.' : ''}
+
 ` : ''}
 ${mode === 'brief' ? `TARGET_KPIS (KPIs OBJETIVO de esta llamada — enfoca el plan en conseguir ESTOS datos concretos; usa el label EXACTO en "enfoque_llamada[].kpi"):
 ${targetKpis.length ? targetKpis.map((k, i) => `[${i + 1}] ${k}`).join('\n') : '(vacío — plan estándar)'}
