@@ -55,6 +55,20 @@ export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [sort, setSort] = useState<SortKey>("pct");
+  // Toggle "Sin propietarios". DEBE declararse antes de cualquier early return
+  // para no romper el orden de hooks entre el render de "Cargando…" y el render
+  // con datos.
+  const [viewActivo, setViewActivo] = useState<boolean>(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("view") === "activo"
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (viewActivo) url.searchParams.set("view", "activo");
+    else url.searchParams.delete("view");
+    window.history.replaceState({}, "", url.toString());
+  }, [viewActivo]);
 
   useEffect(() => {
     if (id && user?.id) {
@@ -153,20 +167,6 @@ export default function ComercialEdificioDetalle() {
     pctKnown.length > 0 && pctUnknownCount === 0 && (sumPct < 95 || sumPct > 105);
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
-
-  // Toggle "Sin propietarios" en la ficha. Sincroniza con ?view=activo para
-  // que el link desde la lista respete el modo. Cambiar el toggle actualiza
-  // número, tier, barras y narrativa en ScoringResumen al instante.
-  const [viewActivo, setViewActivo] = useState<boolean>(() =>
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("view") === "activo"
-  );
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    if (viewActivo) url.searchParams.set("view", "activo");
-    else url.searchParams.delete("view");
-    window.history.replaceState({}, "", url.toString());
-  }, [viewActivo]);
 
   return (
     <div className="space-y-6">
