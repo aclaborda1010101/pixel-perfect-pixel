@@ -63,7 +63,7 @@ export default function ComercialDashboard() {
           .select("id,owners_count,num_viviendas,m2_total,division_horizontal")
           .in("id", buildingIds),
         (supabase.from("buildings" as any) as any)
-          .select("id,direccion,ciudad,cluster_score,score,es_estrella,avisos_inteligentes")
+          .select("id,direccion,ciudad,cluster_score,score,score_total,score_activo,es_estrella,avisos_inteligentes")
           .in("id", buildingIds),
       ]);
       const shapeById = new Map<string, any>();
@@ -74,7 +74,8 @@ export default function ComercialDashboard() {
           id: b.id,
           direccion: b.direccion,
           ciudad: b.ciudad,
-          score: Number(b.cluster_score ?? b.score ?? 0),
+          // Fuente única: score_total (mismo helper que la card y la ficha).
+          score: Number(b.score_total ?? b.score ?? b.cluster_score ?? 0),
           owners_count: sh.owners_count,
           num_viviendas: sh.num_viviendas,
           m2_total: sh.m2_total,
