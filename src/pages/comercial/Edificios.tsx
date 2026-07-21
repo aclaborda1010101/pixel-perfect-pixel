@@ -47,6 +47,7 @@ import {
   tierBarClass,
   tierTextClass,
   buildingScoreFactors,
+  getDisplayScore,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
