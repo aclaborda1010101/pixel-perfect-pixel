@@ -10,26 +10,37 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { ArrowRight, TrendingUp, TrendingDown, Minus, Sparkles, AlertTriangle, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 
 /**
- * Productividad — rediseñada para coaching real de Jesús y David.
+ * Productividad — coaching personal por comercial.
  *
  * Fuentes:
- *  - `calls` (2.7k+): comercial_email/nombre, fecha, duracion_seg, hs_call_summary.
- *  - `call_sessions`: puntuacion (0-100) y `voss_post` con `momentos_flojos` y
- *    `que_hizo_bien` — sólo llamadas ya analizadas.
+ *  - `hubspot_calls` (hs_owner_id, hs_call_duration ms, hs_call_disposition).
+ *  - `hubspot_owners` (hs_owner_id ↔ email/full_name).
+ *  - `call_sessions` (puntuación 0-100 + voss_post) — enlazadas por
+ *    hubspot_call_id o, en retroactivas, por `comercial_email` denormalizado.
+ *
+ * Vista: cada usuario ve SÓLO lo suyo. Admin puede cambiar de comercial.
  */
 
-type Call = {
-  id: string;
-  metadatos: any;
-  fecha: string;
-  duracion_seg: number | null;
-  outcome: string | null;
-  comercial_email: string | null;
-  comercial_nombre: string | null;
-  owner_id: string | null;
+type HsCall = {
+  hs_id: string;
+  hs_owner_id: string | null;
+  hs_timestamp: string | null;
+  hs_call_duration: number | null;
+  hs_call_disposition: string | null;
 };
+// Dispositions "conectadas" (llamada contestada)
+const CONNECTED_DISPOSITIONS = new Set([
+  "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+  "55428849-9fbc-4038-92d6-7c4f2b850974",
+  "371c7887-c871-4c38-b0e7-77bafc4de124",
+  "ea9e4795-50e0-4c7b-8b97-3c0bb743dbf7",
+]);
+// Umbral de "conectada" por duración cuando no hay disposition.
+const CONNECTED_MS = 30_000;
 type Session = {
   id: string;
   hubspot_call_id: string | null;
@@ -42,20 +53,17 @@ type Session = {
   comercial_email?: string | null;
   retroactiva?: boolean | null;
 };
+type OwnerRow = { hs_owner_id: string; email: string | null; full_name: string | null };
 
 const RANGES = { "7d": 7, "30d": 30, "90d": 90 } as const;
 type RangeKey = keyof typeof RANGES;
 
 function fmtPct(n: number) { return `${Math.round(n)}%`; }
-function comercialKey(email?: string | null) {
-  if (!email) return "otros";
-  const e = email.toLowerCase();
-  if (e.includes("jesus") || e.includes("jesús") || e.startsWith("jesus")) return "jesus";
-  if (e.includes("david") || e.includes("casero")) return "david";
-  return "otros";
-}
-function labelForKey(k: string) {
-  return k === "jesus" ? "Jesús" : k === "david" ? "David" : "Otros";
+function fmtDur(ms: number) {
+  const s = Math.round((ms || 0) / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}m ${String(r).padStart(2, "0")}s` : `${r}s`;
 }
 function daysAgo(n: number) {
   const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString();
@@ -113,96 +121,131 @@ function Kpi({ label, value, delta, hint }: { label: string; value: string; delt
 }
 
 export default function Productividad() {
+  const { user } = useAuth();
+  const { isAdmin } = useCurrentRole();
   const [range, setRange] = useState<RangeKey>("30d");
-  const [calls, setCalls] = useState<Call[]>([]);
+  const [owners, setOwners] = useState<OwnerRow[]>([]);
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
+  const [hsCalls, setHsCalls] = useState<HsCall[]>([]);
+  const [prevHsCalls, setPrevHsCalls] = useState<HsCall[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [prevCalls, setPrevCalls] = useState<Call[]>([]);
   const [prevSessions, setPrevSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Owners (comerciales conocidos)
   useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("hubspot_owners")
+        .select("hs_owner_id,email,full_name")
+        .eq("archived", false)
+        .order("full_name");
+      setOwners((data ?? []) as OwnerRow[]);
+    })();
+  }, []);
+
+  // Comercial a mostrar: por defecto el logueado; admin puede cambiar
+  const currentOwner = useMemo<OwnerRow | null>(() => {
+    if (!owners.length) return null;
+    if (isAdmin && selectedOwnerId) {
+      return owners.find((o) => o.hs_owner_id === selectedOwnerId) ?? null;
+    }
+    const email = user?.email?.toLowerCase();
+    if (!email) return isAdmin ? owners[0] : null;
+    const match = owners.find((o) => (o.email ?? "").toLowerCase() === email);
+    // Admin sin match cae al primero; no-admin sin match no ve nada.
+    return match ?? (isAdmin ? owners[0] : null);
+  }, [owners, selectedOwnerId, isAdmin, user?.email]);
+
+  useEffect(() => {
+    if (!currentOwner) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       const days = RANGES[range];
       const since = daysAgo(days);
       const prevSince = daysAgo(days * 2);
-      const [c1, s1, c0, s0] = await Promise.all([
-        supabase.from("calls").select("id,metadatos,fecha,duracion_seg,outcome,comercial_email,comercial_nombre,owner_id")
-          .gte("fecha", since).order("fecha", { ascending: false }).limit(5000),
-        (supabase.from("call_sessions") as any).select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id,comercial_email,retroactiva")
+      const email = (currentOwner.email ?? "").toLowerCase();
+      const [c1, c0, s1, s0] = await Promise.all([
+        supabase.from("hubspot_calls" as any)
+          .select("hs_id,hs_owner_id,hs_timestamp,hs_call_duration,hs_call_disposition")
+          .eq("hs_owner_id", currentOwner.hs_owner_id)
+          .gte("hs_timestamp", since)
+          .order("hs_timestamp", { ascending: false })
+          .limit(5000),
+        supabase.from("hubspot_calls" as any)
+          .select("hs_id,hs_owner_id,hs_timestamp,hs_call_duration,hs_call_disposition")
+          .eq("hs_owner_id", currentOwner.hs_owner_id)
+          .gte("hs_timestamp", prevSince).lt("hs_timestamp", since)
+          .limit(5000),
+        (supabase.from("call_sessions") as any)
+          .select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id,comercial_email,retroactiva")
+          .eq("comercial_email", email)
           .gte("iniciada_at", since).not("puntuacion", "is", null).limit(2000),
-        supabase.from("calls").select("id,metadatos,fecha,duracion_seg,outcome,comercial_email,comercial_nombre,owner_id")
-          .gte("fecha", prevSince).lt("fecha", since).limit(5000),
-        (supabase.from("call_sessions") as any).select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id,comercial_email,retroactiva")
+        (supabase.from("call_sessions") as any)
+          .select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id,comercial_email,retroactiva")
+          .eq("comercial_email", email)
           .gte("iniciada_at", prevSince).lt("iniciada_at", since).not("puntuacion", "is", null).limit(2000),
       ]);
       if (cancelled) return;
-      setCalls((c1.data ?? []) as unknown as Call[]);
-      setSessions((s1.data ?? []) as Session[]);
-      setPrevCalls((c0.data ?? []) as unknown as Call[]);
-      setPrevSessions((s0.data ?? []) as Session[]);
+      setHsCalls(((c1 as any).data ?? []) as HsCall[]);
+      setPrevHsCalls(((c0 as any).data ?? []) as HsCall[]);
+      setSessions(((s1 as any).data ?? []) as Session[]);
+      setPrevSessions(((s0 as any).data ?? []) as Session[]);
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [range]);
+  }, [range, currentOwner?.hs_owner_id]);
 
-  // Empareja sessions con calls por hubspot_call_id (guardado en metadatos)
-  const sessionComercial = useMemo(() => {
-    const byHs = new Map<string, string>();
-    const hsId = (c: Call) => (c.metadatos?.hubspot_call_id ?? c.metadatos?.hs_id ?? null) as string | null;
-    for (const c of calls) { const h = hsId(c); if (h) byHs.set(h, comercialKey(c.comercial_email)); }
-    for (const c of prevCalls) { const h = hsId(c); if (h && !byHs.has(h)) byHs.set(h, comercialKey(c.comercial_email)); }
-    return byHs;
-  }, [calls, prevCalls]);
-
-  // Stats por comercial
-  function statsFor(key: string, cs: Call[], ss: Session[]) {
-    const mine = cs.filter((c) => comercialKey(c.comercial_email) === key);
-    const conectadas = mine.filter((c) => (c.duracion_seg ?? 0) >= 30);
-    // Atribución: (a) por match con `calls` (hubspot_call_id → email); (b) fallback a
-    // `session.comercial_email` (denormalizado en expedientes retroactivos).
-    const mySess = ss.filter((s) => {
-      const viaCalls = s.hubspot_call_id ? sessionComercial.get(s.hubspot_call_id) : null;
-      if (viaCalls) return viaCalls === key;
-      return comercialKey(s.comercial_email ?? null) === key;
-    });
-    const notas = mySess.map((s) => Number(s.puntuacion)).filter((n) => Number.isFinite(n));
+  function statsFor(cs: HsCall[], ss: Session[]) {
+    const isConnected = (c: HsCall) =>
+      (c.hs_call_disposition && CONNECTED_DISPOSITIONS.has(c.hs_call_disposition)) ||
+      (c.hs_call_duration ?? 0) >= CONNECTED_MS;
+    const conectadas = cs.filter(isConnected);
+    const totalDur = conectadas.reduce((a, c) => a + (c.hs_call_duration ?? 0), 0);
+    const notas = ss.map((s) => Number(s.puntuacion)).filter((n) => Number.isFinite(n));
     const notaMedia = notas.length ? notas.reduce((a, b) => a + b, 0) / notas.length : 0;
+    const hsSet = new Set(ss.map((s) => s.hubspot_call_id).filter(Boolean) as string[]);
+    const pendientes = conectadas.filter((c) => !hsSet.has(c.hs_id)).length;
     return {
-      intentos: mine.length,
+      intentos: cs.length,
       conectadas: conectadas.length,
-      pctConexion: mine.length ? (conectadas.length / mine.length) * 100 : 0,
-      analizadas: mySess.length,
+      pctConexion: cs.length ? (conectadas.length / cs.length) * 100 : 0,
+      duracionMediaMs: conectadas.length ? totalDur / conectadas.length : 0,
+      analizadas: ss.length,
       notaMedia,
-      pendientesAnalisis: conectadas.filter((c) => {
-        const h = (c.metadatos?.hubspot_call_id ?? c.metadatos?.hs_id) as string | undefined;
-        return !h || !ss.some((s) => s.hubspot_call_id === h);
-      }).length,
-      sessions: mySess,
+      pendientesAnalisis: pendientes,
+      sessions: ss.slice().sort((a, b) => (b.iniciada_at ?? "").localeCompare(a.iniciada_at ?? "")),
     };
   }
 
-  const jesus = useMemo(() => statsFor("jesus", calls, sessions), [calls, sessions, sessionComercial]);
-  const david = useMemo(() => statsFor("david", calls, sessions), [calls, sessions, sessionComercial]);
-  const jesusPrev = useMemo(() => statsFor("jesus", prevCalls, prevSessions), [prevCalls, prevSessions, sessionComercial]);
-  const davidPrev = useMemo(() => statsFor("david", prevCalls, prevSessions), [prevCalls, prevSessions, sessionComercial]);
+  const me = useMemo(() => statsFor(hsCalls, sessions), [hsCalls, sessions]);
+  const mePrev = useMemo(() => statsFor(prevHsCalls, prevSessions), [prevHsCalls, prevSessions]);
+  const mejoras = useMemo(() => extractPatterns(me.sessions, "momentos_flojos"), [me.sessions]);
+  const fortalezas = useMemo(() => extractPatterns(me.sessions, "que_hizo_bien"), [me.sessions]);
+  const deltaNota = me.notaMedia - mePrev.notaMedia;
+  const deltaConexion = me.pctConexion - mePrev.pctConexion;
+  const rangeLabel = range === "7d" ? "últimos 7 días" : range === "30d" ? "últimos 30 días" : "últimos 90 días";
 
-  const totales = useMemo(() => ({
-    llamadas: calls.length,
-    conectadas: calls.filter((c) => (c.duracion_seg ?? 0) >= 30).length,
-    analizadas: sessions.length,
-  }), [calls, sessions]);
-
+  const ownerLabel = currentOwner?.full_name ?? currentOwner?.email ?? "—";
+  if (!currentOwner && !loading) {
+    return (
+      <div className="space-y-6 p-6">
+        <PageHeader eyebrow="Productividad" title="Coaching comercial" />
+        <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">
+          Tu usuario no está vinculado a un comercial de HubSpot. Pide a un administrador que lo mapee.
+        </CardContent></Card>
+      </div>
+    );
+  }
   return (
     <div className="space-y-6 p-6">
       <PageHeader
         eyebrow="Productividad"
-        title="Coaching comercial"
-        subtitle="Cómo van Jesús y David esta semana · qué mejorar · qué hacen bien"
+        title={`Coaching · ${ownerLabel}`}
+        subtitle={`Actividad y análisis de llamadas · ${rangeLabel}`}
       />
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Rango</span>
         <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
           <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
@@ -212,159 +255,131 @@ export default function Productividad() {
             <SelectItem value="90d">Últimos 90 días</SelectItem>
           </SelectContent>
         </Select>
-        <div className="ml-auto text-xs text-muted-foreground">
-          {totales.llamadas.toLocaleString()} llamadas · {totales.conectadas.toLocaleString()} conectadas · {totales.analizadas.toLocaleString()} analizadas
-        </div>
+        {isAdmin && owners.length > 0 && (
+          <>
+            <span className="ml-4 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Comercial</span>
+            <Select value={currentOwner?.hs_owner_id ?? ""} onValueChange={(v) => setSelectedOwnerId(v)}>
+              <SelectTrigger className="h-9 w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {owners.map((o) => (
+                  <SelectItem key={o.hs_owner_id} value={o.hs_owner_id}>{o.full_name ?? o.email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        )}
       </div>
 
-      {/* Foto semanal — una tarjeta por comercial */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            Foto del período <Badge variant="outline" className="text-[10px]">{me.intentos} llamadas</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <Kpi label="Intentos" value={String(me.intentos)} />
+          <Kpi label="Conectadas" value={String(me.conectadas)} hint={fmtPct(me.pctConexion) + " conexión"} delta={deltaConexion} />
+          <Kpi label="Duración media" value={me.duracionMediaMs ? fmtDur(me.duracionMediaMs) : "—"} hint="por llamada conectada" />
+          <Kpi label="Nota media" value={me.notaMedia ? me.notaMedia.toFixed(0) : "—"} hint={`${me.analizadas} analizadas`} delta={deltaNota} />
+          <Kpi label="Pendientes" value={String(me.pendientesAnalisis)} hint="Conectadas sin analizar" />
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {(["jesus", "david"] as const).map((k) => {
-          const s = k === "jesus" ? jesus : david;
-          const prev = k === "jesus" ? jesusPrev : davidPrev;
-          const deltaNota = s.notaMedia - prev.notaMedia;
-          const deltaConexion = s.pctConexion - prev.pctConexion;
-          return (
-            <Card key={k}>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  {labelForKey(k)}
-                  <Badge variant="outline" className="text-[10px]">{s.intentos} llamadas</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                <Kpi label="Intentos" value={String(s.intentos)} />
-                <Kpi label="Conectadas" value={String(s.conectadas)} hint={fmtPct(s.pctConexion) + " conexión"} delta={deltaConexion} />
-                <Kpi label="Nota media" value={s.notaMedia ? s.notaMedia.toFixed(0) : "—"} hint={`${s.analizadas} analizadas`} delta={deltaNota} />
-                <Kpi label="Pendientes" value={String(s.pendientesAnalisis)} hint="Conectadas sin analizar" />
-              </CardContent>
-            </Card>
-          );
-        })}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <AlertTriangle className="h-4 w-4 text-amber-400" /> Qué mejorar (patrones repetidos)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {mejoras.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {me.analizadas === 0
+                  ? "Aún no hay llamadas auditadas en este rango. La auditoría retroactiva las irá completando."
+                  : "No se detectan patrones repetidos todavía."}
+              </p>
+            )}
+            {mejoras.map((m, i) => (
+              <div key={i} className="rounded-md border border-border-faint p-2.5">
+                <div className="flex items-center justify-between">
+                  <Eyebrow>#{i + 1} · {m.count} veces</Eyebrow>
+                  {m.example.hsId && (
+                    <Link to={`/comercial/llamada/${m.example.hsId}`} className="text-[10px] text-primary hover:underline flex items-center gap-1">
+                      Ver ejemplo <ExternalLink className="h-2.5 w-2.5" />
+                    </Link>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-foreground leading-relaxed">{m.example.text}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Sparkles className="h-4 w-4 text-emerald-400" /> Qué hace bien
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {fortalezas.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {me.analizadas === 0
+                  ? "Aún no hay auditorías con fortalezas identificadas."
+                  : "Sin patrones de fortaleza detectados aún."}
+              </p>
+            )}
+            {fortalezas.map((f, i) => (
+              <div key={i} className="rounded-md border border-border-faint p-2.5">
+                <div className="flex items-center justify-between">
+                  <Eyebrow>#{i + 1} · {f.count} veces</Eyebrow>
+                  {f.example.hsId && (
+                    <Link to={`/comercial/llamada/${f.example.hsId}`} className="text-[10px] text-primary hover:underline flex items-center gap-1">
+                      Ver ejemplo <ExternalLink className="h-2.5 w-2.5" />
+                    </Link>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-foreground leading-relaxed">{f.example.text}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
 
-      <Tabs defaultValue="jesus" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="jesus">Jesús · detalle</TabsTrigger>
-          <TabsTrigger value="david">David · detalle</TabsTrigger>
-          <TabsTrigger value="comparativa">Comparativa</TabsTrigger>
-        </TabsList>
-
-        {(["jesus", "david"] as const).map((k) => {
-          const s = k === "jesus" ? jesus : david;
-          const mejoras = extractPatterns(s.sessions, "momentos_flojos");
-          const fortalezas = extractPatterns(s.sessions, "que_hizo_bien");
-          return (
-            <TabsContent key={k} value={k} className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center gap-2 text-sm">
-                      <AlertTriangle className="h-4 w-4 text-amber-400" /> Qué mejorar (patrones repetidos)
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {mejoras.length === 0 && (
-                      <p className="text-xs text-muted-foreground">Sin llamadas analizadas suficientes en este rango.</p>
-                    )}
-                    {mejoras.map((m, i) => (
-                      <div key={i} className="rounded-md border border-border-faint p-2.5">
-                        <div className="flex items-center justify-between">
-                          <Eyebrow>#{i + 1} · {m.count} veces</Eyebrow>
-                          {m.example.hsId && (
-                            <Link to={`/comercial/llamada/${m.example.hsId}`} className="text-[10px] text-primary hover:underline flex items-center gap-1">
-                              Ver ejemplo <ExternalLink className="h-2.5 w-2.5" />
-                            </Link>
-                          )}
-                        </div>
-                        <p className="mt-1 text-xs text-foreground leading-relaxed">{m.example.text}</p>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center gap-2 text-sm">
-                      <Sparkles className="h-4 w-4 text-emerald-400" /> Qué hace bien
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {fortalezas.length === 0 && (
-                      <p className="text-xs text-muted-foreground">Sin fortalezas detectadas aún.</p>
-                    )}
-                    {fortalezas.map((f, i) => (
-                      <div key={i} className="rounded-md border border-border-faint p-2.5">
-                        <div className="flex items-center justify-between">
-                          <Eyebrow>#{i + 1} · {f.count} veces</Eyebrow>
-                          {f.example.hsId && (
-                            <Link to={`/comercial/llamada/${f.example.hsId}`} className="text-[10px] text-primary hover:underline flex items-center gap-1">
-                              Ver ejemplo <ExternalLink className="h-2.5 w-2.5" />
-                            </Link>
-                          )}
-                        </div>
-                        <p className="mt-1 text-xs text-foreground leading-relaxed">{f.example.text}</p>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Últimas llamadas analizadas */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Últimas llamadas analizadas</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-1.5">
-                    {s.sessions.slice(0, 12).map((sess) => (
-                      <Link
-                        key={sess.id}
-                        to={`/comercial/llamada/${sess.hubspot_call_id ?? sess.id}`}
-                        className="flex items-center justify-between rounded-md border border-border-faint px-3 py-2 text-xs hover:bg-surface-1/60"
-                      >
-                        <span className="text-muted-foreground">{sess.iniciada_at ? new Date(sess.iniciada_at).toLocaleString("es-ES", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="tabular-nums">Nota {Math.round(Number(sess.puntuacion))}</Badge>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                        </div>
-                      </Link>
-                    ))}
-                    {s.sessions.length === 0 && (
-                      <p className="text-xs text-muted-foreground">Sin llamadas analizadas.</p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          );
-        })}
-
-        <TabsContent value="comparativa" className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Comparativa Jesús vs David</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border-faint text-muted-foreground">
-                    <th className="py-2 text-left font-normal">Métrica</th>
-                    <th className="py-2 text-right font-normal">Jesús</th>
-                    <th className="py-2 text-right font-normal">David</th>
-                    <th className="py-2 text-right font-normal">Δ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { label: "Llamadas totales", j: jesus.intentos, d: david.intentos, fmt: (n: number) => String(n) },
-                    { label: "% Conexión", j: jesus.pctConexion, d: david.pctConexion, fmt: fmtPct },
-                    { label: "Analizadas", j: jesus.analizadas, d: david.analizadas, fmt: (n: number) => String(n) },
-                    { label: "Nota media", j: jesus.notaMedia, d: david.notaMedia, fmt: (n: number) => n.toFixed(0) },
-                    { label: "Pendientes de análisis", j: jesus.pendientesAnalisis, d: david.pendientesAnalisis, fmt: (n: number) => String(n) },
-                  ].map((row) => (
-                    <tr key={row.label} className="border-b border-border-faint/50">
-                      <td className="py-2 text-foreground">{row.label}</td>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Últimas llamadas analizadas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1.5">
+            {me.sessions.slice(0, 20).map((sess) => (
+              <Link
+                key={sess.id}
+                to={`/comercial/llamada/${sess.hubspot_call_id ?? sess.id}`}
+                className="flex items-center justify-between rounded-md border border-border-faint px-3 py-2 text-xs hover:bg-surface-1/60"
+              >
+                <span className="text-muted-foreground">
+                  {sess.iniciada_at ? new Date(sess.iniciada_at).toLocaleString("es-ES", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
+                </span>
+                <div className="flex items-center gap-2">
+                  {sess.retroactiva && <Badge variant="outline" className="text-[10px]">Retro</Badge>}
+                  <Badge variant="outline" className="tabular-nums">Nota {Math.round(Number(sess.puntuacion))}</Badge>
+                  <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                </div>
+              </Link>
+            ))}
+            {me.sessions.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {loading ? "Cargando…" : "Aún no hay llamadas auditadas en este rango."}
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
                       <td className="py-2 text-right font-mono tabular-nums">{row.fmt(row.j)}</td>
                       <td className="py-2 text-right font-mono tabular-nums">{row.fmt(row.d)}</td>
                       <td className="py-2 text-right font-mono tabular-nums text-muted-foreground">{row.fmt(row.j - row.d)}</td>
