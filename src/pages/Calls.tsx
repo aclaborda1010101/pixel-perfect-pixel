@@ -43,54 +43,62 @@ export default function Calls() {
   const [analysisByHs, setAnalysisByHs] = useState<Record<string, number | null>>({});
   const PAGE_SIZE = 50;
 
-  // Global stats via RPC (real totals, not capped at 1000)
+  // Global stats over v_calls_feed (todas las llamadas de HubSpot atribuibles a un owner)
   useEffect(() => {
-    supabase.rpc("calls_stats" as any).then(({ data }) => {
-      const r = Array.isArray(data) ? data[0] : data;
-      if (!r) return;
+    (async () => {
+      const base = () => (supabase.from("v_calls_feed" as any) as any)
+        .select("*", { count: "exact", head: true })
+        .not("owner_id", "is", null);
+      const [t, a, s] = await Promise.all([
+        base(),
+        base().eq("conectada", true).eq("tiene_transcripcion", true),
+        base().eq("conectada", true).eq("tiene_transcripcion", false),
+      ]);
       setStats({
-        total: Number(r.total) || 0,
-        analizables: Number(r.analizables) || 0,
-        sinTranscripcion: Number(r.sin_transcripcion) || 0,
-        avgDur: Math.round(Number(r.avg_duracion) || 0),
+        total: t.count ?? 0,
+        analizables: a.count ?? 0,
+        sinTranscripcion: s.count ?? 0,
+        avgDur: 0,
       });
-    });
+    })();
   }, []);
 
   // Reset pagination when server-side filters change
   useEffect(() => { setPage(0); }, [dirFilter, analyzableOnly]);
 
-  // Paginated list with native range()
+  // Paginated list from v_calls_feed → refleja TODAS las llamadas sincronizadas de HubSpot
   const fetchPage = useCallback(async () => {
     setLoadingList(true);
-    let query = supabase.from("calls")
-      .select("id, fecha, duracion_seg, direccion, resumen, transcripcion, owner_id, metadatos, owners(nombre)", { count: "exact" })
+    let query: any = (supabase.from("v_calls_feed" as any) as any)
+      .select("hs_id, fecha, duracion_seg, direccion, resultado, resumen, owner_id, owner_nombre, building_id, session_id, puntuacion, session_estado, tiene_grabacion, tiene_transcripcion, conectada", { count: "exact" })
+      .not("owner_id", "is", null)
       .order("fecha", { ascending: false });
     if (analyzableOnly) {
-      query = query.not("transcripcion", "is", null).neq("transcripcion", "");
+      query = query.eq("conectada", true).eq("tiene_transcripcion", true);
     }
     if (dirFilter !== "all") {
-      query = query.eq("direccion", dirFilter as "entrante" | "saliente");
+      const dir = dirFilter === "entrante" ? "inbound" : "outbound";
+      query = query.eq("direccion", dir);
     }
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
     const { data, count } = await query.range(from, to);
-    const list = data ?? [];
+    const list = (data ?? []).map((r: any) => ({
+      id: r.hs_id,
+      fecha: r.fecha,
+      duracion_seg: r.duracion_seg,
+      direccion: r.direccion === "inbound" ? "entrante" : "saliente",
+      resumen: r.resumen,
+      owner_id: r.owner_id,
+      owners: { nombre: r.owner_nombre },
+      metadatos: { hs_id: r.hs_id },
+      puntuacion: r.puntuacion,
+    }));
     setRows(list);
     setPageCount(count ? Math.ceil(count / PAGE_SIZE) : 0);
-    const hsIds = list
-      .map((c: any) => c?.metadatos?.hs_id ?? c?.metadatos?.hubspot_id)
-      .filter(Boolean)
-      .map(String);
-    if (hsIds.length > 0) {
-      const { data: sess } = await (supabase.from("call_sessions" as any) as any)
-        .select("hubspot_call_id, puntuacion")
-        .in("hubspot_call_id", hsIds)
-        .eq("estado", "finalizada");
-      const m: Record<string, number | null> = {};
-      for (const s of ((sess as any[]) ?? [])) m[String(s.hubspot_call_id)] = s.puntuacion ?? null;
-      setAnalysisByHs(m);
-    } else setAnalysisByHs({});
+    const m: Record<string, number | null> = {};
+    for (const r of (data ?? []) as any[]) if (r.puntuacion != null) m[String(r.hs_id)] = r.puntuacion;
+    setAnalysisByHs(m);
     setLoadingList(false);
   }, [page, dirFilter, analyzableOnly]);
 
