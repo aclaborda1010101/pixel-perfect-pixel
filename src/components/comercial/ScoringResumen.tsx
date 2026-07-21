@@ -626,6 +626,48 @@ export function ScoringResumen({
           </div>
         </div>
 
+        {/* Propietarios: APORTA AL SCORE (nuevo eje) */}
+        {!showActivo && (ownerPositivos.length > 0 || ownerNegativos.length > 0) && (
+          <div className="grid grid-cols-1 gap-6 border-t border-border-faint px-6 py-6 md:grid-cols-2">
+            <div className="space-y-3">
+              <Eyebrow>
+                <TrendingUp className="mr-1 inline h-3 w-3 text-emerald-400" /> Propietarios · aporta al score
+              </Eyebrow>
+              <div className="space-y-2.5">
+                {ownerPositivos.length === 0 && (
+                  <div className="text-xs text-muted-foreground">Sin señales positivas detectadas todavía.</div>
+                )}
+                {ownerPositivos.map((f, i) => (
+                  <div key={i} className="flex items-baseline justify-between gap-2 text-xs">
+                    <span className="text-foreground">{f.label}{f.evidence ? <span className="ml-1 text-muted-foreground">· {f.evidence}</span> : null}</span>
+                    <span className="font-mono tabular-nums text-emerald-400">+{f.delta}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <Eyebrow>
+                <TrendingDown className="mr-1 inline h-3 w-3 text-red-400" /> Propietarios · penaliza
+              </Eyebrow>
+              <div className="space-y-2.5">
+                {ownerNegativos.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">Sin penalizaciones en el eje de propietarios.</div>
+                ) : (
+                  ownerNegativos.map((f, i) => (
+                    <div key={i} className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2.5">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none text-red-400" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs text-foreground">{f.label}{f.evidence ? <span className="ml-1 text-muted-foreground">· {f.evidence}</span> : null}</div>
+                        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-red-400">{f.delta} pts</div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {b?.cluster_motivo && (
           <div className="border-t border-border-faint bg-surface-1/40 px-6 py-3">
             <Eyebrow>Motivo del cluster</Eyebrow>
