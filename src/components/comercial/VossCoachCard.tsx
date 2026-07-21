@@ -304,7 +304,7 @@ export function VossCoachCard({
             )}
             {cierreFerrero && (
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Cierre · WhatsApp + especialista Afflux</div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground mb-1">Cierre · opt-in WhatsApp</div>
                 <blockquote className="border-l-2 border-emerald-500 pl-3 italic text-foreground">"{cierreFerrero}"</blockquote>
               </div>
             )}
