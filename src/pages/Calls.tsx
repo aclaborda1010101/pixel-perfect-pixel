@@ -54,11 +54,17 @@ export default function Calls() {
         base().eq("conectada", true).eq("tiene_transcripcion", true),
         base().eq("conectada", true).eq("tiene_transcripcion", false),
       ]);
+      let avg = 0;
+      try {
+        const { data: rpc } = await supabase.rpc("calls_stats" as any);
+        const r = Array.isArray(rpc) ? rpc[0] : rpc;
+        if (r) avg = Math.round(Number(r.avg_duracion) || 0);
+      } catch { /* noop */ }
       setStats({
         total: t.count ?? 0,
         analizables: a.count ?? 0,
         sinTranscripcion: s.count ?? 0,
-        avgDur: 0,
+        avgDur: avg,
       });
     })();
   }, []);
