@@ -14,7 +14,7 @@ import { MetricValue } from "@/components/common/MetricValue";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { useI18n } from "@/i18n/I18nProvider";
 import { supabase } from "@/integrations/supabase/client";
-import { PhoneCall, Search } from "lucide-react";
+import { PhoneCall, Search, ArrowDownLeft, ArrowUpRight, FileText } from "lucide-react";
 
 function fmtDur(s: number | null | undefined) {
   if (!s) return "0:00";
@@ -39,6 +39,7 @@ export default function Calls() {
   const [page, setPage] = useState(0);
   const [pageCount, setPageCount] = useState(0);
   const [loadingList, setLoadingList] = useState(false);
+  const [analysisByHs, setAnalysisByHs] = useState<Record<string, number | null>>({});
   const PAGE_SIZE = 50;
 
   // Global stats via RPC (real totals, not capped at 1000)
@@ -62,7 +63,7 @@ export default function Calls() {
   const fetchPage = useCallback(async () => {
     setLoadingList(true);
     let query = supabase.from("calls")
-      .select("id, fecha, duracion_seg, direccion, resumen, transcripcion, owner_id, owners(nombre)", { count: "exact" })
+      .select("id, fecha, duracion_seg, direccion, resumen, transcripcion, owner_id, metadatos, owners(nombre)", { count: "exact" })
       .order("fecha", { ascending: false });
     if (analyzableOnly) {
       query = query.not("transcripcion", "is", null).neq("transcripcion", "");
@@ -73,8 +74,22 @@ export default function Calls() {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
     const { data, count } = await query.range(from, to);
-    setRows(data ?? []);
+    const list = data ?? [];
+    setRows(list);
     setPageCount(count ? Math.ceil(count / PAGE_SIZE) : 0);
+    const hsIds = list
+      .map((c: any) => c?.metadatos?.hs_id ?? c?.metadatos?.hubspot_id)
+      .filter(Boolean)
+      .map(String);
+    if (hsIds.length > 0) {
+      const { data: sess } = await (supabase.from("call_sessions" as any) as any)
+        .select("hubspot_call_id, puntuacion")
+        .in("hubspot_call_id", hsIds)
+        .eq("estado", "finalizada");
+      const m: Record<string, number | null> = {};
+      for (const s of ((sess as any[]) ?? [])) m[String(s.hubspot_call_id)] = s.puntuacion ?? null;
+      setAnalysisByHs(m);
+    } else setAnalysisByHs({});
     setLoadingList(false);
   }, [page, dirFilter, analyzableOnly]);
 
