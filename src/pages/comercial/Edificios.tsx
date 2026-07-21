@@ -646,7 +646,13 @@ export default function ComercialEdificios() {
           (r.barrio ?? "").toLowerCase().includes(s);
         if (!hay) return false;
       }
-      if (r.score < smin) return false;
+      // Filtro de score mínimo sobre el score MOSTRADO (mismo modo que la card).
+      const rMode: "total" | "activo" = viewActivo ? "activo" : "total";
+      const rShown = getDisplayScore(
+        { score_total: r.score_total, score_activo: r.score_activo, score: r.score },
+        rMode,
+      );
+      if (rShown < smin) return false;
       if (barrios.size > 0 && (!r.barrio || !barrios.has(r.barrio))) return false;
       if (vntMin > -Infinity && (r.ventanas_total ?? -1) < vntMin) return false;
       if (advSegundasEscaleras && !r.segundas_escaleras) return false;
