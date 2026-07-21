@@ -171,9 +171,7 @@ export default function ComercialEdificioDetalle() {
             <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral, iee_estado: (b as any)?.iee_estado }} />
             {assigned ? (
               <Badge variant="gold">Tu cartera</Badge>
-            ) : (
-              <Badge variant="outline">Solo consulta</Badge>
-            )}
+            ) : null}
             <Badge variant={b.division_horizontal ? "outline" : "gold"}>
               {b.division_horizontal ? "División horizontal" : "Sin DH"}
             </Badge>
@@ -376,17 +374,11 @@ export default function ComercialEdificioDetalle() {
                           : "Nunca contactado"}
                       </span>
                     </div>
-                    {assigned ? (
-                      <Button asChild size="sm" variant="outline">
-                        <Link to={`/comercial/preparar/${o.owner_id}`}>
-                          <Phone className="h-3 w-3" /> Preparar
-                        </Link>
-                      </Button>
-                    ) : (
-                      <Button size="sm" variant="outline" disabled title="Edificio fuera de tu cartera">
-                        <Phone className="h-3 w-3" /> Solo consulta
-                      </Button>
-                    )}
+                    <Button asChild size="sm" variant="outline">
+                      <Link to={`/comercial/preparar/${o.owner_id}`}>
+                        <Phone className="h-3 w-3" /> Preparar
+                      </Link>
+                    </Button>
                   </div>
                 </li>
               );

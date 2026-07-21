@@ -29,13 +29,13 @@ const PARTE_FIJA = `PARTE FIJA · Método Afflux (no negociable, aplica SIEMPRE)
   · NUNCA precio ni aproximados por teléfono. Si el propietario pregunta precio = SEÑAL DE INTERÉS → derivar a reunión con el especialista de Afflux.
   · No sueltes datos que ya tenemos (cuota, direcciones, herederos): se confirman preguntando, nunca afirmando.
   · Una pregunta cada vez. Escuchar, repetir por su nombre lo que dice, y encadenar la siguiente.
-  · No etiquetar emociones ni dar cosas por hecho ("veo que está harto", "seguro que le pesa"). Deja que él lo diga.
+  · PROHIBIDO etiquetar o presuponer emociones ("veo que está harto", "seguro le pesa", "imagino que le molesta"). NO INFERIR estado emocional. Se limita a preguntar y a repetir literalmente lo que el propietario diga. Si citas algo de una llamada previa, cita LITERAL con fecha, sin interpretar.
   · No nombrar herramientas ni fuentes salvo "nota simple del Registro de la Propiedad".
   · Nada de presión. Ritmo pausado. Silencios permitidos.
 - Ritmo: frase de confianza breve + UNA pregunta → escuchar → confirmar por su nombre ("entonces, {nombre}, me dice que…") → siguiente frase + pregunta.
 - Apertura en 2 pasos: (1) confirmar identidad ("¿Hablo con {nombre}?"), (2) presentación + motivo desde la nota simple del Registro.
 - Preguntas incómodas en 3 niveles: primero tranquilizar ("nada raro, es habitual…"), si insiste dar la fuente UNA vez ("figura en la nota simple del Registro"), si sigue tenso → control+retirada ("no hay problema, lo dejamos y ya me dice usted").
-- Cierre siempre: opt-in WhatsApp para mandarle resumen + AVISAR que la siguiente llamada la hace el ESPECIALISTA de Afflux (no el mismo comercial).`;
+- Cierre siempre: opt-in WhatsApp para mandarle un resumen breve. NO menciones "especialista", "compañero" ni derivaciones internas: son detalles operativos que el propietario no necesita oír.`;
 
 const TIPOLOGIAS: Record<string, { nombre: string; enfoque: string; frases: string[]; preguntas: string[]; rojas: string[]; palancas: string[] }> = {
   T1: { nombre: 'T1 Cansado de la gestión', enfoque: 'Buen target, quemado de gestionar. Que HABLE de lo que le supone. Empatía con la carga.', frases: ['Imagino que un edificio con tantos propietarios da bastante trabajo.', 'No es fácil llevar todo eso adelante sin que le absorba tiempo.'], preguntas: ['¿Quién lleva el día a día del edificio?', '¿Le come mucho tiempo esto?', '¿Los demás propietarios colaboran o al final tira usted del carro?', '¿Se ha planteado alguna vez quitarse ese peso?'], rojas: ['Minimizar su esfuerzo.', 'Hablarle solo de tasación / precio.', 'Tono frío o transaccional.'], palancas: ['Liberar la carga de gestión.', 'Compensación económica justa.', 'No dejar el marrón a los hijos.', 'Fiscalidad favorable (99% Madrid).'] },
@@ -150,8 +150,10 @@ REGLAS ESTILO FERRERO/POZAS 3 (obligatorias — el brief debe LEERSE como un gui
   - "como_enfocar" y "plan_llamada" deben citar hechos concretos de ESTA persona (fecha, cita textual, KPI ya conseguido con su evidencia). Si no hay contexto para un KPI que falta, dilo explícitamente ("sin datos, pregunta directa: …").
   - "hilo" contiene 3-6 entradas ordenadas: primero la que rompe el hielo desde algo que ya sabemos, después las que sacan los KPIs de TARGET_KPIS (cuadro_rentas si aplica va PRIMERO), y una final orientada a palanca de venta.
   - "lineas_rojas" siempre incluye las de la tipología aplicable + "no hablar de precio" + cualquier línea roja específica que se deduzca del histórico (ej. familia enferma, duelo, okupa).
-  - Cierre: WhatsApp + "la próxima llamada la hará mi compañero especialista de Afflux, {nombre_generico}, para poder darle números concretos".
+  - Cierre: opt-in WhatsApp con resumen breve (sin mencionar especialista ni derivaciones internas).
   - NUNCA plantilla genérica. Si la salida podría valer para otro propietario, NO ES VÁLIDA.
+  - COHERENCIA DE PERFIL: si la tipología aplicable es T5 (o cualquier T concreta), TODO el brief la refleja de forma consistente. NUNCA mezcles perfiles ("T5-T2", "T3 con matices de T1"). Una tipología única.
+  - APERTURA DE SEGUIMIENTO: la cita del histórico va LITERAL entre comillas y con fecha ("El 12/06 me dijo: 'no me interesa'"). Prohibido parafrasear o inferir tono.
 
 REGLA PLAN_LLAMADA (crítica, es lo PRIMERO que lee el comercial):
   - Devuelve entre 3 y 6 pasos ORDENADOS, específicos de ESTA persona y ESTA llamada. NADA GENÉRICO.
@@ -346,40 +348,38 @@ Deno.serve(async (req) => {
       const { data: ex } = await sb.from('external_ids')
         .select('provider_id').eq('entity_type', 'owner').eq('entity_id', owner_id).eq('provider', 'hubspot');
       const hsContactIds = (ex || []).map((r: any) => String(r.provider_id)).filter(Boolean);
-      // deal_ids: edificios donde participa el owner
-      const { data: bldgs } = await sb.from('building_owners').select('building_id').eq('owner_id', owner_id);
-      const buildingIds = (bldgs || []).map((b: any) => b.building_id).filter(Boolean);
-      let hsDealIds: string[] = [];
-      if (buildingIds.length) {
-        const { data: exd } = await sb.from('external_ids')
-          .select('provider_id')
-          .eq('entity_type', 'building').eq('provider', 'hubspot').eq('provider_object_type', 'deal')
-          .in('entity_id', buildingIds);
-        hsDealIds = (exd || []).map((r: any) => String(r.provider_id)).filter(Boolean);
-      }
-      // Helper: fetch por contacto y por deal, dedup por hs_id
-      const fetchByOverlap = async (table: string, cols: string, order = 'hs_timestamp', limit = 20) => {
-        const queries: any[] = [];
-        if (hsContactIds.length) queries.push(sb.from(table).select(cols).overlaps('associated_contact_ids', hsContactIds).order(order, { ascending: false }).limit(limit));
-        if (hsDealIds.length) queries.push(sb.from(table).select(cols).overlaps('associated_deal_ids', hsDealIds).order(order, { ascending: false }).limit(limit));
-        if (!queries.length) return [];
-        const results = await Promise.all(queries);
-        const seen = new Set<string>();
-        const out: any[] = [];
-        for (const r of results) {
-          for (const row of (r.data || [])) {
-            const id = String((row as any).hs_id ?? '');
-            if (id && !seen.has(id)) { seen.add(id); out.push(row); }
-          }
-        }
-        return out;
-      };
-      if (hsContactIds.length || hsDealIds.length) {
-        const [hc, hn, ht] = await Promise.all([
-          fetchByOverlap('hubspot_calls', 'hs_id, hs_call_title, hs_call_body, hs_call_summary, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp', 'hs_timestamp', 12),
-          fetchByOverlap('hubspot_notes', 'hs_id, hs_note_body, hs_timestamp', 'hs_timestamp', 20),
-          fetchByOverlap('hubspot_tasks', 'hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_timestamp', 'hs_timestamp', 20),
-        ]);
+      // Llamadas del owner via v_owner_calls_enriched (contact + match teléfono en deal).
+      // Esto evita mezclar llamadas de otros contactos del mismo deal (bug reportado).
+      const { data: ownerCallsView } = await (sb.from('v_owner_calls_enriched' as any) as any)
+        .select('hs_id')
+        .eq('owner_id', owner_id)
+        .order('hs_timestamp', { ascending: false })
+        .limit(24);
+      const ownerHsIds = (ownerCallsView || []).map((r: any) => String(r.hs_id)).filter(Boolean);
+      // Notas/tasks: solo por contacto (por deal es demasiado ruidoso a nivel propietario).
+      if (hsContactIds.length || ownerHsIds.length) {
+        const callsQ = ownerHsIds.length
+          ? sb.from('hubspot_calls')
+              .select('hs_id, hs_call_title, hs_call_body, hs_call_summary, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp')
+              .in('hs_id', ownerHsIds)
+              .order('hs_timestamp', { ascending: false })
+              .limit(12)
+          : Promise.resolve({ data: [] as any[] });
+        const notesQ = hsContactIds.length
+          ? sb.from('hubspot_notes')
+              .select('hs_id, hs_note_body, hs_timestamp')
+              .overlaps('associated_contact_ids', hsContactIds)
+              .order('hs_timestamp', { ascending: false })
+              .limit(20)
+          : Promise.resolve({ data: [] as any[] });
+        const tasksQ = hsContactIds.length
+          ? sb.from('hubspot_tasks')
+              .select('hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_timestamp')
+              .overlaps('associated_contact_ids', hsContactIds)
+              .order('hs_timestamp', { ascending: false })
+              .limit(20)
+          : Promise.resolve({ data: [] as any[] });
+        const [{ data: hc }, { data: hn }, { data: ht }] = await Promise.all([callsQ, notesQ, tasksQ]) as any;
         // Dedupe calls por proximidad ±120s con histórico local
         const localTs = historico.map((h: any) => +new Date(h.fecha || 0));
         for (const k of hc || []) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -71,6 +71,7 @@ type Row = {
   raw: any;
   assigned: boolean;
   cartera_demo: boolean;
+  comercial: string | null;
   avisos: Aviso[] | null;
   score_summary: string | null;
   confianza_media: number | null;
@@ -271,7 +272,7 @@ export default function ComercialEdificios() {
   const userId = user?.id;
   const [searchParams] = useSearchParams();
   const urlFilter = searchParams.get("filter");
-  const [tab, setTab] = useState<"mia" | "todos">("mia");
+  const [tab, setTab] = useState<"todos" | "jesus" | "david">("todos");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("score_desc");
   const [scoreMin, setScoreMin] = useState<string>("");
@@ -297,6 +298,17 @@ export default function ComercialEdificios() {
   const TODOS_PAGE = 60;
   const [shownTodos, setShownTodos] = useState(TODOS_PAGE);
 
+  // Auto-selección de la pestaña según el comercial logueado.
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      const { data } = await supabase.from("profiles").select("full_name, email").eq("id", userId).maybeSingle();
+      const name = String((data as any)?.full_name ?? (data as any)?.email ?? "").toLowerCase();
+      if (name.includes("jes")) setTab("jesus");
+      else if (name.includes("david") || name.includes("casero")) setTab("david");
+    })();
+  }, [userId]);
+
   // --- Mi cartera: query ligera (~80 filas) que se carga siempre ---
   const { data: miaData, isLoading: loadingMia } = useQuery({
     queryKey: ["comercial:edificios:mia", userId],
@@ -320,7 +332,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
@@ -360,6 +372,7 @@ export default function ComercialEdificios() {
           raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
+          comercial: extra.comercial ?? null,
           avisos,
           score_summary: extra.score_summary ?? null,
           confianza_media: extra.confianza_media ?? null,
@@ -381,8 +394,7 @@ export default function ComercialEdificios() {
     },
   });
 
-  // --- Catálogo completo: lazy, sólo al activar tab "todos" ---
-  const qc = useQueryClient();
+  // --- Catálogo completo (cacheado 10 min) ---
   const todosQueryKey = ["comercial:edificios:todos", userId] as const;
   const todosQueryFn = async () => {
       // Paginación completa: Supabase limita a 1000 filas/request, así que
@@ -412,7 +424,7 @@ export default function ComercialEdificios() {
       const scoreIds = scores.map((b: any) => b.id);
       const { data: demoBldgs } = scoreIds.length
         ? await (supabase.from("buildings" as any) as any)
-            .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
+            .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
             .in("id", scoreIds)
         : { data: [] as any[] };
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
@@ -459,6 +471,7 @@ export default function ComercialEdificios() {
           raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
+          comercial: (extra as any).comercial ?? null,
           avisos,
           score_summary: extra.score_summary ?? null,
           confianza_media: extra.confianza_media ?? null,
@@ -480,46 +493,41 @@ export default function ComercialEdificios() {
     };
   const { data: todosData, isLoading: loadingTodos } = useQuery({
     queryKey: todosQueryKey,
-    enabled: !!userId && tab === "todos",
+    enabled: !!userId,
     staleTime: 10 * 60_000,
     placeholderData: keepPreviousData,
     queryFn: todosQueryFn,
   });
-  const prefetchTodos = () => {
-    if (!userId) return;
-    qc.prefetchQuery({ queryKey: todosQueryKey, queryFn: todosQueryFn, staleTime: 10 * 60_000 });
-  };
 
   const miasRows: Row[] = miaData?.rows ?? [];
   const todosRows: Row[] = todosData?.rows ?? [];
-  const rows: Row[] = tab === "todos" && todosRows.length > 0 ? todosRows : miasRows;
-  const isLoading = loadingMia || (tab === "todos" && loadingTodos);
+  const rows: Row[] = todosRows.length > 0 ? todosRows : miasRows;
+  const isLoading = loadingMia || loadingTodos;
 
-  // "Mi cartera" = asignados al user actual OR cartera_demo_seed=true
-  const mias = useMemo(
-    () => miasRows.filter((r) => r.assigned || r.cartera_demo),
-    [miasRows],
-  );
   // Si la URL trae ?filter=cartera_demo aplicamos solo demo y forzamos sort score desc
   const carteraDemoOnly = urlFilter === "cartera_demo";
 
   useEffect(() => {
     if (carteraDemoOnly) {
-      setTab("mia");
+      setTab("todos");
       setSort("score_desc");
     }
   }, [carteraDemoOnly]);
 
-  const visibleMias = useMemo(
-    () => (carteraDemoOnly ? mias.filter((r) => r.cartera_demo) : mias),
-    [mias, carteraDemoOnly],
-  );
+  // Filas por pestaña (comercial). "Todos" = catálogo completo.
+  const rowsByTab = useMemo(() => {
+    if (tab === "jesus") return rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("jes"));
+    if (tab === "david") return rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("david") || (r.comercial ?? "").toLowerCase().includes("casero"));
+    return carteraDemoOnly ? rows.filter((r) => r.cartera_demo) : rows;
+  }, [rows, tab, carteraDemoOnly]);
+  const countJesus = useMemo(() => rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("jes")).length, [rows]);
+  const countDavid = useMemo(() => rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("david") || (r.comercial ?? "").toLowerCase().includes("casero")).length, [rows]);
 
   const allBarrios = useMemo(() => {
     const set = new Set<string>();
-    (tab === "todos" ? rows : mias).forEach((r) => r.barrio && set.add(r.barrio));
+    rowsByTab.forEach((r) => r.barrio && set.add(r.barrio));
     return Array.from(set).sort();
-  }, [rows, mias, tab]);
+  }, [rowsByTab]);
 
   const apply = (list: Row[]) => {
     const s = q.trim().toLowerCase();
@@ -624,8 +632,7 @@ export default function ComercialEdificios() {
     (barrios.size > 0 ? 1 : 0) +
     advancedCount;
 
-  const filteredMias = apply(visibleMias);
-  const filteredTodos = apply(rows);
+  const filteredTodos = apply(rowsByTab);
 
   // Al cambiar filtros/orden/tab, volvemos a la primera "página" de render.
   useEffect(() => {
@@ -639,16 +646,17 @@ export default function ComercialEdificios() {
       <PageHeader
         eyebrow="Edificios"
         title="Cartera y catálogo"
-        subtitle={`${mias.length} en tu cartera${todosRows.length ? ` · ${todosRows.length} edificios totales` : ""}`}
+        subtitle={`${countJesus} Jesús · ${countDavid} David${todosRows.length ? ` · ${todosRows.length} totales` : ""}`}
       />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
-            <TabsTrigger value="mia">Mi cartera ({mias.length})</TabsTrigger>
-            <TabsTrigger value="todos" onMouseEnter={prefetchTodos} onFocus={prefetchTodos}>
+            <TabsTrigger value="todos">
               Todos los edificios{todosRows.length ? ` (${todosRows.length})` : ""}
             </TabsTrigger>
+            <TabsTrigger value="jesus">Jesús ({countJesus})</TabsTrigger>
+            <TabsTrigger value="david">David ({countDavid})</TabsTrigger>
           </TabsList>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -834,25 +842,9 @@ export default function ComercialEdificios() {
           )}
         </div>
 
-        <TabsContent value="mia" className="mt-0">
-          {filteredMias.length === 0 ? (
-            <EmptyState
-              icon={Building2}
-              title={isLoading ? "Cargando…" : "Sin resultados en tu cartera"}
-              description="Ajusta los filtros o contacta con tu administrador para que te asigne edificios."
-            />
-          ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredMias.map((r) => (
-                <BuildingCard key={r.id} r={r} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="todos" className="mt-0">
+        <TabsContent value={tab} className="mt-0">
           <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-            Mostrando {filteredTodos.length} de {rows.length}
+            Mostrando {filteredTodos.length} de {rowsByTab.length}
           </div>
           {filteredTodos.length === 0 ? (
             <EmptyState

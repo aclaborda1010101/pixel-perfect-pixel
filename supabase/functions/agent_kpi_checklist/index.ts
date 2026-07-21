@@ -71,50 +71,39 @@ Deno.serve(async (req) => {
       hsIds = (eids ?? []).map((e: any) => String(e.provider_id)).filter(Boolean);
     } catch { /* opcional */ }
 
-    // HubSpot deal ids: por los edificios en los que el owner participa
-    let hsDealIds: string[] = [];
+    // Llamadas atribuidas al owner via vista (contact + phone-match en deal),
+    // así no mezclamos llamadas de otros contactos del mismo deal.
+    let ownerCallHsIds: string[] = [];
     try {
-      const { data: bldgs } = await admin.from("building_owners").select("building_id").eq("owner_id", owner_id);
-      const buildingIds = (bldgs ?? []).map((b: any) => b.building_id).filter(Boolean);
-      if (buildingIds.length) {
-        const { data: exd } = await admin.from("external_ids")
-          .select("provider_id")
-          .eq("entity_type", "building").eq("provider", "hubspot").eq("provider_object_type", "deal")
-          .in("entity_id", buildingIds);
-        hsDealIds = (exd ?? []).map((r: any) => String(r.provider_id)).filter(Boolean);
-      }
+      const { data: view } = await (admin.from("v_owner_calls_enriched" as any) as any)
+        .select("hs_id")
+        .eq("owner_id", owner_id)
+        .order("hs_timestamp", { ascending: false })
+        .limit(60);
+      ownerCallHsIds = ((view ?? []) as any[]).map((r) => String(r.hs_id)).filter(Boolean);
     } catch { /* opcional */ }
 
     let hsNotes: any[] = [];
     let hsWa: any[] = [];
     let hsCalls: any[] = [];
-    if (hsIds.length || hsDealIds.length) {
+    if (hsIds.length || ownerCallHsIds.length) {
       const seenN = new Set<string>();
       const seenW = new Set<string>();
       const seenC = new Set<string>();
       const runs: Promise<any>[] = [];
       // Notas por contacto
       if (hsIds.length) runs.push(admin.from("hubspot_notes").select("hs_id, hs_timestamp, hs_note_body").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
-      // Notas por deal
-      if (hsDealIds.length) runs.push(admin.from("hubspot_notes").select("hs_id, hs_timestamp, hs_note_body").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
       // WhatsApp por contacto
       if (hsIds.length) runs.push(admin.from("hubspot_whatsapp").select("hs_id, hs_timestamp, hs_communication_body").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
-      // WhatsApp por deal
-      if (hsDealIds.length) runs.push(admin.from("hubspot_whatsapp").select("hs_id, hs_timestamp, hs_communication_body").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
-      // Llamadas HubSpot (resumen IA + transcripción + body) por contacto
-      if (hsIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_summary, hs_call_transcription").overlaps("associated_contact_ids", hsIds).order("hs_timestamp", { ascending: false }).limit(30));
-      // Llamadas HubSpot por deal
-      if (hsDealIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_summary, hs_call_transcription").overlaps("associated_deal_ids", hsDealIds).order("hs_timestamp", { ascending: false }).limit(30));
+      // Llamadas HubSpot: SOLO las hs_id atribuidas a este owner (contact + phone-match).
+      if (ownerCallHsIds.length) runs.push(admin.from("hubspot_calls").select("hs_id, hs_timestamp, hs_call_title, hs_call_direction, hs_call_disposition, hs_call_body, hs_call_summary, hs_call_transcription").in("hs_id", ownerCallHsIds).order("hs_timestamp", { ascending: false }).limit(30));
       try {
         const results = await Promise.all(runs);
-        // orden de runs: notes/contact, notes/deal, wa/contact, wa/deal, calls/contact, calls/deal (según se hayan añadido)
+        // orden de runs: notes/contact, wa/contact, calls/by-hs-id (según se hayan añadido)
         let idx = 0;
         if (hsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenN.has(id)) { seenN.add(id); hsNotes.push(r); } } idx++; }
-        if (hsDealIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenN.has(id)) { seenN.add(id); hsNotes.push(r); } } idx++; }
         if (hsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenW.has(id)) { seenW.add(id); hsWa.push(r); } } idx++; }
-        if (hsDealIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenW.has(id)) { seenW.add(id); hsWa.push(r); } } idx++; }
-        if (hsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenC.has(id)) { seenC.add(id); hsCalls.push(r); } } idx++; }
-        if (hsDealIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenC.has(id)) { seenC.add(id); hsCalls.push(r); } } idx++; }
+        if (ownerCallHsIds.length) { for (const r of (results[idx].data || [])) { const id = String(r.hs_id ?? ""); if (id && !seenC.has(id)) { seenC.add(id); hsCalls.push(r); } } idx++; }
       } catch {}
     }
 
