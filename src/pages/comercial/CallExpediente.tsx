@@ -363,12 +363,20 @@ export default function CallExpediente() {
             </Card>
           )}
 
-          {session.notas && (
-            <Card className="lg:col-span-2">
-              <CardHeader><Eyebrow>Notas</Eyebrow></CardHeader>
-              <CardContent className="whitespace-pre-wrap text-sm">{session.notas}</CardContent>
-            </Card>
-          )}
+          {(() => {
+            // Notas humanas del comercial (hs_call_body de HubSpot).
+            // El resumen máquina antiguo NO se muestra aquí — ya vive en las
+            // secciones de auditoría (Resumen ejecutivo / Evaluación).
+            const humanNotes = stripHtml(hsCall?.hs_call_body);
+            const looksMachine = /score\s*:\s*\d/i.test(humanNotes) || /el comercial (maneja|realiza|logra)/i.test(humanNotes);
+            if (!humanNotes || looksMachine) return null;
+            return (
+              <Card className="lg:col-span-2">
+                <CardHeader><Eyebrow>Notas del comercial</Eyebrow></CardHeader>
+                <CardContent className="whitespace-pre-wrap text-sm">{humanNotes}</CardContent>
+              </Card>
+            );
+          })()}
 
           {transcript && (
             <Card className="lg:col-span-2">

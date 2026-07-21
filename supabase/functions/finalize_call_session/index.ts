@@ -187,13 +187,8 @@ Deno.serve(async (req) => {
       };
     });
 
-    // 4) Notas auto-rellenadas desde el análisis
-    const notasAuto = [
-      voss?.puntuacion?.justificacion ? `Score: ${puntuacion}/100. ${voss.puntuacion.justificacion}` : null,
-      voss?.proxima_accion ? `Próxima acción: ${voss.proxima_accion}` : null,
-      Array.isArray(voss?.sacar_en_siguiente_contacto) && voss.sacar_en_siguiente_contacto.length
-        ? `Pendiente próximo contacto: ${voss.sacar_en_siguiente_contacto.join(" · ")}` : null,
-    ].filter(Boolean).join("\n");
+    // 4) NO escribimos resumen máquina en `notas`. El análisis vive en `voss_post`
+    //    (fuente única para todas las vistas). `notas` queda para notas humanas.
 
     // 5) Si tenemos call_id pero faltan campos clave, actualizar
     if (callId && transcript) {
@@ -250,7 +245,10 @@ Deno.serve(async (req) => {
       estado: "finalizada",
       finalizada_at: new Date().toISOString(),
       cerrada_at: new Date().toISOString(),
-      notas: notasAuto || session.notas,
+      // Fuente única de análisis = voss_post. Limpiamos resúmenes máquina
+      // antiguos que se guardaron aquí en versiones previas para que la
+      // sección "Notas" no muestre información desactualizada al regenerar.
+      notas: /^Score:\s*\d/i.test(String(session.notas ?? "")) ? null : session.notas,
     }).eq("id", session_id);
 
     // Asegura que el expediente conserve los KPIs objetivo. Si en la sesión
