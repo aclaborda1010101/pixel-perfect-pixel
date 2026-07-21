@@ -138,7 +138,11 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 
 function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
-  const displayScore = showActivo && r.score_activo != null ? Number(r.score_activo) : r.score;
+  const mode: "total" | "activo" = showActivo ? "activo" : "total";
+  const displayScore = getDisplayScore(
+    { score_total: r.score_total, score_activo: r.score_activo, score: r.score },
+    mode,
+  );
   const tier = scoreTier(displayScore);
   const factors = buildingScoreFactors(r.raw);
   const top3 = factors.slice(0, 3);
@@ -176,7 +180,7 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="shrink-0 cursor-help">
-                    <ScorePill score={displayScore} />
+                    <ScorePill score={displayScore} mode={mode} />
                   </div>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-sm">
@@ -188,7 +192,7 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
             </TooltipProvider>
           ) : (
             <div className="shrink-0">
-              <ScorePill score={displayScore} />
+              <ScorePill score={displayScore} mode={mode} />
             </div>
           )}
         </div>
