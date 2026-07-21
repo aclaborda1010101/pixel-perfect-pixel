@@ -254,6 +254,10 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 
 El array "desarrollo" va en ORDEN NARRATIVO de la llamada (apertura → nudo → cierre). "inteligencia_extraida" es EXHAUSTIVO: toda cifra, nombre, fecha, decisión, matiz personal o del edificio que aparezca en el verbatim va como una entrada separada — mejor 15 datos pequeños que 3 párrafos.`;
 
+// Reglas de voz que aplican también al informe post-llamada: cuando el informe
+// sugiera una "alternativa_literal" o cite frases Voss, deben cumplir el
+// castellano natural de España (mismas sustituciones que el brief).
+
 async function embed(text: string, key: string): Promise<number[] | null> {
   try {
     const r = await fetch(EMB_URL, {
