@@ -397,6 +397,16 @@ export function ScoringResumen({
     const oferta = !!ownerBreak.oferta_previa_edificio;
     const mayoria = !!ownerBreak.mayoria_vendedora;
     const impBld = !!ownerBreak.impulsor_edificio;
+    const ofertaImporte =
+      num(ownerBreak.oferta_previa_importe) ??
+      num(ownerBreak.oferta_previa_amount) ??
+      num(ownerBreak.oferta_importe) ??
+      null;
+    const fmtImporte = (n: number) => {
+      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1).replace(".", ",")}M€`;
+      if (n >= 1_000) return `${Math.round(n / 1_000)}k€`;
+      return `${n}€`;
+    };
     const lastCall = ownerBreak.last_call_at ? new Date(ownerBreak.last_call_at) : null;
     const lastCallLabel = lastCall ? `${String(lastCall.getDate()).padStart(2,"0")}/${String(lastCall.getMonth()+1).padStart(2,"0")}` : null;
 
@@ -468,14 +478,20 @@ export function ScoringResumen({
       if (nO != null) bits.push(`**${nO} propietarios**${owners24hint ? "" : ""}`);
       if (mayoria) {
         bits.push(
-          `mayoría quiere vender${lastCallLabel ? ` —cita ${lastCallLabel}—` : ""}`,
+          `mayoría quiere vender${lastCallLabel ? ` —cita ${lastCallLabel}—` : ""}${
+            nPos > 0 ? ` (${nPos} con predisposición explícita)` : ""
+          }`,
         );
       } else if (nPos > 0) {
         bits.push(
           `${nPos === 1 ? "1 propietario ha declarado intención de venta" : `${nPos} propietarios han declarado intención de venta`}${lastCallLabel ? ` (última llamada ${lastCallLabel})` : ""}`,
         );
       }
-      if (oferta) bits.push(`oferta previa discutida ya sobre la mesa`);
+      if (oferta) {
+        bits.push(
+          `oferta previa discutida${ofertaImporte ? ` (**${fmtImporte(ofertaImporte)}**)` : ""} ya sobre la mesa`,
+        );
+      }
       if (impBld || nImp > 0)
         bits.push(nImp > 1 ? `${nImp} impulsores internos identificados` : `impulsor interno identificado`);
       if (nBloq > 0)
