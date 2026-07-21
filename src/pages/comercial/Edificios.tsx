@@ -662,9 +662,16 @@ export default function ComercialEdificios() {
     });
 
     const cmp = (a: Row, b: Row) => {
-      // Si el toggle "Sin propietarios" está activo, ordenamos por score_activo.
-      const aScore = viewActivo && a.score_activo != null ? Number(a.score_activo) : a.score;
-      const bScore = viewActivo && b.score_activo != null ? Number(b.score_activo) : b.score;
+      // Fuente única para el orden — mismo helper que usan la card y la ficha.
+      const mode: "total" | "activo" = viewActivo ? "activo" : "total";
+      const aScore = getDisplayScore(
+        { score_total: a.score_total, score_activo: a.score_activo, score: a.score },
+        mode,
+      );
+      const bScore = getDisplayScore(
+        { score_total: b.score_total, score_activo: b.score_activo, score: b.score },
+        mode,
+      );
       // El criterio de orden elegido manda. La estrella NO altera el orden:
       // es un flag visual y un filtro (ver "Solo edificios estrella"). Como
       // desempate al final, si el criterio principal empata, mostramos antes
