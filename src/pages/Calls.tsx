@@ -175,7 +175,17 @@ export default function Calls() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <Eyebrow>Propietario</Eyebrow>
-                      <div className="truncate text-base font-medium text-foreground">{c.owners?.nombre ?? "—"}</div>
+                      {c.owner_id ? (
+                        <Link
+                          to={`/propietarios/${c.owner_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="block truncate text-base font-medium text-foreground hover:text-gold"
+                        >
+                          {c.owners?.nombre ?? "—"}
+                        </Link>
+                      ) : (
+                        <div className="truncate text-base font-medium text-foreground">{c.owners?.nombre ?? "—"}</div>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {punt != null && (
@@ -223,11 +233,23 @@ export default function Calls() {
                 const punt = hsId ? analysisByHs[String(hsId)] : null;
                 const isInbound = c.direccion === "entrante" || String(c.direccion).toUpperCase() === "INBOUND";
                 return (
-                  <TableRow key={c.id} className="bg-card">
+                  <TableRow
+                    key={c.id}
+                    className="cursor-pointer bg-card hover:bg-muted/40"
+                    onClick={() => { window.location.assign(to); }}
+                  >
                     <TableCell>
-                      <Link to={to} className="font-medium text-foreground hover:text-gold">
-                        {c.owners?.nombre ?? "—"}
-                      </Link>
+                      {c.owner_id ? (
+                        <Link
+                          to={`/propietarios/${c.owner_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-medium text-foreground hover:text-gold"
+                        >
+                          {c.owners?.nombre ?? "—"}
+                        </Link>
+                      ) : (
+                        <span className="font-medium text-foreground">{c.owners?.nombre ?? "—"}</span>
+                      )}
                     </TableCell>
                     <TableCell className="font-mono tabular-nums text-muted-foreground">{new Date(c.fecha).toLocaleString()}</TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{fmtDur(c.duracion_seg)}</TableCell>
