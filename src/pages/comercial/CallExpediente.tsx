@@ -73,14 +73,24 @@ export default function CallExpediente() {
     return () => { cancelled = true; };
   }, [hsId]);
 
-  const voss = session?.voss_post ?? {};
-  const puntuacion = session?.puntuacion ?? (voss as any)?.puntuacion?.score_0_100 ?? null;
-  const justificacion = (voss as any)?.puntuacion?.justificacion ?? null;
-  const bien: string[] = Array.isArray((voss as any)?.que_bien) ? (voss as any).que_bien : [];
-  const mal: string[] = Array.isArray((voss as any)?.que_mal) ? (voss as any).que_mal : [];
-  const mejoras: string[] = Array.isArray((voss as any)?.mejoras) ? (voss as any).mejoras : [];
-  const proximaAccion: string = (voss as any)?.proxima_accion ?? "";
-  const sacar: string[] = Array.isArray((voss as any)?.sacar_en_siguiente_contacto) ? (voss as any).sacar_en_siguiente_contacto : [];
+  const voss: any = session?.voss_post ?? {};
+  const puntuacion = session?.puntuacion ?? voss?.puntuacion?.score_0_100 ?? null;
+  const justificacion = voss?.puntuacion?.justificacion ?? null;
+  const desglose = voss?.puntuacion?.desglose ?? null;
+  const resumenEjecutivo: string = voss?.resumen_ejecutivo ?? "";
+  const desarrollo: Array<{ titulo: string; sintesis: string; citas?: string[] }> = Array.isArray(voss?.desarrollo) ? voss.desarrollo : [];
+  const inteligencia: Array<{ dato: string; categoria?: string; cita?: string; confianza?: string }> = Array.isArray(voss?.inteligencia_extraida) ? voss.inteligencia_extraida : [];
+  // Nueva forma: evaluacion_comercial.{que_hizo_bien, que_mejorar}
+  // Retro-compat: voss.que_hizo_bien[] / voss.momentos_flojos[]
+  const evalBien: Array<{ momento?: string; tecnica_voss?: string; comentario?: string }> =
+    Array.isArray(voss?.evaluacion_comercial?.que_hizo_bien) ? voss.evaluacion_comercial.que_hizo_bien
+    : Array.isArray(voss?.que_hizo_bien) ? voss.que_hizo_bien : [];
+  const evalMejorar: Array<{ momento?: string; que_paso?: string; alternativa_literal?: string; mejora_voss?: string; tecnica?: string }> =
+    Array.isArray(voss?.evaluacion_comercial?.que_mejorar) ? voss.evaluacion_comercial.que_mejorar
+    : Array.isArray(voss?.momentos_flojos) ? voss.momentos_flojos : [];
+  const proximaAccion: string = voss?.proxima_accion ?? "";
+  const sacar: string[] = Array.isArray(voss?.sacar_en_siguiente_contacto) ? voss.sacar_en_siguiente_contacto : [];
+  const informeCompleto: boolean = voss?.informe_completo !== false && (desarrollo.length + inteligencia.length + evalBien.length + evalMejorar.length) > 0;
 
   const kpisObjetivoLabels: string[] = (() => {
     const ko = session?.kpis_objetivo;
