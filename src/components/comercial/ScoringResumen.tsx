@@ -306,10 +306,12 @@ export function ScoringResumen({
   b,
   s,
   analysis,
+  showActivo,
 }: {
   b: any;
   s: any;
   analysis: any | null;
+  showActivo?: boolean;
 }) {
   const cluster: ClusterKey = b?.cluster_asignado ?? "baja_prioridad";
   const clusterInfo = CLUSTER_LABELS[cluster] ?? CLUSTER_LABELS.baja_prioridad;
