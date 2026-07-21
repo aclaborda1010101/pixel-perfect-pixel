@@ -71,6 +71,7 @@ type Row = {
   raw: any;
   assigned: boolean;
   cartera_demo: boolean;
+  comercial: string | null;
   avisos: Aviso[] | null;
   score_summary: string | null;
   confianza_media: number | null;
