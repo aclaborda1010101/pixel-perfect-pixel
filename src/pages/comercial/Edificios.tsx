@@ -496,7 +496,7 @@ export default function ComercialEdificios() {
     };
   const { data: todosData, isLoading: loadingTodos } = useQuery({
     queryKey: todosQueryKey,
-    enabled: !!userId && tab === "todos",
+    enabled: !!userId,
     staleTime: 10 * 60_000,
     placeholderData: keepPreviousData,
     queryFn: todosQueryFn,
@@ -508,34 +508,33 @@ export default function ComercialEdificios() {
 
   const miasRows: Row[] = miaData?.rows ?? [];
   const todosRows: Row[] = todosData?.rows ?? [];
-  const rows: Row[] = tab === "todos" && todosRows.length > 0 ? todosRows : miasRows;
-  const isLoading = loadingMia || (tab === "todos" && loadingTodos);
+  const rows: Row[] = todosRows.length > 0 ? todosRows : miasRows;
+  const isLoading = loadingMia || loadingTodos;
 
-  // "Mi cartera" = asignados al user actual OR cartera_demo_seed=true
-  const mias = useMemo(
-    () => miasRows.filter((r) => r.assigned || r.cartera_demo),
-    [miasRows],
-  );
   // Si la URL trae ?filter=cartera_demo aplicamos solo demo y forzamos sort score desc
   const carteraDemoOnly = urlFilter === "cartera_demo";
 
   useEffect(() => {
     if (carteraDemoOnly) {
-      setTab("mia");
+      setTab("todos");
       setSort("score_desc");
     }
   }, [carteraDemoOnly]);
 
-  const visibleMias = useMemo(
-    () => (carteraDemoOnly ? mias.filter((r) => r.cartera_demo) : mias),
-    [mias, carteraDemoOnly],
-  );
+  // Filas por pestaña (comercial). "Todos" = catálogo completo.
+  const rowsByTab = useMemo(() => {
+    if (tab === "jesus") return rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("jes"));
+    if (tab === "david") return rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("david") || (r.comercial ?? "").toLowerCase().includes("casero"));
+    return carteraDemoOnly ? rows.filter((r) => r.cartera_demo) : rows;
+  }, [rows, tab, carteraDemoOnly]);
+  const countJesus = useMemo(() => rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("jes")).length, [rows]);
+  const countDavid = useMemo(() => rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("david") || (r.comercial ?? "").toLowerCase().includes("casero")).length, [rows]);
 
   const allBarrios = useMemo(() => {
     const set = new Set<string>();
-    (tab === "todos" ? rows : mias).forEach((r) => r.barrio && set.add(r.barrio));
+    rowsByTab.forEach((r) => r.barrio && set.add(r.barrio));
     return Array.from(set).sort();
-  }, [rows, mias, tab]);
+  }, [rowsByTab]);
 
   const apply = (list: Row[]) => {
     const s = q.trim().toLowerCase();
