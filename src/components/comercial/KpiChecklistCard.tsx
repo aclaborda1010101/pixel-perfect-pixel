@@ -31,6 +31,20 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
   const [source, setSource] = useState<"cache" | "fresh" | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [lastActivityAt, setLastActivityAt] = useState<string | null>(null);
+  // Map clave-KPI → primera vez que se consiguió (Tanda B · punto 2).
+  const [prior, setPrior] = useState<Record<string, { fecha: string | null; veces: number }>>({});
+
+  useEffect(() => {
+    (async () => {
+      const { data: st } = await (supabase.from("owner_kpis_state" as any) as any)
+        .select("k, first_done_at, times_done").eq("owner_id", ownerId);
+      const m: Record<string, { fecha: string | null; veces: number }> = {};
+      for (const r of (st as any[] ?? [])) {
+        m[String(r.k)] = { fecha: r.first_done_at ?? null, veces: Number(r.times_done ?? 0) };
+      }
+      setPrior(m);
+    })();
+  }, [ownerId]);
 
   async function run(force = false) {
     setLoading(true); setError(null);
@@ -144,6 +158,11 @@ export function KpiChecklistCard({ ownerId }: { ownerId: string }) {
           {k.label}
           {isCuadroRentas(k) && (
             <Badge variant="gold" className="ml-2 text-[10px]">prioridad</Badge>
+          )}
+          {prior[k.clave] && (
+            <Badge variant="outline" className="ml-2 border-success/40 bg-success/10 text-[10px] text-success">
+              ya conseguido{prior[k.clave].fecha ? ` · ${new Date(prior[k.clave].fecha as string).toLocaleDateString("es-ES")}` : ""}
+            </Badge>
           )}
         </div>
         {k.estado === "tenemos" && k.evidencia && (

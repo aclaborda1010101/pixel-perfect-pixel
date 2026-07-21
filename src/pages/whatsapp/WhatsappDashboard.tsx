@@ -748,7 +748,7 @@ function findQuote(value: any, messages: any[] | undefined): { text: string; whe
   return null;
 }
 
-function FichaLead({
+export function FichaLead({
   qual, current, messages,
 }: { qual: Record<string, any>; current: any; messages?: any[] }) {
   const stage = current?.wa_contacts?.stage ?? "nuevo";

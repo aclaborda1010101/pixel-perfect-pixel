@@ -3,7 +3,7 @@ import {
   Inbox, FileText, PhoneCall,
   MessageSquare, Megaphone, ListChecks, BarChart3,
   Settings as SettingsIcon, Search, CheckSquare, UserCircle,
-  MessagesSquare, Footprints,
+  MessagesSquare, Footprints, Target,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -81,6 +81,7 @@ export function AppSidebar() {
   ] : [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
     { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
+    { url: "/oportunidades", label: "Oportunidades", icon: Target },
     { url: "/mensajes", label: t.nav.mensajes, icon: Megaphone },
     { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
