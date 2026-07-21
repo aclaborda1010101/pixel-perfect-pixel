@@ -6158,6 +6158,7 @@ export type Database = {
           m2_oficina_x: number | null
           m2_rango: string | null
           m2_total: number | null
+          m2_vivienda_calc: number | null
           md: Json | null
           num_viviendas: number | null
           numero_propietarios: number | null
@@ -6165,6 +6166,7 @@ export type Database = {
           patios_detectados: number | null
           plantas_levantables: number | null
           protegido_historicamente: boolean | null
+          ratio_m2_viv: number | null
           s_m2: number | null
           s_no_dh: number | null
           s_owners: number | null
