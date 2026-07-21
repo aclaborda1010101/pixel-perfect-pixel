@@ -167,7 +167,10 @@ export default function Productividad() {
       pctConexion: mine.length ? (conectadas.length / mine.length) * 100 : 0,
       analizadas: mySess.length,
       notaMedia,
-      pendientesAnalisis: conectadas.filter((c) => !ss.some((s) => s.hubspot_call_id === c.hubspot_call_id)).length,
+      pendientesAnalisis: conectadas.filter((c) => {
+        const h = (c.metadatos?.hubspot_call_id ?? c.metadatos?.hs_id) as string | undefined;
+        return !h || !ss.some((s) => s.hubspot_call_id === h);
+      }).length,
       sessions: mySess,
     };
   }
