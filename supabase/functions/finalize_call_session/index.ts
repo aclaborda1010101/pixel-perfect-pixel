@@ -153,7 +153,14 @@ Deno.serve(async (req) => {
         Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
       },
       body: JSON.stringify({
-        mode: "post", owner_id: ownerId, building_id: buildingId, call_transcript: transcript,
+        mode: "post",
+        owner_id: ownerId,
+        building_id: buildingId,
+        call_transcript: transcript,
+        call_duration_seg: hsCall?.hs_call_duration == null
+          ? (fbCall?.duracion_seg ?? null)
+          : Math.round(Number(hsCall.hs_call_duration) / 1000),
+        call_summary: hsCall?.hs_call_summary ?? fbCall?.resumen ?? null,
       }),
     });
     if (!coachRes.ok) throw new Error(`agent_voss_coach ${coachRes.status}: ${await coachRes.text().catch(()=> "")}`);
