@@ -1628,6 +1628,7 @@ export type Database = {
           hubspot_call_id: string | null
           id: string
           iniciada_at: string
+          kpis_objetivo: Json | null
           notas: string | null
           objetivo: string | null
           owner_id: string | null
@@ -1650,6 +1651,7 @@ export type Database = {
           hubspot_call_id?: string | null
           id?: string
           iniciada_at?: string
+          kpis_objetivo?: Json | null
           notas?: string | null
           objetivo?: string | null
           owner_id?: string | null
@@ -1672,6 +1674,7 @@ export type Database = {
           hubspot_call_id?: string | null
           id?: string
           iniciada_at?: string
+          kpis_objetivo?: Json | null
           notas?: string | null
           objetivo?: string | null
           owner_id?: string | null
