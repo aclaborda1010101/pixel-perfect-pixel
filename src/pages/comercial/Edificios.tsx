@@ -407,7 +407,11 @@ export default function ComercialEdificios() {
         "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
       const B_COLS =
         "id,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
-      const PAGE = 500;
+      // 200 filas cabe holgadamente dentro del statement_timeout de `authenticated`
+      // (8s) y también en el de `anon` (3s). Con Promise.all lanzamos todas las
+      // páginas restantes en paralelo, así el catálogo entero (~1.156) se sirve
+      // en el tiempo de la petición más lenta, no en suma secuencial.
+      const PAGE = 200;
 
       const withRetry = async <T,>(fn: () => Promise<{ data: T[] | null; error: any }>, label: string) => {
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -456,10 +460,10 @@ export default function ComercialEdificios() {
       const restViewPromises: Promise<any[]>[] = [];
       const restBldgPromises: Promise<any[]>[] = [];
       if (firstView.length === PAGE) {
-        for (let i = 1; i < 20; i++) restViewPromises.push(fetchViewPage(i * PAGE));
+        for (let i = 1; i < 60; i++) restViewPromises.push(fetchViewPage(i * PAGE));
       }
       if (firstBldg.length === PAGE) {
-        for (let i = 1; i < 20; i++) restBldgPromises.push(fetchBldgPage(i * PAGE));
+        for (let i = 1; i < 60; i++) restBldgPromises.push(fetchBldgPage(i * PAGE));
       }
       const [restViews, restBldgs] = await Promise.all([
         Promise.all(restViewPromises),
