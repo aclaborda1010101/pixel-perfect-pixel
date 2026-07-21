@@ -380,22 +380,3 @@ export default function Productividad() {
     </div>
   );
 }
-                      <td className="py-2 text-right font-mono tabular-nums">{row.fmt(row.j)}</td>
-                      <td className="py-2 text-right font-mono tabular-nums">{row.fmt(row.d)}</td>
-                      <td className="py-2 text-right font-mono tabular-nums text-muted-foreground">{row.fmt(row.j - row.d)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="mt-3 text-[11px] text-muted-foreground">
-                Comparativa de coaching, no de ranking. Foco en identificar en qué se puede ayudar a cada uno.
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {loading && <p className="text-xs text-muted-foreground">Cargando…</p>}
-    </div>
-  );
-}
