@@ -272,7 +272,8 @@ export default function ComercialEdificios() {
   const userId = user?.id;
   const [searchParams] = useSearchParams();
   const urlFilter = searchParams.get("filter");
-  const [tab, setTab] = useState<"mia" | "todos">("mia");
+  const [tab, setTab] = useState<"todos" | "jesus" | "david">("todos");
+  const [profileName, setProfileName] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("score_desc");
   const [scoreMin, setScoreMin] = useState<string>("");
@@ -297,6 +298,18 @@ export default function ComercialEdificios() {
   // se atragante con >1000 tarjetas de golpe.
   const TODOS_PAGE = 60;
   const [shownTodos, setShownTodos] = useState(TODOS_PAGE);
+
+  // Auto-selección de la pestaña según el comercial logueado.
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      const { data } = await supabase.from("profiles").select("full_name, email").eq("id", userId).maybeSingle();
+      const name = String((data as any)?.full_name ?? (data as any)?.email ?? "").toLowerCase();
+      setProfileName(name);
+      if (name.includes("jes")) setTab("jesus");
+      else if (name.includes("david") || name.includes("casero")) setTab("david");
+    })();
+  }, [userId]);
 
   // --- Mi cartera: query ligera (~80 filas) que se carga siempre ---
   const { data: miaData, isLoading: loadingMia } = useQuery({
