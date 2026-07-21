@@ -208,7 +208,14 @@ export default function ComercialPrepararLlamada() {
     try {
       await tryFinalizeOnce({ pullHubspot: true });
     } catch (e: any) {
-      toast.error(e?.message ?? "Error finalizando llamada");
+      // No cortar la UX: HubSpot puede tardar en registrar la llamada.
+      // Marcamos "en espera" y programamos reintento.
+      const nextAt = Date.now() + 120_000;
+      setAwaiting({ nextAt, attempt: 1 });
+      toast.message("Esperando registro en HubSpot…", {
+        description: "La llamada aún no ha llegado. Reintento automático en 2 min.",
+      });
+      console.warn("[finalize] soft-fail:", e?.message ?? e);
     } finally {
       setFinalizing(false);
     }
