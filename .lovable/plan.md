@@ -35,11 +35,17 @@ Lote grande y heterogéneo. Propongo ejecutarlo en 3 tandas para poder validar e
 
 ## Tanda C — bot y notificaciones (siguiente turno)
 
-**6. Emails al comercial** — usar `_shared/mailer.ts`:
-- Al terminar el auto-análisis (fin de `finalize_call_session` con éxito): mail a `agustin.cifuentes@outlook.es` con "Llamada analizada — X/100 — [link expediente]".
-- Cuando el bot agende reunión (detección en `wa_ai_reply` o hook nuevo `wa_meeting_booked`): mail a ese buzón + `carlos.moreno@afflux.es` con fecha/hora, lead y resumen.
-- Buzón configurable por comercial en tabla `profiles.notification_email` (default outlook), pero en esta tanda hardcodeado en `app_settings`.
-- **No** se crea la reunión en el calendario HubSpot — dejar `TODO` comentado.
+**6. Emails al comercial** — usar `_shared/mailer.ts`. Mapa de destinatarios (definitivo, ANULA la instrucción anterior a agustin.cifuentes@outlook.es):
+  - **Análisis de llamada listo** (fin de `finalize_call_session` con éxito) → SÓLO al comercial dueño de la llamada, mapeado por `hs_owner_id`:
+      · 76826178 (Jesús) → jesus.anzola@afflux.es
+      · 76826175 (David) → david.casero@afflux.es
+      · desconocido/otro → jesus.anzola@afflux.es (fallback)
+    Contenido: "Llamada analizada — X/100 — [link expediente]".
+  - **Reunión agendada por el bot** (detección en `wa_ai_reply` o hook `wa_meeting_booked`) → jesus.anzola@afflux.es Y carlos.moreno@afflux.es (ambos en To/Cc), con fecha/hora, lead, teléfono y resumen de la conversación.
+  - **Arranque de conversación + resumen a 15 min** del bot → SIGUEN yendo a carlos.moreno@afflux.es (`wa_conversation_email_dispatcher`, sin cambios).
+  - PROHIBIDO cualquier mail a agustin.cifuentes@outlook.es (regla dura).
+  - Mapa hs_owner_id→email centralizado en helper `_shared/comerciales.ts` para reutilizar.
+  - **No** se crea la reunión en el calendario HubSpot — dejar `TODO` comentado.
 
 **9a-c. Bot: agenda, pausa, palabra de cierre**:
 - (a) Al detectar "reunión agendada" en `wa_ai_reply`: setear `wa_conversations.bot_paused_until = '2099-01-01'` y disparar mails (punto 6).
