@@ -385,6 +385,8 @@ export default function ComercialEdificios() {
       const rows: Row[] = ((scoresRes.data ?? []) as any[]).map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
+        const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
+        const ratioViv = b.ratio_m2_viv != null ? Number(b.ratio_m2_viv) : (m2 && viv ? m2 / viv : null);
         const extra = bldgsById.get(b.id) ?? {};
         const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
         const an = analysisMap.get(b.id) ?? {};
@@ -401,7 +403,8 @@ export default function ComercialEdificios() {
           m2_total: m2,
           owners_count: b.owners_count,
           division_horizontal: !!b.division_horizontal,
-          ratio: m2 && viv ? m2 / viv : null,
+          ratio: ratioViv,
+          m2_vivienda_calc: m2Viv,
           raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
           score_activo: extra.score_activo ?? null,
           score_propietarios: extra.score_propietarios ?? null,
@@ -441,7 +444,7 @@ export default function ComercialEdificios() {
       // columnas que pinta la tarjeta y ordenamos por `id` (índice); el
       // orden real por score lo aplica el cliente con `apply()`.
       const V_COLS =
-        "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
+        "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,m2_vivienda_calc,ratio_m2_viv,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
       const B_COLS =
         "id,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
       // 200 filas cabe holgadamente dentro del statement_timeout de `authenticated`
