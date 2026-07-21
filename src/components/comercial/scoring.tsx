@@ -1,6 +1,39 @@
 import { cn } from "@/lib/utils";
 
 export type ScoreTier = "high" | "mid" | "low";
+export type ScoreMode = "total" | "activo";
+
+/**
+ * Fuente única para pintar EL score del edificio en cualquier superficie
+ * (card del listado, gauge de la ficha, orden, tier, tooltip, etc.).
+ *
+ * Regla de oro:
+ *  - Modo "total" (por defecto): usa `score_total` (activo × propietarios).
+ *  - Modo "activo" (toggle "Sin propietarios"): usa `score_activo`.
+ *  - Fallback: campo legacy `score`.
+ *
+ * Todas las superficies DEBEN llamar aquí — nunca leer `b.score` a pelo.
+ */
+export function getDisplayScore(
+  b: { score_total?: any; score_activo?: any; score?: any } | null | undefined,
+  mode: ScoreMode = "total",
+): number {
+  if (!b) return 0;
+  const pick = mode === "activo" ? b.score_activo : b.score_total;
+  const n = Number(pick);
+  if (Number.isFinite(n)) return n;
+  // Fallback secundario: si en modo total no hay score_total, prueba score_activo
+  if (mode === "total") {
+    const na = Number(b.score_activo);
+    if (Number.isFinite(na)) return na;
+  }
+  const legacy = Number(b.score);
+  return Number.isFinite(legacy) ? legacy : 0;
+}
+
+export function scoreModeLabel(mode: ScoreMode): string {
+  return mode === "activo" ? "Activo" : "Total";
+}
 
 export function displayScore(raw: number): number {
   return Math.round(Math.max(0, Math.min(100, Number(raw) || 0)));
@@ -119,20 +152,30 @@ export function ScoreFactorBar({
   );
 }
 
-/** Compact mini gauge badge used in list cards */
-export function ScorePill({ score }: { score: number }) {
+/** Compact mini gauge badge used in list cards.
+ *  Renderiza SIEMPRE el score con una etiqueta debajo ("Total" o "Activo")
+ *  para que el usuario sepa qué número está viendo. */
+export function ScorePill({ score, mode }: { score: number; mode?: ScoreMode }) {
   const tier = scoreTier(score);
   const d = displayScore(score);
+  const showLabel = mode !== undefined;
   return (
-    <div
-      className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-full border font-mono text-sm font-semibold tabular-nums",
-        tier === "high" && "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
-        tier === "mid" && "border-amber-400/40 bg-amber-400/10 text-amber-400",
-        tier === "low" && "border-red-500/40 bg-red-500/10 text-red-400",
+    <div className="flex flex-col items-center gap-0.5">
+      <div
+        className={cn(
+          "inline-flex h-9 w-9 items-center justify-center rounded-full border font-mono text-sm font-semibold tabular-nums",
+          tier === "high" && "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
+          tier === "mid" && "border-amber-400/40 bg-amber-400/10 text-amber-400",
+          tier === "low" && "border-red-500/40 bg-red-500/10 text-red-400",
+        )}
+      >
+        {d}
+      </div>
+      {showLabel && (
+        <span className="font-mono text-[8px] uppercase tracking-eyebrow text-muted-foreground">
+          {scoreModeLabel(mode!)}
+        </span>
       )}
-    >
-      {d}
     </div>
   );
 }

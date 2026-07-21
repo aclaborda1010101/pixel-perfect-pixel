@@ -58,7 +58,7 @@ export default function ComercialTareas() {
           .eq("user_id", userId)
           .order("created_at", { ascending: false }),
         (supabase.from("v_building_score" as any) as any)
-          .select("id,direccion,ciudad,score"),
+          .select("id,direccion,ciudad,score,score_total,score_activo"),
       ]);
       const tasks = (tasksRes.data ?? []) as any[];
       const scores = (scoresRes.data ?? []) as any[];
@@ -231,9 +231,9 @@ export default function ComercialTareas() {
                     <CardTitle className="truncate text-base">
                       {g.building?.direccion ?? "Edificio sin datos"}
                     </CardTitle>
-                    {g.building?.score != null && (
+                    {(g.building?.score_total ?? g.building?.score) != null && (
                       <span className="rounded-[3px] bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-gold">
-                        {Number(g.building.score).toFixed(0)}
+                        {Number(g.building?.score_total ?? g.building?.score).toFixed(0)}
                       </span>
                     )}
                   </div>

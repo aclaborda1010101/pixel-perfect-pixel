@@ -47,6 +47,7 @@ import {
   tierBarClass,
   tierTextClass,
   buildingScoreFactors,
+  getDisplayScore,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
@@ -138,7 +139,11 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 
 function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
-  const displayScore = showActivo && r.score_activo != null ? Number(r.score_activo) : r.score;
+  const mode: "total" | "activo" = showActivo ? "activo" : "total";
+  const displayScore = getDisplayScore(
+    { score_total: r.score_total, score_activo: r.score_activo, score: r.score },
+    mode,
+  );
   const tier = scoreTier(displayScore);
   const factors = buildingScoreFactors(r.raw);
   const top3 = factors.slice(0, 3);
@@ -176,7 +181,7 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="shrink-0 cursor-help">
-                    <ScorePill score={displayScore} />
+                    <ScorePill score={displayScore} mode={mode} />
                   </div>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-sm">
@@ -188,7 +193,7 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
             </TooltipProvider>
           ) : (
             <div className="shrink-0">
-              <ScorePill score={displayScore} />
+              <ScorePill score={displayScore} mode={mode} />
             </div>
           )}
         </div>
@@ -641,7 +646,13 @@ export default function ComercialEdificios() {
           (r.barrio ?? "").toLowerCase().includes(s);
         if (!hay) return false;
       }
-      if (r.score < smin) return false;
+      // Filtro de score mínimo sobre el score MOSTRADO (mismo modo que la card).
+      const rMode: "total" | "activo" = viewActivo ? "activo" : "total";
+      const rShown = getDisplayScore(
+        { score_total: r.score_total, score_activo: r.score_activo, score: r.score },
+        rMode,
+      );
+      if (rShown < smin) return false;
       if (barrios.size > 0 && (!r.barrio || !barrios.has(r.barrio))) return false;
       if (vntMin > -Infinity && (r.ventanas_total ?? -1) < vntMin) return false;
       if (advSegundasEscaleras && !r.segundas_escaleras) return false;
@@ -657,9 +668,16 @@ export default function ComercialEdificios() {
     });
 
     const cmp = (a: Row, b: Row) => {
-      // Si el toggle "Sin propietarios" está activo, ordenamos por score_activo.
-      const aScore = viewActivo && a.score_activo != null ? Number(a.score_activo) : a.score;
-      const bScore = viewActivo && b.score_activo != null ? Number(b.score_activo) : b.score;
+      // Fuente única para el orden — mismo helper que usan la card y la ficha.
+      const mode: "total" | "activo" = viewActivo ? "activo" : "total";
+      const aScore = getDisplayScore(
+        { score_total: a.score_total, score_activo: a.score_activo, score: a.score },
+        mode,
+      );
+      const bScore = getDisplayScore(
+        { score_total: b.score_total, score_activo: b.score_activo, score: b.score },
+        mode,
+      );
       // El criterio de orden elegido manda. La estrella NO altera el orden:
       // es un flag visual y un filtro (ver "Solo edificios estrella"). Como
       // desempate al final, si el criterio principal empata, mostramos antes
