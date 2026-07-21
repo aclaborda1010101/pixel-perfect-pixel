@@ -9,7 +9,7 @@
 //   since_days?: number,       // ventana temporal para referenciadores (default 60)
 //   max_contacts?: number,     // tope de contactos a procesar por invocación (default 200)
 //   min_refs?: number,         // mínimo de referencias para procesar (default 1)
-//   create_new_when_no_match?: boolean (default true)
+//   create_new_when_no_match?: boolean (default false)
 // }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { hubspotFetch, corsHeaders, CONTACT_PROPERTIES } from "../_shared/hubspot.ts";
