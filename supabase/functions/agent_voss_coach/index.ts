@@ -348,40 +348,38 @@ Deno.serve(async (req) => {
       const { data: ex } = await sb.from('external_ids')
         .select('provider_id').eq('entity_type', 'owner').eq('entity_id', owner_id).eq('provider', 'hubspot');
       const hsContactIds = (ex || []).map((r: any) => String(r.provider_id)).filter(Boolean);
-      // deal_ids: edificios donde participa el owner
-      const { data: bldgs } = await sb.from('building_owners').select('building_id').eq('owner_id', owner_id);
-      const buildingIds = (bldgs || []).map((b: any) => b.building_id).filter(Boolean);
-      let hsDealIds: string[] = [];
-      if (buildingIds.length) {
-        const { data: exd } = await sb.from('external_ids')
-          .select('provider_id')
-          .eq('entity_type', 'building').eq('provider', 'hubspot').eq('provider_object_type', 'deal')
-          .in('entity_id', buildingIds);
-        hsDealIds = (exd || []).map((r: any) => String(r.provider_id)).filter(Boolean);
-      }
-      // Helper: fetch por contacto y por deal, dedup por hs_id
-      const fetchByOverlap = async (table: string, cols: string, order = 'hs_timestamp', limit = 20) => {
-        const queries: any[] = [];
-        if (hsContactIds.length) queries.push(sb.from(table).select(cols).overlaps('associated_contact_ids', hsContactIds).order(order, { ascending: false }).limit(limit));
-        if (hsDealIds.length) queries.push(sb.from(table).select(cols).overlaps('associated_deal_ids', hsDealIds).order(order, { ascending: false }).limit(limit));
-        if (!queries.length) return [];
-        const results = await Promise.all(queries);
-        const seen = new Set<string>();
-        const out: any[] = [];
-        for (const r of results) {
-          for (const row of (r.data || [])) {
-            const id = String((row as any).hs_id ?? '');
-            if (id && !seen.has(id)) { seen.add(id); out.push(row); }
-          }
-        }
-        return out;
-      };
-      if (hsContactIds.length || hsDealIds.length) {
-        const [hc, hn, ht] = await Promise.all([
-          fetchByOverlap('hubspot_calls', 'hs_id, hs_call_title, hs_call_body, hs_call_summary, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp', 'hs_timestamp', 12),
-          fetchByOverlap('hubspot_notes', 'hs_id, hs_note_body, hs_timestamp', 'hs_timestamp', 20),
-          fetchByOverlap('hubspot_tasks', 'hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_timestamp', 'hs_timestamp', 20),
-        ]);
+      // Llamadas del owner via v_owner_calls_enriched (contact + match teléfono en deal).
+      // Esto evita mezclar llamadas de otros contactos del mismo deal (bug reportado).
+      const { data: ownerCallsView } = await (sb.from('v_owner_calls_enriched' as any) as any)
+        .select('hs_id')
+        .eq('owner_id', owner_id)
+        .order('hs_timestamp', { ascending: false })
+        .limit(24);
+      const ownerHsIds = (ownerCallsView || []).map((r: any) => String(r.hs_id)).filter(Boolean);
+      // Notas/tasks: solo por contacto (por deal es demasiado ruidoso a nivel propietario).
+      if (hsContactIds.length || ownerHsIds.length) {
+        const callsQ = ownerHsIds.length
+          ? sb.from('hubspot_calls')
+              .select('hs_id, hs_call_title, hs_call_body, hs_call_summary, hs_call_transcription, hs_call_direction, hs_call_disposition, hs_call_duration, hs_timestamp')
+              .in('hs_id', ownerHsIds)
+              .order('hs_timestamp', { ascending: false })
+              .limit(12)
+          : Promise.resolve({ data: [] as any[] });
+        const notesQ = hsContactIds.length
+          ? sb.from('hubspot_notes')
+              .select('hs_id, hs_note_body, hs_timestamp')
+              .overlaps('associated_contact_ids', hsContactIds)
+              .order('hs_timestamp', { ascending: false })
+              .limit(20)
+          : Promise.resolve({ data: [] as any[] });
+        const tasksQ = hsContactIds.length
+          ? sb.from('hubspot_tasks')
+              .select('hs_id, hs_task_subject, hs_task_body, hs_task_status, hs_timestamp')
+              .overlaps('associated_contact_ids', hsContactIds)
+              .order('hs_timestamp', { ascending: false })
+              .limit(20)
+          : Promise.resolve({ data: [] as any[] });
+        const [{ data: hc }, { data: hn }, { data: ht }] = await Promise.all([callsQ, notesQ, tasksQ]) as any;
         // Dedupe calls por proximidad ±120s con histórico local
         const localTs = historico.map((h: any) => +new Date(h.fecha || 0));
         for (const k of hc || []) {
