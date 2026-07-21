@@ -6094,8 +6094,11 @@ export type Database = {
           s_ratio: number | null
           s_viviendas: number | null
           score: number | null
+          score_activo: number | null
           score_breakdown: Json | null
+          score_propietarios: number | null
           score_raw: number | null
+          score_total: number | null
           segundas_escaleras: boolean | null
           ventanas_fachada_total: number | null
           viviendas_unidades: number | null
