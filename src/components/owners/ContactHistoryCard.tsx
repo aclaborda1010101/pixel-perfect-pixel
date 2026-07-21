@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
 import { supabase } from "@/integrations/supabase/client";
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Mic, PhoneCall } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Mic, PhoneCall, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CallExpedienteDialog } from "./CallExpedienteDialog";
 
 export type OwnerCallStats = {
   owner_id: string;
@@ -95,8 +96,8 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
   const [stats, setStats] = useState<OwnerCallStats | null>(null);
   const [rows, setRows] = useState<OwnerCallRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [analyzedByHs, setAnalyzedByHs] = useState<Record<string, string>>({});
-  const [expedienteHs, setExpedienteHs] = useState<string | null>(null);
+  const [analyzedByHs, setAnalyzedByHs] = useState<Record<string, { sessionId: string; puntuacion: number | null }>>({});
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
@@ -110,7 +111,7 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
           .order("hs_timestamp", { ascending: false })
           .limit(200),
         (supabase.from("call_sessions" as any) as any)
-          .select("id, hubspot_call_id")
+          .select("id, hubspot_call_id, puntuacion")
           .eq("owner_id", ownerId)
           .eq("estado", "finalizada")
           .not("hubspot_call_id", "is", null),
@@ -118,9 +119,9 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
       if (cancelled) return;
       setStats((s.data as OwnerCallStats | null) ?? null);
       setRows(((c.data as OwnerCallRow[] | null) ?? []));
-      const map: Record<string, string> = {};
+      const map: Record<string, { sessionId: string; puntuacion: number | null }> = {};
       for (const r of ((sessions.data as any[]) ?? [])) {
-        if (r.hubspot_call_id) map[String(r.hubspot_call_id)] = r.id;
+        if (r.hubspot_call_id) map[String(r.hubspot_call_id)] = { sessionId: r.id, puntuacion: r.puntuacion ?? null };
       }
       setAnalyzedByHs(map);
       setLoading(false);
@@ -199,51 +200,71 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
                   <thead className="text-xs uppercase tracking-eyebrow text-muted-foreground">
                     <tr className="border-b">
                       <th className="py-2 pr-3 text-left font-medium">Fecha</th>
-                      <th className="py-2 pr-3 text-left font-medium">Dir</th>
+                      <th className="py-2 pr-3 text-left font-medium">Dirección</th>
                       <th className="py-2 pr-3 text-left font-medium">Resultado</th>
-                      <th className="py-2 pr-3 text-left font-medium">Duración</th>
                       <th className="py-2 pr-3 text-left font-medium">Nota</th>
+                      <th className="py-2 pr-3 text-left font-medium">Duración</th>
+                      <th className="py-2 pr-3 text-left font-medium">Comentario</th>
+                      <th className="py-2 pr-3 text-left font-medium"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r, i) => (
-                      <tr
-                        key={`${r.hs_timestamp}-${i}`}
-                        className={cn(
-                          "border-b last:border-0 align-top",
-                          r.hs_id && analyzedByHs[String(r.hs_id)] && "cursor-pointer hover:bg-muted/40",
-                        )}
-                        onClick={() => {
-                          if (r.hs_id && analyzedByHs[String(r.hs_id)]) setExpedienteHs(String(r.hs_id));
-                        }}
-                      >
-                        <td className="py-2 pr-3 whitespace-nowrap">{fmtDate(r.hs_timestamp)}</td>
-                        <td className="py-2 pr-3">
-                          {r.direccion === "INBOUND" ? (
-                            <ArrowDownLeft className="h-4 w-4 text-info" aria-label="Entrante" />
-                          ) : (
-                            <ArrowUpRight className="h-4 w-4 text-muted-foreground" aria-label="Saliente" />
-                          )}
-                        </td>
-                        <td className="py-2 pr-3">
-                          <div className="flex items-center gap-1.5">
+                    {rows.map((r, i) => {
+                      const analysis = r.hs_id ? analyzedByHs[String(r.hs_id)] : null;
+                      const isInbound = String(r.direccion).toUpperCase() === "INBOUND";
+                      return (
+                        <tr key={`${r.hs_timestamp}-${i}`} className="border-b last:border-0 align-top">
+                          <td className="py-2 pr-3 whitespace-nowrap">{fmtDate(r.hs_timestamp)}</td>
+                          <td className="py-2 pr-3">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "gap-1 text-[10px] font-medium",
+                                isInbound ? "border-info/40 text-info" : "border-border text-muted-foreground",
+                              )}
+                            >
+                              {isInbound ? <ArrowDownLeft className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
+                              {isInbound ? "Entrante" : "Saliente"}
+                            </Badge>
+                          </td>
+                          <td className="py-2 pr-3">
                             <ResultBadge resultado={r.resultado} />
-                            {r.hs_id && analyzedByHs[String(r.hs_id)] && (
+                          </td>
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            {analysis && analysis.puntuacion != null ? (
+                              <Badge className="rounded-[4px] border-transparent bg-gold-soft/40 text-gold font-mono">
+                                {Number(analysis.puntuacion)}/100
+                              </Badge>
+                            ) : analysis ? (
                               <Badge className="rounded-[4px] border-transparent bg-primary/10 text-primary text-[10px] font-mono uppercase tracking-eyebrow">
                                 Analizada
                               </Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
                             )}
-                          </div>
-                        </td>
-                        <td className="py-2 pr-3 whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1">
-                            {fmtDur(r.duracion_seg)}
-                            {r.tiene_grabacion && <Mic className="h-3 w-3 text-primary" aria-label="Con grabación" />}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-3 max-w-[540px]"><NoteCell text={r.nota} /></td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1">
+                              {fmtDur(r.duracion_seg)}
+                              {r.tiene_grabacion && <Mic className="h-3 w-3 text-primary" aria-label="Con grabación" />}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 max-w-[420px]"><NoteCell text={r.nota} /></td>
+                          <td className="py-2 pr-3 text-right whitespace-nowrap">
+                            {analysis && r.hs_id && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 gap-1 text-[11px]"
+                                onClick={() => navigate(`/comercial/llamada/${r.hs_id}`)}
+                              >
+                                <FileText className="h-3 w-3" /> Ver análisis
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -251,11 +272,6 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
           </>
         )}
       </CardContent>
-      <CallExpedienteDialog
-        open={Boolean(expedienteHs)}
-        onOpenChange={(v) => { if (!v) setExpedienteHs(null); }}
-        hubspotCallId={expedienteHs}
-      />
     </Card>
   );
 }

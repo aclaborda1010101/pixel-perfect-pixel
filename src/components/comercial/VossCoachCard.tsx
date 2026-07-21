@@ -57,8 +57,23 @@ export function VossCoachCard({
     try {
       // Solo cacheamos el brief; el modo post-llamada siempre se regenera.
       if (mode === "brief" && ownerId) {
-        const { data: laRaw } = await (supabase.rpc as any)("owner_last_activity_at", { _owner_id: ownerId });
-        const la: string | null = (laRaw as any) ?? null;
+        // Última actividad: máximo entre owner_last_activity_at (contacto)
+        // y v_owner_calls_enriched.hs_timestamp (incluye llamadas atribuidas
+        // por teléfono a un deal). Sin esto, una llamada solo-deal no
+        // invalida el brief cacheado.
+        const [{ data: laRaw }, { data: lastCall }] = await Promise.all([
+          (supabase.rpc as any)("owner_last_activity_at", { _owner_id: ownerId }),
+          (supabase.from("v_owner_calls_enriched" as any) as any)
+            .select("hs_timestamp")
+            .eq("owner_id", ownerId)
+            .order("hs_timestamp", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
+        const laA = (laRaw as any) ?? null;
+        const laB = (lastCall as any)?.hs_timestamp ?? null;
+        const la: string | null =
+          laA && laB ? (new Date(laA) >= new Date(laB) ? laA : laB) : (laA ?? laB ?? null);
         setLastActivityAt(la);
         if (!force) {
           const { data: cache } = await (supabase.from("owner_call_prep_cache" as any) as any)
@@ -154,8 +169,8 @@ export function VossCoachCard({
         {voss && mode === "brief" && generatedAt && (
           <div className="text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground">
             {source === "cache"
-              ? `Preparación generada el ${new Date(generatedAt).toLocaleString("es-ES")} · sin cambios desde entonces`
-              : `Actualizada${lastActivityAt ? ` por actividad del ${new Date(lastActivityAt).toLocaleDateString("es-ES")}` : ""} · ${new Date(generatedAt).toLocaleString("es-ES")}`}
+              ? `Brief para la próxima llamada · generado el ${new Date(generatedAt).toLocaleString("es-ES")} · sin cambios desde entonces`
+              : `Brief para la próxima llamada · regenerado${lastActivityAt ? ` tras actividad del ${new Date(lastActivityAt).toLocaleDateString("es-ES")}` : ""} · ${new Date(generatedAt).toLocaleString("es-ES")}`}
           </div>
         )}
 
