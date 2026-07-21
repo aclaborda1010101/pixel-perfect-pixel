@@ -459,11 +459,15 @@ export default function ComercialEdificios() {
       const demoBldgs: any[] = [...firstBldg];
       const restViewPromises: Promise<any[]>[] = [];
       const restBldgPromises: Promise<any[]>[] = [];
+      // Estimación de páginas restantes: con 200 filas/página y un catálogo de
+      // ~1.200 edificios necesitamos ~6 páginas. Reservamos hasta 15 para
+      // márgenes de crecimiento sin saturar PostgREST.
+      const MAX_EXTRA_PAGES = 15;
       if (firstView.length === PAGE) {
-        for (let i = 1; i < 60; i++) restViewPromises.push(fetchViewPage(i * PAGE));
+        for (let i = 1; i <= MAX_EXTRA_PAGES; i++) restViewPromises.push(fetchViewPage(i * PAGE));
       }
       if (firstBldg.length === PAGE) {
-        for (let i = 1; i < 60; i++) restBldgPromises.push(fetchBldgPage(i * PAGE));
+        for (let i = 1; i <= MAX_EXTRA_PAGES; i++) restBldgPromises.push(fetchBldgPage(i * PAGE));
       }
       const [restViews, restBldgs] = await Promise.all([
         Promise.all(restViewPromises),
