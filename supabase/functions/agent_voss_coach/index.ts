@@ -254,6 +254,18 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
 
 El array "desarrollo" va en ORDEN NARRATIVO de la llamada (apertura → nudo → cierre). "inteligencia_extraida" es EXHAUSTIVO: toda cifra, nombre, fecha, decisión, matiz personal o del edificio que aparezca en el verbatim va como una entrada separada — mejor 15 datos pequeños que 3 párrafos.`;
 
+const VOZ_ES_ES = `
+REGLAS DE VOZ (ESPAÑOL DE ESPAÑA — se aplican a TODAS las frases que sugieras al comercial, incluida "alternativa_literal", frases de guion, etiquetas y cierres):
+  - PROHIBIDO literalmente: "¿Parecería una locura si…?", "¿Sería una locura…?", "¿Sería terrible si…?", "Parece que usted…", "Suena a que usted…".
+  - Sustituciones (misma técnica, español natural):
+    · "¿Parecería una locura si…?" → "¿Le encaja si…?" / "¿Ve algún inconveniente en que…?"
+    · "¿Sería terrible si…?" → "¿Le viene mal que…?"
+    · "Parece que usted…" → "Por lo que me cuenta…" / "Corríjame si me equivoco, pero…"
+    · Orientación al NO: "¿Ha descartado del todo…?" / "¿Es mal momento para que hablemos dos minutos?"
+  - Etiquetas Voss van sobre la SITUACIÓN o el edificio, nunca presumiendo la emoción del propietario.
+  - No mencionar "especialista" ni derivaciones internas; el comercial cierra él el opt-in de WhatsApp.
+  - Una sola pregunta por frase. Gratitud sobria.`;
+
 // Reglas de voz que aplican también al informe post-llamada: cuando el informe
 // sugiera una "alternativa_literal" o cite frases Voss, deben cumplir el
 // castellano natural de España (mismas sustituciones que el brief).
