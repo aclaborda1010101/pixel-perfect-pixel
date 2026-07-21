@@ -22,7 +22,8 @@ const Calls = lazy(() => import("./pages/Calls"));
 const Investors = lazy(() => import("./pages/Investors"));
 const Assistant = lazy(() => import("./pages/Assistant"));
 const Settings = lazy(() => import("./pages/Settings"));
-const CallAnalysis = lazy(() => import("./pages/CallAnalysis"));
+const CallExpediente = lazy(() => import("./pages/comercial/CallExpediente"));
+const CallLegacyRedirect = lazy(() => import("./pages/comercial/CallLegacyRedirect"));
 const AssetDetail = lazy(() => import("./pages/AssetDetail"));
 const BuildingDetail = lazy(() => import("./pages/BuildingDetail"));
 const PrepareCallWizard = lazy(() => import("./pages/wizards/PrepareCallWizard"));
@@ -107,7 +108,8 @@ const App = () => (
                 <Route path="/activos" element={<Assets />} />
                 <Route path="/activos/:id" element={<AssetDetail />} />
                 <Route path="/llamadas" element={<Calls />} />
-                <Route path="/llamadas/:id" element={<CallAnalysis />} />
+                <Route path="/llamadas/:id" element={<CallLegacyRedirect />} />
+                <Route path="/comercial/llamada/:hsId" element={<CallExpediente />} />
                 <Route path="/preparar-llamada" element={<PrepareCallWizard />} />
                 <Route path="/analizar-llamada" element={<AnalyzeCallWizard />} />
                 <Route path="/inversores" element={<Investors />} />
