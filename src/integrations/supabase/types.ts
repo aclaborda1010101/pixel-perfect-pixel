@@ -6263,6 +6263,29 @@ export type Database = {
           },
         ]
       }
+      v_calls_feed: {
+        Row: {
+          building_id: string | null
+          conectada: boolean | null
+          direccion: string | null
+          duracion_seg: number | null
+          fecha: string | null
+          hs_call_disposition: string | null
+          hs_call_transcription: string | null
+          hs_id: string | null
+          owner_id: string | null
+          owner_nombre: string | null
+          puntuacion: number | null
+          resultado: string | null
+          resumen: string | null
+          retroactiva: boolean | null
+          session_estado: string | null
+          session_id: string | null
+          tiene_grabacion: boolean | null
+          tiene_transcripcion: boolean | null
+        }
+        Relationships: []
+      }
       v_cohort77_calls_audit: {
         Row: {
           building_id: string | null
