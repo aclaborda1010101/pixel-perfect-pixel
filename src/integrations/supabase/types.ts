@@ -1427,8 +1427,13 @@ export type Database = {
           pct_terciario: number | null
           refcatastral: string | null
           score: number | null
+          score_activo: number | null
           score_breakdown: Json | null
+          score_propietarios: number | null
+          score_propietarios_breakdown: Json | null
+          score_propietarios_updated_at: string | null
           score_summary: string | null
+          score_total: number | null
           score_updated_at: string | null
           updated_at: string
         }
@@ -1467,8 +1472,13 @@ export type Database = {
           pct_terciario?: number | null
           refcatastral?: string | null
           score?: number | null
+          score_activo?: number | null
           score_breakdown?: Json | null
+          score_propietarios?: number | null
+          score_propietarios_breakdown?: Json | null
+          score_propietarios_updated_at?: string | null
           score_summary?: string | null
+          score_total?: number | null
           score_updated_at?: string | null
           updated_at?: string
         }
@@ -1507,8 +1517,13 @@ export type Database = {
           pct_terciario?: number | null
           refcatastral?: string | null
           score?: number | null
+          score_activo?: number | null
           score_breakdown?: Json | null
+          score_propietarios?: number | null
+          score_propietarios_breakdown?: Json | null
+          score_propietarios_updated_at?: string | null
           score_summary?: string | null
+          score_total?: number | null
           score_updated_at?: string | null
           updated_at?: string
         }
@@ -6529,7 +6544,9 @@ export type Database = {
         Args: { p_building_id: string }
         Returns: number
       }
+      compute_owner_score: { Args: { p_building_id: string }; Returns: Json }
       compute_score: { Args: { p_building_id: string }; Returns: number }
+      compute_score_total: { Args: { p_building_id: string }; Returns: number }
       count_distinct_owners: {
         Args: { p_building_id: string }
         Returns: number

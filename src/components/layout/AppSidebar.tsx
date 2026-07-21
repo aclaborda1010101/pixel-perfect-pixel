@@ -59,7 +59,7 @@ export function AppSidebar() {
     { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
   ] : isComercial ? [
     { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
-    { url: "/comercial/edificios", label: t.nav.buildings, icon: Building2 },
+    { url: "/comercial/edificios", label: "Scoring total", icon: Building2 },
     { url: "/comercial/tareas", label: "Tareas", icon: CheckSquare },
   ] : [
     { url: "/", label: t.nav.home, icon: LayoutDashboard },
@@ -103,10 +103,11 @@ export function AppSidebar() {
       <SidebarGroupContent>
         <SidebarMenu className="gap-0 divide-y divide-sidebar-border/40 md:gap-0.5 md:divide-y-0">
           {items.map((item) => {
+            // Exact match o sub-ruta con "/" delante. Sin esto, "/comercial"
+            // se ilumina también estando en "/comercial/edificios".
             const active =
-              item.url === "/"
-                ? location.pathname === "/"
-                : location.pathname.startsWith(item.url);
+              location.pathname === item.url ||
+              location.pathname.startsWith(item.url + "/");
             return (
               <SidebarMenuItem key={item.url}>
                 <SidebarMenuButton

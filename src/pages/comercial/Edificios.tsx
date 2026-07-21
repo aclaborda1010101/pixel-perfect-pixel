@@ -61,6 +61,10 @@ type Row = {
   barrio: string | null;
   distrito: string | null;
   score: number;
+  score_activo: number | null;
+  score_propietarios: number | null;
+  score_total: number | null;
+  score_propietarios_breakdown: any | null;
   es_estrella: boolean;
   n_alarmas: number;
   num_viviendas: number | null;
@@ -133,8 +137,9 @@ const SORT_LABELS: Record<SortKey, string> = {
   owners_desc: "Nº propietarios ↓",
 };
 
-function BuildingCard({ r }: { r: Row }) {
-  const tier = scoreTier(r.score);
+function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
+  const displayScore = showActivo && r.score_activo != null ? Number(r.score_activo) : r.score;
+  const tier = scoreTier(displayScore);
   const factors = buildingScoreFactors(r.raw);
   const top3 = factors.slice(0, 3);
 
@@ -171,7 +176,7 @@ function BuildingCard({ r }: { r: Row }) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="shrink-0 cursor-help">
-                    <ScorePill score={r.score} />
+                    <ScorePill score={displayScore} />
                   </div>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-sm">
@@ -183,12 +188,23 @@ function BuildingCard({ r }: { r: Row }) {
             </TooltipProvider>
           ) : (
             <div className="shrink-0">
-              <ScorePill score={r.score} />
+              <ScorePill score={displayScore} />
             </div>
           )}
         </div>
 
         <BuildingChips avisos={r.avisos} hasAnalysis={r.has_analysis} max={4} />
+
+        {/* Chip fino con las dos componentes del score total */}
+        {(r.score_activo != null || r.score_propietarios != null) && (
+          <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+            <span>Activo <span className="tabular-nums text-foreground">{r.score_activo != null ? Math.round(Number(r.score_activo)) : "—"}</span></span>
+            <span>·</span>
+            <span>Propietarios <span className={cn("tabular-nums", (r.score_propietarios ?? 50) >= 60 ? "text-emerald-400" : (r.score_propietarios ?? 50) < 35 ? "text-destructive" : "text-foreground")}>{r.score_propietarios != null ? Math.round(Number(r.score_propietarios)) : "—"}</span></span>
+            <span>·</span>
+            <span>Total <span className="tabular-nums text-foreground">{r.score_total != null ? Math.round(Number(r.score_total)) : Math.round(r.score)}</span></span>
+          </div>
+        )}
 
         <div className="grid grid-cols-4 gap-2 rounded-md border border-border-faint bg-surface-1/40 p-2 text-center">
           <div>
@@ -292,6 +308,17 @@ export default function ComercialEdificios() {
   const [advSinGestionPro, setAdvSinGestionPro] = useState(false);
   const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
   const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
+  // Toggle "Sin propietarios": muestra el score físico puro (score_activo).
+  // Por defecto OFF → usamos score_total (mezcla activo × propietarios).
+  const [viewActivo, setViewActivo] = useState<boolean>(() =>
+    new URLSearchParams(window.location.search).get("view") === "activo",
+  );
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (viewActivo) url.searchParams.set("view", "activo");
+    else url.searchParams.delete("view");
+    window.history.replaceState({}, "", url.toString());
+  }, [viewActivo]);
 
   // Windowing del catálogo "Todos": pintamos por lotes para que el DOM no
   // se atragante con >1000 tarjetas de golpe.
@@ -332,7 +359,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_activo, score_propietarios, score_total, score_propietarios_breakdown, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
@@ -370,6 +397,10 @@ export default function ComercialEdificios() {
           division_horizontal: !!b.division_horizontal,
           ratio: m2 && viv ? m2 / viv : null,
           raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
+          score_activo: extra.score_activo ?? null,
+          score_propietarios: extra.score_propietarios ?? null,
+          score_total: extra.score_total ?? extra.score ?? null,
+          score_propietarios_breakdown: extra.score_propietarios_breakdown ?? null,
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
           comercial: extra.comercial ?? null,
@@ -406,7 +437,7 @@ export default function ComercialEdificios() {
       const V_COLS =
         "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
       const B_COLS =
-        "id,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
+        "id,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
       // 200 filas cabe holgadamente dentro del statement_timeout de `authenticated`
       // (8s) y también en el de `anon` (3s). Con Promise.all lanzamos todas las
       // páginas restantes en paralelo, así el catálogo entero (~1.156) se sirve
@@ -524,6 +555,10 @@ export default function ComercialEdificios() {
           division_horizontal: !!b.division_horizontal,
           ratio: m2 && viv ? m2 / viv : null,
           raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
+          score_activo: extra.score_activo ?? null,
+          score_propietarios: extra.score_propietarios ?? null,
+          score_total: extra.score_total ?? extra.score ?? null,
+          score_propietarios_breakdown: extra.score_propietarios_breakdown ?? null,
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
           comercial: (extra as any).comercial ?? null,
@@ -622,13 +657,16 @@ export default function ComercialEdificios() {
     });
 
     const cmp = (a: Row, b: Row) => {
+      // Si el toggle "Sin propietarios" está activo, ordenamos por score_activo.
+      const aScore = viewActivo && a.score_activo != null ? Number(a.score_activo) : a.score;
+      const bScore = viewActivo && b.score_activo != null ? Number(b.score_activo) : b.score;
       // El criterio de orden elegido manda. La estrella NO altera el orden:
       // es un flag visual y un filtro (ver "Solo edificios estrella"). Como
       // desempate al final, si el criterio principal empata, mostramos antes
       // los estrella y luego los que tienen más alarmas.
       switch (sort) {
         case "score_asc":
-          if (a.score !== b.score) return a.score - b.score;
+          if (aScore !== bScore) return aScore - bScore;
           break;
         case "viviendas_desc":
           if ((b.num_viviendas ?? -1) !== (a.num_viviendas ?? -1)) return (b.num_viviendas ?? -1) - (a.num_viviendas ?? -1);
@@ -644,7 +682,7 @@ export default function ComercialEdificios() {
           break;
         case "score_desc":
         default:
-          if (a.score !== b.score) return b.score - a.score;
+          if (aScore !== bScore) return bScore - aScore;
           break;
       }
       // Desempate: estrella > más alarmas
@@ -708,8 +746,8 @@ export default function ComercialEdificios() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Edificios"
-        title="Cartera y catálogo"
+        eyebrow="Scoring total"
+        title="Edificios · Scoring total"
         subtitle={`${countJesus} Jesús · ${countDavid} David${todosRows.length ? ` · ${todosRows.length} totales` : ""}`}
       />
 
@@ -904,6 +942,19 @@ export default function ComercialEdificios() {
               <X className="h-3 w-3" /> Limpiar ({activeFiltersCount})
             </Button>
           )}
+          <div className="ml-auto flex items-center gap-2">
+            <Checkbox
+              id="toggle-view-activo"
+              checked={viewActivo}
+              onCheckedChange={(c) => setViewActivo(!!c)}
+            />
+            <Label htmlFor="toggle-view-activo" className="cursor-pointer text-xs font-normal">
+              Sin propietarios
+              <span className="ml-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                (score físico)
+              </span>
+            </Label>
+          </div>
         </div>
 
         <TabsContent value={tab} className="mt-0">
@@ -933,7 +984,7 @@ export default function ComercialEdificios() {
             <>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {filteredTodos.slice(0, shownTodos).map((r) => (
-                  <BuildingCard key={r.id} r={r} />
+                  <BuildingCard key={r.id} r={r} showActivo={viewActivo} />
                 ))}
               </div>
               {shownTodos < filteredTodos.length && (
