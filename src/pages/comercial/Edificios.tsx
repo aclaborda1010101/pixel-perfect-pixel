@@ -420,13 +420,21 @@ export default function ComercialEdificios() {
         if (batch.length < PAGE) break;
         from += PAGE;
       }
-      // Fetch de columnas "extra" en buildings SOLO para los IDs que vamos a pintar.
-      const scoreIds = scores.map((b: any) => b.id);
-      const { data: demoBldgs } = scoreIds.length
-        ? await (supabase.from("buildings" as any) as any)
+      // Fetch de columnas "extra" en buildings paginado (sin .in gigante que
+      // truncaba la URL y devolvía filas sin `comercial` → tabs Jesús/David a 0).
+      const demoBldgs: any[] = [];
+      {
+        let bfrom = 0;
+        for (let i = 0; i < 20; i++) {
+          const { data } = await (supabase.from("buildings" as any) as any)
             .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
-            .in("id", scoreIds)
-        : { data: [] as any[] };
+            .range(bfrom, bfrom + PAGE - 1);
+          const batch = (data ?? []) as any[];
+          demoBldgs.push(...batch);
+          if (batch.length < PAGE) break;
+          bfrom += PAGE;
+        }
+      }
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
       const bldgsById = new Map<string, any>();
       const demoIds = new Set<string>();
