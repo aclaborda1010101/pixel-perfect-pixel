@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ function fmtDur(s: number | null | undefined) {
 
 export default function Calls() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [rows, setRows] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [dirFilter, setDirFilter] = useState<string>("all");
@@ -236,7 +237,7 @@ export default function Calls() {
                   <TableRow
                     key={c.id}
                     className="cursor-pointer bg-card hover:bg-muted/40"
-                    onClick={() => { window.location.assign(to); }}
+                    onClick={() => navigate(to)}
                   >
                     <TableCell>
                       {c.owner_id ? (
