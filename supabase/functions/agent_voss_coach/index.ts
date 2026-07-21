@@ -107,7 +107,7 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
     {"frase_confianza": "frase LITERAL de la tipología aplicable adaptada a ESTA persona (usa su contexto real, no plantilla)", "pregunta": "UNA pregunta calibrada literal, tomada del bloque de preguntas de la tipología y adaptada", "kpi_objetivo": "KPI que busca sacar (label EXACTO si es de TARGET_KPIS, o 'exploratoria' si es de rapport)"}
   ],
   "lineas_rojas": ["líneas rojas LITERALES del bloque de la tipología aplicable + reglas de oro relevantes para ESTA persona (ej. 'no hablar de precio', 'no insinuar que se vaya de su casa'...)"],
-  "cierre": "Frase LITERAL de cierre. DEBE incluir opt-in WhatsApp + aviso de que la siguiente llamada la hace el ESPECIALISTA de Afflux. Máx 45 palabras.",
+  "cierre": "Frase LITERAL de cierre. DEBE incluir opt-in WhatsApp (resumen breve por WhatsApp para que lo vea cuando le venga bien). No mencionar especialistas ni derivaciones internas. Máx 45 palabras.",
   "contexto_propietario": {
     "quien_es": "1-2 frases con nombre, tipología/buyer_persona, % cuota, subrole, edad/zona si consta",
     "situacion_edificio": "1-2 frases con dirección, banderas reales (proindiviso, ITE, conflicto, mala_gestion_score, protegido, cluster)",
@@ -127,7 +127,7 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
       {"objecion": "...", "respuesta_voss": "...", "tecnica": "..."},
       {"objecion": "...", "respuesta_voss": "...", "tecnica": "..."}
     ],
-    "cierre_micro_compromiso": "Frase literal de opt-in WhatsApp orientada al no. Máx 35 palabras. Ej: '¿Sería una locura que le mandara por WhatsApp un resumen de 3 líneas para que lo vea cuando le venga bien?'"
+    "cierre_micro_compromiso": "Frase literal de opt-in WhatsApp orientada al no. Máx 35 palabras. Ej: '¿Le viene mal que le mande por WhatsApp un resumen de 3 líneas para que lo vea cuando le venga bien?'"
   },
   "enfoque_llamada": [
     {"kpi": "<label EXACTO del KPI objetivo tal como venga en TARGET_KPIS>", "pregunta_o_tactica": "pregunta LITERAL calibrada (empieza por qué/cómo) o táctica Voss concreta para sacar ese dato, apoyada en el histórico si existe", "tecnica": "espejo|etiqueta|pregunta_calibrada|orientación_al_no|auditoría"}
@@ -154,6 +154,18 @@ REGLAS ESTILO FERRERO/POZAS 3 (obligatorias — el brief debe LEERSE como un gui
   - NUNCA plantilla genérica. Si la salida podría valer para otro propietario, NO ES VÁLIDA.
   - COHERENCIA DE PERFIL: si la tipología aplicable es T5 (o cualquier T concreta), TODO el brief la refleja de forma consistente. NUNCA mezcles perfiles ("T5-T2", "T3 con matices de T1"). Una tipología única.
   - APERTURA DE SEGUIMIENTO: la cita del histórico va LITERAL entre comillas y con fecha ("El 12/06 me dijo: 'no me interesa'"). Prohibido parafrasear o inferir tono.
+
+REGLAS DE VOZ ESPAÑOL DE ESPAÑA (obligatorias — la técnica Voss se mantiene, cambia SÓLO la piel):
+  - PROHIBIDO literalmente: "¿Parecería una locura si…?", "¿Sería una locura…?", "¿Sería terrible si…?", "Parece que usted…", "Suena a que usted…", etiquetar la emoción del interlocutor ("le noto…", "está usted…"), gratitud melosa ("mil gracias", "muchísimas gracias por atenderme").
+  - Sustituciones obligatorias (mantener la técnica, cambiar la fórmula):
+    · "¿Parecería una locura si…?" / "¿Sería una locura…?" → "¿Le encaja si…?" o "¿Ve algún inconveniente en que…?"
+    · "¿Sería terrible si…?" → "¿Le viene mal que…?"
+    · "Parece que usted…" / "Suena a que usted…" → "Por lo que me cuenta…" o "Corríjame si me equivoco, pero…"
+    · Orientación al NO: "¿Ha descartado del todo la idea de vender?" o "¿Es mal momento para que hablemos dos minutos?" (no "¿sería una locura hablar…?").
+  - Las etiquetas Voss (frases_confianza, etiquetas) van sobre la SITUACIÓN o el edificio, nunca presumiendo la emoción de la persona ("Parece que en este edificio…", "Da la impresión de que este tema…", no "Parece que usted se siente…").
+  - Gratitud sobria, una sola vez, sin florituras.
+  - Nunca dos preguntas seguidas en la misma frase; una pregunta cada vez.
+  - No mencionar "especialista", "compañero técnico" ni derivaciones internas en el cierre. El cierre es opt-in WhatsApp del propio comercial.
 
 REGLA PLAN_LLAMADA (crítica, es lo PRIMERO que lee el comercial):
   - Devuelve entre 3 y 6 pasos ORDENADOS, específicos de ESTA persona y ESTA llamada. NADA GENÉRICO.
