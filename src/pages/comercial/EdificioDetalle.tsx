@@ -34,6 +34,8 @@ import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { AlarmChips } from "@/components/comercial/AlarmChips";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -152,6 +154,20 @@ export default function ComercialEdificioDetalle() {
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
+  // Toggle "Sin propietarios" en la ficha. Sincroniza con ?view=activo para
+  // que el link desde la lista respete el modo. Cambiar el toggle actualiza
+  // número, tier, barras y narrativa en ScoringResumen al instante.
+  const [viewActivo, setViewActivo] = useState<boolean>(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("view") === "activo"
+  );
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (viewActivo) url.searchParams.set("view", "activo");
+    else url.searchParams.delete("view");
+    window.history.replaceState({}, "", url.toString());
+  }, [viewActivo]);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -184,11 +200,17 @@ export default function ComercialEdificioDetalle() {
       <EdificioResumenCard b={b} s={s} analysis={analysis} anioConstr={anioConstr} ownersCount={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} catastro={catastro} />
 
       {/* Scoring: score + doble tesis + contribuciones (sin narrativa larga) */}
+      <div className="flex items-center gap-2 justify-end">
+        <Label htmlFor="view-activo" className="text-xs text-muted-foreground">
+          Sin propietarios
+        </Label>
+        <Switch id="view-activo" checked={viewActivo} onCheckedChange={setViewActivo} />
+      </div>
       <ScoringResumen
         b={b}
         s={s}
         analysis={analysis}
-        showActivo={new URLSearchParams(window.location.search).get("view") === "activo"}
+        showActivo={viewActivo}
       />
 
       {/* PGOUM: protección + plantas levantables */}
