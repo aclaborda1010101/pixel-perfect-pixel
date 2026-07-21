@@ -1614,18 +1614,45 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
       }
     } catch (_e) { /* no bloquear el reply por esto */ }
 
-    // 4) ENVÍO INMEDIATO: nada de tecleo humano artificial. El "escribiendo…" continuo
-    // ya se ha mostrado durante la generación de la IA (keep-alive). Primer mensaje
-    // sale al instante; mensajes siguientes con una micro-pausa mínima (400-900ms).
-    for (let i = 0; i < finalReplies.length; i++) {
-      const m = finalReplies[i];
-      if (i === 0) {
-        // Parar el keep-alive del "escribiendo…" JUSTO antes de mandar el primer mensaje.
-        clearPresenceTimer();
-      } else {
-        const typingMs = 400 + Math.floor(Math.random() * 500);
-        sendPresence(contact.phone, typingMs).catch(() => {});
-        await sleep(typingMs);
+    // 4) ENVÍO HUMANIZADO: delay proporcional a la longitud + presence "composing"
+    // durante ese delay. Si el mensaje es largo (>300 chars) y admite un corte natural,
+    // lo partimos en 2 burbujas (respetando 1 pregunta por turno). Si durante el delay
+    // entra un mensaje NUEVO del cliente, abortamos: la respuesta ya no encaja y el
+    // nuevo webhook re-evaluará con contexto fresco.
+    const bubbles = finalReplies.length === 1
+      ? splitLongMessage(finalReplies[0])
+      : finalReplies;
+    const sinceISO = lastIn?.created_at ?? null;
+    // Paramos el keep-alive genérico: a partir de aquí controlamos nosotros la presencia
+    // con la duración exacta de cada burbuja.
+    clearPresenceTimer();
+    for (let i = 0; i < bubbles.length; i++) {
+      const m = bubbles[i];
+      // Delay humano previo a ESTE mensaje.
+      const delayMs = typingDelayMs(m);
+      // Evolution: activar presence "composing" para toda la ventana del delay.
+      sendPresence(contact.phone, delayMs, "composing").catch(() => {});
+      // Refresh cada ~8s por si Evolution corta la presencia antes de tiempo.
+      const refresher = setInterval(() => {
+        sendPresence(contact.phone, 8000, "composing").catch(() => {});
+      }, 6000);
+      let superseded = false;
+      try {
+        superseded = await sleepWatchingInbound(admin, conversation_id!, sinceISO, delayMs);
+      } finally {
+        clearInterval(refresher);
+      }
+      if (superseded) {
+        // Bajamos el "escribiendo…" y descartamos: el nuevo webhook responderá.
+        sendPresence(contact.phone, 500, "paused").catch(() => {});
+        await admin.from("wa_ai_jobs").update({
+          status: "skipped_superseded",
+          error: "inbound_during_typing",
+          updated_at: new Date().toISOString(),
+        }).eq("conversation_id", conversation_id).eq("status", "running");
+        return new Response(JSON.stringify({
+          ok: true, skip: "superseded_during_typing", bubbles_sent: i, delay_ms: delayMs,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       let sendRes: any;
       try {
@@ -1656,17 +1683,18 @@ RECUERDA: tu salida es EXCLUSIVAMENTE el objeto JSON. Nunca respondas con texto 
         sender_type: "bot",
         metadata: {
           model: modelUsed,
-          part: i + 1, of: finalReplies.length,
+          part: i + 1, of: bubbles.length,
+          typing_delay_ms: delayMs,
           qualification_update: cleanQu,
           propose_meeting: !!parsed.propose_meeting,
           guard: guardMeta,
         },
       });
-      if (i === finalReplies.length - 1) {
+      if (i === bubbles.length - 1) {
         sendPresence(contact.phone, 800, "paused").catch(() => {});
-      } else {
-        await sleep(300 + Math.floor(Math.random() * 500));
       }
+      // Entre burbuja y burbuja no dormimos aquí: el delay proporcional de la
+      // siguiente iteración ya introduce la pausa natural (y su propio watch de inbound).
     }
 
     await admin.from("wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversation_id);
