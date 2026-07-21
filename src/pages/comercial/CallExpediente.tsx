@@ -73,14 +73,24 @@ export default function CallExpediente() {
     return () => { cancelled = true; };
   }, [hsId]);
 
-  const voss = session?.voss_post ?? {};
-  const puntuacion = session?.puntuacion ?? (voss as any)?.puntuacion?.score_0_100 ?? null;
-  const justificacion = (voss as any)?.puntuacion?.justificacion ?? null;
-  const bien: string[] = Array.isArray((voss as any)?.que_bien) ? (voss as any).que_bien : [];
-  const mal: string[] = Array.isArray((voss as any)?.que_mal) ? (voss as any).que_mal : [];
-  const mejoras: string[] = Array.isArray((voss as any)?.mejoras) ? (voss as any).mejoras : [];
-  const proximaAccion: string = (voss as any)?.proxima_accion ?? "";
-  const sacar: string[] = Array.isArray((voss as any)?.sacar_en_siguiente_contacto) ? (voss as any).sacar_en_siguiente_contacto : [];
+  const voss: any = session?.voss_post ?? {};
+  const puntuacion = session?.puntuacion ?? voss?.puntuacion?.score_0_100 ?? null;
+  const justificacion = voss?.puntuacion?.justificacion ?? null;
+  const desglose = voss?.puntuacion?.desglose ?? null;
+  const resumenEjecutivo: string = voss?.resumen_ejecutivo ?? "";
+  const desarrollo: Array<{ titulo: string; sintesis: string; citas?: string[] }> = Array.isArray(voss?.desarrollo) ? voss.desarrollo : [];
+  const inteligencia: Array<{ dato: string; categoria?: string; cita?: string; confianza?: string }> = Array.isArray(voss?.inteligencia_extraida) ? voss.inteligencia_extraida : [];
+  // Nueva forma: evaluacion_comercial.{que_hizo_bien, que_mejorar}
+  // Retro-compat: voss.que_hizo_bien[] / voss.momentos_flojos[]
+  const evalBien: Array<{ momento?: string; tecnica_voss?: string; comentario?: string }> =
+    Array.isArray(voss?.evaluacion_comercial?.que_hizo_bien) ? voss.evaluacion_comercial.que_hizo_bien
+    : Array.isArray(voss?.que_hizo_bien) ? voss.que_hizo_bien : [];
+  const evalMejorar: Array<{ momento?: string; que_paso?: string; alternativa_literal?: string; mejora_voss?: string; tecnica?: string }> =
+    Array.isArray(voss?.evaluacion_comercial?.que_mejorar) ? voss.evaluacion_comercial.que_mejorar
+    : Array.isArray(voss?.momentos_flojos) ? voss.momentos_flojos : [];
+  const proximaAccion: string = voss?.proxima_accion ?? "";
+  const sacar: string[] = Array.isArray(voss?.sacar_en_siguiente_contacto) ? voss.sacar_en_siguiente_contacto : [];
+  const informeCompleto: boolean = voss?.informe_completo !== false && (desarrollo.length + inteligencia.length + evalBien.length + evalMejorar.length) > 0;
 
   const kpisObjetivoLabels: string[] = (() => {
     const ko = session?.kpis_objetivo;
@@ -203,32 +213,129 @@ export default function CallExpediente() {
             </Card>
           )}
 
-          {(justificacion || bien.length > 0 || mal.length > 0 || mejoras.length > 0) && (
+          {resumenEjecutivo && (
+            <Card className="lg:col-span-2 border-primary/30">
+              <CardHeader>
+                <Eyebrow>Resumen ejecutivo</Eyebrow>
+                {!informeCompleto && (
+                  <Badge variant="outline" className="w-fit text-[10px]">Informe breve · llamada corta o sin contenido</Badge>
+                )}
+              </CardHeader>
+              <CardContent>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{resumenEjecutivo}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {desarrollo.length > 0 && (
+            <Card className="lg:col-span-2">
+              <CardHeader><Eyebrow>Desarrollo de la llamada</Eyebrow></CardHeader>
+              <CardContent>
+                <Accordion type="multiple" className="w-full">
+                  {desarrollo.map((t, i) => (
+                    <AccordionItem key={i} value={`d${i}`}>
+                      <AccordionTrigger className="text-sm font-medium">
+                        <span className="text-left">{i + 1}. {t.titulo}</span>
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-2 text-sm">
+                        <p className="text-foreground/90">{t.sintesis}</p>
+                        {Array.isArray(t.citas) && t.citas.length > 0 && (
+                          <ul className="space-y-1.5 border-l-2 border-border-faint pl-3">
+                            {t.citas.map((c, j) => (
+                              <li key={j} className="italic text-xs text-muted-foreground">"{c}"</li>
+                            ))}
+                          </ul>
+                        )}
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              </CardContent>
+            </Card>
+          )}
+
+          {inteligencia.length > 0 && (
             <Card className="lg:col-span-2">
               <CardHeader>
-                <Eyebrow>Auditoría VOSS</Eyebrow>
+                <Eyebrow>Inteligencia extraída · {inteligencia.length} datos</Eyebrow>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2 text-sm">
+                  {inteligencia.map((d, i) => (
+                    <li key={i} className="rounded-md border border-border-faint p-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium text-foreground">{d.dato}</span>
+                        {d.categoria && <Badge variant="outline" className="shrink-0 text-[10px]">{d.categoria}</Badge>}
+                      </div>
+                      {d.cita && <p className="mt-1 italic text-xs text-muted-foreground">"{d.cita}"</p>}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          {(justificacion || evalBien.length > 0 || evalMejorar.length > 0 || desglose) && (
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <Eyebrow>Evaluación del comercial · auditoría VOSS</Eyebrow>
                 <CardTitle className="text-base">
                   {puntuacion != null ? <>Nota <span className="font-mono">{Number(puntuacion)}/100</span></> : "Análisis"}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4 text-sm">
-                {justificacion && <p>{justificacion}</p>}
-                {bien.length > 0 && (
-                  <div>
-                    <div className="uppercase tracking-eyebrow text-[10px] text-emerald-600">Qué se hizo bien</div>
-                    <ul className="ml-4 mt-1 list-disc space-y-0.5">{bien.map((s, i) => <li key={i}>{s}</li>)}</ul>
+              <CardContent className="space-y-5 text-sm">
+                {justificacion && <p className="text-foreground/90">{justificacion}</p>}
+
+                {desglose && (
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                    {(["rapport", "extraccion_info", "avance_deal", "cierre_canal"] as const).map((k) => {
+                      const d: any = (desglose as any)?.[k];
+                      if (!d) return null;
+                      const label = k === "rapport" ? "Rapport" : k === "extraccion_info" ? "Extracción" : k === "avance_deal" ? "Avance" : "Cierre / canal";
+                      return (
+                        <div key={k} className="rounded-md border border-border-faint p-2.5">
+                          <Eyebrow>{label}</Eyebrow>
+                          <div className="mt-1 font-mono text-lg tabular-nums">{d.score_0_100 ?? "—"}<span className="text-xs text-muted-foreground">/100</span></div>
+                          {d.justificacion && <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{d.justificacion}</p>}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-                {mal.length > 0 && (
+
+                {evalBien.length > 0 && (
                   <div>
-                    <div className="uppercase tracking-eyebrow text-[10px] text-destructive">Qué se hizo mal</div>
-                    <ul className="ml-4 mt-1 list-disc space-y-0.5">{mal.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                    <div className="mb-1.5 uppercase tracking-eyebrow text-[10px] text-emerald-600">Qué hizo bien</div>
+                    <ul className="space-y-2">
+                      {evalBien.map((b, i) => (
+                        <li key={i} className="rounded-md border border-emerald-500/20 bg-emerald-500/5 p-2.5">
+                          {b.tecnica_voss && <Badge variant="outline" className="mb-1 text-[10px]">{b.tecnica_voss}</Badge>}
+                          {b.momento && <p className="italic text-xs text-muted-foreground">"{b.momento}"</p>}
+                          {b.comentario && <p className="mt-1 text-xs text-foreground/90">{b.comentario}</p>}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
-                {mejoras.length > 0 && (
+
+                {evalMejorar.length > 0 && (
                   <div>
-                    <div className="uppercase tracking-eyebrow text-[10px] text-muted-foreground">Mejoras</div>
-                    <ul className="ml-4 mt-1 list-disc space-y-0.5">{mejoras.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                    <div className="mb-1.5 uppercase tracking-eyebrow text-[10px] text-amber-500">Qué mejorar</div>
+                    <ul className="space-y-2">
+                      {evalMejorar.map((m, i) => (
+                        <li key={i} className="rounded-md border border-amber-500/20 bg-amber-500/5 p-2.5">
+                          {m.tecnica && <Badge variant="outline" className="mb-1 text-[10px]">{m.tecnica}</Badge>}
+                          {m.momento && <p className="italic text-xs text-muted-foreground">"{m.momento}"</p>}
+                          {m.que_paso && <p className="mt-1 text-xs text-foreground/90">{m.que_paso}</p>}
+                          {(m.alternativa_literal || m.mejora_voss) && (
+                            <p className="mt-1.5 border-l-2 border-primary/60 pl-2 text-xs text-foreground">
+                              <span className="mr-1 font-semibold text-primary">Debería haber dicho:</span>
+                              "{m.alternativa_literal ?? m.mejora_voss}"
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </CardContent>

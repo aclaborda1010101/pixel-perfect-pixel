@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 
 type Call = {
   id: string;
-  hubspot_call_id: string | null;
+  metadatos: any;
   fecha: string;
   duracion_seg: number | null;
   outcome: string | null;
@@ -126,30 +126,31 @@ export default function Productividad() {
       const since = daysAgo(days);
       const prevSince = daysAgo(days * 2);
       const [c1, s1, c0, s0] = await Promise.all([
-        supabase.from("calls").select("id,hubspot_call_id,fecha,duracion_seg,outcome,comercial_email,comercial_nombre,owner_id")
+        supabase.from("calls").select("id,metadatos,fecha,duracion_seg,outcome,comercial_email,comercial_nombre,owner_id")
           .gte("fecha", since).order("fecha", { ascending: false }).limit(5000),
         supabase.from("call_sessions").select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id")
           .gte("iniciada_at", since).not("puntuacion", "is", null).limit(2000),
-        supabase.from("calls").select("id,hubspot_call_id,fecha,duracion_seg,outcome,comercial_email,comercial_nombre,owner_id")
+        supabase.from("calls").select("id,metadatos,fecha,duracion_seg,outcome,comercial_email,comercial_nombre,owner_id")
           .gte("fecha", prevSince).lt("fecha", since).limit(5000),
         supabase.from("call_sessions").select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id")
           .gte("iniciada_at", prevSince).lt("iniciada_at", since).not("puntuacion", "is", null).limit(2000),
       ]);
       if (cancelled) return;
-      setCalls((c1.data ?? []) as Call[]);
+      setCalls((c1.data ?? []) as unknown as Call[]);
       setSessions((s1.data ?? []) as Session[]);
-      setPrevCalls((c0.data ?? []) as Call[]);
+      setPrevCalls((c0.data ?? []) as unknown as Call[]);
       setPrevSessions((s0.data ?? []) as Session[]);
       setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [range]);
 
-  // Empareja sessions con calls por hubspot_call_id para atribuir comercial
+  // Empareja sessions con calls por hubspot_call_id (guardado en metadatos)
   const sessionComercial = useMemo(() => {
     const byHs = new Map<string, string>();
-    for (const c of calls) if (c.hubspot_call_id) byHs.set(c.hubspot_call_id, comercialKey(c.comercial_email));
-    for (const c of prevCalls) if (c.hubspot_call_id && !byHs.has(c.hubspot_call_id)) byHs.set(c.hubspot_call_id, comercialKey(c.comercial_email));
+    const hsId = (c: Call) => (c.metadatos?.hubspot_call_id ?? c.metadatos?.hs_id ?? null) as string | null;
+    for (const c of calls) { const h = hsId(c); if (h) byHs.set(h, comercialKey(c.comercial_email)); }
+    for (const c of prevCalls) { const h = hsId(c); if (h && !byHs.has(h)) byHs.set(h, comercialKey(c.comercial_email)); }
     return byHs;
   }, [calls, prevCalls]);
 
@@ -166,7 +167,10 @@ export default function Productividad() {
       pctConexion: mine.length ? (conectadas.length / mine.length) * 100 : 0,
       analizadas: mySess.length,
       notaMedia,
-      pendientesAnalisis: conectadas.filter((c) => !ss.some((s) => s.hubspot_call_id === c.hubspot_call_id)).length,
+      pendientesAnalisis: conectadas.filter((c) => {
+        const h = (c.metadatos?.hubspot_call_id ?? c.metadatos?.hs_id) as string | undefined;
+        return !h || !ss.some((s) => s.hubspot_call_id === h);
+      }).length,
       sessions: mySess,
     };
   }

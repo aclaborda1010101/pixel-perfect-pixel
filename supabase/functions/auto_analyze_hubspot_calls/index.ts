@@ -28,7 +28,7 @@ Deno.serve(async (req) => {
   const out: any[] = [];
   try {
     const { data: candidates, error } = await sb.from("hubspot_calls")
-      .select("id, hs_id, hs_timestamp, hs_call_duration, hs_call_recording_url, hs_call_transcription, associated_contact_ids, raw")
+      .select("id, hs_id, hs_timestamp, hs_call_duration, hs_call_recording_url, hs_call_transcription, hs_call_summary, associated_contact_ids, raw")
       .gte("hs_call_duration", 45000)
       .not("hs_call_recording_url", "is", null)
       .neq("hs_call_recording_url", "")
@@ -58,7 +58,13 @@ Deno.serve(async (req) => {
       const r = await fetch(`${SUP}/functions/v1/agent_voss_coach`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
-        body: JSON.stringify({ mode: "post", owner_id: ownerId, call_transcript: c.hs_call_transcription }),
+        body: JSON.stringify({
+          mode: "post",
+          owner_id: ownerId,
+          call_transcript: c.hs_call_transcription,
+          call_duration_seg: c.hs_call_duration == null ? null : Math.round(Number(c.hs_call_duration) / 1000),
+          call_summary: c.hs_call_summary ?? null,
+        }),
       });
       const j = await r.json().catch(() => ({}));
       const okAnalysis = r.ok && j?.ok !== false;
