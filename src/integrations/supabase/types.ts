@@ -6573,6 +6573,7 @@ export type Database = {
         Returns: boolean
       }
       _safe_int_from_dir: { Args: { p: string }; Returns: number }
+      build_score_summary: { Args: { p_building_id: string }; Returns: string }
       calls_stats: {
         Args: never
         Returns: {
