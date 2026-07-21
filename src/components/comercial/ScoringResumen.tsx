@@ -306,10 +306,12 @@ export function ScoringResumen({
   b,
   s,
   analysis,
+  showActivo,
 }: {
   b: any;
   s: any;
   analysis: any | null;
+  showActivo?: boolean;
 }) {
   const cluster: ClusterKey = b?.cluster_asignado ?? "baja_prioridad";
   const clusterInfo = CLUSTER_LABELS[cluster] ?? CLUSTER_LABELS.baja_prioridad;
@@ -356,65 +358,113 @@ export function ScoringResumen({
   const highAvisos = avisos.filter((a) => a?.severity === "high" || a?.severity === "medium");
   const avisosConDetalle = highAvisos.filter((a) => a?.detail);
 
-  // ─── "Por qué" del score: explicación extensa y descriptiva (criterios Carlos) ───
-  // Se compone en cliente sin llamar a IA, sobre datos ya cargados.
+  // ─── "Por qué" del score: explicación EXCLUSIVAMENTE a partir de datos reales ───
+  // Sin relleno especulativo. Si un dato no existe, no se menciona.
+  const ownerBreak = (b?.score_propietarios_breakdown ?? {}) as any;
+  const activo = num(s?.score_activo ?? b?.score_activo);
+  const propScore = num(s?.score_propietarios ?? b?.score_propietarios);
+  const total = num(s?.score_total ?? b?.score_total ?? score);
+
   const shortWhy = (() => {
-    const owners = Number(s?.owners_count ?? b?.numero_propietarios ?? 0);
-    const viv = Number(s?.num_viviendas ?? 0);
-    const m2 = Number(s?.m2_total ?? 0);
+    const viv = num(s?.num_viviendas);
+    const m2 = num(s?.m2_total);
     const ratio = m2 && viv ? m2 / viv : null;
-    const dh = !!b?.division_horizontal;
-    const m2Com = Number((s as any)?.m2_comercio_x ?? 0);
-    const m2Ofi = Number((s as any)?.m2_oficina_x ?? 0);
-    const pctTerc = m2 > 0 ? Math.round(((m2Com + m2Ofi) / m2) * 100) : null;
-    const protegido = !!(b?.metadatos as any)?.protegido || !!(b?.avisos_inteligentes as any[])?.some?.(
-      (a: any) => String(a?.key ?? a?.label ?? "").toLowerCase().includes("proteg"),
-    );
-    const esquina = !!(b?.metadatos as any)?.esquina || !!(b?.analysis as any)?.esquina;
-    const plantas = num((b?.analysis as any)?.plantas_levantables) ?? num((b?.metadatos as any)?.plantas_levantables) ?? 0;
-    const ventanas = num((b?.analysis as any)?.ventanas_fachada_total) ?? 0;
+    const m2Com = num((s as any)?.m2_comercio_x) ?? 0;
+    const m2Ofi = num((s as any)?.m2_oficina_x) ?? 0;
+    const pctTerc = m2 ? Math.round(((m2Com + m2Ofi) / m2) * 100) : null;
 
-    const cabecera =
-      score >= 70 ? "Este edificio puntúa alto"
-      : score >= 45 ? "Este edificio puntúa medio"
-      : "Este edificio puntúa bajo";
+    // Fragmento ACTIVO — solo datos reales
+    const activoBits: string[] = [];
+    if (m2) activoBits.push(`${m2.toLocaleString()} m²`);
+    if (viv) activoBits.push(plural(viv, "vivienda", "viviendas"));
+    if (ratio) activoBits.push(`${ratio.toFixed(0)} m²/viv`);
+    if (pctTerc !== null) activoBits.push(`${pctTerc}% terciario`);
+    const activoTxt = activo != null
+      ? `**Activo ${activo.toFixed(0)}**${activoBits.length ? ` (${activoBits.join(", ")})` : ""}`
+      : null;
 
-    const drivers: string[] = [];
-    if (owners > 0) drivers.push(owners === 1 ? "1 propietario" : `${owners} propietarios`);
-    if (viv > 0) drivers.push(`${viv} viviendas`);
-    if (ratio) drivers.push(`${ratio.toFixed(0)} m² de media por vivienda`);
-    if (pctTerc !== null) drivers.push(pctTerc === 0 ? "0% terciario" : `${pctTerc}% de superficie terciaria`);
-    if (!dh && score >= 40) drivers.push("sin división horizontal constituida");
-    if (protegido) drivers.push("protegido PGOU");
-    else if (score >= 60) drivers.push("sin protección conocida");
-    if (esquina) drivers.push("hace esquina");
-    if (plantas > 0) drivers.push(`potencial de elevación de ${plantas} ${plantas === 1 ? "planta" : "plantas"}`);
-    if (ventanas >= 50) drivers.push("alta segregabilidad por fachada");
+    // Fragmento PROPIETARIOS — solo lo detectado en llamadas/breakdown
+    const nO = num(ownerBreak.n_owners);
+    const nPos = num(ownerBreak.n_positivos) ?? 0;
+    const nBloq = num(ownerBreak.n_bloqueados) ?? 0;
+    const nImp = num(ownerBreak.n_impulsor) ?? 0;
+    const nCont = num(ownerBreak.n_contactados) ?? 0;
+    const oferta = !!ownerBreak.oferta_previa_edificio;
+    const mayoria = !!ownerBreak.mayoria_vendedora;
+    const impBld = !!ownerBreak.impulsor_edificio;
+    const lastCall = ownerBreak.last_call_at ? new Date(ownerBreak.last_call_at) : null;
+    const lastCallLabel = lastCall ? `${String(lastCall.getDate()).padStart(2,"0")}/${String(lastCall.getMonth()+1).padStart(2,"0")}` : null;
 
-    let explicacion = `${cabecera}`;
-    if (drivers.length) {
-      explicacion += ` porque combina ${drivers.slice(0, 3).join(", ")}`;
-      if (drivers.length > 3) explicacion += ` y también ${drivers.slice(3).join(", ")}`;
+    const propBits: string[] = [];
+    if (nO != null) propBits.push(plural(nO, "propietario", "propietarios"));
+    if (mayoria) propBits.push(`mayoría con intención de venta declarada${lastCallLabel ? ` —cita ${lastCallLabel}` : ""}`);
+    if (oferta) propBits.push("oferta previa discutida");
+    if (impBld || nImp > 0) propBits.push(`${nImp > 1 ? `${nImp} impulsores identificados` : "impulsor identificado"}`);
+    if (nPos > 0) propBits.push(`${nPos} con predisposición explícita a vender`);
+    if (nBloq > 0) propBits.push(nBloq === 1 ? "1 bloqueador identificado" : `${nBloq} bloqueadores`);
+    if (nO != null && nCont >= 0) propBits.push(`${nCont}/${nO} contactados`);
+
+    const propTxt = propScore != null
+      ? `**Propietarios ${propScore.toFixed(0)}**${propBits.length ? ` (${propBits.join("; ")})` : ""}`
+      : null;
+
+    // Modo ACTIVO puro
+    if (showActivo) {
+      if (!activoTxt) return "";
+      let s1 = `Estás viendo el score **sin propietarios**: ${activoTxt}.`;
+      if (cluster !== "baja_prioridad") {
+        s1 += ` Encaja en la tesis **${clusterInfo.label}** (${clusterInfo.tagline.toLowerCase()}).`;
+      }
+      return s1;
     }
-    explicacion += ". ";
 
-    if (score >= 70) {
-      explicacion += "Reúne los activos clave que buscamos: tamaño suficiente para operación, concentración de propiedad manejable, tipología predominantemente residencial y ausencia de bloques normativos importantes. ";
-      if (!dh) explicacion += "El hecho de que no exista división horizontal constituida simplifica la negociación de bloque y abre opciones de estructura de compra. ";
-    } else if (score >= 45) {
-      explicacion += "Tiene rasgos interesantes —como el tamaño o la distribución de propietarios— pero arrastra algún condicionante que frena la puntuación: puede ser menor dimensión, mix terciario, protección puntual o un ratio poco eficiente. ";
-    } else {
-      explicacion += "La puntuación baja refleja que varios de los filtros de la tesis no se cumplen de forma simultánea: tamaño reducido, propiedad muy fragmentada o concentrada de forma adversa, presencia terciaria significativa, o restricciones normativas que limitan la operación. ";
+    // Modo TOTAL: explica los dos ejes + su combinación
+    if (activoTxt && propTxt && total != null) {
+      let out = `${activoTxt} × ${propTxt} → **Total ${total.toFixed(0)}**`;
+      out += ` (media ponderada 60% activo · 40% propietarios).`;
+      if (mayoria || oferta || impBld) {
+        const drivers: string[] = [];
+        if (mayoria) drivers.push("mayoría vendedora detectada en llamadas");
+        if (oferta) drivers.push("oferta previa ya sobre la mesa");
+        if (impBld) drivers.push("impulsor interno confirmado");
+        out += ` Las señales de intención (${drivers.join(", ")}) empujan el eje de propietarios muy arriba`;
+        if (nBloq > 0) out += ` — el bloqueador identificado es palanca de negociación, no rebaja el score`;
+        out += `.`;
+      }
+      if (cluster !== "baja_prioridad") {
+        out += ` Tesis: **${clusterInfo.label}** (${clusterInfo.tagline.toLowerCase()}).`;
+      }
+      return out;
     }
-
-    if (cluster !== "baja_prioridad") {
-      explicacion += `Esto lo sitúa dentro de la tesis **${clusterInfo.label}**: ${clusterInfo.tagline.toLowerCase()}.`;
-    } else {
-      explicacion += "Aunque el score numérico no sea bajo, el barrio no está en el mapa de tesis prioritarias de Madrid, así que aplicamos pesos genéricos y conviene revisarlo caso a caso.";
-    }
-
-    return explicacion;
+    // Fallback mínimo si faltan datos
+    if (activoTxt) return `${activoTxt}.`;
+    return "";
   })();
+
+  // Owner-axis signals para la sección "APORTA AL SCORE"
+  const ownerSignals: { label: string; delta: number; evidence?: string }[] = (() => {
+    const arr = Array.isArray(ownerBreak.signals) ? ownerBreak.signals : [];
+    const labels: Record<string, string> = {
+      n_propietarios: "Nº propietarios",
+      impulsor_identificado: "Impulsor identificado",
+      mayoria_vendedora: "Mayoría vendedora",
+      oferta_previa_discutida: "Oferta previa discutida",
+      predisposicion_positiva: "Propietario dispuesto a vender",
+      bloqueador_identificado: "Bloqueador identificado",
+      mayoria_bloqueada: "Mayoría bloqueada",
+      todos_cerrados: "Todos los contactados cerrados",
+      cobertura_baja: "Cobertura baja (trabajo pendiente)",
+    };
+    return arr
+      .map((sg: any) => ({
+        label: labels[sg.signal] ?? sg.signal,
+        delta: typeof sg.delta === "number" ? sg.delta : 0,
+        evidence: sg.evidence != null ? String(typeof sg.evidence === "object" ? JSON.stringify(sg.evidence) : sg.evidence) : undefined,
+      }))
+      .filter((x) => Number.isFinite(x.delta) && x.delta !== 0);
+  })();
+  const ownerPositivos = ownerSignals.filter((x) => x.delta > 0).sort((a, b) => b.delta - a.delta);
+  const ownerNegativos = ownerSignals.filter((x) => x.delta < 0);
 
   return (
     <Card className="overflow-hidden border-border-faint">
@@ -575,6 +625,48 @@ export function ScoringResumen({
             </div>
           </div>
         </div>
+
+        {/* Propietarios: APORTA AL SCORE (nuevo eje) */}
+        {!showActivo && (ownerPositivos.length > 0 || ownerNegativos.length > 0) && (
+          <div className="grid grid-cols-1 gap-6 border-t border-border-faint px-6 py-6 md:grid-cols-2">
+            <div className="space-y-3">
+              <Eyebrow>
+                <TrendingUp className="mr-1 inline h-3 w-3 text-emerald-400" /> Propietarios · aporta al score
+              </Eyebrow>
+              <div className="space-y-2.5">
+                {ownerPositivos.length === 0 && (
+                  <div className="text-xs text-muted-foreground">Sin señales positivas detectadas todavía.</div>
+                )}
+                {ownerPositivos.map((f, i) => (
+                  <div key={i} className="flex items-baseline justify-between gap-2 text-xs">
+                    <span className="text-foreground">{f.label}{f.evidence ? <span className="ml-1 text-muted-foreground">· {f.evidence}</span> : null}</span>
+                    <span className="font-mono tabular-nums text-emerald-400">+{f.delta}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <Eyebrow>
+                <TrendingDown className="mr-1 inline h-3 w-3 text-red-400" /> Propietarios · penaliza
+              </Eyebrow>
+              <div className="space-y-2.5">
+                {ownerNegativos.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">Sin penalizaciones en el eje de propietarios.</div>
+                ) : (
+                  ownerNegativos.map((f, i) => (
+                    <div key={i} className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-2.5">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none text-red-400" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs text-foreground">{f.label}{f.evidence ? <span className="ml-1 text-muted-foreground">· {f.evidence}</span> : null}</div>
+                        <div className="font-mono text-[10px] uppercase tracking-eyebrow text-red-400">{f.delta} pts</div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {b?.cluster_motivo && (
           <div className="border-t border-border-faint bg-surface-1/40 px-6 py-3">
