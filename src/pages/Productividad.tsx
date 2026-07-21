@@ -39,6 +39,8 @@ type Session = {
   iniciada_at: string | null;
   owner_id: string | null;
   building_id: string | null;
+  comercial_email?: string | null;
+  retroactiva?: boolean | null;
 };
 
 const RANGES = { "7d": 7, "30d": 30, "90d": 90 } as const;
@@ -128,11 +130,11 @@ export default function Productividad() {
       const [c1, s1, c0, s0] = await Promise.all([
         supabase.from("calls").select("id,metadatos,fecha,duracion_seg,outcome,comercial_email,comercial_nombre,owner_id")
           .gte("fecha", since).order("fecha", { ascending: false }).limit(5000),
-        supabase.from("call_sessions").select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id")
+        (supabase.from("call_sessions") as any).select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id,comercial_email,retroactiva")
           .gte("iniciada_at", since).not("puntuacion", "is", null).limit(2000),
         supabase.from("calls").select("id,metadatos,fecha,duracion_seg,outcome,comercial_email,comercial_nombre,owner_id")
           .gte("fecha", prevSince).lt("fecha", since).limit(5000),
-        supabase.from("call_sessions").select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id")
+        (supabase.from("call_sessions") as any).select("id,hubspot_call_id,puntuacion,voss_post,cerrada_at,iniciada_at,owner_id,building_id,comercial_email,retroactiva")
           .gte("iniciada_at", prevSince).lt("iniciada_at", since).not("puntuacion", "is", null).limit(2000),
       ]);
       if (cancelled) return;
@@ -158,7 +160,13 @@ export default function Productividad() {
   function statsFor(key: string, cs: Call[], ss: Session[]) {
     const mine = cs.filter((c) => comercialKey(c.comercial_email) === key);
     const conectadas = mine.filter((c) => (c.duracion_seg ?? 0) >= 30);
-    const mySess = ss.filter((s) => s.hubspot_call_id && sessionComercial.get(s.hubspot_call_id) === key);
+    // Atribución: (a) por match con `calls` (hubspot_call_id → email); (b) fallback a
+    // `session.comercial_email` (denormalizado en expedientes retroactivos).
+    const mySess = ss.filter((s) => {
+      const viaCalls = s.hubspot_call_id ? sessionComercial.get(s.hubspot_call_id) : null;
+      if (viaCalls) return viaCalls === key;
+      return comercialKey(s.comercial_email ?? null) === key;
+    });
     const notas = mySess.map((s) => Number(s.puntuacion)).filter((n) => Number.isFinite(n));
     const notaMedia = notas.length ? notas.reduce((a, b) => a + b, 0) / notas.length : 0;
     return {
