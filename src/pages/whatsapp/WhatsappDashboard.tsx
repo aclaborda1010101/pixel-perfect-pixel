@@ -682,7 +682,7 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
             <p className="text-xs text-muted-foreground">Selecciona una conversación para ver la ficha.</p>
           )}
           {current && (
-            <LeadCard current={current} qual={qual} regenerateSummary={regenerateSummary} setRol={setRol} />
+            <LeadCard current={current} qual={qual} messages={messages ?? []} regenerateSummary={regenerateSummary} setRol={setRol} />
           )}
         </CardContent>
       </Card>
@@ -691,8 +691,8 @@ function InboxView({ conversations, messages, selectedConv, setSelectedConv, dra
 }
 
 /* ─────────── Ficha del lead (panel derecho del Inbox) ─────────── */
-function LeadCard({ current, qual, regenerateSummary, setRol }: any) {
-  return <LeadCardInner current={current} qual={qual} regenerateSummary={regenerateSummary} setRol={setRol} />;
+function LeadCard({ current, qual, messages, regenerateSummary, setRol }: any) {
+  return <LeadCardInner current={current} qual={qual} messages={messages} regenerateSummary={regenerateSummary} setRol={setRol} />;
 }
 
 /* Resumen normalizado del lead. Pinta exactamente los campos que también se
@@ -892,7 +892,7 @@ function FichaLead({
   );
 }
 
-function LeadCardInner({ current, qual, regenerateSummary, setRol }: any) {
+function LeadCardInner({ current, qual, messages, regenerateSummary, setRol }: any) {
   const stage = current.wa_contacts?.stage ?? "nuevo";
   const contactId = current.wa_contacts?.id ?? current.contact_id;
   const phone = current.wa_contacts?.phone ?? "";
@@ -1013,7 +1013,7 @@ function LeadCardInner({ current, qual, regenerateSummary, setRol }: any) {
       )}
 
       {/* FICHA DEL LEAD · resumen normalizado (lo que el bot ha extraído) */}
-      <FichaLead qual={qual} current={current} />
+      <FichaLead qual={qual} current={current} messages={messages} />
 
       {/* IDENTIDAD */}
       <section className="rounded-[6px] border border-border-faint bg-surface-1/30 p-3">
