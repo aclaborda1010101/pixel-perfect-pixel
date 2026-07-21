@@ -165,15 +165,24 @@ export default function Calls() {
           </div>
           {/* Mobile cards */}
           <ul className="divide-y divide-border-faint md:hidden">
-            {filtered.map((c) => (
+            {filtered.map((c) => {
+              const hsId = c?.metadatos?.hs_id ?? c?.metadatos?.hubspot_id ?? null;
+              const to = hsId ? `/comercial/llamada/${hsId}` : `/llamadas/${c.id}`;
+              const punt = hsId ? analysisByHs[String(hsId)] : null;
+              return (
               <li key={c.id} className="px-4 py-5">
-                <Link to={`/llamadas/${c.id}`} className="block space-y-3">
+                <Link to={to} className="block space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <Eyebrow>Propietario</Eyebrow>
                       <div className="truncate text-base font-medium text-foreground">{c.owners?.nombre ?? "—"}</div>
                     </div>
-                    <Badge variant="outline" className="shrink-0">{c.direccion}</Badge>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {punt != null && (
+                        <Badge className="rounded-[4px] border-transparent bg-gold-soft/40 text-gold font-mono">{punt}/100</Badge>
+                      )}
+                      <Badge variant="outline">{c.direccion === "entrante" ? "Entrante" : "Saliente"}</Badge>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
@@ -191,7 +200,8 @@ export default function Calls() {
                   </div>
                 </Link>
               </li>
-            ))}
+              );
+            })}
           </ul>
           <div className="hidden md:block">
           <Table>
@@ -201,25 +211,52 @@ export default function Calls() {
                 <TableHead>{t.callsPage.colDate}</TableHead>
                 <TableHead className="text-right">{t.callsPage.colDuration}</TableHead>
                 <TableHead>{t.callsPage.colDirection}</TableHead>
+                <TableHead>Nota</TableHead>
                 <TableHead className="min-w-[200px]">{t.callsPage.colSummary}</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((c) => (
-                <TableRow key={c.id} className="bg-card">
-                  <TableCell>
-                    <Link to={`/llamadas/${c.id}`} className="font-medium text-foreground hover:text-gold">
-                      {c.owners?.nombre ?? "—"}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="font-mono tabular-nums text-muted-foreground">{new Date(c.fecha).toLocaleString()}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{fmtDur(c.duracion_seg)}</TableCell>
-                  <TableCell><Badge variant="outline">{c.direccion}</Badge></TableCell>
-                  <TableCell className="max-w-md truncate text-muted-foreground">
-                    {c.resumen ?? <StatusBadge status="no_summary" />}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {filtered.map((c) => {
+                const hsId = c?.metadatos?.hs_id ?? c?.metadatos?.hubspot_id ?? null;
+                const to = hsId ? `/comercial/llamada/${hsId}` : `/llamadas/${c.id}`;
+                const punt = hsId ? analysisByHs[String(hsId)] : null;
+                const isInbound = c.direccion === "entrante" || String(c.direccion).toUpperCase() === "INBOUND";
+                return (
+                  <TableRow key={c.id} className="bg-card">
+                    <TableCell>
+                      <Link to={to} className="font-medium text-foreground hover:text-gold">
+                        {c.owners?.nombre ?? "—"}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="font-mono tabular-nums text-muted-foreground">{new Date(c.fecha).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">{fmtDur(c.duracion_seg)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="gap-1">
+                        {isInbound ? <ArrowDownLeft className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
+                        {isInbound ? "Entrante" : "Saliente"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {punt != null ? (
+                        <Badge className="rounded-[4px] border-transparent bg-gold-soft/40 text-gold font-mono">{punt}/100</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-md truncate text-muted-foreground">
+                      {c.resumen ?? <StatusBadge status="no_summary" />}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right">
+                      {hsId && (
+                        <Link to={to} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                          <FileText className="h-3 w-3" /> Ver análisis
+                        </Link>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
           </div>
