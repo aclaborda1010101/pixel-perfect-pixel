@@ -321,7 +321,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
@@ -361,6 +361,7 @@ export default function ComercialEdificios() {
           raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
+          comercial: extra.comercial ?? null,
           avisos,
           score_summary: extra.score_summary ?? null,
           confianza_media: extra.confianza_media ?? null,
@@ -413,7 +414,7 @@ export default function ComercialEdificios() {
       const scoreIds = scores.map((b: any) => b.id);
       const { data: demoBldgs } = scoreIds.length
         ? await (supabase.from("buildings" as any) as any)
-            .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado")
+            .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
             .in("id", scoreIds)
         : { data: [] as any[] };
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
@@ -460,6 +461,7 @@ export default function ComercialEdificios() {
           raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
+          comercial: (extra as any).comercial ?? null,
           avisos,
           score_summary: extra.score_summary ?? null,
           confianza_media: extra.confianza_media ?? null,
