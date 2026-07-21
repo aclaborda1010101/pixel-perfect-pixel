@@ -6,6 +6,7 @@ import { MetricValue } from "@/components/common/MetricValue";
 import { supabase } from "@/integrations/supabase/client";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Mic, PhoneCall } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CallExpedienteDialog } from "./CallExpedienteDialog";
 
 export type OwnerCallStats = {
   owner_id: string;
@@ -94,22 +95,34 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
   const [stats, setStats] = useState<OwnerCallStats | null>(null);
   const [rows, setRows] = useState<OwnerCallRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [analyzedByHs, setAnalyzedByHs] = useState<Record<string, string>>({});
+  const [expedienteHs, setExpedienteHs] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [s, c] = await Promise.all([
+      const [s, c, sessions] = await Promise.all([
         (supabase.from("v_owner_call_stats" as any) as any).select("*").eq("owner_id", ownerId).maybeSingle(),
         (supabase.from("v_owner_calls_enriched" as any) as any)
           .select("*")
           .eq("owner_id", ownerId)
           .order("hs_timestamp", { ascending: false })
           .limit(200),
+        (supabase.from("call_sessions" as any) as any)
+          .select("id, hubspot_call_id")
+          .eq("owner_id", ownerId)
+          .eq("estado", "finalizada")
+          .not("hubspot_call_id", "is", null),
       ]);
       if (cancelled) return;
       setStats((s.data as OwnerCallStats | null) ?? null);
       setRows(((c.data as OwnerCallRow[] | null) ?? []));
+      const map: Record<string, string> = {};
+      for (const r of ((sessions.data as any[]) ?? [])) {
+        if (r.hubspot_call_id) map[String(r.hubspot_call_id)] = r.id;
+      }
+      setAnalyzedByHs(map);
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -194,7 +207,16 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
                   </thead>
                   <tbody>
                     {rows.map((r, i) => (
-                      <tr key={`${r.hs_timestamp}-${i}`} className="border-b last:border-0 align-top">
+                      <tr
+                        key={`${r.hs_timestamp}-${i}`}
+                        className={cn(
+                          "border-b last:border-0 align-top",
+                          r.hs_id && analyzedByHs[String(r.hs_id)] && "cursor-pointer hover:bg-muted/40",
+                        )}
+                        onClick={() => {
+                          if (r.hs_id && analyzedByHs[String(r.hs_id)]) setExpedienteHs(String(r.hs_id));
+                        }}
+                      >
                         <td className="py-2 pr-3 whitespace-nowrap">{fmtDate(r.hs_timestamp)}</td>
                         <td className="py-2 pr-3">
                           {r.direccion === "INBOUND" ? (
@@ -203,7 +225,16 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
                             <ArrowUpRight className="h-4 w-4 text-muted-foreground" aria-label="Saliente" />
                           )}
                         </td>
-                        <td className="py-2 pr-3"><ResultBadge resultado={r.resultado} /></td>
+                        <td className="py-2 pr-3">
+                          <div className="flex items-center gap-1.5">
+                            <ResultBadge resultado={r.resultado} />
+                            {r.hs_id && analyzedByHs[String(r.hs_id)] && (
+                              <Badge className="rounded-[4px] border-transparent bg-primary/10 text-primary text-[10px] font-mono uppercase tracking-eyebrow">
+                                Analizada
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-2 pr-3 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1">
                             {fmtDur(r.duracion_seg)}
@@ -220,6 +251,11 @@ export function ContactHistoryCard({ ownerId }: { ownerId: string }) {
           </>
         )}
       </CardContent>
+      <CallExpedienteDialog
+        open={Boolean(expedienteHs)}
+        onOpenChange={(v) => { if (!v) setExpedienteHs(null); }}
+        hubspotCallId={expedienteHs}
+      />
     </Card>
   );
 }
