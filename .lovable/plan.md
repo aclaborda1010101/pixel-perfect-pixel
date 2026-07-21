@@ -41,7 +41,7 @@ Lote grande y heterogéneo. Propongo ejecutarlo en 3 tandas para poder validar e
       · 76826175 (David) → david.casero@afflux.es
       · desconocido/otro → jesus.anzola@afflux.es (fallback)
     Contenido: "Llamada analizada — X/100 — [link expediente]".
-  - **Reunión agendada por el bot** (detección en `wa_ai_reply` o hook `wa_meeting_booked`) → jesus.anzola@afflux.es Y carlos.moreno@afflux.es (ambos en To/Cc), con fecha/hora, lead, teléfono y resumen de la conversación.
+  - **Reunión agendada por el bot** (detección en `wa_ai_reply` o hook `wa_meeting_booked`) → jesus.anzola@afflux.es Y david.casero@afflux.es Y carlos.moreno@afflux.es (los tres en To), con fecha/hora, lead, teléfono y resumen de la conversación.
   - **Arranque de conversación + resumen a 15 min** del bot → SIGUEN yendo a carlos.moreno@afflux.es (`wa_conversation_email_dispatcher`, sin cambios).
   - PROHIBIDO cualquier mail a agustin.cifuentes@outlook.es (regla dura).
   - Mapa hs_owner_id→email centralizado en helper `_shared/comerciales.ts` para reutilizar.
