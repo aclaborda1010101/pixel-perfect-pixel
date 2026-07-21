@@ -40,13 +40,14 @@ Deno.serve(async (req) => {
   const minRefs: number = Math.max(1, Number(body.min_refs ?? 1));
   const createNew: boolean = body.create_new_when_no_match === true;
 
-  const sinceIso = new Date(Date.now() - sinceDays * 86400_000).toISOString();
+  const run = async () => {
+    const sinceIso = new Date(Date.now() - sinceDays * 86400_000).toISOString();
 
-  const { data: logRow } = await supabase.from("hubspot_sync_log")
-    .insert({ entity: "link_orphan_contacts", status: "running",
-              metadatos: { since_iso: sinceIso, max_contacts: maxContacts } })
-    .select("id").single();
-  const logId = logRow?.id;
+    const { data: logRow } = await supabase.from("hubspot_sync_log")
+      .insert({ entity: "link_orphan_contacts", status: "running",
+                metadatos: { since_iso: sinceIso, max_contacts: maxContacts } })
+      .select("id").single();
+    const logId = logRow?.id;
 
   const refMap = new Map<string, number>();
   const phoneHints = new Map<string, Set<string>>();
@@ -243,13 +244,13 @@ Deno.serve(async (req) => {
       },
     }).eq("id", logId);
 
-    return new Response(JSON.stringify({
+    return {
       ok: true, since_iso: sinceIso,
       orphan_total: orphanTotal, processed: slice.length,
       linked, created_new: createdNew, queued, failed,
       by_method: byMethod,
       remaining: Math.max(0, orphanTotal - slice.length),
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    };
   } catch (e: any) {
     const msg = String(e?.message || e);
     console.error("[link_orphan_contacts] error:", msg);
@@ -257,8 +258,22 @@ Deno.serve(async (req) => {
       finished_at: new Date().toISOString(), status: "error",
       error_message: msg,
     }).eq("id", logId);
-    return new Response(JSON.stringify({ ok: false, error: msg }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return { ok: false, error: msg };
+  }
+  };
+
+  const background = body.background === true;
+  if (background && (globalThis as any).EdgeRuntime?.waitUntil) {
+    (globalThis as any).EdgeRuntime.waitUntil(run());
+    return new Response(JSON.stringify({ ok: true, accepted: true, mode: "background" }), {
+      status: 202,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+
+  const result = await run();
+  return new Response(JSON.stringify(result), {
+    status: result.ok ? 200 : 500,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });
