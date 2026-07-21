@@ -18,8 +18,14 @@ import { PhoneCall, Search } from "lucide-react";
 
 function fmtDur(s: number | null | undefined) {
   if (!s) return "0:00";
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
+  // Defensa: >4h en una llamada es imposible → asume ms mal escritos como segundos.
+  let secs = s;
+  if (secs > 14400) {
+    console.warn("[Calls.fmtDur] duración anómala, interpretada como ms:", s);
+    secs = Math.round(secs / 1000);
+  }
+  const m = Math.floor(secs / 60);
+  const sec = secs % 60;
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
