@@ -1,15 +1,15 @@
 // link_orphan_contacts
 // Auto-linker: para hs_contact_ids referenciados en calls/notes/tasks/whatsapp
 // que NO tienen mapping en external_ids, intenta emparejar con un owner
-// existente (email → phone → nombre similar). Si no hay match claro, cae al
-// comportamiento clásico de crear owner nuevo (fallback controlado con
-// `create_new_when_no_match`) o registra el contacto en `hubspot_link_review`.
+// existente (email → phone → teléfono de llamada → nombre similar). Si no hay
+// match claro, registra el contacto en `hubspot_link_review`; crear owner nuevo
+// queda como fallback explícito con `create_new_when_no_match: true`.
 //
 // Params: {
 //   since_days?: number,       // ventana temporal para referenciadores (default 60)
 //   max_contacts?: number,     // tope de contactos a procesar por invocación (default 200)
 //   min_refs?: number,         // mínimo de referencias para procesar (default 1)
-//   create_new_when_no_match?: boolean (default true)
+//   create_new_when_no_match?: boolean (default false)
 // }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { hubspotFetch, corsHeaders, CONTACT_PROPERTIES } from "../_shared/hubspot.ts";
@@ -38,22 +38,31 @@ Deno.serve(async (req) => {
   const sinceDays: number = Math.max(1, Math.min(365, Number(body.since_days ?? 60)));
   const maxContacts: number = Math.max(1, Math.min(2000, Number(body.max_contacts ?? 200)));
   const minRefs: number = Math.max(1, Number(body.min_refs ?? 1));
-  const createNew: boolean = body.create_new_when_no_match !== false;
+  const createNew: boolean = body.create_new_when_no_match === true;
 
-  const sinceIso = new Date(Date.now() - sinceDays * 86400_000).toISOString();
+  const run = async () => {
+    const sinceIso = new Date(Date.now() - sinceDays * 86400_000).toISOString();
 
-  const { data: logRow } = await supabase.from("hubspot_sync_log")
-    .insert({ entity: "link_orphan_contacts", status: "running",
-              metadatos: { since_iso: sinceIso, max_contacts: maxContacts } })
-    .select("id").single();
-  const logId = logRow?.id;
+    const { data: logRow } = await supabase.from("hubspot_sync_log")
+      .insert({ entity: "link_orphan_contacts", status: "running",
+                metadatos: { since_iso: sinceIso, max_contacts: maxContacts } })
+      .select("id").single();
+    const logId = logRow?.id;
 
   const refMap = new Map<string, number>();
+  const phoneHints = new Map<string, Set<string>>();
+  const addPhoneHint = (contactId: string, phone: unknown) => {
+    const digits = String(phone || "").replace(/\D/g, "");
+    if (digits.length < 6) return;
+    if (!phoneHints.has(contactId)) phoneHints.set(contactId, new Set());
+    phoneHints.get(contactId)!.add(String(phone));
+  };
   const tables: { t: string; col: string; ts?: string }[] = [
     { t: "hubspot_calls", col: "associated_contact_ids", ts: "hs_timestamp" },
     { t: "hubspot_notes", col: "associated_contact_ids", ts: "hs_timestamp" },
     { t: "hubspot_tasks", col: "associated_contact_ids", ts: "hs_timestamp" },
     { t: "hubspot_whatsapp", col: "associated_contact_ids", ts: "hs_timestamp" },
+    { t: "hubspot_communications", col: "associated_contact_ids", ts: "hs_timestamp" },
   ];
 
   try {
@@ -62,7 +71,10 @@ Deno.serve(async (req) => {
       let from = 0;
       const pageSize = 1000;
       while (true) {
-        let q = supabase.from(t).select(`${col}${ts ? ","+ts : ""}`).range(from, from + pageSize - 1);
+        const selectCols = t === "hubspot_calls"
+          ? `${col}${ts ? ","+ts : ""},hs_call_to_number,hs_call_from_number`
+          : `${col}${ts ? ","+ts : ""}`;
+        let q = supabase.from(t).select(selectCols).range(from, from + pageSize - 1);
         if (ts) q = q.gte(ts, sinceIso);
         const { data, error } = await q;
         if (error) throw error;
@@ -72,6 +84,10 @@ Deno.serve(async (req) => {
           for (const id of arr) {
             if (!id) continue;
             refMap.set(id, (refMap.get(id) || 0) + 1);
+            if (t === "hubspot_calls") {
+              addPhoneHint(id, (row as any).hs_call_to_number);
+              addPhoneHint(id, (row as any).hs_call_from_number);
+            }
           }
         }
         if (data.length < pageSize) break;
@@ -129,13 +145,20 @@ Deno.serve(async (req) => {
         const last = String(props.lastname || "").trim() || null;
         const email = props.email ? String(props.email).trim() : null;
         const phone = props.phone ? String(props.phone).trim() : null;
+        const mobile = props.mobilephone ? String(props.mobilephone).trim() : null;
         const nombre = `${first ?? ""} ${last ?? ""}`.trim() || email || "Sin nombre";
 
         try {
-          const { data: match } = await supabase.rpc("find_owner_for_orphan_contact", {
-            p_email: email, p_phone: phone, p_first: first, p_last: last,
-          });
-          const m = Array.isArray(match) ? match[0] : match;
+          const phones = [phone, mobile, ...Array.from(phoneHints.get(String(c.id)) || [])]
+            .filter((v, idx, arr): v is string => !!v && arr.indexOf(v) === idx);
+          let m: any = null;
+          for (const phoneCandidate of (phones.length ? phones : [null])) {
+            const { data: match } = await supabase.rpc("find_owner_for_orphan_contact", {
+              p_email: email, p_phone: phoneCandidate, p_first: first, p_last: last,
+            });
+            m = Array.isArray(match) ? match[0] : match;
+            if (m?.owner_id) break;
+          }
           const matchedOwnerId: string | null = m?.owner_id ?? null;
           const method: string = m?.method ?? "none";
 
@@ -196,6 +219,7 @@ Deno.serve(async (req) => {
               refs_count: refMap.get(String(c.id)) || 0,
               status: "pending",
               reason: "no_confident_match",
+              candidates: Array.from(phoneHints.get(String(c.id)) || []).map((p) => ({ kind: "call_phone", value: p })),
               updated_at: new Date().toISOString(),
             }, { onConflict: "hs_contact_id" });
             queued++;
@@ -220,13 +244,13 @@ Deno.serve(async (req) => {
       },
     }).eq("id", logId);
 
-    return new Response(JSON.stringify({
+    return {
       ok: true, since_iso: sinceIso,
       orphan_total: orphanTotal, processed: slice.length,
       linked, created_new: createdNew, queued, failed,
       by_method: byMethod,
       remaining: Math.max(0, orphanTotal - slice.length),
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    };
   } catch (e: any) {
     const msg = String(e?.message || e);
     console.error("[link_orphan_contacts] error:", msg);
@@ -234,8 +258,22 @@ Deno.serve(async (req) => {
       finished_at: new Date().toISOString(), status: "error",
       error_message: msg,
     }).eq("id", logId);
-    return new Response(JSON.stringify({ ok: false, error: msg }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return { ok: false, error: msg };
+  }
+  };
+
+  const background = body.background === true;
+  if (background && (globalThis as any).EdgeRuntime?.waitUntil) {
+    (globalThis as any).EdgeRuntime.waitUntil(run());
+    return new Response(JSON.stringify({ ok: true, accepted: true, mode: "background" }), {
+      status: 202,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+
+  const result = await run();
+  return new Response(JSON.stringify(result), {
+    status: result.ok ? 200 : 500,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });

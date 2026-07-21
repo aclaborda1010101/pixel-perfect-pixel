@@ -36,6 +36,8 @@ type Health = {
   sin_foto: number;
   sin_score: number;
   errores_ultima_sync: number;
+  contactos_sin_vincular: number;
+  refs_sin_vincular: number;
 };
 
 function useHealth() {
@@ -51,6 +53,7 @@ function useHealth() {
         { count: sin_score },
         { data: withImg },
         { count: errores },
+        { data: linkReview },
       ] = await Promise.all([
         (supabase.from("building_analysis" as any) as any).select("building_id", { count: "exact", head: true }),
         (supabase.from("buildings" as any) as any).select("id", { count: "exact", head: true }).is("cluster_asignado", null),
@@ -59,8 +62,10 @@ function useHealth() {
         (supabase.from("buildings" as any) as any).select("id", { count: "exact", head: true }).is("score", null),
         (supabase.from("building_imagery" as any) as any).select("building_id"),
         (supabase.from("building_processing_status" as any) as any).select("building_id", { count: "exact", head: true }).eq("status", "error"),
+        (supabase.from("hubspot_link_review" as any) as any).select("refs_count").eq("status", "pending"),
       ]);
       const withImageIds = new Set(((withImg as any[]) ?? []).map((r) => r.building_id));
+      const pendingLinks = (linkReview as any[]) ?? [];
       const { data: bas } = await (supabase.from("building_analysis" as any) as any).select("building_id");
       const sin_foto = ((bas as any[]) ?? []).filter((r) => !withImageIds.has(r.building_id)).length;
       return {
@@ -71,6 +76,8 @@ function useHealth() {
         sin_foto,
         sin_score: sin_score ?? 0,
         errores_ultima_sync: errores ?? 0,
+        contactos_sin_vincular: pendingLinks.length,
+        refs_sin_vincular: pendingLinks.reduce((acc, r) => acc + Number(r.refs_count ?? 0), 0),
       };
     },
   });
@@ -141,12 +148,17 @@ export default function AdminSync() {
 
   async function launchHubspot() {
     setHsBusy(true);
-    const steps = ["hubspot_sync_contacts", "hubspot_sync_deals", "hubspot_sync_associations", "hubspot_sync_communications"];
+    const steps = ["hubspot_sync_contacts", "hubspot_sync_deals", "hubspot_sync_associations", "hubspot_sync_incremental", "link_orphan_contacts"];
     setHsJobs(Object.fromEntries(steps.map((s) => [s, { status: "pending" }])));
     for (const s of steps) {
       setHsJobs((prev) => ({ ...prev, [s]: { status: "running" } }));
       try {
-        const { error } = await supabase.functions.invoke(s, { body: {} });
+        const body = s === "hubspot_sync_incremental"
+          ? { types: ["calls", "notes", "communications", "tasks", "meetings"], pages: 10, background: true }
+          : s === "link_orphan_contacts"
+            ? { since_days: 60, max_contacts: 500 }
+            : {};
+        const { error } = await supabase.functions.invoke(s, { body });
         if (error) throw error;
         setHsJobs((prev) => ({ ...prev, [s]: { status: "ok" } }));
       } catch (e: any) {
@@ -186,6 +198,18 @@ export default function AdminSync() {
           </div>
         </CardContent>
       </Card>
+
+      {(health.data?.contactos_sin_vincular ?? 0) > 0 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-foreground">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+            <div>
+              <p className="font-medium">{health.data?.refs_sin_vincular} comunicaciones de {health.data?.contactos_sin_vincular} contactos de HubSpot están sin vincular.</p>
+              <p className="mt-1 text-xs text-muted-foreground">El auto-linker seguirá intentando emparejarlos; los ambiguos quedan en revisión manual.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Botón único: Sincronizar edificios */}
       <Card>
