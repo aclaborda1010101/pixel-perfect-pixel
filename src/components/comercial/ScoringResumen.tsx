@@ -585,14 +585,18 @@ export function ScoringResumen({
         </div>
 
         {/* Por qué del score: explicación descriptiva extensa — sin IA */}
-        {shortWhy && (
+        {shortWhy.length > 0 && (
           <div className="border-b border-border-faint bg-background/40 px-6 py-4">
             <Eyebrow className="mb-1.5">
               <Sparkles className="mr-1 inline h-3 w-3 text-gold" /> Por qué este score
             </Eyebrow>
-            <p className="text-justify text-sm leading-relaxed text-foreground">
-              <RichText text={shortWhy} />
-            </p>
+            <div className="space-y-2">
+              {shortWhy.map((para, i) => (
+                <p key={i} className="text-justify text-sm leading-relaxed text-foreground">
+                  <RichText text={para} />
+                </p>
+              ))}
+            </div>
           </div>
         )}
 
