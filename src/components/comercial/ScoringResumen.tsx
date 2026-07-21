@@ -415,35 +415,91 @@ export function ScoringResumen({
 
     // Modo ACTIVO puro
     if (showActivo) {
-      if (!activoTxt) return "";
+      if (!activoTxt) return [] as string[];
       let s1 = `Estás viendo el score **sin propietarios**: ${activoTxt}.`;
       if (cluster !== "baja_prioridad") {
         s1 += ` Encaja en la tesis **${clusterInfo.label}** (${clusterInfo.tagline.toLowerCase()}).`;
       }
-      return s1;
+      return [s1];
     }
 
-    // Modo TOTAL: explica los dos ejes + su combinación
-    if (activoTxt && propTxt && total != null) {
-      let out = `${activoTxt} × ${propTxt} → **Total ${total.toFixed(0)}**`;
-      out += ` (media ponderada 60% activo · 40% propietarios).`;
-      if (mayoria || oferta || impBld) {
-        const drivers: string[] = [];
-        if (mayoria) drivers.push("mayoría vendedora detectada en llamadas");
-        if (oferta) drivers.push("oferta previa ya sobre la mesa");
-        if (impBld) drivers.push("impulsor interno confirmado");
-        out += ` Las señales de intención (${drivers.join(", ")}) empujan el eje de propietarios muy arriba`;
-        if (nBloq > 0) out += ` — el bloqueador identificado es palanca de negociación, no rebaja el score`;
-        out += `.`;
+    // Modo TOTAL: dos párrafos — (1) activo + efecto neto sobre total, (2) situación de propietarios.
+    const paras: string[] = [];
+
+    // ── Párrafo 1: activo + dirección del efecto ──
+    if (activoTxt && total != null && activo != null) {
+      const delta = total - activo;
+      const absDelta = Math.abs(delta);
+      let direction: string;
+      if (absDelta < 0.5) {
+        direction = `los propietarios dejan el total prácticamente igual en **${total.toFixed(0)}**`;
+      } else if (delta > 0) {
+        direction = `los propietarios **SUBEN** el total a **${total.toFixed(0)}** (+${absDelta.toFixed(0)})`;
+      } else {
+        direction = `los propietarios **FRENAN** el total a **${total.toFixed(0)}** (−${absDelta.toFixed(0)})`;
       }
+      let p1 = `El activo vale **${activo.toFixed(0)}**${activoBits.length ? ` (${activoBits.join(", ")})` : ""}; ${direction}. Media ponderada 60% activo · 40% propietarios.`;
       if (cluster !== "baja_prioridad") {
-        out += ` Tesis: **${clusterInfo.label}** (${clusterInfo.tagline.toLowerCase()}).`;
+        p1 += ` Tesis: **${clusterInfo.label}** (${clusterInfo.tagline.toLowerCase()}).`;
       }
-      return out;
+      paras.push(p1);
+    } else if (activoTxt) {
+      paras.push(`${activoTxt}.`);
     }
-    // Fallback mínimo si faltan datos
-    if (activoTxt) return `${activoTxt}.`;
-    return "";
+
+    // ── Párrafo 2: situación de propietarios ──
+    const hasAnySignal =
+      nPos > 0 || nBloq > 0 || nImp > 0 || oferta || mayoria || impBld || (nCont != null && nCont > 0);
+    const owners24hint = nO != null && nO >= 4 ? " — cuantas más puertas, mayor palanca de proindiviso" : "";
+
+    if (!hasAnySignal) {
+      // Sin señales todavía
+      if (nO != null && nO > 0) {
+        paras.push(
+          `**Propietarios · sin señales todavía** (0/${nO} contactados): el total refleja solo el activo hasta que las llamadas aporten intención, oferta o bloqueos${owners24hint}.`,
+        );
+      } else {
+        paras.push(
+          `**Propietarios · sin datos todavía**: el total refleja solo el activo hasta que se identifiquen propietarios y se hagan llamadas.`,
+        );
+      }
+    } else {
+      const bits: string[] = [];
+      if (nO != null) bits.push(`**${nO} propietarios**${owners24hint ? "" : ""}`);
+      if (mayoria) {
+        bits.push(
+          `mayoría quiere vender${lastCallLabel ? ` —cita ${lastCallLabel}—` : ""}`,
+        );
+      } else if (nPos > 0) {
+        bits.push(
+          `${nPos === 1 ? "1 propietario ha declarado intención de venta" : `${nPos} propietarios han declarado intención de venta`}${lastCallLabel ? ` (última llamada ${lastCallLabel})` : ""}`,
+        );
+      }
+      if (oferta) bits.push(`oferta previa discutida ya sobre la mesa`);
+      if (impBld || nImp > 0)
+        bits.push(nImp > 1 ? `${nImp} impulsores internos identificados` : `impulsor interno identificado`);
+      if (nBloq > 0)
+        bits.push(
+          nBloq === 1
+            ? `1 bloqueador identificado (palanca de negociación, no lastra el score)`
+            : `${nBloq} bloqueadores identificados (palanca de negociación, no lastran el score)`,
+        );
+      if (nO != null) bits.push(`cobertura **${nCont}/${nO}** contactados — trabajo pendiente`);
+
+      let p2 = `**Propietarios ${propScore != null ? propScore.toFixed(0) : "?"}**: ${bits.join("; ")}.`;
+      // Cierre interpretativo
+      const strong = (mayoria ? 1 : 0) + (oferta ? 1 : 0) + (impBld ? 1 : 0);
+      if (strong >= 2) {
+        p2 += ` Las señales de intención son dominantes y explican el empujón del eje de propietarios sobre el activo.`;
+      } else if (nPos > 0 && !mayoria) {
+        p2 += ` Hay tracción parcial: aún no es mayoría, pero ya hay propietarios sueltos abiertos a vender.`;
+      } else if (nBloq > 0 && nPos === 0) {
+        p2 += ` Sin positivos detectados todavía — priorizar cobertura antes de dar por hecho el bloqueo.`;
+      }
+      paras.push(p2);
+    }
+
+    return paras;
   })();
 
   // Owner-axis signals para la sección "APORTA AL SCORE"
@@ -529,14 +585,18 @@ export function ScoringResumen({
         </div>
 
         {/* Por qué del score: explicación descriptiva extensa — sin IA */}
-        {shortWhy && (
+        {shortWhy.length > 0 && (
           <div className="border-b border-border-faint bg-background/40 px-6 py-4">
             <Eyebrow className="mb-1.5">
               <Sparkles className="mr-1 inline h-3 w-3 text-gold" /> Por qué este score
             </Eyebrow>
-            <p className="text-justify text-sm leading-relaxed text-foreground">
-              <RichText text={shortWhy} />
-            </p>
+            <div className="space-y-2">
+              {shortWhy.map((para, i) => (
+                <p key={i} className="text-justify text-sm leading-relaxed text-foreground">
+                  <RichText text={para} />
+                </p>
+              ))}
+            </div>
           </div>
         )}
 
