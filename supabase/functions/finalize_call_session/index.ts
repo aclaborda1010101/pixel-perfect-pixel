@@ -246,6 +246,18 @@ Deno.serve(async (req) => {
       notas: notasAuto || session.notas,
     }).eq("id", session_id);
 
+    // Asegura que el expediente conserve los KPIs objetivo. Si en la sesión
+    // no se registró (sesiones antiguas), lo derivamos del propio checklist
+    // final para que la ficha del propietario los pueda mostrar.
+    if (!session.kpis_objetivo) {
+      await sb.from("call_sessions").update({
+        kpis_objetivo: {
+          claves: newChecklist.map((c) => c.k),
+          labels: newChecklist.map((c) => c.label),
+        },
+      }).eq("id", session_id).is("kpis_objetivo", null);
+    }
+
     // 7) Alimentar el playbook (fire & forget)
     fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/learn_from_calls`, {
       method: "POST",
