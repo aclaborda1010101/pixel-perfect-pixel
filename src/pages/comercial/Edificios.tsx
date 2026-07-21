@@ -397,44 +397,91 @@ export default function ComercialEdificios() {
   // --- Catálogo completo (cacheado 10 min) ---
   const todosQueryKey = ["comercial:edificios:todos", userId] as const;
   const todosQueryFn = async () => {
-      // Paginación completa: Supabase limita a 1000 filas/request, así que
-      // iteramos hasta agotar el catálogo. El coste extra es marginal porque
-      // la query es lazy (enabled: tab==="todos") y cachea 10 min.
-      const PAGE = 1000;
-      const fetchPage = (from: number) =>
-        (supabase.from("v_building_score" as any) as any)
-          .select("*")
-          .order("score", { ascending: false })
-          .range(from, from + PAGE - 1);
-      const { data: assignments } = await (supabase.from("building_assignments" as any) as any)
-        .select("building_id")
-        .eq("user_id", userId)
-        .eq("status", "active");
-      const scores: any[] = [];
-      let from = 0;
-      // Safety cap: 10 páginas (10k edificios) — más que suficiente.
-      for (let i = 0; i < 10; i++) {
-        const { data } = await fetchPage(from);
-        const batch = (data ?? []) as any[];
+      // Slim columns: seleccionar `*` sobre `v_building_score` incluía los
+      // jsonb pesados `md` y `score_breakdown`, y con `order=score.desc`
+      // (columna calculada) PostgREST cancelaba con statement_timeout (57014)
+      // → la UI caía silenciosamente a la cartera de 77. Pedimos solo las
+      // columnas que pinta la tarjeta y ordenamos por `id` (índice); el
+      // orden real por score lo aplica el cliente con `apply()`.
+      const V_COLS =
+        "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
+      const B_COLS =
+        "id,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
+      // 200 filas cabe holgadamente dentro del statement_timeout de `authenticated`
+      // (8s) y también en el de `anon` (3s). Con Promise.all lanzamos todas las
+      // páginas restantes en paralelo, así el catálogo entero (~1.156) se sirve
+      // en el tiempo de la petición más lenta, no en suma secuencial.
+      const PAGE = 200;
+
+      const withRetry = async <T,>(fn: () => Promise<{ data: T[] | null; error: any }>, label: string) => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const res = await fn();
+          if (!res.error) return (res.data ?? []) as T[];
+          if (attempt === 1) {
+            const err = new Error(`[${label}] ${res.error?.message ?? "unknown"}`);
+            (err as any).cause = res.error;
+            throw err;
+          }
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        return [] as T[];
+      };
+
+      const fetchViewPage = (from: number) =>
+        withRetry(
+          () =>
+            (supabase.from("v_building_score" as any) as any)
+              .select(V_COLS)
+              .order("id")
+              .range(from, from + PAGE - 1),
+          `v_building_score ${from}-${from + PAGE - 1}`,
+        );
+      const fetchBldgPage = (from: number) =>
+        withRetry(
+          () =>
+            (supabase.from("buildings" as any) as any)
+              .select(B_COLS)
+              .order("id")
+              .range(from, from + PAGE - 1),
+          `buildings ${from}-${from + PAGE - 1}`,
+        );
+
+      // Descubrimos el total con la primera página y lanzamos el resto en paralelo.
+      const [firstView, firstBldg, assignmentsRes] = await Promise.all([
+        fetchViewPage(0),
+        fetchBldgPage(0),
+        (supabase.from("building_assignments" as any) as any)
+          .select("building_id")
+          .eq("user_id", userId)
+          .eq("status", "active"),
+      ]);
+      const scores: any[] = [...firstView];
+      const demoBldgs: any[] = [...firstBldg];
+      const restViewPromises: Promise<any[]>[] = [];
+      const restBldgPromises: Promise<any[]>[] = [];
+      // Estimación de páginas restantes: con 200 filas/página y un catálogo de
+      // ~1.200 edificios necesitamos ~6 páginas. Reservamos hasta 15 para
+      // márgenes de crecimiento sin saturar PostgREST.
+      const MAX_EXTRA_PAGES = 15;
+      if (firstView.length === PAGE) {
+        for (let i = 1; i <= MAX_EXTRA_PAGES; i++) restViewPromises.push(fetchViewPage(i * PAGE));
+      }
+      if (firstBldg.length === PAGE) {
+        for (let i = 1; i <= MAX_EXTRA_PAGES; i++) restBldgPromises.push(fetchBldgPage(i * PAGE));
+      }
+      const [restViews, restBldgs] = await Promise.all([
+        Promise.all(restViewPromises),
+        Promise.all(restBldgPromises),
+      ]);
+      for (const batch of restViews) {
         scores.push(...batch);
         if (batch.length < PAGE) break;
-        from += PAGE;
       }
-      // Fetch de columnas "extra" en buildings paginado (sin .in gigante que
-      // truncaba la URL y devolvía filas sin `comercial` → tabs Jesús/David a 0).
-      const demoBldgs: any[] = [];
-      {
-        let bfrom = 0;
-        for (let i = 0; i < 20; i++) {
-          const { data } = await (supabase.from("buildings" as any) as any)
-            .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
-            .range(bfrom, bfrom + PAGE - 1);
-          const batch = (data ?? []) as any[];
-          demoBldgs.push(...batch);
-          if (batch.length < PAGE) break;
-          bfrom += PAGE;
-        }
+      for (const batch of restBldgs) {
+        demoBldgs.push(...batch);
+        if (batch.length < PAGE) break;
       }
+      const assignments = assignmentsRes.data;
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
       const bldgsById = new Map<string, any>();
       const demoIds = new Set<string>();
@@ -499,17 +546,26 @@ export default function ComercialEdificios() {
       });
       return { rows };
     };
-  const { data: todosData, isLoading: loadingTodos } = useQuery({
+  const {
+    data: todosData,
+    isLoading: loadingTodos,
+    error: todosError,
+    refetch: refetchTodos,
+    isFetching: fetchingTodos,
+  } = useQuery({
     queryKey: todosQueryKey,
     enabled: !!userId,
     staleTime: 10 * 60_000,
     placeholderData: keepPreviousData,
     queryFn: todosQueryFn,
+    retry: 1,
   });
 
   const miasRows: Row[] = miaData?.rows ?? [];
   const todosRows: Row[] = todosData?.rows ?? [];
-  const rows: Row[] = todosRows.length > 0 ? todosRows : miasRows;
+  // Solo caemos a "mias" cuando NO hay error del catálogo. Si el catálogo
+  // falló, mostramos un aviso claro y NO ocultamos el problema tras los 77.
+  const rows: Row[] = todosRows.length > 0 ? todosRows : (todosError ? [] : miasRows);
   const isLoading = loadingMia || loadingTodos;
 
   // Si la URL trae ?filter=cartera_demo aplicamos solo demo y forzamos sort score desc
@@ -851,6 +907,19 @@ export default function ComercialEdificios() {
         </div>
 
         <TabsContent value={tab} className="mt-0">
+          {todosError && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <div>
+                <strong>No se pudo cargar el catálogo completo.</strong>{" "}
+                <span className="opacity-80">
+                  {(todosError as Error)?.message?.slice(0, 200) ?? "Error desconocido"}
+                </span>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetchTodos()} disabled={fetchingTodos}>
+                {fetchingTodos ? "Reintentando…" : "Reintentar"}
+              </Button>
+            </div>
+          )}
           <div className="mb-2 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
             Mostrando {filteredTodos.length} de {rowsByTab.length}
           </div>
