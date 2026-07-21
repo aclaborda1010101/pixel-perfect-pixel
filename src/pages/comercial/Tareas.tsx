@@ -58,7 +58,7 @@ export default function ComercialTareas() {
           .eq("user_id", userId)
           .order("created_at", { ascending: false }),
         (supabase.from("v_building_score" as any) as any)
-          .select("id,direccion,ciudad,score"),
+          .select("id,direccion,ciudad,score,score_total,score_activo"),
       ]);
       const tasks = (tasksRes.data ?? []) as any[];
       const scores = (scoresRes.data ?? []) as any[];
