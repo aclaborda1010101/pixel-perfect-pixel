@@ -702,49 +702,189 @@ function firstNonEmpty(q: Record<string, any>, keys: string[]): any {
   for (const k of keys) { const v = q?.[k]; if (v != null && v !== "") return v; }
   return null;
 }
-function FichaLead({ qual, current }: { qual: Record<string, any>; current: any }) {
+
+// Etiquetas legibles para valores enum del prompt Afflux.
+const PERFIL_LABEL: Record<string, string> = {
+  gestor_cansado: "Gestor cansado",
+  desplazado: "Desplazado",
+  controlador: "Controlador",
+  dominante: "Dominante",
+  mediador_protector: "Mediador protector",
+  inquilino_ocupante: "Inquilino/ocupante",
+  informado: "Informado",
+  indefinido: "Sin definir",
+};
+const TIPO_INMUEBLE_LABEL: Record<string, string> = {
+  piso: "Piso", casa: "Casa", local: "Local", edificio: "Edificio", garaje: "Garaje", otro: "Otro",
+};
+const URGENCIA_LABEL: Record<string, string> = { alta: "Alta", media: "Media", baja: "Baja" };
+const DECIDE_LABEL: Record<string, string> = { si: "Decide solo", no: "No decide solo", explorando: "Explorando" };
+const DINAMICA_LABEL: Record<string, string> = { consenso: "Consenso", un_lider: "Un líder", bloqueo: "Bloqueo" };
+const CONFLICTO_LABEL: Record<string, string> = { bajo: "Bajo", medio: "Medio", alto: "Alto" };
+
+// Normaliza texto para búsqueda difusa (acentos + minúsculas).
+function normQuote(s: string): string {
+  return String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+// Busca en los mensajes ENTRANTES la primera aparición del valor cualificado.
+// Devuelve el mensaje literal (cortado) y la fecha, o null si no lo encuentra
+// (típico cuando el dato fue inferido por la IA sin que el cliente lo dijera literalmente).
+function findQuote(value: any, messages: any[] | undefined): { text: string; when: string } | null {
+  if (value == null || value === "" || !Array.isArray(messages) || !messages.length) return null;
+  const raw = String(value).trim();
+  if (!raw || raw.length < 2) return null;
+  const needle = normQuote(raw);
+  // Los enums cortos ("si", "no", "alta") producen matches falsos: no citamos esos.
+  if (needle.length <= 3) return null;
+  for (const m of messages) {
+    if (m?.direction !== "in") continue;
+    const body = normQuote(m?.content ?? "");
+    if (body && body.includes(needle)) {
+      const text = String(m.content ?? "").trim().replace(/\s+/g, " ").slice(0, 140);
+      return { text, when: m.created_at };
+    }
+  }
+  return null;
+}
+
+function FichaLead({
+  qual, current, messages,
+}: { qual: Record<string, any>; current: any; messages?: any[] }) {
   const stage = current?.wa_contacts?.stage ?? "nuevo";
-  const fmt = (v: any) => {
-    if (v == null || v === "") return <span className="italic text-muted-foreground/60">—</span>;
-    if (v === true || v === "si" || v === "sí") return <span className="text-success">Sí</span>;
-    if (v === false || v === "no") return <span className="text-destructive">No</span>;
-    return <span className="text-foreground">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>;
-  };
+
+  // Campos crudos.
   const nombre = firstNonEmpty(qual, ["nombre_apellidos"]) ?? current?.wa_contacts?.name ?? null;
-  const rolProp = firstNonEmpty(qual, ["rol_propietario", "rol", "tipologia_proindivisario"]) ?? current?.rol_owner ?? null;
+  const telefono = current?.wa_contacts?.phone ?? null;
+  const cp = firstNonEmpty(qual, ["codigo_postal"]);
   const direccion = firstNonEmpty(qual, ["direccion_inmueble", "direccion", "edificio_mencionado"]);
-  const situacion = firstNonEmpty(qual, ["situacion", "nivel_conflicto", "fase_actual"]);
-  const intencion = firstNonEmpty(qual, ["intencion_venta", "interes_reunion", "motivacion_principal"]);
+  const tipoInmuebleRaw = firstNonEmpty(qual, ["tipo_inmueble"]);
+  const perfilRaw = firstNonEmpty(qual, ["perfil_copropietario", "tipologia_proindivisario"]) ?? current?.rol_owner ?? null;
+  const motivacion = firstNonEmpty(qual, ["motivacion_principal", "motivo"]);
+  const urgenciaRaw = firstNonEmpty(qual, ["urgencia"]);
   const numProp = firstNonEmpty(qual, ["num_copropietarios", "numero_propietarios"]);
   const cuota = firstNonEmpty(qual, ["cuota_participacion", "porcentaje_propiedad", "porcentaje_participacion"]);
+  const estadoEdif = firstNonEmpty(qual, ["estado_edificio"]);
+  const gestionRentas = firstNonEmpty(qual, ["gestion_rentas"]);
+  const decideSolo = firstNonEmpty(qual, ["decide_solo"]);
+  const dinamica = firstNonEmpty(qual, ["dinamica_decision"]);
+  const conflicto = firstNonEmpty(qual, ["nivel_conflicto"]);
+  const cobertura = firstNonEmpty(qual, ["cobertura_edificio"]);
+  const interesReunion = firstNonEmpty(qual, ["interes_reunion"]);
+  const ofertaPrevia = firstNonEmpty(qual, ["p1_oferta_previa"]);
+  const rentaEst = firstNonEmpty(qual, ["renta_mensual_estimada"]);
   const cita = firstNonEmpty(qual, ["cita_propuesta", "cita", "fecha_cita_propuesta"]);
-  const rows: Array<[string, any]> = [
-    ["Nombre", nombre],
-    ["Rol", rolProp],
-    ["Dirección / edificio", direccion],
-    ["Situación", situacion],
-    ["Intención de venta", intencion],
-    ["Nº copropietarios", numProp],
-    ["% propiedad", cuota],
-    ["Cita propuesta", cita],
-    ["Stage", stage],
-  ];
+
+  // Etiquetas legibles.
+  const tipoInmueble = tipoInmuebleRaw ? (TIPO_INMUEBLE_LABEL[String(tipoInmuebleRaw)] ?? tipoInmuebleRaw) : null;
+  const perfil = perfilRaw ? (PERFIL_LABEL[String(perfilRaw)] ?? perfilRaw) : null;
+  const urgencia = urgenciaRaw ? (URGENCIA_LABEL[String(urgenciaRaw)] ?? urgenciaRaw) : null;
+  const decide = decideSolo ? (DECIDE_LABEL[String(decideSolo)] ?? decideSolo) : null;
+  const dinamicaLbl = dinamica ? (DINAMICA_LABEL[String(dinamica)] ?? dinamica) : null;
+  const conflictoLbl = conflicto ? (CONFLICTO_LABEL[String(conflicto)] ?? conflicto) : null;
+
+  // Cada fila: [label, valorMostrado, valorCrudo para buscar cita]. Valor crudo puede ser
+  // distinto (número, texto libre) al mostrado (etiqueta legible).
+  type Row = { label: string; shown: any; raw?: any; hint?: string };
+  const rows: Row[] = [
+    { label: "Nombre y apellidos", shown: nombre, raw: nombre },
+    { label: "Teléfono", shown: telefono, hint: "de WhatsApp" },
+    { label: "Código postal", shown: cp, raw: cp },
+    { label: "Dirección del inmueble", shown: direccion, raw: direccion },
+    { label: "Tipo de inmueble", shown: tipoInmueble, raw: tipoInmuebleRaw },
+    { label: "Perfil copropietario", shown: perfil, raw: perfilRaw, hint: "inferido por IA" },
+    { label: "Motivación", shown: motivacion, raw: motivacion },
+    { label: "Urgencia", shown: urgencia, raw: urgenciaRaw, hint: "inferida por IA" },
+    { label: "Nº copropietarios", shown: numProp, raw: numProp },
+    { label: "% participación", shown: cuota, raw: cuota },
+    { label: "Estado del edificio", shown: estadoEdif, raw: estadoEdif },
+    { label: "Gestión de rentas", shown: gestionRentas, raw: gestionRentas },
+    { label: "Decide solo", shown: decide, raw: decideSolo, hint: "inferido por IA" },
+    { label: "Dinámica de decisión", shown: dinamicaLbl, raw: dinamica, hint: "inferida por IA" },
+    { label: "Nivel de conflicto", shown: conflictoLbl, raw: conflicto, hint: "inferido por IA" },
+    { label: "Cobertura del edificio", shown: cobertura, raw: cobertura },
+    { label: "Oferta previa", shown: ofertaPrevia, raw: ofertaPrevia, hint: "inferido por IA" },
+    { label: "Renta mensual estimada", shown: rentaEst, raw: rentaEst },
+    { label: "Interés en reunión", shown: interesReunion, raw: interesReunion },
+    { label: "Cita propuesta", shown: cita, raw: cita },
+  ].filter((r) => r.shown != null && r.shown !== "");
+
+  const flags: string[] = Array.isArray(qual.oportunidad_flags) ? qual.oportunidad_flags : [];
+  const flagLabel: Record<string, string> = {
+    fragmentacion: "Fragmentación (bloqueo + conflicto alto)",
+    cuota_accionable: "Cuota accionable (decide solo)",
+    compra_multiple: "Posible compra múltiple",
+    listo_para_mover: "Listo para mover (urgencia + motivo salir)",
+  };
+
+  const fmt = (v: any) => {
+    if (v === true) return <span className="text-success">Sí</span>;
+    if (v === false) return <span className="text-destructive">No</span>;
+    return <span className="text-foreground">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>;
+  };
+
   return (
     <section className="rounded-[6px] border border-gold/30 bg-gold/5 p-3">
       <div className="mb-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-gold">
         <IdCard className="h-3 w-3" /> Ficha del lead
       </div>
-      <dl className="divide-y divide-border-faint/60">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-baseline justify-between gap-3 py-1">
-            <dt className="text-[11px] text-muted-foreground">{label}</dt>
-            <dd className="text-right text-xs">{fmt(value)}</dd>
+
+      {rows.length === 0 && (
+        <p className="text-[11px] italic text-muted-foreground/70">
+          El bot todavía no ha extraído datos cualificados de esta conversación.
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <dl className="divide-y divide-border-faint/60">
+          {rows.map((r) => {
+            const quote = findQuote(r.raw, messages);
+            return (
+              <div key={r.label} className="py-1.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-[11px] text-muted-foreground">{r.label}</dt>
+                  <dd className="text-right text-xs">{fmt(r.shown)}</dd>
+                </div>
+                {quote ? (
+                  <div className="mt-0.5 rounded-[4px] border-l-2 border-gold/40 bg-gold/5 px-2 py-1 text-[10.5px] italic leading-snug text-foreground/70">
+                    “{quote.text}”
+                    <span className="ml-1 not-italic font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+                      · {new Date(quote.when).toLocaleDateString("es-ES")}
+                    </span>
+                  </div>
+                ) : r.hint ? (
+                  <div className="mt-0.5 font-mono text-[9.5px] uppercase tracking-eyebrow text-muted-foreground/70">
+                    {r.hint}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </dl>
+      )}
+
+      {flags.length > 0 && (
+        <div className="mt-3 border-t border-border-faint/60 pt-2">
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-eyebrow text-gold">
+            Señales de oportunidad
           </div>
-        ))}
-      </dl>
+          <ul className="space-y-0.5 text-[11px]">
+            {flags.map((f) => (
+              <li key={f} className="text-foreground/90">· {flagLabel[f] ?? f}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-3 border-t border-border-faint/60 pt-2 text-[10px] font-mono uppercase tracking-eyebrow text-muted-foreground">
+        Stage: <span className="text-foreground/90">{stage}</span>
+      </div>
+
       {current?.summary && (
         <div className="mt-2 border-t border-border-faint/60 pt-2 text-[11px] leading-snug text-foreground/90">
-          <div className="mb-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">Resumen</div>
+          <div className="mb-0.5 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground">
+            Resumen de la conversación
+          </div>
           <p className="whitespace-pre-line line-clamp-6">{current.summary}</p>
         </div>
       )}
