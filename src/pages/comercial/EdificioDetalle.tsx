@@ -133,8 +133,14 @@ export default function ComercialEdificioDetalle() {
   if (!data?.b) {
     return <div className="p-8 text-sm text-muted-foreground">Cargando edificio…</div>;
   }
+  // Ratio m²/vivienda: preferimos ratio_m2_viv (m² sólo vivienda) de
+  // v_building_score; fallback a m²_totales/viviendas si no hubiera.
   const ratio =
-    s?.m2_total && s?.num_viviendas ? Number(s.m2_total) / Number(s.num_viviendas) : null;
+    (s as any)?.ratio_m2_viv != null
+      ? Number((s as any).ratio_m2_viv)
+      : s?.m2_total && s?.num_viviendas
+      ? Number(s.m2_total) / Number(s.num_viviendas)
+      : null;
   const anioConstr =
     b?.metadatos?.anio_construccion ??
     b?.metadatos?.year_built ??
