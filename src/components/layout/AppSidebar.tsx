@@ -6,8 +6,9 @@ import {
   MessagesSquare, Footprints, Target,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { prefetchRoute } from "@/lib/prefetch";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
@@ -15,7 +16,7 @@ import {
 import { useI18n } from "@/i18n/I18nProvider";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 
-type Item = { url: string; label: string; icon: any; beta?: boolean };
+type Item = { url: string; label: string; icon: any; beta?: boolean; badge?: number };
 
 /** Línea fina evocando un acueducto: 5 arcos pequeños bajo el wordmark. */
 function AqueductLine() {
@@ -48,6 +49,31 @@ export function AppSidebar() {
   const isComercial = role === "comercial_zona";
   const isWhatsapp = role === "whatsapp";
 
+  // Badge: nº de leads del bot todavía sin asignar (misma lógica que la página).
+  const { data: unassignedCount = 0 } = useQuery({
+    queryKey: ["oportunidades-unassigned-count"],
+    enabled: !isWhatsapp,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const sb: any = supabase;
+      const { data: setting } = await sb.from("app_settings").select("value")
+        .eq("key", "oportunidades_zone_assignments").maybeSingle();
+      const cfg = setting?.value ?? { zones: [] as { terms: string[] }[] };
+      const { data: convs } = await sb.from("wa_conversations")
+        .select("summary, qualification, wa_contacts(name)")
+        .order("last_message_at", { ascending: false }).limit(200);
+      let n = 0;
+      for (const c of (convs ?? [])) {
+        const hay = [c.qualification?.direccion_inmueble, c.qualification?.codigo_postal, c.qualification?.zona, c.wa_contacts?.name, c.summary]
+          .filter(Boolean).join(" ").toLowerCase();
+        const matched = (cfg.zones ?? []).some((z: any) =>
+          (z.terms ?? []).some((t: string) => t && hay.includes(String(t).toLowerCase())));
+        if (!matched) n++;
+      }
+      return n;
+    },
+  });
+
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
   };
@@ -59,10 +85,12 @@ export function AppSidebar() {
     { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
   ] : isComercial ? [
     { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
+    { url: "/oportunidades", label: "Oportunidades", icon: Target, badge: unassignedCount },
     { url: "/comercial/edificios", label: "Scoring total", icon: Building2 },
     { url: "/comercial/tareas", label: "Tareas", icon: CheckSquare },
   ] : [
     { url: "/", label: t.nav.home, icon: LayoutDashboard },
+    { url: "/oportunidades", label: "Oportunidades", icon: Target, badge: unassignedCount },
     { url: "/edificios", label: t.nav.buildings, icon: Building2 },
     { url: "/propietarios", label: t.nav.owners, icon: Users },
     { url: "/inversores", label: t.nav.investors, icon: TrendingUp },
@@ -81,7 +109,6 @@ export function AppSidebar() {
   ] : [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
     { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
-    { url: "/oportunidades", label: "Oportunidades", icon: Target },
     { url: "/mensajes", label: t.nav.mensajes, icon: Megaphone },
     { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
@@ -132,6 +159,11 @@ export function AppSidebar() {
                     {!collapsed && (
                       <span className="flex flex-1 items-center justify-between">
                         <span>{item.label}</span>
+                        {item.badge !== undefined && item.badge > 0 && (
+                          <span className="ml-2 rounded-full bg-primary px-2 py-0.5 font-mono text-[10px] font-semibold tabular-nums text-primary-foreground">
+                            {item.badge}
+                          </span>
+                        )}
                         {item.beta && (
                           <span className="ml-2 rounded-[3px] border border-sidebar-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-eyebrow text-sidebar-foreground/60 md:px-1 md:py-0 md:text-[9px]">
                             {t.nav.betaBadge}
