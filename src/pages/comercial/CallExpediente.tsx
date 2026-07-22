@@ -36,6 +36,7 @@ export default function CallExpediente() {
   const [building, setBuilding] = useState<any>(null);
   const [hsCall, setHsCall] = useState<any>(null);
   const [transcript, setTranscript] = useState<string | null>(null);
+  const [transcriptDiarized, setTranscriptDiarized] = useState(false);
 
   useEffect(() => {
     if (!hsId) return;
@@ -62,7 +63,9 @@ export default function CallExpediente() {
       setOwner((ownerRes as any).data ?? null);
       const hc = (hsRes as any).data ?? null;
       setHsCall(hc);
-      setTranscript(stripHtml(hc?.hs_call_transcription || hc?.hs_call_summary || hc?.hs_call_body));
+      const rawTx: string = hc?.hs_call_transcription ?? "";
+      setTranscriptDiarized(typeof rawTx === "string" && rawTx.trim().startsWith("["));
+      setTranscript(stripHtml(rawTx || hc?.hs_call_summary || hc?.hs_call_body));
 
       if ((s as any)?.building_id) {
         const { data: b } = await supabase.from("buildings").select("id, direccion").eq("id", (s as any).building_id).maybeSingle();
@@ -384,7 +387,16 @@ export default function CallExpediente() {
                 <Accordion type="single" collapsible>
                   <AccordionItem value="t">
                     <AccordionTrigger className="text-xs uppercase tracking-eyebrow text-muted-foreground">
-                      Transcripción / cuerpo de la llamada
+                      <span className="flex items-center gap-2">
+                        Transcripción / cuerpo de la llamada
+                        {transcriptDiarized ? (
+                          <Badge variant="outline" className="border-emerald-500/40 text-emerald-600 text-[10px]">
+                            Transcripción diarizada (HubSpot)
+                          </Badge>
+                        ) : hsCall?.hs_call_transcription ? (
+                          <Badge variant="outline" className="text-[10px]">STT</Badge>
+                        ) : null}
+                      </span>
                     </AccordionTrigger>
                     <AccordionContent>
                       <p className="whitespace-pre-wrap text-sm text-foreground/90">{transcript}</p>
