@@ -5839,10 +5839,17 @@ export type Database = {
       wa_conversations: {
         Row: {
           ai_enabled: boolean
+          assigned_at: string | null
+          assigned_email: string | null
+          assigned_name: string | null
+          assignment_source: string | null
           bot_paused_until: string | null
           campaign_id: string | null
           contact_id: string
           created_at: string
+          discard_reason: string | null
+          discarded_at: string | null
+          discarded_by: string | null
           handoff_reason: string | null
           id: string
           last_message_at: string | null
@@ -5861,10 +5868,17 @@ export type Database = {
         }
         Insert: {
           ai_enabled?: boolean
+          assigned_at?: string | null
+          assigned_email?: string | null
+          assigned_name?: string | null
+          assignment_source?: string | null
           bot_paused_until?: string | null
           campaign_id?: string | null
           contact_id: string
           created_at?: string
+          discard_reason?: string | null
+          discarded_at?: string | null
+          discarded_by?: string | null
           handoff_reason?: string | null
           id?: string
           last_message_at?: string | null
@@ -5883,10 +5897,17 @@ export type Database = {
         }
         Update: {
           ai_enabled?: boolean
+          assigned_at?: string | null
+          assigned_email?: string | null
+          assigned_name?: string | null
+          assignment_source?: string | null
           bot_paused_until?: string | null
           campaign_id?: string | null
           contact_id?: string
           created_at?: string
+          discard_reason?: string | null
+          discarded_at?: string | null
+          discarded_by?: string | null
           handoff_reason?: string | null
           id?: string
           last_message_at?: string | null
@@ -6814,6 +6835,7 @@ export type Database = {
           transcripcion: string
         }[]
       }
+      has_oportunidades_access: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
