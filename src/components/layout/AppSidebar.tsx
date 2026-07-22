@@ -60,10 +60,13 @@ export function AppSidebar() {
         .eq("key", "oportunidades_zone_assignments").maybeSingle();
       const cfg = setting?.value ?? { zones: [] as { terms: string[] }[] };
       const { data: convs } = await sb.from("wa_conversations")
-        .select("summary, qualification, wa_contacts(name)")
-        .order("last_message_at", { ascending: false }).limit(200);
+        .select("summary, qualification, assigned_email, assignment_source, discarded_at, wa_contacts(name)")
+        .is("discarded_at", null)
+        .order("last_message_at", { ascending: false }).limit(500);
       let n = 0;
       for (const c of (convs ?? [])) {
+        // Manual assignment always counts as assigned.
+        if (c.assigned_email && c.assignment_source === "manual") continue;
         const hay = [c.qualification?.direccion_inmueble, c.qualification?.codigo_postal, c.qualification?.zona, c.wa_contacts?.name, c.summary]
           .filter(Boolean).join(" ").toLowerCase();
         const matched = (cfg.zones ?? []).some((z: any) =>
