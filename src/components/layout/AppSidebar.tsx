@@ -3,12 +3,11 @@ import {
   Inbox, FileText, PhoneCall,
   MessageSquare, Megaphone, ListChecks, BarChart3,
   Settings as SettingsIcon, Search, CheckSquare, UserCircle,
-  MessagesSquare, Footprints, Target,
+  MessagesSquare, Footprints,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
-import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { prefetchRoute } from "@/lib/prefetch";
-import { supabase } from "@/integrations/supabase/client";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
@@ -49,34 +48,6 @@ export function AppSidebar() {
   const isComercial = role === "comercial_zona";
   const isWhatsapp = role === "whatsapp";
 
-  // Badge: nº de leads del bot todavía sin asignar (misma lógica que la página).
-  const { data: unassignedCount = 0 } = useQuery({
-    queryKey: ["oportunidades-unassigned-count"],
-    enabled: !isWhatsapp,
-    staleTime: 60_000,
-    queryFn: async () => {
-      const sb: any = supabase;
-      const { data: setting } = await sb.from("app_settings").select("value")
-        .eq("key", "oportunidades_zone_assignments").maybeSingle();
-      const cfg = setting?.value ?? { zones: [] as { terms: string[] }[] };
-      const { data: convs } = await sb.from("wa_conversations")
-        .select("summary, qualification, assigned_email, assignment_source, discarded_at, wa_contacts(name)")
-        .is("discarded_at", null)
-        .order("last_message_at", { ascending: false }).limit(500);
-      let n = 0;
-      for (const c of (convs ?? [])) {
-        // Manual assignment always counts as assigned.
-        if (c.assigned_email && c.assignment_source === "manual") continue;
-        const hay = [c.qualification?.direccion_inmueble, c.qualification?.codigo_postal, c.qualification?.zona, c.wa_contacts?.name, c.summary]
-          .filter(Boolean).join(" ").toLowerCase();
-        const matched = (cfg.zones ?? []).some((z: any) =>
-          (z.terms ?? []).some((t: string) => t && hay.includes(String(t).toLowerCase())));
-        if (!matched) n++;
-      }
-      return n;
-    },
-  });
-
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
   };
@@ -88,12 +59,10 @@ export function AppSidebar() {
     { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
   ] : isComercial ? [
     { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
-    { url: "/oportunidades", label: "Oportunidades", icon: Target, badge: unassignedCount },
     { url: "/comercial/edificios", label: "Scoring total", icon: Building2 },
     { url: "/comercial/tareas", label: "Tareas", icon: CheckSquare },
   ] : [
     { url: "/", label: t.nav.home, icon: LayoutDashboard },
-    { url: "/oportunidades", label: "Oportunidades", icon: Target, badge: unassignedCount },
     { url: "/edificios", label: t.nav.buildings, icon: Building2 },
     { url: "/propietarios", label: t.nav.owners, icon: Users },
     { url: "/inversores", label: t.nav.investors, icon: TrendingUp },
