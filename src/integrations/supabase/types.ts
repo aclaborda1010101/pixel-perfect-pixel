@@ -14,6 +14,72 @@ export type Database = {
   }
   public: {
     Tables: {
+      _a1_dangling: {
+        Row: {
+          building_borrado: string | null
+          hs_deal: string | null
+        }
+        Insert: {
+          building_borrado?: string | null
+          hs_deal?: string | null
+        }
+        Update: {
+          building_borrado?: string | null
+          hs_deal?: string | null
+        }
+        Relationships: []
+      }
+      _a1_pares: {
+        Row: {
+          building_id: string | null
+          owner_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          owner_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          owner_id?: string | null
+        }
+        Relationships: []
+      }
+      _a2_dni_match: {
+        Row: {
+          building_id: string | null
+          fuerza: number | null
+          nota_simple_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          fuerza?: number | null
+          nota_simple_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          fuerza?: number | null
+          nota_simple_id?: string | null
+        }
+        Relationships: []
+      }
+      _a2_name_match: {
+        Row: {
+          building_id: string | null
+          mejor: number | null
+          nota_simple_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          mejor?: number | null
+          nota_simple_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          mejor?: number | null
+          nota_simple_id?: string | null
+        }
+        Relationships: []
+      }
       _fn_backups: {
         Row: {
           created_at: string | null
@@ -5767,6 +5833,74 @@ export type Database = {
         }
         Relationships: []
       }
+      wa_consent_signals: {
+        Row: {
+          cita_textual: string | null
+          confianza: number | null
+          detectado_at: string | null
+          escrito_en_hubspot: boolean | null
+          fecha_llamada: string | null
+          hs_call_id: string
+          id: string
+          owner_id: string | null
+          telefono: string | null
+          veredicto: string
+        }
+        Insert: {
+          cita_textual?: string | null
+          confianza?: number | null
+          detectado_at?: string | null
+          escrito_en_hubspot?: boolean | null
+          fecha_llamada?: string | null
+          hs_call_id: string
+          id?: string
+          owner_id?: string | null
+          telefono?: string | null
+          veredicto: string
+        }
+        Update: {
+          cita_textual?: string | null
+          confianza?: number | null
+          detectado_at?: string | null
+          escrito_en_hubspot?: boolean | null
+          fecha_llamada?: string | null
+          hs_call_id?: string
+          id?: string
+          owner_id?: string | null
+          telefono?: string | null
+          veredicto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_consent_signals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wa_consent_signals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_consent_signals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_consent_signals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       wa_contacts: {
         Row: {
           created_at: string
@@ -6563,6 +6697,16 @@ export type Database = {
         }
         Relationships: []
       }
+      v_integridad_datos: {
+        Row: {
+          detalle: string | null
+          metrica: string | null
+          ok: boolean | null
+          orden: number | null
+          valor: string | null
+        }
+        Relationships: []
+      }
       v_kpis_comercial_semana: {
         Row: {
           calidad_media: number | null
@@ -6842,6 +6986,7 @@ export type Database = {
         Returns: boolean
       }
       _safe_int_from_dir: { Args: { p: string }; Returns: number }
+      auto_link_owner_building: { Args: { p_days?: number }; Returns: Json }
       build_score_summary: { Args: { p_building_id: string }; Returns: string }
       calls_stats: {
         Args: never
