@@ -51,6 +51,59 @@ function ownerEstado(o: any): {
   return { label: "Contactado", variant: "info" };
 }
 
+function SucesionBlock({ s }: { s: any }) {
+  const label =
+    s.estado_sucesion === "herencia_abierta" ? "Herencia abierta" :
+    s.estado_sucesion === "sospecha" ? "Sospecha de fallecimiento" :
+    "Envejecimiento alto";
+  const tone =
+    s.estado_sucesion === "herencia_abierta" ? "border-destructive/40 bg-destructive/10 text-destructive" :
+    s.estado_sucesion === "sospecha" ? "border-warning/40 bg-warning-soft/40 text-warning" :
+    "border-amber-500/40 bg-amber-500/10 text-amber-600";
+  return (
+    <Card>
+      <CardHeader>
+        <Eyebrow>Sucesión</Eyebrow>
+        <CardTitle className="flex items-center gap-2">
+          <span className={cn("rounded-[3px] border px-2 py-0.5 text-xs font-mono uppercase tracking-eyebrow", tone)}>
+            {label}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-3 text-sm md:grid-cols-6">
+        <Kpi label="Propietarios" value={s.n_propietarios} />
+        <Kpi label="Fallecidos" value={s.n_fallecidos} tone={s.n_fallecidos > 0 ? "danger" : undefined} />
+        <Kpi label="Probables" value={s.n_probables} tone={s.n_probables > 0 ? "warn" : undefined} />
+        <Kpi label="Mayores 85" value={s.n_mayores_85} />
+        <Kpi label="Mayores 90" value={s.n_mayores_90} />
+        <Kpi label="Edad media" value={s.edad_media ?? "—"} />
+        <div className="col-span-2 text-xs text-muted-foreground md:col-span-6">
+          Cobertura del dato de edad: <span className="font-mono text-foreground">{s.pct_con_fecha}%</span>
+          {s.estado_sucesion === "herencia_abierta" && (
+            <> · Objetivo: localizar herederos legales (nota simple actualizada, empadronamiento).</>
+          )}
+          {s.estado_sucesion === "envejecimiento_alto" && (
+            <> · Herencias previsibles a medio plazo: preparar seguimiento periódico.</>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Kpi({ label, value, tone }: { label: string; value: any; tone?: "danger" | "warn" }) {
+  const c =
+    tone === "danger" ? "text-destructive" :
+    tone === "warn" ? "text-warning" :
+    "text-foreground";
+  return (
+    <div>
+      <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{label}</div>
+      <div className={cn("mt-1 font-mono text-lg tabular-nums", c)}>{value ?? 0}</div>
+    </div>
+  );
+}
+
 export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
