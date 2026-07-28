@@ -70,6 +70,12 @@ type Owner = {
   rol: string; subrole: string; buyer_persona: string;
   rol_confianza: number | null; rol_justificacion: string | null;
   consentimiento: boolean; notas_breves: string | null;
+  nombre_display?: string | null;
+  estado_vital?: string | null;
+  estado_vital_fuente?: string | null;
+  estado_vital_fecha?: string | null;
+  edad_anios?: number | null;
+  fecha_nacimiento?: string | null;
 };
 
 type CommItem = {
