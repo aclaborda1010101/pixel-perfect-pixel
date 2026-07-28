@@ -80,7 +80,7 @@ export default function ComercialEdificioDetalle() {
     queryKey: ["comercial:edificio", id, user?.id],
     enabled: !!id,
     queryFn: async () => {
-      const [{ data: b }, { data: score }, { data: owners }, { data: assign }, { data: analysis }] = await Promise.all([
+      const [{ data: b }, { data: score }, { data: owners }, { data: assign }, { data: analysis }, { data: sucesion }, { data: ownersExtra }] = await Promise.all([
         supabase.from("buildings").select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_building_score" as any) as any).select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_owner_score" as any) as any).select("*").eq("building_id", id!),
@@ -96,6 +96,13 @@ export default function ComercialEdificioDetalle() {
           .select("*")
           .eq("building_id", id!)
           .maybeSingle(),
+        (supabase.from("v_building_sucesion" as any) as any)
+          .select("*")
+          .eq("building_id", id!)
+          .maybeSingle(),
+        (supabase.from("building_owners") as any)
+          .select("owner_id, owners:owner_id(nombre_display, estado_vital, edad_anios)")
+          .eq("building_id", id!),
       ]);
       const { data: companies } = await (supabase.from("building_companies" as any) as any)
         .select("*, companies:company_id(id, nombre, cif, metadatos)")
@@ -118,6 +125,8 @@ export default function ComercialEdificioDetalle() {
         analysis: (analysis ?? null) as any,
         companies: (companies ?? []) as any[],
         catastro,
+        sucesion: (sucesion ?? null) as any,
+        ownersExtra: Object.fromEntries(((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, r.owners || {}])),
       };
     },
   });
@@ -128,6 +137,8 @@ export default function ComercialEdificioDetalle() {
   const analysis = data?.analysis;
   const companies = data?.companies ?? [];
   const catastro = (data as any)?.catastro ?? null;
+  const sucesion = (data as any)?.sucesion ?? null;
+  const ownersExtra: Record<string, any> = (data as any)?.ownersExtra ?? {};
   const { data: ownersCount } = useOwnersCount(b?.id);
 
   if (!data?.b) {
@@ -221,6 +232,10 @@ export default function ComercialEdificioDetalle() {
 
       {/* PGOUM: protección + plantas levantables */}
       {id && <PgoumBlock buildingId={id} />}
+
+      {sucesion && sucesion.estado_sucesion !== "sin_senales" && (
+        <SucesionBlock s={sucesion} />
+      )}
 
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
@@ -326,12 +341,24 @@ export default function ComercialEdificioDetalle() {
                   <div className="flex flex-wrap items-center gap-4">
                     <ScorePill score={sub} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-foreground">
-                        {o.nombre ?? "—"}
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {ownersExtra[o.owner_id]?.nombre_display || o.nombre || "—"}
+                        </span>
+                        {ownersExtra[o.owner_id]?.estado_vital === "fallecido" && (
+                          <Badge variant="destructive" className="h-4 px-1.5 text-[9px]">Fallecido</Badge>
+                        )}
+                        {ownersExtra[o.owner_id]?.estado_vital === "probable_fallecido" && (
+                          <Badge variant="outline" className="h-4 border-warning/50 bg-warning-soft/40 px-1.5 text-[9px] text-warning">
+                            Probable fallecido
+                          </Badge>
+                        )}
                       </div>
                       <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
                         {o.telefono ?? "sin teléfono"}
-                        {edad ? ` · ${edad} años` : ""}
+                        {(ownersExtra[o.owner_id]?.edad_anios ?? edad)
+                          ? ` · ${ownersExtra[o.owner_id]?.edad_anios ?? edad} años`
+                          : ""}
                       </div>
                       <div className="mt-1.5 grid max-w-md grid-cols-[80px_1fr_auto] items-center gap-2">
                         <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
