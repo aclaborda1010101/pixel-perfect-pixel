@@ -51,6 +51,59 @@ function ownerEstado(o: any): {
   return { label: "Contactado", variant: "info" };
 }
 
+function SucesionBlock({ s }: { s: any }) {
+  const label =
+    s.estado_sucesion === "herencia_abierta" ? "Herencia abierta" :
+    s.estado_sucesion === "sospecha" ? "Sospecha de fallecimiento" :
+    "Envejecimiento alto";
+  const tone =
+    s.estado_sucesion === "herencia_abierta" ? "border-destructive/40 bg-destructive/10 text-destructive" :
+    s.estado_sucesion === "sospecha" ? "border-warning/40 bg-warning-soft/40 text-warning" :
+    "border-amber-500/40 bg-amber-500/10 text-amber-600";
+  return (
+    <Card>
+      <CardHeader>
+        <Eyebrow>Sucesión</Eyebrow>
+        <CardTitle className="flex items-center gap-2">
+          <span className={cn("rounded-[3px] border px-2 py-0.5 text-xs font-mono uppercase tracking-eyebrow", tone)}>
+            {label}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-3 text-sm md:grid-cols-6">
+        <Kpi label="Propietarios" value={s.n_propietarios} />
+        <Kpi label="Fallecidos" value={s.n_fallecidos} tone={s.n_fallecidos > 0 ? "danger" : undefined} />
+        <Kpi label="Probables" value={s.n_probables} tone={s.n_probables > 0 ? "warn" : undefined} />
+        <Kpi label="Mayores 85" value={s.n_mayores_85} />
+        <Kpi label="Mayores 90" value={s.n_mayores_90} />
+        <Kpi label="Edad media" value={s.edad_media ?? "—"} />
+        <div className="col-span-2 text-xs text-muted-foreground md:col-span-6">
+          Cobertura del dato de edad: <span className="font-mono text-foreground">{s.pct_con_fecha}%</span>
+          {s.estado_sucesion === "herencia_abierta" && (
+            <> · Objetivo: localizar herederos legales (nota simple actualizada, empadronamiento).</>
+          )}
+          {s.estado_sucesion === "envejecimiento_alto" && (
+            <> · Herencias previsibles a medio plazo: preparar seguimiento periódico.</>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Kpi({ label, value, tone }: { label: string; value: any; tone?: "danger" | "warn" }) {
+  const c =
+    tone === "danger" ? "text-destructive" :
+    tone === "warn" ? "text-warning" :
+    "text-foreground";
+  return (
+    <div>
+      <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">{label}</div>
+      <div className={cn("mt-1 font-mono text-lg tabular-nums", c)}>{value ?? 0}</div>
+    </div>
+  );
+}
+
 export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -80,7 +133,7 @@ export default function ComercialEdificioDetalle() {
     queryKey: ["comercial:edificio", id, user?.id],
     enabled: !!id,
     queryFn: async () => {
-      const [{ data: b }, { data: score }, { data: owners }, { data: assign }, { data: analysis }] = await Promise.all([
+      const [{ data: b }, { data: score }, { data: owners }, { data: assign }, { data: analysis }, { data: sucesion }, { data: ownersExtra }] = await Promise.all([
         supabase.from("buildings").select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_building_score" as any) as any).select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_owner_score" as any) as any).select("*").eq("building_id", id!),
@@ -96,6 +149,13 @@ export default function ComercialEdificioDetalle() {
           .select("*")
           .eq("building_id", id!)
           .maybeSingle(),
+        (supabase.from("v_building_sucesion" as any) as any)
+          .select("*")
+          .eq("building_id", id!)
+          .maybeSingle(),
+        (supabase.from("building_owners") as any)
+          .select("owner_id, owners:owner_id(nombre_display, estado_vital, edad_anios)")
+          .eq("building_id", id!),
       ]);
       const { data: companies } = await (supabase.from("building_companies" as any) as any)
         .select("*, companies:company_id(id, nombre, cif, metadatos)")
@@ -118,6 +178,8 @@ export default function ComercialEdificioDetalle() {
         analysis: (analysis ?? null) as any,
         companies: (companies ?? []) as any[],
         catastro,
+        sucesion: (sucesion ?? null) as any,
+        ownersExtra: Object.fromEntries(((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, r.owners || {}])),
       };
     },
   });
@@ -128,6 +190,8 @@ export default function ComercialEdificioDetalle() {
   const analysis = data?.analysis;
   const companies = data?.companies ?? [];
   const catastro = (data as any)?.catastro ?? null;
+  const sucesion = (data as any)?.sucesion ?? null;
+  const ownersExtra: Record<string, any> = (data as any)?.ownersExtra ?? {};
   const { data: ownersCount } = useOwnersCount(b?.id);
 
   if (!data?.b) {
@@ -221,6 +285,10 @@ export default function ComercialEdificioDetalle() {
 
       {/* PGOUM: protección + plantas levantables */}
       {id && <PgoumBlock buildingId={id} />}
+
+      {sucesion && sucesion.estado_sucesion !== "sin_senales" && (
+        <SucesionBlock s={sucesion} />
+      )}
 
       {/* Tareas del edificio */}
       {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
@@ -326,12 +394,24 @@ export default function ComercialEdificioDetalle() {
                   <div className="flex flex-wrap items-center gap-4">
                     <ScorePill score={sub} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-foreground">
-                        {o.nombre ?? "—"}
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {ownersExtra[o.owner_id]?.nombre_display || o.nombre || "—"}
+                        </span>
+                        {ownersExtra[o.owner_id]?.estado_vital === "fallecido" && (
+                          <Badge variant="destructive" className="h-4 px-1.5 text-[9px]">Fallecido</Badge>
+                        )}
+                        {ownersExtra[o.owner_id]?.estado_vital === "probable_fallecido" && (
+                          <Badge variant="outline" className="h-4 border-warning/50 bg-warning-soft/40 px-1.5 text-[9px] text-warning">
+                            Probable fallecido
+                          </Badge>
+                        )}
                       </div>
                       <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
                         {o.telefono ?? "sin teléfono"}
-                        {edad ? ` · ${edad} años` : ""}
+                        {(ownersExtra[o.owner_id]?.edad_anios ?? edad)
+                          ? ` · ${ownersExtra[o.owner_id]?.edad_anios ?? edad} años`
+                          : ""}
                       </div>
                       <div className="mt-1.5 grid max-w-md grid-cols-[80px_1fr_auto] items-center gap-2">
                         <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">

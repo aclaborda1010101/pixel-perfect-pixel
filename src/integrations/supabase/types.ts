@@ -4802,12 +4802,19 @@ export type Database = {
           buyer_persona: Database["public"]["Enums"]["buyer_persona"]
           consentimiento: boolean
           created_at: string
+          edad_anios: number | null
           email: string | null
+          estado_vital: string | null
+          estado_vital_evidencia: string | null
+          estado_vital_fecha: string | null
+          estado_vital_fuente: string | null
+          fecha_nacimiento: string | null
           id: string
           last_synced_at: string | null
           merged_into: string | null
           metadatos: Json
           nombre: string
+          nombre_display: string | null
           notas_breves: string | null
           rol: Database["public"]["Enums"]["owner_role"]
           rol_confianza: number | null
@@ -4820,12 +4827,19 @@ export type Database = {
           buyer_persona?: Database["public"]["Enums"]["buyer_persona"]
           consentimiento?: boolean
           created_at?: string
+          edad_anios?: number | null
           email?: string | null
+          estado_vital?: string | null
+          estado_vital_evidencia?: string | null
+          estado_vital_fecha?: string | null
+          estado_vital_fuente?: string | null
+          fecha_nacimiento?: string | null
           id?: string
           last_synced_at?: string | null
           merged_into?: string | null
           metadatos?: Json
           nombre: string
+          nombre_display?: string | null
           notas_breves?: string | null
           rol?: Database["public"]["Enums"]["owner_role"]
           rol_confianza?: number | null
@@ -4838,12 +4852,19 @@ export type Database = {
           buyer_persona?: Database["public"]["Enums"]["buyer_persona"]
           consentimiento?: boolean
           created_at?: string
+          edad_anios?: number | null
           email?: string | null
+          estado_vital?: string | null
+          estado_vital_evidencia?: string | null
+          estado_vital_fecha?: string | null
+          estado_vital_fuente?: string | null
+          fecha_nacimiento?: string | null
           id?: string
           last_synced_at?: string | null
           merged_into?: string | null
           metadatos?: Json
           nombre?: string
+          nombre_display?: string | null
           notas_breves?: string | null
           rol?: Database["public"]["Enums"]["owner_role"]
           rol_confianza?: number | null
@@ -6277,6 +6298,56 @@ export type Database = {
         }
         Relationships: []
       }
+      v_building_sucesion: {
+        Row: {
+          building_id: string | null
+          edad_media: number | null
+          estado_sucesion: string | null
+          n_fallecidos: number | null
+          n_mayores_85: number | null
+          n_mayores_90: number | null
+          n_probables: number | null
+          n_propietarios: number | null
+          pct_con_fecha: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
       v_call_queue_daily: {
         Row: {
           building_id: string | null
@@ -6781,6 +6852,7 @@ export type Database = {
           total: number
         }[]
       }
+      clean_owner_name: { Args: { p_name: string }; Returns: string }
       compute_cluster_score: {
         Args: { p_building_id: string }
         Returns: number
@@ -6811,6 +6883,10 @@ export type Database = {
           p_threshold?: number
         }
         Returns: Json
+      }
+      detect_estado_vital_from_name: {
+        Args: { p_name: string }
+        Returns: string
       }
       find_owner_for_orphan_contact: {
         Args: {
