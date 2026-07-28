@@ -90,6 +90,7 @@ export function AppSidebar() {
   ] : [
     { url: "/revision-escaleras", label: "Revisión escaleras", icon: Footprints },
     { url: "/admin/proteccion-pgoum", label: "Validación PGOUM", icon: CheckSquare },
+    ...(role === "admin" ? [{ url: "/admin/integridad", label: "Integridad de datos", icon: CheckSquare } as Item] : []),
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
   ];
 
