@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sparkles, Loader2, PhoneCall } from "lucide-react";
+import { Sparkles, Loader2, PhoneCall, ShieldAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/i18n/I18nProvider";
 import { toast } from "sonner";
@@ -19,6 +19,13 @@ export function PreCallBrief({ ownerId }: { ownerId: string }) {
   const { t, locale } = useI18n();
   const [loading, setLoading] = useState(false);
   const [brief, setBrief] = useState<Brief | null>(null);
+  const [vital, setVital] = useState<{
+    estado_vital: string | null;
+    estado_vital_fuente: string | null;
+    estado_vital_fecha: string | null;
+    edad_anios: number | null;
+    nombre_display: string | null;
+  } | null>(null);
   const [stats, setStats] = useState<{
     intentos_totales: number;
     veces_conectado: number;
@@ -34,15 +41,31 @@ export function PreCallBrief({ ownerId }: { ownerId: string }) {
         .eq("owner_id", ownerId)
         .maybeSingle();
       if (!cancelled) setStats((data as any) ?? null);
+      const { data: o } = await (supabase.from("owners") as any)
+        .select("estado_vital, estado_vital_fuente, estado_vital_fecha, edad_anios, nombre_display")
+        .eq("id", ownerId)
+        .maybeSingle();
+      if (!cancelled) setVital((o as any) ?? null);
     })();
     return () => { cancelled = true; };
   }, [ownerId]);
 
   const generate = async () => {
+    if (vital?.estado_vital === "fallecido") {
+      toast.error("Propietario fallecido — localizar herederos, no llamar");
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("agent_pre_call_brief", {
-        body: { owner_id: ownerId, locale },
+        body: {
+          owner_id: ownerId,
+          locale,
+          objetivo_override:
+            vital?.estado_vital === "probable_fallecido"
+              ? "Confirmar fallecimiento e identificar herederos legales antes de cualquier propuesta"
+              : undefined,
+        },
       });
       if (error) throw error;
       if ((data as any)?.error) throw new Error((data as any).error);
@@ -54,6 +77,8 @@ export function PreCallBrief({ ownerId }: { ownerId: string }) {
     }
   };
 
+  const bloqueado = vital?.estado_vital === "fallecido";
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -61,11 +86,34 @@ export function PreCallBrief({ ownerId }: { ownerId: string }) {
           <Sparkles className="h-4 w-4 text-primary" />
           {t.agents.preCallTitle}
         </CardTitle>
-        <Button size="sm" onClick={generate} disabled={loading}>
+        <Button size="sm" onClick={generate} disabled={loading || bloqueado} title={bloqueado ? "Propietario fallecido" : ""}>
           {loading && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
           {t.agents.preCallGenerate}
         </Button>
       </CardHeader>
+      {vital?.estado_vital === "fallecido" && (
+        <CardContent className="pt-0">
+          <div className="flex items-start gap-2 rounded-[4px] border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <strong>Propietario fallecido</strong> — no llamar. Objetivo: localizar herederos legales (nota simple actualizada, comparecencia en herencia, empadronamiento).
+              {vital.estado_vital_fuente && (
+                <div className="text-xs opacity-80">Fuente: {vital.estado_vital_fuente}</div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      )}
+      {vital?.estado_vital === "probable_fallecido" && (
+        <CardContent className="pt-0">
+          <div className="flex items-start gap-2 rounded-[4px] border border-warning/40 bg-warning-soft/40 px-3 py-2 text-sm text-warning">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <strong>Probable fallecido</strong> — verificar antes de llamar. El brief se orienta a confirmar fallecimiento e identificar herederos.
+            </div>
+          </div>
+        </CardContent>
+      )}
       {stats && stats.intentos_totales > 0 && (
         <CardContent className="pt-0">
           <div className="flex items-center gap-2 rounded-[4px] border bg-muted/40 px-3 py-2 text-sm">
