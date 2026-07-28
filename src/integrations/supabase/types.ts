@@ -29,6 +29,72 @@ export type Database = {
         }
         Relationships: []
       }
+      _a1_dangling_review: {
+        Row: {
+          address: string | null
+          candidato: string | null
+          created_at: string
+          dealname: string | null
+          hs_deal: string
+          motivo: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          candidato?: string | null
+          created_at?: string
+          dealname?: string | null
+          hs_deal: string
+          motivo?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          candidato?: string | null
+          created_at?: string
+          dealname?: string | null
+          hs_deal?: string
+          motivo?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "_a1_dangling_review_candidato_fkey"
+            columns: ["candidato"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "_a1_dangling_review_candidato_fkey"
+            columns: ["candidato"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "_a1_dangling_review_candidato_fkey"
+            columns: ["candidato"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "_a1_dangling_review_candidato_fkey"
+            columns: ["candidato"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "_a1_dangling_review_candidato_fkey"
+            columns: ["candidato"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
       _a1_pares: {
         Row: {
           building_id: string | null
