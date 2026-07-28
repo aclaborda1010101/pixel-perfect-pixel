@@ -280,13 +280,26 @@ export default function OwnerDetail() {
 
   return (
     <div className="w-full min-w-0 space-y-6">
-      <Crumbs items={[{ label: "Propietarios", to: "/propietarios" }, { label: owner.nombre }]} />
+      <Crumbs items={[{ label: "Propietarios", to: "/propietarios" }, { label: owner.nombre_display || owner.nombre }]} />
       <PageHeader
         eyebrow="Propietario · Ficha"
-        title={owner.nombre}
+        title={owner.nombre_display || owner.nombre}
         subtitle={owner.email ?? owner.telefono ?? ""}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {owner.estado_vital === "fallecido" && (
+              <Badge variant="destructive" title={owner.estado_vital_fuente || ""}>
+                Fallecido{owner.estado_vital_fecha ? ` · ${fmtDate(owner.estado_vital_fecha)}` : ""}
+              </Badge>
+            )}
+            {owner.estado_vital === "probable_fallecido" && (
+              <Badge variant="outline" className="border-warning/50 bg-warning-soft/40 text-warning">
+                Probable fallecido
+              </Badge>
+            )}
+            {owner.edad_anios != null && owner.estado_vital !== "fallecido" && (
+              <Badge variant="outline">{owner.edad_anios} años</Badge>
+            )}
             {(() => {
               const p = perfilAsignado(owner.buyer_persona);
               return (
