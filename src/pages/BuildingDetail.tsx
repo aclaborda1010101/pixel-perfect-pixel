@@ -67,6 +67,7 @@ export default function BuildingDetail() {
   const [ownerNotes, setOwnerNotes] = useState<any[]>([]);
   const [hsTasks, setHsTasks] = useState<any[]>([]);
   const [nextActions, setNextActions] = useState<any[]>([]);
+  const [titStats, setTitStats] = useState<{ total: number; conPct: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // pagination per tab
@@ -101,6 +102,19 @@ export default function BuildingDetail() {
     setBcs(bc ?? []);
     setNotas(ns ?? []);
     setNextActions(na ?? []);
+
+    // % titulares con porcentaje declarado en el registro (todas las notas del edificio)
+    const notaIds = (ns ?? []).map((n: any) => n.id);
+    if (notaIds.length) {
+      const { data: tits } = await supabase.from("nota_simple_titulares")
+        .select("id, porcentaje")
+        .in("nota_simple_id", notaIds);
+      const total = tits?.length ?? 0;
+      const conPct = (tits ?? []).filter((t: any) => t.porcentaje != null).length;
+      setTitStats({ total, conPct });
+    } else {
+      setTitStats({ total: 0, conPct: 0 });
+    }
 
     const ownerIds = (bo ?? []).map((r: any) => r.owner_id);
     if (ownerIds.length) {
@@ -251,6 +265,15 @@ export default function BuildingDetail() {
         )}
         {hipotecasActivas.count > 0 && <Chip tone="warning">{hipotecasActivas.count} hipoteca{hipotecasActivas.count > 1 ? "s" : ""}</Chip>}
         {notas.some((n) => n.riesgo === "alto") && <Chip tone="danger">Riesgo alto</Chip>}
+        {/* Registro: existencia de nota simple + % titulares con porcentaje declarado */}
+        <Chip tone={notas.length > 0 ? "gold" : "warning"}>
+          Registro · Nota simple {notas.length > 0 ? "✓" : "✗"}
+        </Chip>
+        {titStats && titStats.total > 0 && (
+          <Chip tone={titStats.conPct === titStats.total ? "gold" : "warning"}>
+            Titulares con %: {titStats.conPct} de {titStats.total}
+          </Chip>
+        )}
       </div>
 
       {/* KPIs reales */}

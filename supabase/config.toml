@@ -27,3 +27,15 @@ verify_jwt = false
 
 [functions.transcript_ingest]
 verify_jwt = false
+
+[functions.notas_simples_attach]
+verify_jwt = false
+
+[functions.remap_dangling_deals]
+verify_jwt = false
+
+[functions.detect_whatsapp_consent]
+verify_jwt = false
+
+[functions.hubspot_contacts_inc]
+verify_jwt = false
