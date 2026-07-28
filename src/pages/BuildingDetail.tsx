@@ -265,6 +265,15 @@ export default function BuildingDetail() {
         )}
         {hipotecasActivas.count > 0 && <Chip tone="warning">{hipotecasActivas.count} hipoteca{hipotecasActivas.count > 1 ? "s" : ""}</Chip>}
         {notas.some((n) => n.riesgo === "alto") && <Chip tone="danger">Riesgo alto</Chip>}
+        {/* Registro: existencia de nota simple + % titulares con porcentaje declarado */}
+        <Chip tone={notas.length > 0 ? "gold" : "warning"}>
+          Registro · Nota simple {notas.length > 0 ? "✓" : "✗"}
+        </Chip>
+        {titStats && titStats.total > 0 && (
+          <Chip tone={titStats.conPct === titStats.total ? "gold" : "warning"}>
+            Titulares con %: {titStats.conPct} de {titStats.total}
+          </Chip>
+        )}
       </div>
 
       {/* KPIs reales */}
