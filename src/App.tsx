@@ -52,6 +52,7 @@ const AdminZonas = lazy(() => import("./pages/admin/Zonas"));
 const AdminIA = lazy(() => import("./pages/admin/IA"));
 const AdminOps = lazy(() => import("./pages/admin/Ops"));
 const AdminSync = lazy(() => import("./pages/admin/Sync"));
+const AdminIntegridad = lazy(() => import("./pages/admin/Integridad"));
 const WhatsappDashboard = lazy(() => import("./pages/whatsapp/WhatsappDashboard"));
 const Oportunidades = lazy(() => import("./pages/Oportunidades"));
 const RevisionEscaleras = lazy(() => import("./pages/RevisionEscaleras"));
@@ -147,6 +148,7 @@ const App = () => (
                 <Route path="/admin/_ops" element={<AdminOps />} />
                 <Route path="/admin" element={<AdminSync />} />
                 <Route path="/admin/sync" element={<AdminSync />} />
+                <Route path="/admin/integridad" element={<AdminIntegridad />} />
                 <Route path="/enriquecimiento" element={<Enriquecimiento />} />
                 <Route path="/whatsapp" element={<WhatsappDashboard />} />
                 <Route path="/oportunidades" element={<Oportunidades />} />
