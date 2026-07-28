@@ -80,6 +80,15 @@ Deno.serve(async (req) => {
       };
       await sb.from("hubspot_calls").update(patch).eq("id", c.id);
 
+      // Hook: detección de consentimiento WhatsApp (best-effort, no bloquea)
+      try {
+        await fetch(`${SUP}/functions/v1/detect_whatsapp_consent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SR}` },
+          body: JSON.stringify({ hs_call_id: c.hs_id }),
+        });
+      } catch (e) { console.error("[auto_analyze] wa_consent hook fail", e); }
+
       out.push({ hs_id: c.hs_id, owner_id: ownerId, ok: okAnalysis, score: j?.voss?.puntuacion?.score_0_100 ?? null });
       processed++;
     }
