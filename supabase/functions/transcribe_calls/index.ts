@@ -16,6 +16,9 @@ const corsHeaders = {
 const DEFAULT_LIMIT = 15;
 const CONCURRENCY = 3; // conservador: OpenRouter STT tiene rate limits
 const MIN_DURATION_MS = 45_000;
+// Chunking para audios largos: si duration > 10 min, trocear en trozos ~8 min.
+const CHUNK_THRESHOLD_MS = 10 * 60 * 1000;
+const CHUNK_TARGET_MS   = 8  * 60 * 1000;
 const GW = "https://connector-gateway.lovable.dev/hubspot";
 const OR_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
 const LOVABLE_STT_URL = "https://ai.gateway.lovable.dev/v1/audio/transcriptions";
@@ -143,26 +146,63 @@ async function transcribeOne(supabase: any, row: any): Promise<{ ok: boolean; er
     return { ok: false, error: dl.error };
   }
 
-  // OpenRouter STT rechaza multipart >25 MB. Marcamos oversize y lo dejamos para Deepgram.
-  const OR_MAX = 25 * 1024 * 1024 - 128 * 1024; // margen para el boundary/headers
-  if (dl.bytes.byteLength > OR_MAX) {
-    await supabase.from("hubspot_calls").update({
-      raw: { ...raw, _transcribe_oversize: true, _transcribe_bytes: dl.bytes.byteLength, _transcribe_error: `oversize ${dl.bytes.byteLength}B > 25MB`, _transcribe_error_at: new Date().toISOString() },
-    }).eq("id", row.id);
-    return { ok: false, error: `oversize ${dl.bytes.byteLength}B (>25MB, usar Deepgram)` };
-  }
+  // OpenRouter STT rechaza multipart >25 MB. Si el audio total supera ese
+  // límite o dura >10 min, troceamos por bytes proporcional a la duración.
+  // MP3 es frame-based: un split byte-a-byte puede perder unos ms al inicio
+  // de cada trozo, aceptable para STT.
+  const OR_MAX = 25 * 1024 * 1024 - 128 * 1024;
+  const durMs = Number(row.hs_call_duration || 0);
+  const totalBytes = dl.bytes.byteLength;
+  const needsChunk = totalBytes > OR_MAX || (durMs > CHUNK_THRESHOLD_MS);
 
-  // STT primario via Lovable AI Gateway (sin dependencia de saldo OpenRouter).
-  // Fallback 1: OpenRouter con el mismo modelo. Fallback 2: whisper-1 en OpenRouter.
-  let out = await transcribeWithLovable(dl.bytes, dl.contentType, PRIMARY_MODEL);
-  if (!out.ok && out.status !== 429) {
-    const fb1 = await transcribeWithOpenRouter(dl.bytes, dl.contentType, PRIMARY_MODEL);
-    if (fb1.ok) out = fb1;
-    else if (fb1.status !== 429) {
-      const fb2 = await transcribeWithOpenRouter(dl.bytes, dl.contentType, FALLBACK_MODEL);
-      if (fb2.ok) out = fb2;
-      else out = { ok: false, error: `${out.error} | or:${fb1.error} | wh:${fb2.error}`, status: fb2.status };
-    } else out = fb1;
+  const tryTranscribe = async (bytes: Uint8Array): Promise<{ ok: true; text: string } | { ok: false; error: string; status?: number }> => {
+    let out = await transcribeWithLovable(bytes, dl.contentType, PRIMARY_MODEL);
+    if (!out.ok && out.status !== 429) {
+      const fb1 = await transcribeWithOpenRouter(bytes, dl.contentType, PRIMARY_MODEL);
+      if (fb1.ok) out = fb1;
+      else if (fb1.status !== 429) {
+        const fb2 = await transcribeWithOpenRouter(bytes, dl.contentType, FALLBACK_MODEL);
+        if (fb2.ok) out = fb2;
+        else out = { ok: false, error: `${out.error} | or:${fb1.error} | wh:${fb2.error}`, status: fb2.status };
+      } else out = fb1;
+    }
+    return out;
+  };
+
+  let out: { ok: true; text: string } | { ok: false; error: string; status?: number };
+  if (!needsChunk) {
+    out = await tryTranscribe(dl.bytes);
+  } else {
+    // Calcular número de trozos por duración (si conocemos duración) o por tamaño.
+    let numChunks: number;
+    if (durMs > 0) {
+      numChunks = Math.max(2, Math.ceil(durMs / CHUNK_TARGET_MS));
+    } else {
+      numChunks = Math.max(2, Math.ceil(totalBytes / OR_MAX));
+    }
+    // Asegurar que cada chunk cabe en OR_MAX
+    while (Math.ceil(totalBytes / numChunks) > OR_MAX) numChunks++;
+    const chunkSize = Math.ceil(totalBytes / numChunks);
+    const parts: string[] = [];
+    let failed = 0;
+    let lastErr = "";
+    for (let i = 0; i < numChunks; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, totalBytes);
+      if (start >= end) break;
+      const slice = dl.bytes.subarray(start, end);
+      const r = await tryTranscribe(slice);
+      if (r.ok) parts.push(r.text);
+      else { failed++; lastErr = r.error; }
+    }
+    if (!parts.length) {
+      out = { ok: false, error: `chunking failed all ${numChunks}: ${lastErr}` };
+    } else {
+      const joined = parts.join(" \n").trim();
+      // Persistimos aunque falten algunos trozos: mejor parcial que nada.
+      out = { ok: true, text: joined };
+      if (failed > 0) console.warn(`[transcribe_calls] ${hsId} chunked ${numChunks} parts, ${failed} failed`);
+    }
   }
 
   if (!out.ok) {
@@ -177,7 +217,7 @@ async function transcribeOne(supabase: any, row: any): Promise<{ ok: boolean; er
   const text = out.text;
   const update: any = {
     hs_call_transcription: text,
-    raw: { ...raw, _transcribed_at: new Date().toISOString(), _transcribe_model: PRIMARY_MODEL, _transcribe_error: null, _transcribe_error_at: null },
+    raw: { ...raw, _transcribed_at: new Date().toISOString(), _transcribe_model: PRIMARY_MODEL, _transcribe_error: null, _transcribe_error_at: null, _transcribe_chunked: needsChunk || undefined, _transcribe_oversize: undefined },
   };
   const { error: upErr } = await supabase.from("hubspot_calls").update(update).eq("id", row.id);
   if (upErr) return { ok: false, error: `update: ${upErr.message}` };
