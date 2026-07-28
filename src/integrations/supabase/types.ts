@@ -4802,7 +4802,13 @@ export type Database = {
           buyer_persona: Database["public"]["Enums"]["buyer_persona"]
           consentimiento: boolean
           created_at: string
+          edad_anios: number | null
           email: string | null
+          estado_vital: string | null
+          estado_vital_evidencia: string | null
+          estado_vital_fecha: string | null
+          estado_vital_fuente: string | null
+          fecha_nacimiento: string | null
           id: string
           last_synced_at: string | null
           merged_into: string | null
@@ -4820,7 +4826,13 @@ export type Database = {
           buyer_persona?: Database["public"]["Enums"]["buyer_persona"]
           consentimiento?: boolean
           created_at?: string
+          edad_anios?: number | null
           email?: string | null
+          estado_vital?: string | null
+          estado_vital_evidencia?: string | null
+          estado_vital_fecha?: string | null
+          estado_vital_fuente?: string | null
+          fecha_nacimiento?: string | null
           id?: string
           last_synced_at?: string | null
           merged_into?: string | null
@@ -4838,7 +4850,13 @@ export type Database = {
           buyer_persona?: Database["public"]["Enums"]["buyer_persona"]
           consentimiento?: boolean
           created_at?: string
+          edad_anios?: number | null
           email?: string | null
+          estado_vital?: string | null
+          estado_vital_evidencia?: string | null
+          estado_vital_fecha?: string | null
+          estado_vital_fuente?: string | null
+          fecha_nacimiento?: string | null
           id?: string
           last_synced_at?: string | null
           merged_into?: string | null
