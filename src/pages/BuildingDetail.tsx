@@ -67,6 +67,7 @@ export default function BuildingDetail() {
   const [ownerNotes, setOwnerNotes] = useState<any[]>([]);
   const [hsTasks, setHsTasks] = useState<any[]>([]);
   const [nextActions, setNextActions] = useState<any[]>([]);
+  const [titStats, setTitStats] = useState<{ total: number; conPct: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // pagination per tab
@@ -101,6 +102,19 @@ export default function BuildingDetail() {
     setBcs(bc ?? []);
     setNotas(ns ?? []);
     setNextActions(na ?? []);
+
+    // % titulares con porcentaje declarado en el registro (todas las notas del edificio)
+    const notaIds = (ns ?? []).map((n: any) => n.id);
+    if (notaIds.length) {
+      const { data: tits } = await supabase.from("nota_simple_titulares")
+        .select("id, porcentaje")
+        .in("nota_simple_id", notaIds);
+      const total = tits?.length ?? 0;
+      const conPct = (tits ?? []).filter((t: any) => t.porcentaje != null).length;
+      setTitStats({ total, conPct });
+    } else {
+      setTitStats({ total: 0, conPct: 0 });
+    }
 
     const ownerIds = (bo ?? []).map((r: any) => r.owner_id);
     if (ownerIds.length) {
