@@ -3323,6 +3323,60 @@ export type Database = {
         }
         Relationships: []
       }
+      hubspot_deals: {
+        Row: {
+          amount: number | null
+          associated_contact_ids: string[] | null
+          closedate: string | null
+          cobertura_del_edificio: string | null
+          created_at: string
+          dealname: string | null
+          dealstage: string | null
+          hs_createdate: string | null
+          hs_id: string
+          hs_lastmodifieddate: string | null
+          hs_owner_id: string | null
+          n_total_de_copropietarios: string | null
+          pipeline: string | null
+          raw: Json | null
+          updated_at: string
+        }
+        Insert: {
+          amount?: number | null
+          associated_contact_ids?: string[] | null
+          closedate?: string | null
+          cobertura_del_edificio?: string | null
+          created_at?: string
+          dealname?: string | null
+          dealstage?: string | null
+          hs_createdate?: string | null
+          hs_id: string
+          hs_lastmodifieddate?: string | null
+          hs_owner_id?: string | null
+          n_total_de_copropietarios?: string | null
+          pipeline?: string | null
+          raw?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number | null
+          associated_contact_ids?: string[] | null
+          closedate?: string | null
+          cobertura_del_edificio?: string | null
+          created_at?: string
+          dealname?: string | null
+          dealstage?: string | null
+          hs_createdate?: string | null
+          hs_id?: string
+          hs_lastmodifieddate?: string | null
+          hs_owner_id?: string | null
+          n_total_de_copropietarios?: string | null
+          pipeline?: string | null
+          raw?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hubspot_emails: {
         Row: {
           associated_contact_ids: string[] | null
