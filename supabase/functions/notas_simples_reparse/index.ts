@@ -155,6 +155,7 @@ async function callLLM(messages: any[]): Promise<ExtractedFields | null> {
           messages,
           response_format: { type: "json_object" },
           temperature: 0,
+          max_tokens: 2000,
         }),
       });
       if (!r.ok) {
@@ -332,19 +333,24 @@ Deno.serve(async (req) => {
 
   // 4) Log
   const ok = results.filter((r) => r.ok).length;
-  await sb.from("hubspot_sync_log").insert({
-    entity: ENTITY,
-    started_at: new Date(t0).toISOString(),
-    finished_at: new Date().toISOString(),
-    records_upserted: results.length,
-    status: ok === results.length ? "ok" : (ok === 0 ? "error" : "partial"),
-    metadatos: {
-      ok,
-      fail: results.length - ok,
-      match_result: matchResult,
-      fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
-    },
-  }).catch((e) => console.warn(`[notas_reparse] log insert:`, e.message));
+  try {
+    const { error: logErr } = await sb.from("hubspot_sync_log").insert({
+      entity: ENTITY,
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      records_upserted: results.length,
+      status: ok === results.length ? "ok" : (ok === 0 ? "error" : "partial"),
+      metadatos: {
+        ok,
+        fail: results.length - ok,
+        match_result: matchResult,
+        fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
+      },
+    });
+    if (logErr) console.warn(`[notas_reparse] log insert:`, logErr.message);
+  } catch (e) {
+    console.warn(`[notas_reparse] log insert exception:`, (e as Error).message);
+  }
 
   return new Response(JSON.stringify({
     ok: true,
