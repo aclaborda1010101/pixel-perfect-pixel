@@ -93,6 +93,7 @@ type Row = {
   protegido_historicamente?: boolean | null;
   edificio_reformado?: boolean | null;
   gestion_profesional?: boolean | null;
+  prior_count?: number;
 };
 
 const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
@@ -543,6 +544,28 @@ export default function ComercialEdificios() {
         for (const row of (aPage ?? []) as any[]) analysisMap.set(row.building_id, row);
       }
 
+      // Campaña revista junio 2026 — contar propietarios prioritarios por edificio.
+      const priorMap = new Map<string, number>();
+      try {
+        const { data: priorOwners } = await (supabase.from("owners") as any)
+          .select("id")
+          .not("metadatos->>prioridad_originacion", "is", null)
+          .limit(5000);
+        const priorIds = (priorOwners ?? []).map((r: any) => r.id);
+        if (priorIds.length > 0) {
+          const CHUNK = 500;
+          for (let i = 0; i < priorIds.length; i += CHUNK) {
+            const slice = priorIds.slice(i, i + CHUNK);
+            const { data: bo } = await (supabase.from("building_owners") as any)
+              .select("building_id")
+              .in("owner_id", slice);
+            for (const row of (bo ?? []) as any[]) {
+              priorMap.set(row.building_id, (priorMap.get(row.building_id) ?? 0) + 1);
+            }
+          }
+        }
+      } catch {}
+
       const rows: Row[] = (scores ?? []).map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
@@ -589,6 +612,7 @@ export default function ComercialEdificios() {
           protegido_historicamente: an.protegido_historicamente ?? null,
           edificio_reformado: an.edificio_reformado ?? null,
           gestion_profesional: an.gestion_profesional ?? null,
+          prior_count: priorMap.get(b.id) ?? 0,
         };
       });
       return { rows };
