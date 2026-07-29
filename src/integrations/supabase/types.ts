@@ -110,20 +110,56 @@ export type Database = {
         }
         Relationships: []
       }
+      _a2_addr_cand: {
+        Row: {
+          building_id: string | null
+          direccion: string | null
+          nota_id: string | null
+          num: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          direccion?: string | null
+          nota_id?: string | null
+          num?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          direccion?: string | null
+          nota_id?: string | null
+          num?: string | null
+        }
+        Relationships: []
+      }
+      _a2_addr_match: {
+        Row: {
+          building_id: string | null
+          direccion: string | null
+          nota_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          direccion?: string | null
+          nota_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          direccion?: string | null
+          nota_id?: string | null
+        }
+        Relationships: []
+      }
       _a2_dni_match: {
         Row: {
           building_id: string | null
-          fuerza: number | null
           nota_simple_id: string | null
         }
         Insert: {
           building_id?: string | null
-          fuerza?: number | null
           nota_simple_id?: string | null
         }
         Update: {
           building_id?: string | null
-          fuerza?: number | null
           nota_simple_id?: string | null
         }
         Relationships: []
@@ -131,18 +167,51 @@ export type Database = {
       _a2_name_match: {
         Row: {
           building_id: string | null
-          mejor: number | null
           nota_simple_id: string | null
         }
         Insert: {
           building_id?: string | null
-          mejor?: number | null
           nota_simple_id?: string | null
         }
         Update: {
           building_id?: string | null
-          mejor?: number | null
           nota_simple_id?: string | null
+        }
+        Relationships: []
+      }
+      _a2_orf_txt: {
+        Row: {
+          nota_id: string | null
+          txt: string | null
+        }
+        Insert: {
+          nota_id?: string | null
+          txt?: string | null
+        }
+        Update: {
+          nota_id?: string | null
+          txt?: string | null
+        }
+        Relationships: []
+      }
+      _a2_vias: {
+        Row: {
+          calle: string | null
+          direccion: string | null
+          id: string | null
+          num: string | null
+        }
+        Insert: {
+          calle?: string | null
+          direccion?: string | null
+          id?: string | null
+          num?: string | null
+        }
+        Update: {
+          calle?: string | null
+          direccion?: string | null
+          id?: string | null
+          num?: string | null
         }
         Relationships: []
       }
@@ -7179,6 +7248,7 @@ export type Database = {
               source: string
             }[]
           }
+      match_notas_pendientes: { Args: never; Returns: Json }
       match_owner_by_phone: {
         Args: { p_phone: string }
         Returns: {
