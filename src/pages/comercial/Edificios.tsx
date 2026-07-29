@@ -315,6 +315,7 @@ export default function ComercialEdificios() {
   const [advSinGestionPro, setAdvSinGestionPro] = useState(false);
   const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
   const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
+  const [advSoloPrioritarios, setAdvSoloPrioritarios] = useState(false);
   // Toggle "Sin propietarios": muestra el score físico puro (score_activo).
   // Por defecto OFF → usamos score_total (mezcla activo × propietarios).
   const [viewActivo, setViewActivo] = useState<boolean>(() =>
@@ -695,6 +696,7 @@ export default function ComercialEdificios() {
       if (advSinGestionPro && r.gestion_profesional) return false;
       if (advClusters.size > 0 && (!r.cluster_asignado || !advClusters.has(r.cluster_asignado))) return false;
       if (advSoloEstrella && !r.es_estrella) return false;
+      if (advSoloPrioritarios && (r.prior_count ?? 0) === 0) return false;
       return true;
     });
 
@@ -765,6 +767,7 @@ export default function ComercialEdificios() {
     setAdvSinGestionPro(false);
     setAdvClusters(new Set());
     setAdvSoloEstrella(false);
+    setAdvSoloPrioritarios(false);
   };
 
   const advancedCount =
@@ -777,7 +780,8 @@ export default function ComercialEdificios() {
     (advSinReforma ? 1 : 0) +
     (advSinGestionPro ? 1 : 0) +
     (advClusters.size > 0 ? 1 : 0) +
-    (advSoloEstrella ? 1 : 0);
+    (advSoloEstrella ? 1 : 0) +
+    (advSoloPrioritarios ? 1 : 0);
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0) +
@@ -954,6 +958,16 @@ export default function ComercialEdificios() {
                   />
                   <Label htmlFor="star" className="cursor-pointer text-xs font-normal">
                     ⭐ Solo edificios estrella
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="prior-camp"
+                    checked={advSoloPrioritarios}
+                    onCheckedChange={(c) => setAdvSoloPrioritarios(!!c)}
+                  />
+                  <Label htmlFor="prior-camp" className="cursor-pointer text-xs font-normal">
+                    ⭐ Con prioritarios de campaña
                   </Label>
                 </div>
                 {[
