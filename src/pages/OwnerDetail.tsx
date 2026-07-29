@@ -76,6 +76,7 @@ type Owner = {
   estado_vital_fecha?: string | null;
   edad_anios?: number | null;
   fecha_nacimiento?: string | null;
+  metadatos?: any;
 };
 
 type CommItem = {
@@ -287,6 +288,19 @@ export default function OwnerDetail() {
         subtitle={owner.email ?? owner.telefono ?? ""}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {owner.metadatos?.prioridad_originacion && (
+              <span
+                className="text-lg leading-none"
+                title={`Prioritario campaña junio 2026${owner.metadatos?.revista_distrito ? ` · ${owner.metadatos?.revista_distrito}` : ""}`}
+              >
+                ⭐
+              </span>
+            )}
+            {owner.metadatos?.revista_enviada === "true" && (
+              <span className="text-lg leading-none" title="Revista enviada">
+                📬
+              </span>
+            )}
             {owner.estado_vital === "fallecido" && (
               <Badge variant="destructive" title={owner.estado_vital_fuente || ""}>
                 Fallecido{owner.estado_vital_fecha ? ` · ${fmtDate(owner.estado_vital_fecha)}` : ""}

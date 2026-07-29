@@ -93,6 +93,7 @@ type Row = {
   protegido_historicamente?: boolean | null;
   edificio_reformado?: boolean | null;
   gestion_profesional?: boolean | null;
+  prior_count?: number;
 };
 
 const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
@@ -173,6 +174,15 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
               {r.cartera_demo && (
                 <Badge className="h-5 whitespace-nowrap rounded-sm border-0 bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 text-[10px] uppercase tracking-eyebrow text-white">
                   Marcado
+                </Badge>
+              )}
+              {(r.prior_count ?? 0) > 0 && (
+                <Badge
+                  variant="outline"
+                  className="h-5 whitespace-nowrap rounded-sm border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-300"
+                  title={`${r.prior_count} propietario${r.prior_count === 1 ? "" : "s"} prioritario${r.prior_count === 1 ? "" : "s"} campaña junio 2026`}
+                >
+                  ⭐ {r.prior_count}
                 </Badge>
               )}
             </div>
@@ -314,6 +324,7 @@ export default function ComercialEdificios() {
   const [advSinGestionPro, setAdvSinGestionPro] = useState(false);
   const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
   const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
+  const [advSoloPrioritarios, setAdvSoloPrioritarios] = useState(false);
   // Toggle "Sin propietarios": muestra el score físico puro (score_activo).
   // Por defecto OFF → usamos score_total (mezcla activo × propietarios).
   const [viewActivo, setViewActivo] = useState<boolean>(() =>
@@ -543,6 +554,28 @@ export default function ComercialEdificios() {
         for (const row of (aPage ?? []) as any[]) analysisMap.set(row.building_id, row);
       }
 
+      // Campaña revista junio 2026 — contar propietarios prioritarios por edificio.
+      const priorMap = new Map<string, number>();
+      try {
+        const { data: priorOwners } = await (supabase.from("owners") as any)
+          .select("id")
+          .not("metadatos->>prioridad_originacion", "is", null)
+          .limit(5000);
+        const priorIds = (priorOwners ?? []).map((r: any) => r.id);
+        if (priorIds.length > 0) {
+          const CHUNK = 500;
+          for (let i = 0; i < priorIds.length; i += CHUNK) {
+            const slice = priorIds.slice(i, i + CHUNK);
+            const { data: bo } = await (supabase.from("building_owners") as any)
+              .select("building_id")
+              .in("owner_id", slice);
+            for (const row of (bo ?? []) as any[]) {
+              priorMap.set(row.building_id, (priorMap.get(row.building_id) ?? 0) + 1);
+            }
+          }
+        }
+      } catch {}
+
       const rows: Row[] = (scores ?? []).map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
@@ -589,6 +622,7 @@ export default function ComercialEdificios() {
           protegido_historicamente: an.protegido_historicamente ?? null,
           edificio_reformado: an.edificio_reformado ?? null,
           gestion_profesional: an.gestion_profesional ?? null,
+          prior_count: priorMap.get(b.id) ?? 0,
         };
       });
       return { rows };
@@ -671,6 +705,7 @@ export default function ComercialEdificios() {
       if (advSinGestionPro && r.gestion_profesional) return false;
       if (advClusters.size > 0 && (!r.cluster_asignado || !advClusters.has(r.cluster_asignado))) return false;
       if (advSoloEstrella && !r.es_estrella) return false;
+      if (advSoloPrioritarios && (r.prior_count ?? 0) === 0) return false;
       return true;
     });
 
@@ -741,6 +776,7 @@ export default function ComercialEdificios() {
     setAdvSinGestionPro(false);
     setAdvClusters(new Set());
     setAdvSoloEstrella(false);
+    setAdvSoloPrioritarios(false);
   };
 
   const advancedCount =
@@ -753,7 +789,8 @@ export default function ComercialEdificios() {
     (advSinReforma ? 1 : 0) +
     (advSinGestionPro ? 1 : 0) +
     (advClusters.size > 0 ? 1 : 0) +
-    (advSoloEstrella ? 1 : 0);
+    (advSoloEstrella ? 1 : 0) +
+    (advSoloPrioritarios ? 1 : 0);
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0) +
@@ -930,6 +967,16 @@ export default function ComercialEdificios() {
                   />
                   <Label htmlFor="star" className="cursor-pointer text-xs font-normal">
                     ⭐ Solo edificios estrella
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="prior-camp"
+                    checked={advSoloPrioritarios}
+                    onCheckedChange={(c) => setAdvSoloPrioritarios(!!c)}
+                  />
+                  <Label htmlFor="prior-camp" className="cursor-pointer text-xs font-normal">
+                    ⭐ Con prioritarios de campaña
                   </Label>
                 </div>
                 {[

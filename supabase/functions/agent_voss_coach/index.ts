@@ -376,6 +376,19 @@ Deno.serve(async (req) => {
       if (!o?.buyer_persona || o.buyer_persona === 'sin_clasificar') snapshot.datos_faltantes.push('buyer_persona/tipologia');
       if (!o?.telefono) snapshot.datos_faltantes.push('telefono');
       if (!o?.consentimiento) snapshot.datos_faltantes.push('consentimiento_whatsapp');
+      // Campaña revista junio 2026 — si al propietario se le envió carta + revista,
+      // el ABRIDOR NATURAL de la llamada es "le llamo a raíz de la revista que
+      // le enviamos". Solo se pasa el dato; el prompt lo usa para el guion.
+      if (o?.metadatos?.revista_enviada === 'true') {
+        snapshot.campana_revista = {
+          revista_enviada: true,
+          distrito: o.metadatos?.revista_distrito ?? null,
+          prioridad: o.metadatos?.prioridad_originacion ?? null,
+          opener_sugerido:
+            'Le llamo a raíz de la revista que le enviamos hace unas semanas — la de Afflux, con el análisis del edificio de su calle.',
+          nota: 'HA RECIBIDO carta + revista Afflux junio 2026. Usar la revista como abridor natural de la llamada; da contexto y baja la fricción del primer minuto.',
+        };
+      }
     } else {
       snapshot.datos_faltantes.push('owner_id no provisto');
     }

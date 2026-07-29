@@ -2111,6 +2111,77 @@ export type Database = {
           },
         ]
       }
+      campana_revista_2026: {
+        Row: {
+          apellidos: string | null
+          created_at: string | null
+          distrito: string | null
+          grupo_dup: string | null
+          id: number
+          match_candidatos: number | null
+          match_metodo: string | null
+          nombre: string | null
+          nombre_norm: string | null
+          owner_id: string | null
+          telefono: string | null
+        }
+        Insert: {
+          apellidos?: string | null
+          created_at?: string | null
+          distrito?: string | null
+          grupo_dup?: string | null
+          id?: number
+          match_candidatos?: number | null
+          match_metodo?: string | null
+          nombre?: string | null
+          nombre_norm?: string | null
+          owner_id?: string | null
+          telefono?: string | null
+        }
+        Update: {
+          apellidos?: string | null
+          created_at?: string | null
+          distrito?: string | null
+          grupo_dup?: string | null
+          id?: number
+          match_candidatos?: number | null
+          match_metodo?: string | null
+          nombre?: string | null
+          nombre_norm?: string | null
+          owner_id?: string | null
+          telefono?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campana_revista_2026_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campana_revista_2026_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "campana_revista_2026_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "campana_revista_2026_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       catastro_authority_cache: {
         Row: {
           ano_construccion: number | null
