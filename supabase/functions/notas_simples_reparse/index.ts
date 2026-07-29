@@ -2,8 +2,12 @@
 // y extraer direccion + ref_catastral + finca + titulares (si faltaban).
 // El emparejado a edificio lo hace public.match_notas_pendientes() en la BD.
 //
-// Selección: status='listo' AND building_id IS NULL AND
-//            coalesce(structured_json->>'reparse_done','') <> '1'
+// Selección:
+//   status='listo' AND
+//   coalesce(structured_json->>'reparse_done','') <> '1' AND
+//   ( building_id IS NULL OR structured_json->>'needs_extract' = '1' )
+// (para reprocesar tanto huérfanas como notas recién ingestadas con
+//  needs_extract='1' aunque tengan building_id).
 // Lote: 12 por invocación. Cron cada 5 min (notas_simples_reparse_5m).
 //
 // Pipeline por nota:
@@ -217,6 +221,8 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
     // 3) Merge structured_json
     const prev = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
     const merged: any = { ...prev, reparse_done: "1" };
+    // Al completar el reparse, quita la marca de "necesita extracción"
+    if ("needs_extract" in merged) delete merged.needs_extract;
     if (extracted.direccion) merged.direccion = String(extracted.direccion).trim();
     if (extracted.ref_catastral && !prev.ref_catastral) merged.ref_catastral = String(extracted.ref_catastral).replace(/\s+/g, "").toUpperCase();
     const finca = { ...(prev.finca ?? {}) };
@@ -293,11 +299,12 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
 
   // 1) Selección: sin building_id, listo, sin reparse_done
+  // building_id IS NULL  OR  needs_extract='1' → ambos entran al reparse.
   const { data: notas, error: selErr } = await sb
     .from("notas_simples")
-    .select("id, file_url, structured_json")
+    .select("id, file_url, structured_json, building_id")
     .eq("status", "listo")
-    .is("building_id", null)
+    .or("building_id.is.null,structured_json->>needs_extract.eq.1")
     .or("structured_json->>reparse_done.is.null,structured_json->>reparse_done.neq.1")
     .order("created_at", { ascending: true })
     .limit(limit);
