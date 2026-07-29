@@ -39,3 +39,6 @@ verify_jwt = false
 
 [functions.hubspot_contacts_inc]
 verify_jwt = false
+
+[functions.notas_simples_reparse]
+verify_jwt = false
