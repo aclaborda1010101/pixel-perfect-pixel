@@ -154,7 +154,7 @@ export default function ComercialEdificioDetalle() {
           .eq("building_id", id!)
           .maybeSingle(),
         (supabase.from("building_owners") as any)
-          .select("owner_id, owners:owner_id(nombre_display, estado_vital, edad_anios)")
+          .select("owner_id, owners:owner_id(nombre_display, estado_vital, edad_anios, metadatos)")
           .eq("building_id", id!),
       ]);
       const { data: companies } = await (supabase.from("building_companies" as any) as any)
@@ -405,6 +405,19 @@ export default function ComercialEdificioDetalle() {
                           <Badge variant="outline" className="h-4 border-warning/50 bg-warning-soft/40 px-1.5 text-[9px] text-warning">
                             Probable fallecido
                           </Badge>
+                        )}
+                        {ownersExtra[o.owner_id]?.metadatos?.prioridad_originacion && (
+                          <span
+                            className="text-sm leading-none"
+                            title={`Prioritario campaña junio 2026${ownersExtra[o.owner_id]?.metadatos?.revista_distrito ? ` · ${ownersExtra[o.owner_id]?.metadatos?.revista_distrito}` : ""}`}
+                          >
+                            ⭐
+                          </span>
+                        )}
+                        {ownersExtra[o.owner_id]?.metadatos?.revista_enviada === "true" && (
+                          <span className="text-sm leading-none" title="Revista enviada">
+                            📬
+                          </span>
                         )}
                       </div>
                       <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
