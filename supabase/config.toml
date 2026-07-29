@@ -48,3 +48,6 @@ verify_jwt = false
 
 [functions.push_whatsapp_consent]
 verify_jwt = false
+
+[functions.notas_simples_ingest]
+verify_jwt = false
