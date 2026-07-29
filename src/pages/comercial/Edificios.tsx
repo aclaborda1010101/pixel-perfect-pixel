@@ -176,6 +176,15 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
                   Marcado
                 </Badge>
               )}
+              {(r.prior_count ?? 0) > 0 && (
+                <Badge
+                  variant="outline"
+                  className="h-5 whitespace-nowrap rounded-sm border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-300"
+                  title={`${r.prior_count} propietario${r.prior_count === 1 ? "" : "s"} prioritario${r.prior_count === 1 ? "" : "s"} campaña junio 2026`}
+                >
+                  ⭐ {r.prior_count}
+                </Badge>
+              )}
             </div>
           </div>
           {r.score_summary ? (
