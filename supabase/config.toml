@@ -42,3 +42,9 @@ verify_jwt = false
 
 [functions.notas_simples_reparse]
 verify_jwt = false
+
+[functions.push_notas_to_hubspot]
+verify_jwt = false
+
+[functions.push_whatsapp_consent]
+verify_jwt = false

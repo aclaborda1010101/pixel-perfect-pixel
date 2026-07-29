@@ -4412,6 +4412,38 @@ export type Database = {
           },
         ]
       }
+      notas_fuera_universo: {
+        Row: {
+          created_at: string
+          dealname: string | null
+          hs_deal_id: string
+          id: string
+          nota_simple_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          dealname?: string | null
+          hs_deal_id: string
+          id?: string
+          nota_simple_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          dealname?: string | null
+          hs_deal_id?: string
+          id?: string
+          nota_simple_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notas_fuera_universo_nota_simple_id_fkey"
+            columns: ["nota_simple_id"]
+            isOneToOne: false
+            referencedRelation: "notas_simples"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notas_simples: {
         Row: {
           building_id: string | null

@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
     .select("id").single();
   const logId = logRow?.id;
 
-  let pagesFetched = 0, notesScanned = 0, attached = 0, notesWithoutDeal = 0;
+  let pagesFetched = 0, notesScanned = 0, attached = 0, notesWithoutDeal = 0, outsideUniverse = 0;
   let after: string | undefined;
   let maxSeen = sinceIso;
 
@@ -133,7 +133,35 @@ Deno.serve(async (req) => {
             .eq("entity_type", "building").eq("provider", "hubspot")
             .in("provider_id", dealIds);
           const buildingId = ext?.[0]?.entity_id;
-          if (!buildingId) return;
+          if (!buildingId) {
+            // Fuera de universo: deal existe en HubSpot pero no está en nuestros 1.166.
+            // Marcamos y registramos para no volver a intentarlo.
+            for (const fid of matchedFileIds) {
+              const notaIds = pending.get(fid) || [];
+              if (!notaIds.length) continue;
+              // Consulta dealname (una vez por dealId encontrado)
+              let dealname: string | null = null;
+              try {
+                const dealInfo = await hubspotFetch(`/crm/v3/objects/deals/${dealIds[0]}?properties=dealname`);
+                dealname = dealInfo?.properties?.dealname ?? null;
+              } catch { /* opcional */ }
+              for (const notaId of notaIds) {
+                await sb.from("notas_fuera_universo").upsert({
+                  nota_simple_id: notaId,
+                  hs_deal_id: String(dealIds[0]),
+                  dealname,
+                }, { onConflict: "nota_simple_id,hs_deal_id" });
+                // Marcar structured_json.fuera_universo='1'
+                const { data: cur } = await sb.from("notas_simples")
+                  .select("structured_json").eq("id", notaId).maybeSingle();
+                const merged = { ...((cur as any)?.structured_json || {}), fuera_universo: "1", fuera_universo_deal: String(dealIds[0]), fuera_universo_at: new Date().toISOString() };
+                await sb.from("notas_simples").update({ structured_json: merged }).eq("id", notaId);
+                outsideUniverse++;
+              }
+              pending.delete(fid);
+            }
+            return;
+          }
 
           for (const fid of matchedFileIds) {
             const notaIds = pending.get(fid) || [];
@@ -161,19 +189,19 @@ Deno.serve(async (req) => {
     await sb.from("hubspot_sync_log").update({
       finished_at: finishedAt, status: "ok",
       pages_fetched: pagesFetched, records_upserted: attached, records_failed: 0,
-      metadatos: { since: sinceIso, since_after: maxSeen, notes_scanned: notesScanned, attached, notes_without_deal: notesWithoutDeal, initial_pending: initialPending, remaining_pending: remaining },
+      metadatos: { since: sinceIso, since_after: maxSeen, notes_scanned: notesScanned, attached, notes_without_deal: notesWithoutDeal, outside_universe: outsideUniverse, initial_pending: initialPending, remaining_pending: remaining },
     }).eq("id", logId);
 
     await sb.from("hubspot_sync_state").update({
       last_run_status: "ok", last_run_at: finishedAt,
       cursor: maxSeen,
       last_error: null,
-      metadatos: { last_attached: attached, last_scanned: notesScanned, initial_pending: initialPending, remaining_pending: remaining },
+      metadatos: { last_attached: attached, last_scanned: notesScanned, last_outside_universe: outsideUniverse, initial_pending: initialPending, remaining_pending: remaining },
     }).eq("entity", ENTITY);
 
     return new Response(JSON.stringify({
       ok: true, pages_fetched: pagesFetched, notes_scanned: notesScanned,
-      attached, notes_without_deal: notesWithoutDeal,
+      attached, notes_without_deal: notesWithoutDeal, outside_universe: outsideUniverse,
       initial_pending: initialPending, remaining_pending: remaining,
       since: sinceIso, since_after: maxSeen, elapsed_ms: Date.now() - t0,
     }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
