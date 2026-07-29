@@ -3979,6 +3979,30 @@ export type Database = {
         }
         Relationships: []
       }
+      integrity_alert_log: {
+        Row: {
+          detalle: string | null
+          first_detected_at: string | null
+          issue_key: string
+          last_sent_at: string | null
+          resolved_at: string | null
+        }
+        Insert: {
+          detalle?: string | null
+          first_detected_at?: string | null
+          issue_key: string
+          last_sent_at?: string | null
+          resolved_at?: string | null
+        }
+        Update: {
+          detalle?: string | null
+          first_detected_at?: string | null
+          issue_key?: string
+          last_sent_at?: string | null
+          resolved_at?: string | null
+        }
+        Relationships: []
+      }
       investors: {
         Row: {
           ciudades: string[]
@@ -7295,6 +7319,17 @@ export type Database = {
           label: string
         }[]
       }
+      integridad_alertas_marcar: {
+        Args: { p_detalles: string[]; p_keys: string[] }
+        Returns: undefined
+      }
+      integridad_alertas_pendientes: {
+        Args: never
+        Returns: {
+          detalle: string
+          issue_key: string
+        }[]
+      }
       madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
       match_building_fuzzy: {
         Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
@@ -7472,6 +7507,7 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       strip_html_to_text: { Args: { _in: string }; Returns: string }
+      sync_links_from_deals: { Args: never; Returns: Json }
     }
     Enums: {
       app_role:
