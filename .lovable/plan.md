@@ -1,42 +1,29 @@
-## Problema
+## Indicador de nota simple en fichas de edificio
 
-El login de David falla con `500: Database error querying schema` y en los logs de auth aparece:
+### Objetivo
+Añadir un indicador visual claro que muestre si un edificio tiene nota simple asociada o no, tanto en la lista de edificios como en la ficha de detalle.
 
-```
-error finding user: sql: Scan error on column index 3, name "confirmation_token": converting NULL to string is unsupported
-```
+### Cambios planificados
 
-Es un bug conocido de GoTrue: cuando en `auth.users` los campos de token (`confirmation_token`, `email_change`, `email_change_token_new`, `recovery_token`, `phone_change`, `phone_change_token`, `email_change_token_current`, `reauthentication_token`) están a `NULL` en vez de `''`, el driver Go no puede escanear la fila y devuelve 500 en cualquier `signInWithPassword`. La cuenta se creó ayer por migración/SQL directo y quedaron esos campos a NULL.
+1. **Nuevo componente reutilizable `NotaSimpleBadge.tsx`**
+   - Lógica: considera "con nota simple" si `buildings.metadatos->>'tenemos_la_nota_simple_'` es `"Sí"` o si existen registros en `notas_simples` vinculados al edificio.
+   - Visual: badge verde (`success`) con icono de documento cuando hay nota; badge ámbar/destructivo con icono de alerta cuando falta. Tooltip breve.
 
-## Solución
+2. **Lista de edificios (`src/pages/comercial/Edificios.tsx`)**
+   - Añadir `metadatos` a `B_COLS` para leer `tenemos_la_nota_simple_` sin petición extra.
+   - Añadir campo `has_nota_simple` al tipo `Row`.
+   - Incluir `NotaSimpleBadge` en la fila de chips de cada tarjeta, junto a `DocAlertBadge` y `AlarmChips`.
+   - Añadir filtro avanzado: "Con nota simple" / "Sin nota simple" / "Todos".
 
-Una única migración que normaliza esos campos a cadena vacía para el usuario afectado (y de paso para cualquier otro usuario con el mismo problema latente, sin tocar nada más de `auth`).
+3. **Ficha de detalle (`src/pages/comercial/EdificioDetalle.tsx`)**
+   - En la query principal, añadir un SELECT de `notas_simples` (id, status) filtrado por `building_id` para confirmar la existencia real.
+   - Mostrar `NotaSimpleBadge` en las acciones del `PageHeader`, junto a `DocAlertBadge` y `AlarmChips`.
 
-```sql
-UPDATE auth.users
-SET
-  confirmation_token      = COALESCE(confirmation_token, ''),
-  email_change            = COALESCE(email_change, ''),
-  email_change_token_new  = COALESCE(email_change_token_new, ''),
-  email_change_token_current = COALESCE(email_change_token_current, ''),
-  recovery_token          = COALESCE(recovery_token, ''),
-  phone_change            = COALESCE(phone_change, ''),
-  phone_change_token      = COALESCE(phone_change_token, ''),
-  reauthentication_token  = COALESCE(reauthentication_token, '')
-WHERE
-  confirmation_token IS NULL
-  OR email_change IS NULL
-  OR email_change_token_new IS NULL
-  OR email_change_token_current IS NULL
-  OR recovery_token IS NULL
-  OR phone_change IS NULL
-  OR phone_change_token IS NULL
-  OR reauthentication_token IS NULL;
-```
+4. **Consideraciones de rendimiento**
+   - El listado usará el metadato del edificio para evitar una consulta extra por tarjeta. La ficha usará `notas_simples` directamente (una sola query por edificio, cacheada por React Query).
+   - No se toca scoring, sincronización, ni backend de HubSpot.
 
-Después, David podrá entrar con `david.casero@afflux.es` / `Afflux2026!` (o pedir magic link).
-
-## Verificación
-
-- Reintentar login con la contraseña desde la UI.
-- Si aún falla, revisar `auth-logs` para confirmar que ya no aparece el error de `confirmation_token`.
+### No incluye
+- Reescritura de `DocAlertBadge` (se mantiene como aviso de documentación faltante).
+- Cambios en la base de datos o RLS.
+- Nueva página ni navegación.
