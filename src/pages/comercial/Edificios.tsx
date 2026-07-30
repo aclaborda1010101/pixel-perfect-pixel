@@ -786,6 +786,7 @@ export default function ComercialEdificios() {
     setAdvClusters(new Set());
     setAdvSoloEstrella(false);
     setAdvSoloPrioritarios(false);
+    setAdvNotaSimple("all");
   };
 
   const advancedCount =
