@@ -205,6 +205,7 @@ Deno.serve(async (req) => {
     }
 
     const finishedAt = new Date().toISOString();
+    const nextScanCursor = fullScan ? (scanExhausted ? null : scanMaxIso) : (prevMeta.scan_cursor ?? null);
     await sb.from("hubspot_sync_log").update({
       finished_at: finishedAt, status: "ok",
       pages_fetched: pagesFetched, records_upserted: insertados, records_failed: errores403,
@@ -212,19 +213,28 @@ Deno.serve(async (req) => {
         since: sinceIso, since_after: maxSeen,
         notes_scanned: notesScanned, fetched, pdfs, insertados,
         saltados_no_pdf: saltadosNoPdf, ya_existen: yaExisten,
+        scan_cursor: nextScanCursor, scan_complete: fullScan ? scanExhausted : undefined,
       },
     }).eq("id", logId);
 
     await sb.from("hubspot_sync_state").update({
       last_run_status: "ok", last_run_at: finishedAt,
       cursor: maxSeen, last_error: null,
-      metadatos: { insertados, pdfs, saltados_no_pdf: saltadosNoPdf, full_scan: fullScan, notes_scanned: notesScanned },
+      metadatos: {
+        ...prevMeta,
+        insertados, pdfs, saltados_no_pdf: saltadosNoPdf, full_scan: fullScan, notes_scanned: notesScanned,
+        scan_cursor: nextScanCursor,
+        scan_complete: fullScan ? scanExhausted : (prevMeta.scan_complete ?? false),
+        ...(fullScan && scanExhausted ? { scan_completed_at: finishedAt } : {}),
+      },
     }).eq("entity", ENTITY);
 
     return new Response(JSON.stringify({
       ok: true, pages_fetched: pagesFetched, notes_scanned: notesScanned,
       fetched, pdfs, insertados, saltados_no_pdf: saltadosNoPdf, ya_existen: yaExisten,
-      since: sinceIso, since_after: maxSeen, elapsed_ms: Date.now() - t0,
+      since: sinceIso, since_after: maxSeen,
+      scan_cursor: nextScanCursor, scan_complete: fullScan ? scanExhausted : undefined,
+      elapsed_ms: Date.now() - t0,
     }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     const msg = e?.message ?? String(e);
@@ -235,7 +245,10 @@ Deno.serve(async (req) => {
       error_message: msg,
       metadatos: { primeros_403: primeros403, notes_scanned: notesScanned, fetched, pdfs, insertados, saltados_no_pdf: saltadosNoPdf },
     }).eq("id", logId);
-    await sb.from("hubspot_sync_state").update({ last_run_status: "error", last_error: msg }).eq("entity", ENTITY);
+    await sb.from("hubspot_sync_state").update({
+      last_run_status: "error", last_error: msg,
+      metadatos: { ...prevMeta, insertados, notes_scanned: notesScanned, scan_cursor: fullScan ? scanMaxIso : (prevMeta.scan_cursor ?? null) },
+    }).eq("entity", ENTITY);
     return new Response(JSON.stringify({ ok: false, error: msg, insertados, primeros_403: primeros403 }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
