@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Sparkles, Building2, Boxes, Users2, Briefcase, FileText, PhoneCall, MessageSquare,
   StickyNote, CheckSquare, ChevronDown, ArrowRight, ArrowLeft, Network, Mail, CalendarClock,
-  Mic,
+  Users, Star,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Crumbs } from "@/components/common/Crumbs";
