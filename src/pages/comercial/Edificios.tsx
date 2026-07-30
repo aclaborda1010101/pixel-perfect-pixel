@@ -713,6 +713,8 @@ export default function ComercialEdificios() {
       if (advClusters.size > 0 && (!r.cluster_asignado || !advClusters.has(r.cluster_asignado))) return false;
       if (advSoloEstrella && !r.es_estrella) return false;
       if (advSoloPrioritarios && (r.prior_count ?? 0) === 0) return false;
+      if (advNotaSimple === "con" && !r.has_nota_simple) return false;
+      if (advNotaSimple === "sin" && r.has_nota_simple) return false;
       return true;
     });
 
