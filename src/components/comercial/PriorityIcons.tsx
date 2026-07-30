@@ -41,5 +41,9 @@ export function RevistaIcon({
   className,
   title = "Recibió la revista de Afflux (junio 2026)",
 }: IconProps) {
-  return <Newspaper className={cn("h-4 w-4 shrink-0 text-emerald-400", className)} title={title} />;
+  return (
+    <span className={cn("inline-flex shrink-0", className)} title={title}>
+      <Newspaper className="h-4 w-4 text-emerald-400" />
+    </span>
+  );
 }
