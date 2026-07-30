@@ -53,6 +53,7 @@ import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
 import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
+import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Row = {
