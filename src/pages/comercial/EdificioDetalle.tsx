@@ -257,6 +257,7 @@ export default function ComercialEdificioDetalle() {
           <div className="flex gap-2">
             <AlarmChips avisos={(b as any)?.avisos_inteligentes} esEstrella={(b as any)?.es_estrella} max={3} />
             <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral, iee_estado: (b as any)?.iee_estado }} />
+            <NotaSimpleBadge building={b} hasNota={(data as any)?.hasNotaSimple} />
             {assigned ? (
               <Badge variant="gold">Tu cartera</Badge>
             ) : null}
