@@ -628,6 +628,7 @@ export default function ComercialEdificios() {
           edificio_reformado: an.edificio_reformado ?? null,
           gestion_profesional: an.gestion_profesional ?? null,
           prior_count: priorMap.get(b.id) ?? 0,
+          has_nota_simple: metaNota === "sí" || metaNota === "si",
         };
       });
       return { rows };
