@@ -186,7 +186,7 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
                   className="h-5 whitespace-nowrap rounded-sm border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-300"
                   title={`${r.prior_count} propietario${r.prior_count === 1 ? "" : "s"} prioritario${r.prior_count === 1 ? "" : "s"} campaña junio 2026`}
                 >
-                  ⭐ {r.prior_count}
+                  <Mic className="h-3 w-3" /> {r.prior_count}
                 </Badge>
               )}
             </div>
