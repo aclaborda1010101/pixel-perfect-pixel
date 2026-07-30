@@ -215,6 +215,24 @@ export type Database = {
         }
         Relationships: []
       }
+      _export_notas: {
+        Row: {
+          direccion: string | null
+          n_notas: number | null
+          titulares_con_pct: number | null
+        }
+        Insert: {
+          direccion?: string | null
+          n_notas?: number | null
+          titulares_con_pct?: number | null
+        }
+        Update: {
+          direccion?: string | null
+          n_notas?: number | null
+          titulares_con_pct?: number | null
+        }
+        Relationships: []
+      }
       _fn_backups: {
         Row: {
           created_at: string | null
