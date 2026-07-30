@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Sparkles, Building2, Boxes, Users2, Briefcase, FileText, PhoneCall, MessageSquare,
   StickyNote, CheckSquare, ChevronDown, ArrowRight, ArrowLeft, Network, Mail, CalendarClock,
+  Mic,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Crumbs } from "@/components/common/Crumbs";
@@ -290,10 +291,10 @@ export default function OwnerDetail() {
           <div className="flex flex-wrap items-center gap-2">
             {owner.metadatos?.prioridad_originacion && (
               <span
-                className="text-lg leading-none"
+                className="flex items-center text-lg leading-none"
                 title={`Prioritario campaña junio 2026${owner.metadatos?.revista_distrito ? ` · ${owner.metadatos?.revista_distrito}` : ""}`}
               >
-                ⭐
+                <Mic className="h-5 w-5" />
               </span>
             )}
             {owner.metadatos?.revista_enviada === "true" && (
