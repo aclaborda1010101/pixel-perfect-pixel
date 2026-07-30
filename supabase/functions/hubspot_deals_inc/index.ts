@@ -17,6 +17,8 @@ const DEAL_PROPS = [
   "dealname", "dealstage", "pipeline", "hubspot_owner_id",
   "amount", "closedate", "createdate", "hs_lastmodifieddate",
   "cobertura_del_edificio", "n_total_de_copropietarios",
+  // señal de contraste: "¿Tenemos la nota simple?"
+  "tenemos_la_nota_simple_",
 ];
 
 function tsOrNull(v: any): string | null {

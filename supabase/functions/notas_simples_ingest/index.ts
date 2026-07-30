@@ -1,16 +1,18 @@
-// notas_simples_ingest — descarga PDFs de notas HubSpot creadas después del cursor
-// que aún no existan en notas_simples.file_url ('hs_<fileId>.pdf'). Ignora
+// notas_simples_ingest — escanea TODAS las notas HubSpot con hs_attachment_ids
+// (sin filtro de fecha por defecto) y descarga los PDFs que aún no existan en
+// notas_simples.file_url ('hs_<fileId>.pdf'). Ignora
 // adjuntos no-PDF (vídeos, imágenes). Inserta filas con status='listo' y
 // structured_json.needs_extract='1' para que notas_simples_reparse las procese.
 //
-// Cursor: hubspot_sync_state.entity='notas_simples_ingest' (max hs_createdate ISO).
+// Cursor: hubspot_sync_state.entity='notas_simples_ingest' (informativo; solo se
+// usa si se llama con { full_scan: false }).
 // Log: hubspot_sync_log.entity='notas_simples_ingest'.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { hubspotFetch, corsHeaders } from "../_shared/hubspot.ts";
 
 const ENTITY = "notas_simples_ingest";
-const DEFAULT_PAGES = 20;
+const DEFAULT_PAGES = 60;
 const DEFAULT_PAGE_LIMIT = 100;
 const INITIAL_SINCE_ISO = "2026-05-11T00:00:00.000Z"; // fecha del último import masivo
 
@@ -29,9 +31,11 @@ Deno.serve(async (req) => {
 
   let body: any = {};
   try { body = await req.json(); } catch { /* ok */ }
-  const pages: number = Math.max(1, Math.min(200, Number(body.pages ?? DEFAULT_PAGES)));
+  const pages: number = Math.max(1, Math.min(300, Number(body.pages ?? DEFAULT_PAGES)));
   const pageLimit: number = Math.max(10, Math.min(100, Number(body.page_limit ?? DEFAULT_PAGE_LIMIT)));
   const resetCursor: boolean = body.reset_cursor === true;
+  // Por defecto barrido completo: hay notas con adjunto de 2025 nunca descargadas.
+  const fullScan: boolean = body.full_scan !== false;
 
   const t0 = Date.now();
 
@@ -44,7 +48,7 @@ Deno.serve(async (req) => {
   const sinceMs = new Date(sinceIso).getTime();
 
   const { data: logRow } = await sb.from("hubspot_sync_log")
-    .insert({ entity: ENTITY, status: "running", metadatos: { since: sinceIso } })
+    .insert({ entity: ENTITY, status: "running", metadatos: { since: fullScan ? null : sinceIso, full_scan: fullScan } })
     .select("id").single();
   const logId = logRow?.id;
 
@@ -62,11 +66,12 @@ Deno.serve(async (req) => {
 
   try {
     for (let p = 0; p < pages; p++) {
+      const filters: any[] = [{ propertyName: "hs_attachment_ids", operator: "HAS_PROPERTY" }];
+      if (!fullScan) {
+        filters.push({ propertyName: "hs_createdate", operator: "GT", value: String(sinceMs) });
+      }
       const searchBody: any = {
-        filterGroups: [{ filters: [
-          { propertyName: "hs_attachment_ids", operator: "HAS_PROPERTY" },
-          { propertyName: "hs_createdate", operator: "GT", value: String(sinceMs) },
-        ] }],
+        filterGroups: [{ filters }],
         sorts: [{ propertyName: "hs_createdate", direction: "ASCENDING" }],
         properties: ["hs_attachment_ids", "hs_createdate"],
         limit: pageLimit,
@@ -199,7 +204,7 @@ Deno.serve(async (req) => {
     await sb.from("hubspot_sync_state").update({
       last_run_status: "ok", last_run_at: finishedAt,
       cursor: maxSeen, last_error: null,
-      metadatos: { insertados, pdfs, saltados_no_pdf: saltadosNoPdf },
+      metadatos: { insertados, pdfs, saltados_no_pdf: saltadosNoPdf, full_scan: fullScan, notes_scanned: notesScanned },
     }).eq("entity", ENTITY);
 
     return new Response(JSON.stringify({
