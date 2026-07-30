@@ -95,6 +95,7 @@ type Row = {
   edificio_reformado?: boolean | null;
   gestion_profesional?: boolean | null;
   prior_count?: number;
+  has_nota_simple: boolean;
 };
 
 const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
