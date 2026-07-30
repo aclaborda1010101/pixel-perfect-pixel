@@ -200,8 +200,16 @@ Deno.serve(async (req) => {
 
       after = data?.paging?.next?.after;
       // Página completada: avanza el cursor de barrido para reanudar aquí.
-      if (fullScan && pageMaxIso) scanMaxIso = pageMaxIso;
+      if (fullScan && pageMaxIso) {
+        scanMaxIso = pageMaxIso;
+        // Persistimos ya para poder reanudar aunque nos maten por wall-clock.
+        await sb.from("hubspot_sync_state")
+          .update({ metadatos: { ...prevMeta, scan_cursor: scanMaxIso, scan_complete: false, notes_scanned: notesScanned, insertados } })
+          .eq("entity", ENTITY);
+      }
       if (!after) { scanExhausted = true; break; }
+      // Presupuesto de tiempo: salimos limpio antes del corte del runtime.
+      if (Date.now() - t0 > TIME_BUDGET_MS) break;
     }
 
     const finishedAt = new Date().toISOString();
