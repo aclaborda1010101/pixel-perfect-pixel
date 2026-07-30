@@ -988,8 +988,8 @@ export default function ComercialEdificios() {
                     checked={advSoloPrioritarios}
                     onCheckedChange={(c) => setAdvSoloPrioritarios(!!c)}
                   />
-                  <Label htmlFor="prior-camp" className="cursor-pointer text-xs font-normal">
-                    ⭐ Con prioritarios de campaña
+                  <Label htmlFor="prior-camp" className="flex cursor-pointer items-center gap-1 text-xs font-normal">
+                    <Mic className="h-3 w-3" /> Con prioritarios de campaña
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
