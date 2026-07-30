@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Percent,
   Building2,
+  Mic,
 } from "lucide-react";
 import {
   ScorePill,
