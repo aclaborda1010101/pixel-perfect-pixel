@@ -53,6 +53,7 @@ import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
 import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
+import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Row = {
@@ -94,6 +95,7 @@ type Row = {
   edificio_reformado?: boolean | null;
   gestion_profesional?: boolean | null;
   prior_count?: number;
+  has_nota_simple: boolean;
 };
 
 const CLUSTER_LABELS: Record<string, { label: string; cls: string }> = {
@@ -163,6 +165,7 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
               <ClusterChip cluster={r.cluster_asignado} />
               <AlarmChips avisos={r.raw?.avisos_inteligentes} esEstrella={r.es_estrella} max={3} />
               <DocAlertBadge building={{ score: r.score, metadatos: r.raw?.metadatos, catastro_ref: r.raw?.catastro_ref, refcatastral: r.raw?.refcatastral, iee_estado: (r as any).raw?.iee_estado ?? (r as any).iee_estado }} />
+              <NotaSimpleBadge building={r.raw} hasNota={r.has_nota_simple} />
               {r.assigned && (
                 <Badge
                   variant="gold"
@@ -325,6 +328,7 @@ export default function ComercialEdificios() {
   const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
   const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
   const [advSoloPrioritarios, setAdvSoloPrioritarios] = useState(false);
+  const [advNotaSimple, setAdvNotaSimple] = useState<"all" | "con" | "sin">("all");
   // Toggle "Sin propietarios": muestra el score físico puro (score_activo).
   // Por defecto OFF → usamos score_total (mezcla activo × propietarios).
   const [viewActivo, setViewActivo] = useState<boolean>(() =>
@@ -399,6 +403,7 @@ export default function ComercialEdificios() {
         const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
         const ratioViv = b.ratio_m2_viv != null ? Number(b.ratio_m2_viv) : (m2 && viv ? m2 / viv : null);
         const extra = bldgsById.get(b.id) ?? {};
+        const metaNota = String(extra?.metadatos?.tenemos_la_nota_simple_ ?? "").trim().toLowerCase();
         const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
         const an = analysisMap.get(b.id) ?? {};
         return {
@@ -439,6 +444,7 @@ export default function ComercialEdificios() {
           protegido_historicamente: an.protegido_historicamente ?? null,
           edificio_reformado: an.edificio_reformado ?? null,
           gestion_profesional: an.gestion_profesional ?? null,
+          has_nota_simple: metaNota === "sí" || metaNota === "si",
         };
       });
       return { rows };
@@ -457,7 +463,7 @@ export default function ComercialEdificios() {
       const V_COLS =
         "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,m2_vivienda_calc,ratio_m2_viv,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
       const B_COLS =
-        "id,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
+        "id,metadatos,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
       // 200 filas cabe holgadamente dentro del statement_timeout de `authenticated`
       // (8s) y también en el de `anon` (3s). Con Promise.all lanzamos todas las
       // páginas restantes en paralelo, así el catálogo entero (~1.156) se sirve
@@ -582,6 +588,7 @@ export default function ComercialEdificios() {
         const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
         const ratioViv = b.ratio_m2_viv != null ? Number(b.ratio_m2_viv) : (m2 && viv ? m2 / viv : null);
         const extra = bldgsById.get(b.id) ?? {};
+        const metaNota = String(extra?.metadatos?.tenemos_la_nota_simple_ ?? "").trim().toLowerCase();
         const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
         const an = analysisMap.get(b.id) ?? {};
         return {
@@ -623,6 +630,7 @@ export default function ComercialEdificios() {
           edificio_reformado: an.edificio_reformado ?? null,
           gestion_profesional: an.gestion_profesional ?? null,
           prior_count: priorMap.get(b.id) ?? 0,
+          has_nota_simple: metaNota === "sí" || metaNota === "si",
         };
       });
       return { rows };
@@ -706,6 +714,8 @@ export default function ComercialEdificios() {
       if (advClusters.size > 0 && (!r.cluster_asignado || !advClusters.has(r.cluster_asignado))) return false;
       if (advSoloEstrella && !r.es_estrella) return false;
       if (advSoloPrioritarios && (r.prior_count ?? 0) === 0) return false;
+      if (advNotaSimple === "con" && !r.has_nota_simple) return false;
+      if (advNotaSimple === "sin" && r.has_nota_simple) return false;
       return true;
     });
 
@@ -777,6 +787,7 @@ export default function ComercialEdificios() {
     setAdvClusters(new Set());
     setAdvSoloEstrella(false);
     setAdvSoloPrioritarios(false);
+    setAdvNotaSimple("all");
   };
 
   const advancedCount =
@@ -790,7 +801,8 @@ export default function ComercialEdificios() {
     (advSinGestionPro ? 1 : 0) +
     (advClusters.size > 0 ? 1 : 0) +
     (advSoloEstrella ? 1 : 0) +
-    (advSoloPrioritarios ? 1 : 0);
+    (advSoloPrioritarios ? 1 : 0) +
+    (advNotaSimple !== "all" ? 1 : 0);
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0) +
@@ -803,7 +815,7 @@ export default function ComercialEdificios() {
     setShownTodos(TODOS_PAGE);
   }, [tab, q, sort, scoreMin, barrios, ventanasMin, advSegundasEscaleras,
       advPlantasLevantables, advAzotea, advEsquina, advSinProteccion,
-      advSinReforma, advSinGestionPro, advClusters, advSoloEstrella]);
+      advSinReforma, advSinGestionPro, advClusters, advSoloEstrella, advSoloPrioritarios, advNotaSimple]);
 
   return (
     <div className="space-y-6">
@@ -977,6 +989,16 @@ export default function ComercialEdificios() {
                   />
                   <Label htmlFor="prior-camp" className="cursor-pointer text-xs font-normal">
                     ⭐ Con prioritarios de campaña
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="nota-simple"
+                    checked={advNotaSimple === "con"}
+                    onCheckedChange={(c) => setAdvNotaSimple(c ? "con" : "all")}
+                  />
+                  <Label htmlFor="nota-simple" className="cursor-pointer text-xs font-normal">
+                    📄 Con nota simple
                   </Label>
                 </div>
                 {[

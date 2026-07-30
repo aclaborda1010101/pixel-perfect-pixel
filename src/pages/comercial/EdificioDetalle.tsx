@@ -33,6 +33,7 @@ import { syncBuildingTasks } from "@/lib/buildingTasks";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
+import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
 import { AlarmChips } from "@/components/comercial/AlarmChips";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -134,7 +135,7 @@ export default function ComercialEdificioDetalle() {
     enabled: !!id,
     queryFn: async () => {
       const [{ data: b }, { data: score }, { data: owners }, { data: assign }, { data: analysis }, { data: sucesion }, { data: ownersExtra }] = await Promise.all([
-        supabase.from("buildings").select("*").eq("id", id!).maybeSingle(),
+        supabase.from("buildings").select("*, notas_simples(id)").eq("id", id!).maybeSingle(),
         (supabase.from("v_building_score" as any) as any).select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_owner_score" as any) as any).select("*").eq("building_id", id!),
         user
@@ -180,6 +181,7 @@ export default function ComercialEdificioDetalle() {
         catastro,
         sucesion: (sucesion ?? null) as any,
         ownersExtra: Object.fromEntries(((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, r.owners || {}])),
+        hasNotaSimple: Array.isArray((b as any)?.notas_simples) && (b as any).notas_simples.length > 0,
       };
     },
   });
@@ -255,6 +257,7 @@ export default function ComercialEdificioDetalle() {
           <div className="flex gap-2">
             <AlarmChips avisos={(b as any)?.avisos_inteligentes} esEstrella={(b as any)?.es_estrella} max={3} />
             <DocAlertBadge building={{ score: s?.score ?? b?.score, metadatos: b?.metadatos, catastro_ref: b?.catastro_ref, refcatastral: (b as any)?.refcatastral, iee_estado: (b as any)?.iee_estado }} />
+            <NotaSimpleBadge building={b} hasNota={(data as any)?.hasNotaSimple} />
             {assigned ? (
               <Badge variant="gold">Tu cartera</Badge>
             ) : null}
