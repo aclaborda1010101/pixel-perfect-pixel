@@ -181,6 +181,7 @@ export default function ComercialEdificioDetalle() {
         catastro,
         sucesion: (sucesion ?? null) as any,
         ownersExtra: Object.fromEntries(((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, r.owners || {}])),
+        hasNotaSimple: Array.isArray((b as any)?.notas_simples) && (b as any).notas_simples.length > 0,
       };
     },
   });
