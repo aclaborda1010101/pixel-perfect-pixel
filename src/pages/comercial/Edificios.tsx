@@ -993,7 +993,11 @@ export default function ComercialEdificios() {
                     onCheckedChange={(c) => setAdvSoloPrioritarios(!!c)}
                   />
                   <Label htmlFor="prior-camp" className="flex cursor-pointer items-center gap-1 text-xs font-normal">
-                    <Mic className="h-3 w-3" /> Con prioritarios de campaña
+                    <span className="inline-flex items-center">
+                      <Building2 className="h-3 w-3" />
+                      <Star className="h-2 w-2 fill-current" />
+                    </span>{" "}
+                    Con prioritarios de campaña
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
