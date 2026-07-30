@@ -98,12 +98,14 @@ Deno.serve(async (req) => {
       // 1) Junta todos los fileIds candidatos de la página
       const noteFiles: Array<{ noteId: string; fileIds: string[]; createdate: string | null }> = [];
       const allFileIds = new Set<string>();
+      let pageMaxIso: string | null = null;
       for (const n of results) {
         notesScanned++;
         const cd = n?.properties?.hs_createdate ?? null;
         if (cd) {
           const iso = new Date(cd).toISOString();
           if (iso > maxSeen) maxSeen = iso;
+          if (!pageMaxIso || iso > pageMaxIso) pageMaxIso = iso;
         }
         const ids = splitAttachmentIds(n?.properties?.hs_attachment_ids);
         if (!ids.length) continue;
@@ -197,6 +199,8 @@ Deno.serve(async (req) => {
       }
 
       after = data?.paging?.next?.after;
+      // Página completada: avanza el cursor de barrido para reanudar aquí.
+      if (fullScan && pageMaxIso) scanMaxIso = pageMaxIso;
       if (!after) { scanExhausted = true; break; }
     }
 
