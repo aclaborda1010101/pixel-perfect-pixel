@@ -11,6 +11,7 @@ import {
   User, Star,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { OwnerStarIcon, RevistaIcon } from "@/components/comercial/PriorityIcons";
 import { Crumbs } from "@/components/common/Crumbs";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Eyebrow } from "@/components/common/Eyebrow";
@@ -290,20 +291,13 @@ export default function OwnerDetail() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {owner.metadatos?.prioridad_originacion && (
-              <span
-                className="flex items-center text-lg leading-none"
-                title={`Prioritario campaña junio 2026${owner.metadatos?.revista_distrito ? ` · ${owner.metadatos?.revista_distrito}` : ""}`}
-              >
-                <span className="inline-flex items-center">
-                  <User className="h-5 w-5" />
-                  <Star className="h-3 w-3 fill-current" />
-                </span>
-              </span>
+              <OwnerStarIcon
+                className="h-5 w-5"
+                title={`Propietario estrella — campaña junio 2026${owner.metadatos?.revista_distrito ? ` · ${owner.metadatos?.revista_distrito}` : ""}`}
+              />
             )}
             {owner.metadatos?.revista_enviada === "true" && (
-              <span className="text-lg leading-none" title="Revista enviada">
-                📬
-              </span>
+              <RevistaIcon className="h-5 w-5" />
             )}
             {owner.estado_vital === "fallecido" && (
               <Badge variant="destructive" title={owner.estado_vital_fuente || ""}>

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { OwnerStarIcon, RevistaIcon } from "@/components/comercial/PriorityIcons";
 import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -412,20 +413,12 @@ export default function ComercialEdificioDetalle() {
                           </Badge>
                         )}
                         {ownersExtra[o.owner_id]?.metadatos?.prioridad_originacion && (
-                          <span
-                            className="flex items-center text-sm leading-none"
-                            title={`Prioritario campaña junio 2026${ownersExtra[o.owner_id]?.metadatos?.revista_distrito ? ` · ${ownersExtra[o.owner_id]?.metadatos?.revista_distrito}` : ""}`}
-                          >
-                            <span className="inline-flex items-center">
-                              <User className="h-4 w-4" />
-                              <Star className="h-2 w-2 fill-current" />
-                            </span>
-                          </span>
+                          <OwnerStarIcon
+                            title={`Propietario estrella — campaña junio 2026${ownersExtra[o.owner_id]?.metadatos?.revista_distrito ? ` · ${ownersExtra[o.owner_id]?.metadatos?.revista_distrito}` : ""}`}
+                          />
                         )}
                         {ownersExtra[o.owner_id]?.metadatos?.revista_enviada === "true" && (
-                          <span className="text-sm leading-none" title="Revista enviada">
-                            📬
-                          </span>
+                          <RevistaIcon />
                         )}
                       </div>
                       <div className="truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">

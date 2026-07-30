@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BuildingStarIcon, OwnerStarIcon } from "@/components/comercial/PriorityIcons";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
@@ -185,13 +186,12 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
                 <Badge
                   variant="outline"
                   className="h-5 whitespace-nowrap rounded-sm border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-300"
-                  title={`${r.prior_count} propietario${r.prior_count === 1 ? "" : "s"} prioritario${r.prior_count === 1 ? "" : "s"} campaña junio 2026`}
+                  title={`${r.prior_count} propietario${r.prior_count === 1 ? "" : "s"} estrella — campaña junio 2026`}
                 >
-                  <span className="inline-flex items-center">
-                    <Building2 className="h-3 w-3" />
-                    <Star className="h-2 w-2 fill-current" />
-                  </span>{" "}
-                  {r.prior_count}
+                  <span className="inline-flex items-center gap-1">
+                    <OwnerStarIcon className="h-3 w-3" title="" />
+                    {r.prior_count}
+                  </span>
                 </Badge>
               )}
             </div>
@@ -983,12 +983,9 @@ export default function ComercialEdificios() {
                     checked={advSoloEstrella}
                     onCheckedChange={(c) => setAdvSoloEstrella(!!c)}
                   />
-                  <Label htmlFor="star" className="flex cursor-pointer items-center gap-1 text-xs font-normal">
-                    <span className="inline-flex items-center">
-                      <Building2 className="h-3 w-3" />
-                      <Star className="h-2 w-2 fill-current" />
-                    </span>{" "}
-                    Solo edificios estrella
+                  <Label htmlFor="star" className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
+                    <BuildingStarIcon className="h-3.5 w-3.5" />
+                    Edificios estrella
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
@@ -997,12 +994,9 @@ export default function ComercialEdificios() {
                     checked={advSoloPrioritarios}
                     onCheckedChange={(c) => setAdvSoloPrioritarios(!!c)}
                   />
-                  <Label htmlFor="prior-camp" className="flex cursor-pointer items-center gap-1 text-xs font-normal">
-                    <span className="inline-flex items-center">
-                      <Building2 className="h-3 w-3" />
-                      <Star className="h-2 w-2 fill-current" />
-                    </span>{" "}
-                    Con prioritarios de campaña
+                  <Label htmlFor="prior-camp" className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
+                    <OwnerStarIcon className="h-3.5 w-3.5" />
+                    Con propietarios estrella
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
