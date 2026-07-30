@@ -327,6 +327,7 @@ export default function ComercialEdificios() {
   const [advClusters, setAdvClusters] = useState<Set<string>>(new Set());
   const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
   const [advSoloPrioritarios, setAdvSoloPrioritarios] = useState(false);
+  const [advNotaSimple, setAdvNotaSimple] = useState<"all" | "con" | "sin">("all");
   // Toggle "Sin propietarios": muestra el score físico puro (score_activo).
   // Por defecto OFF → usamos score_total (mezcla activo × propietarios).
   const [viewActivo, setViewActivo] = useState<boolean>(() =>
