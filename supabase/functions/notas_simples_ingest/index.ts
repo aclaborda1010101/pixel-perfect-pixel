@@ -43,9 +43,13 @@ Deno.serve(async (req) => {
   if (resetCursor) {
     await sb.from("hubspot_sync_state").update({ cursor: null, metadatos: {} }).eq("entity", ENTITY);
   }
-  const { data: state } = await sb.from("hubspot_sync_state").select("cursor").eq("entity", ENTITY).single();
+  const { data: state } = await sb.from("hubspot_sync_state").select("cursor, metadatos").eq("entity", ENTITY).single();
   const sinceIso: string = state?.cursor ?? INITIAL_SINCE_ISO;
   const sinceMs = new Date(sinceIso).getTime();
+  const prevMeta: any = (state?.metadatos as any) ?? {};
+  // Reanudación del barrido completo: guardamos el último hs_createdate procesado.
+  const scanCursor: string | null = resetCursor ? null : (prevMeta.scan_cursor ?? null);
+  const scanMs: number | null = scanCursor ? new Date(scanCursor).getTime() : null;
 
   const { data: logRow } = await sb.from("hubspot_sync_log")
     .insert({ entity: ENTITY, status: "running", metadatos: { since: fullScan ? null : sinceIso, full_scan: fullScan } })
@@ -67,7 +71,11 @@ Deno.serve(async (req) => {
   try {
     for (let p = 0; p < pages; p++) {
       const filters: any[] = [{ propertyName: "hs_attachment_ids", operator: "HAS_PROPERTY" }];
-      if (!fullScan) {
+      if (fullScan) {
+        if (scanMs != null) {
+          filters.push({ propertyName: "hs_createdate", operator: "GT", value: String(scanMs) });
+        }
+      } else {
         filters.push({ propertyName: "hs_createdate", operator: "GT", value: String(sinceMs) });
       }
       const searchBody: any = {
@@ -83,7 +91,7 @@ Deno.serve(async (req) => {
       });
       pagesFetched++;
       const results: any[] = data?.results || [];
-      if (!results.length) break;
+      if (!results.length) { scanExhausted = true; break; }
 
       // 1) Junta todos los fileIds candidatos de la página
       const noteFiles: Array<{ noteId: string; fileIds: string[]; createdate: string | null }> = [];
@@ -187,7 +195,7 @@ Deno.serve(async (req) => {
       }
 
       after = data?.paging?.next?.after;
-      if (!after) break;
+      if (!after) { scanExhausted = true; break; }
     }
 
     const finishedAt = new Date().toISOString();
