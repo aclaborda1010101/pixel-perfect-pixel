@@ -15,6 +15,7 @@ const ENTITY = "notas_simples_ingest";
 const DEFAULT_PAGES = 60;
 const DEFAULT_PAGE_LIMIT = 100;
 const INITIAL_SINCE_ISO = "2026-05-11T00:00:00.000Z"; // fecha del último import masivo
+const TIME_BUDGET_MS = 100_000; // salir limpio antes del corte del runtime (~150s)
 
 function splitAttachmentIds(v: unknown): string[] {
   if (v == null) return [];
