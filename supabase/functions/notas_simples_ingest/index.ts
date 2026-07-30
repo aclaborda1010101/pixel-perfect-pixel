@@ -65,6 +65,8 @@ Deno.serve(async (req) => {
   let yaExisten = 0;
   let errores403 = 0;
   let maxSeen = sinceIso;
+  let scanExhausted = false;
+  let scanMaxIso: string | null = scanCursor;
   let after: string | undefined;
   const primeros403: string[] = [];
 
