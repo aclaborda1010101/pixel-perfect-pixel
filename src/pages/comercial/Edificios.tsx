@@ -983,8 +983,12 @@ export default function ComercialEdificios() {
                     checked={advSoloEstrella}
                     onCheckedChange={(c) => setAdvSoloEstrella(!!c)}
                   />
-                  <Label htmlFor="star" className="cursor-pointer text-xs font-normal">
-                    ⭐ Solo edificios estrella
+                  <Label htmlFor="star" className="flex cursor-pointer items-center gap-1 text-xs font-normal">
+                    <span className="inline-flex items-center">
+                      <Building2 className="h-3 w-3" />
+                      <Star className="h-2 w-2 fill-current" />
+                    </span>{" "}
+                    Solo edificios estrella
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
