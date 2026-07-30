@@ -37,7 +37,7 @@ import {
   MapPin,
   X,
   AppWindow,
-  Mic,
+  Star,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
