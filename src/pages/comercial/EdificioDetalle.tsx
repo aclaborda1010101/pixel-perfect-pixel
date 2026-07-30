@@ -21,7 +21,8 @@ import {
   ShieldCheck,
   Percent,
   Building2,
-  Mic,
+  Users,
+  Star,
 } from "lucide-react";
 import {
   ScorePill,
@@ -415,7 +416,10 @@ export default function ComercialEdificioDetalle() {
                             className="flex items-center text-sm leading-none"
                             title={`Prioritario campaña junio 2026${ownersExtra[o.owner_id]?.metadatos?.revista_distrito ? ` · ${ownersExtra[o.owner_id]?.metadatos?.revista_distrito}` : ""}`}
                           >
-                            <Mic className="h-4 w-4" />
+                            <span className="inline-flex items-center">
+                              <Users className="h-4 w-4" />
+                              <Star className="h-2 w-2 fill-current" />
+                            </span>
                           </span>
                         )}
                         {ownersExtra[o.owner_id]?.metadatos?.revista_enviada === "true" && (

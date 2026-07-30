@@ -37,7 +37,7 @@ import {
   MapPin,
   X,
   AppWindow,
-  Mic,
+  Star,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -186,7 +186,11 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
                   className="h-5 whitespace-nowrap rounded-sm border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-300"
                   title={`${r.prior_count} propietario${r.prior_count === 1 ? "" : "s"} prioritario${r.prior_count === 1 ? "" : "s"} campaña junio 2026`}
                 >
-                  <Mic className="h-3 w-3" /> {r.prior_count}
+                  <span className="inline-flex items-center">
+                    <Building2 className="h-3 w-3" />
+                    <Star className="h-2 w-2 fill-current" />
+                  </span>{" "}
+                  {r.prior_count}
                 </Badge>
               )}
             </div>
@@ -989,7 +993,11 @@ export default function ComercialEdificios() {
                     onCheckedChange={(c) => setAdvSoloPrioritarios(!!c)}
                   />
                   <Label htmlFor="prior-camp" className="flex cursor-pointer items-center gap-1 text-xs font-normal">
-                    <Mic className="h-3 w-3" /> Con prioritarios de campaña
+                    <span className="inline-flex items-center">
+                      <Building2 className="h-3 w-3" />
+                      <Star className="h-2 w-2 fill-current" />
+                    </span>{" "}
+                    Con prioritarios de campaña
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
