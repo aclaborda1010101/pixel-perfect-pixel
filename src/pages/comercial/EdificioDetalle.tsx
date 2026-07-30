@@ -135,7 +135,7 @@ export default function ComercialEdificioDetalle() {
     enabled: !!id,
     queryFn: async () => {
       const [{ data: b }, { data: score }, { data: owners }, { data: assign }, { data: analysis }, { data: sucesion }, { data: ownersExtra }] = await Promise.all([
-        supabase.from("buildings").select("*").eq("id", id!).maybeSingle(),
+        supabase.from("buildings").select("*, notas_simples(id)").eq("id", id!).maybeSingle(),
         (supabase.from("v_building_score" as any) as any).select("*").eq("id", id!).maybeSingle(),
         (supabase.from("v_owner_score" as any) as any).select("*").eq("building_id", id!),
         user
