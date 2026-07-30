@@ -814,7 +814,7 @@ export default function ComercialEdificios() {
     setShownTodos(TODOS_PAGE);
   }, [tab, q, sort, scoreMin, barrios, ventanasMin, advSegundasEscaleras,
       advPlantasLevantables, advAzotea, advEsquina, advSinProteccion,
-      advSinReforma, advSinGestionPro, advClusters, advSoloEstrella]);
+      advSinReforma, advSinGestionPro, advClusters, advSoloEstrella, advSoloPrioritarios, advNotaSimple]);
 
   return (
     <div className="space-y-6">
