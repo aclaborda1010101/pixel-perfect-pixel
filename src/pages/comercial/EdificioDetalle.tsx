@@ -33,6 +33,7 @@ import { syncBuildingTasks } from "@/lib/buildingTasks";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
+import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
 import { AlarmChips } from "@/components/comercial/AlarmChips";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
