@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { BuildingStarIcon } from "@/components/comercial/PriorityIcons";
 
 export type AlarmaAviso = {
   key: string;
@@ -26,11 +27,14 @@ export function StarBadge({ size = "sm" }: { size?: "sm" | "md" }) {
               size === "sm" ? "h-5 px-1.5 text-[10px]" : "px-2 py-0.5 text-xs",
             )}
           >
-            ⭐ ESTRELLA
+            <span className="inline-flex items-center gap-1">
+              <BuildingStarIcon className="h-3 w-3 text-black" title="" />
+              ESTRELLA
+            </span>
           </Badge>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
-          <p className="text-xs">Terciario ≥ 66 % + 2 escaleras. Máxima prioridad.</p>
+          <p className="text-xs">Edificio estrella — terciario ≥ 66 % o 2+ escaleras. Máxima prioridad.</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
