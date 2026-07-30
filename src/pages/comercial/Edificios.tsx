@@ -800,7 +800,8 @@ export default function ComercialEdificios() {
     (advSinGestionPro ? 1 : 0) +
     (advClusters.size > 0 ? 1 : 0) +
     (advSoloEstrella ? 1 : 0) +
-    (advSoloPrioritarios ? 1 : 0);
+    (advSoloPrioritarios ? 1 : 0) +
+    (advNotaSimple !== "all" ? 1 : 0);
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0) +
