@@ -24,7 +24,7 @@ export function NotaSimpleBadge({
 }) {
   const meta = building?.metadatos ?? {};
   const metaFlag = String(meta.tenemos_la_nota_simple_ ?? "").trim().toLowerCase();
-  const tieneNota = hasNota ?? metaFlag === "sí" || metaFlag === "si";
+  const tieneNota = hasNota ?? (metaFlag === "sí" || metaFlag === "si");
 
   return (
     <TooltipProvider delayDuration={150}>
