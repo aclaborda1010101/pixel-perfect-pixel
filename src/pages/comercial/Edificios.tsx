@@ -165,6 +165,7 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
               <ClusterChip cluster={r.cluster_asignado} />
               <AlarmChips avisos={r.raw?.avisos_inteligentes} esEstrella={r.es_estrella} max={3} />
               <DocAlertBadge building={{ score: r.score, metadatos: r.raw?.metadatos, catastro_ref: r.raw?.catastro_ref, refcatastral: r.raw?.refcatastral, iee_estado: (r as any).raw?.iee_estado ?? (r as any).iee_estado }} />
+              <NotaSimpleBadge building={r.raw} hasNota={r.has_nota_simple} />
               {r.assigned && (
                 <Badge
                   variant="gold"
