@@ -990,6 +990,16 @@ export default function ComercialEdificios() {
                     ⭐ Con prioritarios de campaña
                   </Label>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="nota-simple"
+                    checked={advNotaSimple === "con"}
+                    onCheckedChange={(c) => setAdvNotaSimple(c ? "con" : "all")}
+                  />
+                  <Label htmlFor="nota-simple" className="cursor-pointer text-xs font-normal">
+                    📄 Con nota simple
+                  </Label>
+                </div>
                 {[
                   { id: "esc", v: advSegundasEscaleras, s: setAdvSegundasEscaleras, l: "Tiene segundas escaleras" },
                   { id: "alt", v: advPlantasLevantables, s: setAdvPlantasLevantables, l: "Puede aumentar altura (plantas levantables)" },
