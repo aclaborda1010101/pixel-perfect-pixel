@@ -412,10 +412,10 @@ export default function ComercialEdificioDetalle() {
                         )}
                         {ownersExtra[o.owner_id]?.metadatos?.prioridad_originacion && (
                           <span
-                            className="text-sm leading-none"
+                            className="flex items-center text-sm leading-none"
                             title={`Prioritario campaña junio 2026${ownersExtra[o.owner_id]?.metadatos?.revista_distrito ? ` · ${ownersExtra[o.owner_id]?.metadatos?.revista_distrito}` : ""}`}
                           >
-                            ⭐
+                            <Mic className="h-4 w-4" />
                           </span>
                         )}
                         {ownersExtra[o.owner_id]?.metadatos?.revista_enviada === "true" && (
