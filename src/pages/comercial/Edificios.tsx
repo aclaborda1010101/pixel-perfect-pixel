@@ -442,6 +442,7 @@ export default function ComercialEdificios() {
           protegido_historicamente: an.protegido_historicamente ?? null,
           edificio_reformado: an.edificio_reformado ?? null,
           gestion_profesional: an.gestion_profesional ?? null,
+          has_nota_simple: metaNota === "sí" || metaNota === "si",
         };
       });
       return { rows };
