@@ -15,6 +15,7 @@ const ENTITY = "notas_simples_ingest";
 const DEFAULT_PAGES = 60;
 const DEFAULT_PAGE_LIMIT = 100;
 const INITIAL_SINCE_ISO = "2026-05-11T00:00:00.000Z"; // fecha del último import masivo
+const TIME_BUDGET_MS = 100_000; // salir limpio antes del corte del runtime (~150s)
 
 function splitAttachmentIds(v: unknown): string[] {
   if (v == null) return [];
@@ -43,9 +44,13 @@ Deno.serve(async (req) => {
   if (resetCursor) {
     await sb.from("hubspot_sync_state").update({ cursor: null, metadatos: {} }).eq("entity", ENTITY);
   }
-  const { data: state } = await sb.from("hubspot_sync_state").select("cursor").eq("entity", ENTITY).single();
+  const { data: state } = await sb.from("hubspot_sync_state").select("cursor, metadatos").eq("entity", ENTITY).single();
   const sinceIso: string = state?.cursor ?? INITIAL_SINCE_ISO;
   const sinceMs = new Date(sinceIso).getTime();
+  const prevMeta: any = (state?.metadatos as any) ?? {};
+  // Reanudación del barrido completo: guardamos el último hs_createdate procesado.
+  const scanCursor: string | null = resetCursor ? null : (prevMeta.scan_cursor ?? null);
+  const scanMs: number | null = scanCursor ? new Date(scanCursor).getTime() : null;
 
   const { data: logRow } = await sb.from("hubspot_sync_log")
     .insert({ entity: ENTITY, status: "running", metadatos: { since: fullScan ? null : sinceIso, full_scan: fullScan } })
@@ -61,13 +66,19 @@ Deno.serve(async (req) => {
   let yaExisten = 0;
   let errores403 = 0;
   let maxSeen = sinceIso;
+  let scanExhausted = false;
+  let scanMaxIso: string | null = scanCursor;
   let after: string | undefined;
   const primeros403: string[] = [];
 
   try {
     for (let p = 0; p < pages; p++) {
       const filters: any[] = [{ propertyName: "hs_attachment_ids", operator: "HAS_PROPERTY" }];
-      if (!fullScan) {
+      if (fullScan) {
+        if (scanMs != null) {
+          filters.push({ propertyName: "hs_createdate", operator: "GT", value: String(scanMs) });
+        }
+      } else {
         filters.push({ propertyName: "hs_createdate", operator: "GT", value: String(sinceMs) });
       }
       const searchBody: any = {
@@ -83,17 +94,19 @@ Deno.serve(async (req) => {
       });
       pagesFetched++;
       const results: any[] = data?.results || [];
-      if (!results.length) break;
+      if (!results.length) { scanExhausted = true; break; }
 
       // 1) Junta todos los fileIds candidatos de la página
       const noteFiles: Array<{ noteId: string; fileIds: string[]; createdate: string | null }> = [];
       const allFileIds = new Set<string>();
+      let pageMaxIso: string | null = null;
       for (const n of results) {
         notesScanned++;
         const cd = n?.properties?.hs_createdate ?? null;
         if (cd) {
           const iso = new Date(cd).toISOString();
           if (iso > maxSeen) maxSeen = iso;
+          if (!pageMaxIso || iso > pageMaxIso) pageMaxIso = iso;
         }
         const ids = splitAttachmentIds(n?.properties?.hs_attachment_ids);
         if (!ids.length) continue;
@@ -187,10 +200,21 @@ Deno.serve(async (req) => {
       }
 
       after = data?.paging?.next?.after;
-      if (!after) break;
+      // Página completada: avanza el cursor de barrido para reanudar aquí.
+      if (fullScan && pageMaxIso) {
+        scanMaxIso = pageMaxIso;
+        // Persistimos ya para poder reanudar aunque nos maten por wall-clock.
+        await sb.from("hubspot_sync_state")
+          .update({ metadatos: { ...prevMeta, scan_cursor: scanMaxIso, scan_complete: false, notes_scanned: notesScanned, insertados } })
+          .eq("entity", ENTITY);
+      }
+      if (!after) { scanExhausted = true; break; }
+      // Presupuesto de tiempo: salimos limpio antes del corte del runtime.
+      if (Date.now() - t0 > TIME_BUDGET_MS) break;
     }
 
     const finishedAt = new Date().toISOString();
+    const nextScanCursor = fullScan ? (scanExhausted ? null : scanMaxIso) : (prevMeta.scan_cursor ?? null);
     await sb.from("hubspot_sync_log").update({
       finished_at: finishedAt, status: "ok",
       pages_fetched: pagesFetched, records_upserted: insertados, records_failed: errores403,
@@ -198,19 +222,28 @@ Deno.serve(async (req) => {
         since: sinceIso, since_after: maxSeen,
         notes_scanned: notesScanned, fetched, pdfs, insertados,
         saltados_no_pdf: saltadosNoPdf, ya_existen: yaExisten,
+        scan_cursor: nextScanCursor, scan_complete: fullScan ? scanExhausted : undefined,
       },
     }).eq("id", logId);
 
     await sb.from("hubspot_sync_state").update({
       last_run_status: "ok", last_run_at: finishedAt,
       cursor: maxSeen, last_error: null,
-      metadatos: { insertados, pdfs, saltados_no_pdf: saltadosNoPdf, full_scan: fullScan, notes_scanned: notesScanned },
+      metadatos: {
+        ...prevMeta,
+        insertados, pdfs, saltados_no_pdf: saltadosNoPdf, full_scan: fullScan, notes_scanned: notesScanned,
+        scan_cursor: nextScanCursor,
+        scan_complete: fullScan ? scanExhausted : (prevMeta.scan_complete ?? false),
+        ...(fullScan && scanExhausted ? { scan_completed_at: finishedAt } : {}),
+      },
     }).eq("entity", ENTITY);
 
     return new Response(JSON.stringify({
       ok: true, pages_fetched: pagesFetched, notes_scanned: notesScanned,
       fetched, pdfs, insertados, saltados_no_pdf: saltadosNoPdf, ya_existen: yaExisten,
-      since: sinceIso, since_after: maxSeen, elapsed_ms: Date.now() - t0,
+      since: sinceIso, since_after: maxSeen,
+      scan_cursor: nextScanCursor, scan_complete: fullScan ? scanExhausted : undefined,
+      elapsed_ms: Date.now() - t0,
     }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     const msg = e?.message ?? String(e);
@@ -221,7 +254,10 @@ Deno.serve(async (req) => {
       error_message: msg,
       metadatos: { primeros_403: primeros403, notes_scanned: notesScanned, fetched, pdfs, insertados, saltados_no_pdf: saltadosNoPdf },
     }).eq("id", logId);
-    await sb.from("hubspot_sync_state").update({ last_run_status: "error", last_error: msg }).eq("entity", ENTITY);
+    await sb.from("hubspot_sync_state").update({
+      last_run_status: "error", last_error: msg,
+      metadatos: { ...prevMeta, insertados, notes_scanned: notesScanned, scan_cursor: fullScan ? scanMaxIso : (prevMeta.scan_cursor ?? null) },
+    }).eq("entity", ENTITY);
     return new Response(JSON.stringify({ ok: false, error: msg, insertados, primeros_403: primeros403 }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
