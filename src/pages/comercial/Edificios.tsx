@@ -586,6 +586,7 @@ export default function ComercialEdificios() {
         const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
         const ratioViv = b.ratio_m2_viv != null ? Number(b.ratio_m2_viv) : (m2 && viv ? m2 / viv : null);
         const extra = bldgsById.get(b.id) ?? {};
+        const metaNota = String(extra?.metadatos?.tenemos_la_nota_simple_ ?? "").trim().toLowerCase();
         const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
         const an = analysisMap.get(b.id) ?? {};
         return {
