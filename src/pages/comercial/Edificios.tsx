@@ -459,7 +459,7 @@ export default function ComercialEdificios() {
       const V_COLS =
         "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,m2_vivienda_calc,ratio_m2_viv,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
       const B_COLS =
-        "id,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
+        "id,metadatos,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
       // 200 filas cabe holgadamente dentro del statement_timeout de `authenticated`
       // (8s) y también en el de `anon` (3s). Con Promise.all lanzamos todas las
       // páginas restantes en paralelo, así el catálogo entero (~1.156) se sirve
