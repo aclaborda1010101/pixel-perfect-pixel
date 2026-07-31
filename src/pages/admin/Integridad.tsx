@@ -10,6 +10,16 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
 type Row = { orden: number; metrica: string; valor: string; ok: boolean | null; detalle: string };
+type ContrasteRow = {
+  building_id: string;
+  direccion: string | null;
+  grupo_barrio: string | null;
+  hs_deal_id: string | null;
+  dealname: string | null;
+  hs_nota: string | null;
+  tenemos_nota: boolean | null;
+  discrepancia: string;
+};
 type RevRow = {
   distrito: string | null;
   nombre: string | null;
@@ -34,6 +44,8 @@ export default function AdminIntegridad() {
   } | null>(null);
   const [revLoading, setRevLoading] = useState(false);
   const [guardas, setGuardas] = useState<Record<number, number> | null>(null);
+  const [contraste, setContraste] = useState<{ resumen: Record<string, number>; filas: ContrasteRow[] } | null>(null);
+  const [contrasteLoading, setContrasteLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -56,6 +68,24 @@ export default function AdminIntegridad() {
     const out: Record<number, number> = {};
     nums.forEach((n, i) => { out[n] = (res[i] as any).count ?? 0; });
     setGuardas(out);
+  };
+
+  const loadContraste = async () => {
+    setContrasteLoading(true);
+    const [{ data: all }, { data: filas }] = await Promise.all([
+      (supabase.from("v_contraste_nota_simple" as any) as any).select("discrepancia"),
+      (supabase.from("v_contraste_nota_simple" as any) as any)
+        .select("*")
+        .eq("discrepancia", "hubspot_si_no_tenemos")
+        .order("direccion", { ascending: true })
+        .limit(500),
+    ]);
+    const resumen: Record<string, number> = {};
+    for (const r of (all ?? []) as any[]) {
+      resumen[r.discrepancia] = (resumen[r.discrepancia] ?? 0) + 1;
+    }
+    setContraste({ resumen, filas: (filas ?? []) as ContrasteRow[] });
+    setContrasteLoading(false);
   };
 
   const loadRev = async () => {
@@ -86,7 +116,7 @@ export default function AdminIntegridad() {
     setRevLoading(false);
   };
 
-  useEffect(() => { load(); loadRev(); loadGuardas(); }, []);
+  useEffect(() => { load(); loadRev(); loadGuardas(); loadContraste(); }, []);
 
   if (roleLoading) return <div className="text-sm text-muted-foreground">Cargando…</div>;
   if (role !== "admin") return <Navigate to="/" replace />;
@@ -109,8 +139,8 @@ export default function AdminIntegridad() {
         title="Integridad de datos"
         subtitle="Semáforos globales: sync, vínculos propietario↔edificio, transcripciones, notas simples"
         actions={
-          <Button variant="outline" size="sm" onClick={() => { load(); loadRev(); loadGuardas(); }} disabled={loading || revLoading}>
-            <RefreshCw className={`h-4 w-4 ${loading || revLoading ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" onClick={() => { load(); loadRev(); loadGuardas(); loadContraste(); }} disabled={loading || revLoading || contrasteLoading}>
+            <RefreshCw className={`h-4 w-4 ${loading || revLoading || contrasteLoading ? "animate-spin" : ""}`} />
             Refrescar
           </Button>
         }
@@ -120,6 +150,7 @@ export default function AdminIntegridad() {
         <TabsList>
           <TabsTrigger value="semaforos">Semáforos</TabsTrigger>
           <TabsTrigger value="revista">Campaña revista</TabsTrigger>
+          <TabsTrigger value="notas">Contraste nota simple</TabsTrigger>
         </TabsList>
 
         <TabsContent value="semaforos" className="space-y-4">
@@ -240,6 +271,57 @@ export default function AdminIntegridad() {
                     ))}
                     {rev.revision.length === 0 && (
                       <div className="p-6 text-center text-sm text-muted-foreground">Sin registros para revisar.</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="notas" className="space-y-4">
+          {!contraste ? (
+            <div className="text-sm text-muted-foreground">Cargando contraste…</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <StatCard label="HubSpot Sí · no la tenemos" value={contraste.resumen["hubspot_si_no_tenemos"] ?? 0} tone="err" />
+                <StatCard label="HubSpot No · sí la tenemos" value={contraste.resumen["hubspot_no_si_tenemos"] ?? 0} tone="warn" />
+                <StatCard label="Coherentes" value={contraste.resumen["coherente"] ?? 0} tone="ok" />
+                <StatCard
+                  label="Sin dato en HubSpot"
+                  value={(contraste.resumen["sin_dato_hubspot_tenemos"] ?? 0) + (contraste.resumen["sin_dato_hubspot_sin_nota"] ?? 0)}
+                />
+              </div>
+              <Card>
+                <CardContent className="p-0">
+                  <div className="border-b border-border px-4 py-3">
+                    <div className="text-sm font-medium text-foreground">
+                      Lista de trabajo · {contraste.filas.length} edificios
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      HubSpot marca «¿Tenemos la nota simple?» = Sí, pero no hay ninguna nota en el sistema.
+                    </div>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {contraste.filas.map((r) => (
+                      <div key={r.building_id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                        <div className="min-w-0 flex-1 truncate font-medium">{r.direccion ?? "—"}</div>
+                        <div className="w-32 shrink-0 truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                          {r.grupo_barrio ?? "—"}
+                        </div>
+                        <div className="w-32 shrink-0 font-mono text-[11px] text-muted-foreground">
+                          {r.hs_deal_id ?? "sin deal"}
+                        </div>
+                        <Button size="sm" variant="ghost" asChild>
+                          <a href={`/comercial/edificios/${r.building_id}`}>Abrir ficha</a>
+                        </Button>
+                      </div>
+                    ))}
+                    {contraste.filas.length === 0 && (
+                      <div className="p-6 text-center text-sm text-muted-foreground">
+                        Sin discrepancias «HubSpot dice Sí y no la tenemos».
+                      </div>
                     )}
                   </div>
                 </CardContent>

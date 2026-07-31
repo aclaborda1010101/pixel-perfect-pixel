@@ -158,7 +158,7 @@ export default function ComercialEdificioDetalle() {
           .eq("building_id", id!)
           .maybeSingle(),
         (supabase.from("building_owners") as any)
-          .select("owner_id, owners:owner_id(nombre_display, estado_vital, edad_anios, metadatos)")
+          .select("owner_id, cuota, owners:owner_id(nombre_display, estado_vital, edad_anios, metadatos)")
           .eq("building_id", id!),
       ]);
       const { data: companies } = await (supabase.from("building_companies" as any) as any)
@@ -183,7 +183,9 @@ export default function ComercialEdificioDetalle() {
         companies: (companies ?? []) as any[],
         catastro,
         sucesion: (sucesion ?? null) as any,
-        ownersExtra: Object.fromEntries(((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, r.owners || {}])),
+        ownersExtra: Object.fromEntries(
+          ((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, { ...(r.owners || {}), cuota: r.cuota }]),
+        ),
         hasNotaSimple: Array.isArray((b as any)?.notas_simples) && (b as any).notas_simples.length > 0,
       };
     },
@@ -242,6 +244,16 @@ export default function ComercialEdificioDetalle() {
     pctKnown.length > 0 && pctUnknownCount === 0 && (sumPct < 95 || sumPct > 105);
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
+
+  // % de propiedad registrado en building_owners.cuota (volcado desde notas/HubSpot)
+  const fmtCuota = (v: unknown) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return `${n.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+  };
+  const cuotaCount = (data.owners ?? []).filter(
+    (o: any) => fmtCuota(ownersExtra[o.owner_id]?.cuota) != null,
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -346,6 +358,9 @@ export default function ComercialEdificioDetalle() {
           <div>
             <Eyebrow>Propietarios · {owners.length}</Eyebrow>
             <CardTitle>Sub-scoring y estado de contacto</CardTitle>
+            <div className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+              Con % de propiedad: {cuotaCount} de {owners.length}
+            </div>
           </div>
           <div className="flex flex-wrap gap-1">
             {(["score", "pct", "last", "estado"] as SortKey[]).map((k) => (
@@ -404,6 +419,21 @@ export default function ComercialEdificioDetalle() {
                         <span className="truncate text-sm font-medium text-foreground">
                           {ownersExtra[o.owner_id]?.nombre_display || o.nombre || "—"}
                         </span>
+                        {(() => {
+                          const c = fmtCuota(ownersExtra[o.owner_id]?.cuota);
+                          return c ? (
+                            <span
+                              className="shrink-0 rounded-[4px] border border-gold/40 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-gold"
+                              title="% de propiedad registrado"
+                            >
+                              {c}
+                            </span>
+                          ) : (
+                            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50" title="Sin % de propiedad">
+                              —
+                            </span>
+                          );
+                        })()}
                         {ownersExtra[o.owner_id]?.estado_vital === "fallecido" && (
                           <Badge variant="destructive" className="h-4 px-1.5 text-[9px]">Fallecido</Badge>
                         )}
