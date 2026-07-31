@@ -10,6 +10,16 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
 type Row = { orden: number; metrica: string; valor: string; ok: boolean | null; detalle: string };
+type ContrasteRow = {
+  building_id: string;
+  direccion: string | null;
+  grupo_barrio: string | null;
+  hs_deal_id: string | null;
+  dealname: string | null;
+  hs_nota: string | null;
+  tenemos_nota: boolean | null;
+  discrepancia: string;
+};
 type RevRow = {
   distrito: string | null;
   nombre: string | null;
@@ -34,6 +44,8 @@ export default function AdminIntegridad() {
   } | null>(null);
   const [revLoading, setRevLoading] = useState(false);
   const [guardas, setGuardas] = useState<Record<number, number> | null>(null);
+  const [contraste, setContraste] = useState<{ resumen: Record<string, number>; filas: ContrasteRow[] } | null>(null);
+  const [contrasteLoading, setContrasteLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -59,6 +71,29 @@ export default function AdminIntegridad() {
   };
 
   const loadRev = async () => {
+    setRevLoading(true);
+    return loadRevInner().finally(() => setRevLoading(false));
+  };
+
+  const loadContraste = async () => {
+    setContrasteLoading(true);
+    const [{ data: all }, { data: filas }] = await Promise.all([
+      (supabase.from("v_contraste_nota_simple" as any) as any).select("discrepancia"),
+      (supabase.from("v_contraste_nota_simple" as any) as any)
+        .select("*")
+        .eq("discrepancia", "hubspot_si_no_tenemos")
+        .order("direccion", { ascending: true })
+        .limit(500),
+    ]);
+    const resumen: Record<string, number> = {};
+    for (const r of (all ?? []) as any[]) {
+      resumen[r.discrepancia] = (resumen[r.discrepancia] ?? 0) + 1;
+    }
+    setContraste({ resumen, filas: (filas ?? []) as ContrasteRow[] });
+    setContrasteLoading(false);
+  };
+
+  const loadRevInner = async () => {
     setRevLoading(true);
     const table = (supabase.from("campana_revista_2026" as any) as any);
     const [{ count: total }, { count: macheados }, { count: ambiguos }, { count: sinMatch }, { count: segA }, { count: segB }, { data: revision }] = await Promise.all([
