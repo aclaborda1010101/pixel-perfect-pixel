@@ -33,6 +33,7 @@ export default function AdminIntegridad() {
     revision: RevRow[];
   } | null>(null);
   const [revLoading, setRevLoading] = useState(false);
+  const [guardas, setGuardas] = useState<Record<number, number> | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -41,6 +42,20 @@ export default function AdminIntegridad() {
     if (!error && data) setRows(data as any);
     setLoading(false);
     setRefreshedAt(new Date());
+  };
+
+  const loadGuardas = async () => {
+    const nums = [1, 2, 4, 6];
+    const res = await Promise.all(
+      nums.map((n) =>
+        (supabase.from("guard_proposals" as any) as any)
+          .select("id", { count: "exact", head: true })
+          .eq("guarda", n).eq("estado", "pendiente"),
+      ),
+    );
+    const out: Record<number, number> = {};
+    nums.forEach((n, i) => { out[n] = (res[i] as any).count ?? 0; });
+    setGuardas(out);
   };
 
   const loadRev = async () => {
@@ -71,7 +86,7 @@ export default function AdminIntegridad() {
     setRevLoading(false);
   };
 
-  useEffect(() => { load(); loadRev(); }, []);
+  useEffect(() => { load(); loadRev(); loadGuardas(); }, []);
 
   if (roleLoading) return <div className="text-sm text-muted-foreground">Cargando…</div>;
   if (role !== "admin") return <Navigate to="/" replace />;
@@ -94,7 +109,7 @@ export default function AdminIntegridad() {
         title="Integridad de datos"
         subtitle="Semáforos globales: sync, vínculos propietario↔edificio, transcripciones, notas simples"
         actions={
-          <Button variant="outline" size="sm" onClick={() => { load(); loadRev(); }} disabled={loading || revLoading}>
+          <Button variant="outline" size="sm" onClick={() => { load(); loadRev(); loadGuardas(); }} disabled={loading || revLoading}>
             <RefreshCw className={`h-4 w-4 ${loading || revLoading ? "animate-spin" : ""}`} />
             Refrescar
           </Button>
@@ -121,6 +136,28 @@ export default function AdminIntegridad() {
       <Card>
         <CardContent className="p-0">
           <div className="divide-y divide-border">
+            <div className="flex items-start gap-3 px-4 py-3">
+              <div className="mt-0.5 shrink-0">
+                {guardas && Object.values(guardas).some((v) => v > 0) ? (
+                  <AlertCircle className="h-5 w-5 text-warning" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5 text-success" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div className="text-sm font-medium text-foreground">Guardas del orquestador · propuestas pendientes</div>
+                  <div className="font-mono text-sm tabular-nums text-foreground">
+                    {guardas ? Object.values(guardas).reduce((a, b) => a + b, 0).toLocaleString("es-ES") : "—"}
+                  </div>
+                </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  {guardas
+                    ? `G1 ${guardas[1]} · G2 ${guardas[2]} · G4 ${guardas[4]} · G6 ${guardas[6]} — revisar en /admin/guardas`
+                    : "Cargando…"}
+                </div>
+              </div>
+            </div>
             {rows.map((r) => (
               <div key={r.orden} className="flex items-start gap-3 px-4 py-3">
                 <div className="mt-0.5 shrink-0">
