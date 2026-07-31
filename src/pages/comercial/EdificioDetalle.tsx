@@ -38,6 +38,7 @@ import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
 import { AlarmChips } from "@/components/comercial/AlarmChips";
+import { TitularidadRegistral } from "@/components/comercial/TitularidadRegistral";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
@@ -351,6 +352,9 @@ export default function ComercialEdificioDetalle() {
           </CardContent>
         </Card>
       )}
+
+      {/* Titularidad registral (nota simple) */}
+      {id && <TitularidadRegistral buildingId={id} />}
 
       {/* Propietarios */}
       <Card>

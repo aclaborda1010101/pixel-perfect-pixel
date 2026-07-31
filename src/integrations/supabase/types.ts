@@ -2824,6 +2824,13 @@ export type Database = {
             referencedRelation: "notas_simples"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "enrichment_jobs_nota_simple_id_fkey"
+            columns: ["nota_simple_id"]
+            isOneToOne: false
+            referencedRelation: "v_titularidad_registral"
+            referencedColumns: ["nota_id"]
+          },
         ]
       }
       enrichment_verifications: {
@@ -4815,6 +4822,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "nota_simple_titulares_nota_simple_id_fkey"
+            columns: ["nota_simple_id"]
+            isOneToOne: false
+            referencedRelation: "v_titularidad_registral"
+            referencedColumns: ["nota_id"]
+          },
+          {
             foreignKeyName: "nota_simple_titulares_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -4873,6 +4887,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "notas_simples"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notas_fuera_universo_nota_simple_id_fkey"
+            columns: ["nota_simple_id"]
+            isOneToOne: false
+            referencedRelation: "v_titularidad_registral"
+            referencedColumns: ["nota_id"]
           },
         ]
       }
@@ -7670,6 +7691,64 @@ export type Database = {
         }
         Relationships: []
       }
+      v_titularidad_registral: {
+        Row: {
+          building_id: string | null
+          cif_dni: string | null
+          es_sociedad: boolean | null
+          fecha_emision_nota: string | null
+          nombre_extraido: string | null
+          nota_id: string | null
+          porcentaje: number | null
+          rol: string | null
+          tiene_contacto_crm: boolean | null
+          titular_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
     }
     Functions: {
       _merge_owner_pair: {
@@ -7791,6 +7870,7 @@ export type Database = {
         }[]
       }
       madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
+      mantenimiento_datos_horario: { Args: never; Returns: Json }
       match_building_fuzzy: {
         Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
         Returns: string
@@ -7905,6 +7985,7 @@ export type Database = {
         }[]
       }
       owner_last_activity_at: { Args: { _owner_id: string }; Returns: string }
+      person_match_key: { Args: { p_name: string }; Returns: string }
       recompute_building_owner_metrics: {
         Args: { p_building_ids?: string[] }
         Returns: Json
