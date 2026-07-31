@@ -245,6 +245,16 @@ export default function ComercialEdificioDetalle() {
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
+  // % de propiedad registrado en building_owners.cuota (volcado desde notas/HubSpot)
+  const fmtCuota = (v: unknown) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return `${n.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+  };
+  const cuotaCount = (data.owners ?? []).filter(
+    (o: any) => fmtCuota(ownersExtra[o.owner_id]?.cuota) != null,
+  ).length;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -348,6 +358,9 @@ export default function ComercialEdificioDetalle() {
           <div>
             <Eyebrow>Propietarios · {owners.length}</Eyebrow>
             <CardTitle>Sub-scoring y estado de contacto</CardTitle>
+            <div className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+              Con % de propiedad: {cuotaCount} de {owners.length}
+            </div>
           </div>
           <div className="flex flex-wrap gap-1">
             {(["score", "pct", "last", "estado"] as SortKey[]).map((k) => (
