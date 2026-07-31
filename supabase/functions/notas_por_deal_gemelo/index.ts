@@ -52,6 +52,19 @@ function splitAttachmentIds(v: unknown): string[] {
   return String(v).split(/[;,]/).map((s) => s.trim()).filter(Boolean);
 }
 
+/** Lee una tabla completa paginando (PostgREST limita a 1000 filas por petición). */
+async function fetchAll(sb: any, table: string, columns: string): Promise<any[]> {
+  const out: any[] = [];
+  const page = 1000;
+  for (let from = 0; from < 60000; from += page) {
+    const { data, error } = await sb.from(table).select(columns).range(from, from + page - 1);
+    if (error) throw error;
+    out.push(...(data ?? []));
+    if (!data || data.length < page) break;
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -79,17 +92,13 @@ Deno.serve(async (req) => {
 
   try {
     // 1) Edificios sin ninguna nota simple
-    const { data: buildings, error: bErr } = await sb
-      .from("buildings")
-      .select("id, direccion, notas_simples(id)")
-      .limit(2000);
-    if (bErr) throw bErr;
+    const buildings = await fetchAll(sb, "buildings", "id, direccion, notas_simples(id)");
     const sinNota = (buildings ?? []).filter(
       (b: any) => !Array.isArray(b.notas_simples) || b.notas_simples.length === 0,
     ).slice(0, maxBuildings);
 
     // 2) Mapa de deals conocidos (hs_id -> dealname) y de nuestros deals mapeados
-    const { data: deals } = await sb.from("hubspot_deals").select("hs_id, dealname").limit(20000);
+    const deals = await fetchAll(sb, "hubspot_deals", "hs_id, dealname");
     const byKey = new Map<string, Array<{ hs_id: string; dealname: string }>>();
     for (const d of deals ?? []) {
       const k = normalizeAddress((d as any).dealname);
