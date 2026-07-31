@@ -90,6 +90,13 @@ export type Database = {
             foreignKeyName: "_a1_dangling_review_candidato_fkey"
             columns: ["candidato"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "_a1_dangling_review_candidato_fkey"
+            columns: ["candidato"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -584,6 +591,13 @@ export type Database = {
             foreignKeyName: "assets_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "assets_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -1044,6 +1058,13 @@ export type Database = {
             foreignKeyName: "building_analysis_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_analysis_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -1143,6 +1164,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_companies_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -1250,6 +1278,13 @@ export type Database = {
             foreignKeyName: "building_feedback_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -1316,6 +1351,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_imagery_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -1439,6 +1481,13 @@ export type Database = {
             foreignKeyName: "building_owners_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -1539,6 +1588,13 @@ export type Database = {
             foreignKeyName: "building_processing_status_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -1617,6 +1673,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -1976,6 +2039,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -2396,6 +2466,13 @@ export type Database = {
             foreignKeyName: "catastro_data_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_data_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -2530,6 +2607,82 @@ export type Database = {
         }
         Relationships: []
       }
+      deals_gemelos: {
+        Row: {
+          building_id: string | null
+          created_at: string
+          dealname: string | null
+          hs_deal_gemelo: string
+          hs_deal_nuestro: string | null
+          id: string
+          notas_recuperadas: number
+          updated_at: string
+        }
+        Insert: {
+          building_id?: string | null
+          created_at?: string
+          dealname?: string | null
+          hs_deal_gemelo: string
+          hs_deal_nuestro?: string | null
+          id?: string
+          notas_recuperadas?: number
+          updated_at?: string
+        }
+        Update: {
+          building_id?: string | null
+          created_at?: string
+          dealname?: string | null
+          hs_deal_gemelo?: string
+          hs_deal_nuestro?: string | null
+          id?: string
+          notas_recuperadas?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deals_gemelos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_gemelos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "deals_gemelos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_gemelos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "deals_gemelos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "deals_gemelos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
       enrichment_config: {
         Row: {
           created_at: string
@@ -2654,6 +2807,13 @@ export type Database = {
             foreignKeyName: "enrichment_jobs_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "enrichment_jobs_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -2771,6 +2931,13 @@ export type Database = {
             foreignKeyName: "escaleras_control_set_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "escaleras_control_set_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -2846,6 +3013,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "escaleras_eval_results_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -2936,6 +3110,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "escaleras_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -3035,6 +3216,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "esquina_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -3179,6 +3367,13 @@ export type Database = {
             foreignKeyName: "facade_window_counts_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "facade_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -3257,6 +3452,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "facade_window_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -4747,6 +4949,13 @@ export type Database = {
             foreignKeyName: "notas_simples_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -4913,6 +5122,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -5524,6 +5740,13 @@ export type Database = {
             foreignKeyName: "patio_window_counts_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "patio_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -5680,6 +5903,13 @@ export type Database = {
             foreignKeyName: "proteccion_validation_queue_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "proteccion_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -5812,6 +6042,13 @@ export type Database = {
             foreignKeyName: "qa_ground_truth_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "qa_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -5887,6 +6124,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "scoring_v2_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -6007,6 +6251,13 @@ export type Database = {
             columns: ["matched_building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "scoring_v2_seed_matched_building_id_fkey"
+            columns: ["matched_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -6752,6 +7003,13 @@ export type Database = {
             foreignKeyName: "call_sessions_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -6874,6 +7132,13 @@ export type Database = {
             foreignKeyName: "building_owners_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -6921,6 +7186,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
@@ -7028,6 +7300,13 @@ export type Database = {
             foreignKeyName: "building_processing_status_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -7054,6 +7333,19 @@ export type Database = {
           nombre: string | null
           notas_count: number | null
           owners_count: number | null
+        }
+        Relationships: []
+      }
+      v_contraste_nota_simple: {
+        Row: {
+          building_id: string | null
+          dealname: string | null
+          direccion: string | null
+          discrepancia: string | null
+          grupo_barrio: string | null
+          hs_deal_id: string | null
+          hs_nota: string | null
+          tenemos_nota: boolean | null
         }
         Relationships: []
       }
@@ -7237,6 +7529,13 @@ export type Database = {
             columns: ["building_id"]
             isOneToOne: false
             referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
             referencedColumns: ["building_id"]
           },
           {
