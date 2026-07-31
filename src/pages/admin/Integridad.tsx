@@ -314,7 +314,7 @@ export default function AdminIntegridad() {
                           {r.hs_deal_id ?? "sin deal"}
                         </div>
                         <Button size="sm" variant="ghost" asChild>
-                          <a href={`/comercial/edificio/${r.building_id}`}>Abrir ficha</a>
+                          <a href={`/comercial/edificios/${r.building_id}`}>Abrir ficha</a>
                         </Button>
                       </div>
                     ))}
