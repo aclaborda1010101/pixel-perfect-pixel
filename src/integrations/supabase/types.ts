@@ -7669,6 +7669,7 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
       strip_html_to_text: { Args: { _in: string }; Returns: string }
       sync_links_from_deals: { Args: never; Returns: Json }
+      volcar_cuotas_desde_notas: { Args: never; Returns: Json }
     }
     Enums: {
       app_role:
