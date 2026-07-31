@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { useAuth } from "@/hooks/useAuth";
 
 type Item = { url: string; label: string; icon: any; beta?: boolean; badge?: number };
 
@@ -91,6 +92,9 @@ export function AppSidebar() {
     { url: "/revision-escaleras", label: "Revisión escaleras", icon: Footprints },
     { url: "/admin/proteccion-pgoum", label: "Validación PGOUM", icon: CheckSquare },
     ...(role === "admin" ? [{ url: "/admin/integridad", label: "Integridad de datos", icon: CheckSquare } as Item] : []),
+    ...(role === "admin" || (user?.email ?? "").toLowerCase() === "jesus.anzola@afflux.es"
+      ? [{ url: "/admin/guardas", label: "Guardas", icon: CheckSquare } as Item]
+      : []),
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
   ];
 
