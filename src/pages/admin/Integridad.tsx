@@ -278,6 +278,57 @@ export default function AdminIntegridad() {
             </>
           )}
         </TabsContent>
+
+        <TabsContent value="notas" className="space-y-4">
+          {!contraste ? (
+            <div className="text-sm text-muted-foreground">Cargando contraste…</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <StatCard label="HubSpot Sí · no la tenemos" value={contraste.resumen["hubspot_si_no_tenemos"] ?? 0} tone="err" />
+                <StatCard label="HubSpot No · sí la tenemos" value={contraste.resumen["hubspot_no_si_tenemos"] ?? 0} tone="warn" />
+                <StatCard label="Coherentes" value={contraste.resumen["coherente"] ?? 0} tone="ok" />
+                <StatCard
+                  label="Sin dato en HubSpot"
+                  value={(contraste.resumen["sin_dato_hubspot_tenemos"] ?? 0) + (contraste.resumen["sin_dato_hubspot_sin_nota"] ?? 0)}
+                />
+              </div>
+              <Card>
+                <CardContent className="p-0">
+                  <div className="border-b border-border px-4 py-3">
+                    <div className="text-sm font-medium text-foreground">
+                      Lista de trabajo · {contraste.filas.length} edificios
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      HubSpot marca «¿Tenemos la nota simple?» = Sí, pero no hay ninguna nota en el sistema.
+                    </div>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {contraste.filas.map((r) => (
+                      <div key={r.building_id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                        <div className="min-w-0 flex-1 truncate font-medium">{r.direccion ?? "—"}</div>
+                        <div className="w-32 shrink-0 truncate font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
+                          {r.grupo_barrio ?? "—"}
+                        </div>
+                        <div className="w-32 shrink-0 font-mono text-[11px] text-muted-foreground">
+                          {r.hs_deal_id ?? "sin deal"}
+                        </div>
+                        <Button size="sm" variant="ghost" asChild>
+                          <a href={`/comercial/edificio/${r.building_id}`}>Abrir ficha</a>
+                        </Button>
+                      </div>
+                    ))}
+                    {contraste.filas.length === 0 && (
+                      <div className="p-6 text-center text-sm text-muted-foreground">
+                        Sin discrepancias «HubSpot dice Sí y no la tenemos».
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
       </Tabs>
     </div>
   );
