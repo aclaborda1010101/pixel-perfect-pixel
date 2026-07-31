@@ -3250,6 +3250,51 @@ export type Database = {
           },
         ]
       }
+      guard_proposals: {
+        Row: {
+          creado_at: string
+          detalle: string | null
+          edificio_id: string | null
+          entity_id: string
+          entity_type: string
+          estado: string
+          guarda: number
+          id: string
+          propuesta: Json
+          resuelto_at: string | null
+          resuelto_por: string | null
+          titulo: string
+        }
+        Insert: {
+          creado_at?: string
+          detalle?: string | null
+          edificio_id?: string | null
+          entity_id: string
+          entity_type: string
+          estado?: string
+          guarda: number
+          id?: string
+          propuesta?: Json
+          resuelto_at?: string | null
+          resuelto_por?: string | null
+          titulo: string
+        }
+        Update: {
+          creado_at?: string
+          detalle?: string | null
+          edificio_id?: string | null
+          entity_id?: string
+          entity_type?: string
+          estado?: string
+          guarda?: number
+          id?: string
+          propuesta?: Json
+          resuelto_at?: string | null
+          resuelto_por?: string | null
+          titulo?: string
+        }
+        Relationships: []
+      }
       hubspot_calls: {
         Row: {
           associated_contact_ids: string[] | null
@@ -7367,6 +7412,11 @@ export type Database = {
         Args: { p_name: string }
         Returns: string
       }
+      detect_guard_proposals: { Args: never; Returns: Json }
+      detect_guarda_1: { Args: never; Returns: number }
+      detect_guarda_2: { Args: never; Returns: number }
+      detect_guarda_4: { Args: never; Returns: number }
+      detect_guarda_6: { Args: never; Returns: number }
       find_owner_for_orphan_contact: {
         Args: {
           p_email: string
