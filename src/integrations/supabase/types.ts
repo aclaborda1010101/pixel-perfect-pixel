@@ -7320,6 +7320,7 @@ export type Database = {
           auditadas: number | null
           pct: number | null
           pendientes: number | null
+          pendientes_con_edificio: number | null
           total_universo: number | null
         }
         Relationships: []
@@ -7332,6 +7333,7 @@ export type Database = {
           hs_id: string | null
           hs_owner_id: string | null
           hs_timestamp: string | null
+          tiene_edificio: boolean | null
         }
         Insert: {
           associated_contact_ids?: string[] | null
@@ -7340,6 +7342,7 @@ export type Database = {
           hs_id?: string | null
           hs_owner_id?: string | null
           hs_timestamp?: string | null
+          tiene_edificio?: never
         }
         Update: {
           associated_contact_ids?: string[] | null
@@ -7348,6 +7351,7 @@ export type Database = {
           hs_id?: string | null
           hs_owner_id?: string | null
           hs_timestamp?: string | null
+          tiene_edificio?: never
         }
         Relationships: []
       }
