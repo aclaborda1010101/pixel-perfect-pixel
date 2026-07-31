@@ -51,3 +51,9 @@ verify_jwt = false
 
 [functions.notas_simples_ingest]
 verify_jwt = false
+
+[functions.guardas_detect]
+verify_jwt = false
+
+[functions.guardas_aprobar]
+verify_jwt = false
