@@ -215,6 +215,24 @@ export type Database = {
         }
         Relationships: []
       }
+      _audit_sin_exp: {
+        Row: {
+          hs_id: string | null
+          hs_timestamp: string | null
+          owner_id: string | null
+        }
+        Insert: {
+          hs_id?: string | null
+          hs_timestamp?: string | null
+          owner_id?: string | null
+        }
+        Update: {
+          hs_id?: string | null
+          hs_timestamp?: string | null
+          owner_id?: string | null
+        }
+        Relationships: []
+      }
       _export_notas: {
         Row: {
           direccion: string | null
