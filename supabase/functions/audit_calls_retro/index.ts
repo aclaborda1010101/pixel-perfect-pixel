@@ -1,7 +1,7 @@
 // audit_calls_retro
-// Batch job: audita RETROACTIVAMENTE llamadas históricas de HubSpot que ya tienen
-// transcripción/verbatim, disposition CONECTADA (4 GUIDs) y >=60s, y que aún
-// NO tienen expediente guardado (voss_post en call_sessions).
+// Drenaje de expedientes: audita TODA llamada de HubSpot con transcripción no
+// vacía que aún NO tiene expediente en call_sessions (sin filtro de duración ni
+// de disposition). Prioriza 1º propietarios con edificio, 2º fecha descendente.
 //
 // Para cada llamada:
 //   1) Resuelve owner via external_ids (contactos asociados).
@@ -12,7 +12,8 @@
 //      la llamada, `puntuacion` = score del voss_post, `comercial_email`
 //      denormalizado (hubspot_owners.email) para que Productividad lo agregue
 //      aunque no exista fila en `calls`.
-//   4) Idempotente: si ya hay call_session con voss_post para ese hs_id, salta.
+//   4) Idempotente: si ya hay call_session para ese hs_id, salta.
+//   5) Tras cada análisis con señal, recalcula compute_score_total(building_id).
 //
 // Params opcionales: { limit?: number, dry_run?: boolean }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
@@ -22,13 +23,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
-const DEFAULT_LIMIT = 20;
-const CONNECTED_DISPOSITIONS = [
-  "f240bbac-87c9-4f6e-bf70-924b57d47db7",
-  "55428849-9fbc-4038-92d6-7c4f2b850974",
-  "371c7887-c871-4c38-b0e7-77bafc4de124",
-  "ea9e4795-50e0-4c7b-8b97-3c0bb743dbf7",
-];
+const DEFAULT_LIMIT = 12;      // lote por invocación
+const CONCURRENCY = 4;         // paralelismo controlado sobre el LLM
+const TIME_BUDGET_MS = 110_000;
 
 // Fallback fijo (admin) para llamadas cuyo hs_owner_id no mapea a un auth.user.
 // RLS: los expedientes retroactivos se leen por policy sessions_select_retroactiva_public.
