@@ -70,11 +70,6 @@ export default function AdminIntegridad() {
     setGuardas(out);
   };
 
-  const loadRev = async () => {
-    setRevLoading(true);
-    return loadRevInner().finally(() => setRevLoading(false));
-  };
-
   const loadContraste = async () => {
     setContrasteLoading(true);
     const [{ data: all }, { data: filas }] = await Promise.all([
@@ -93,7 +88,7 @@ export default function AdminIntegridad() {
     setContrasteLoading(false);
   };
 
-  const loadRevInner = async () => {
+  const loadRev = async () => {
     setRevLoading(true);
     const table = (supabase.from("campana_revista_2026" as any) as any);
     const [{ count: total }, { count: macheados }, { count: ambiguos }, { count: sinMatch }, { count: segA }, { count: segB }, { data: revision }] = await Promise.all([
