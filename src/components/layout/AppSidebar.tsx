@@ -46,6 +46,7 @@ export function AppSidebar() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const { role } = useCurrentRole();
+  const { user } = useAuth();
   const isComercial = role === "comercial_zona";
   const isWhatsapp = role === "whatsapp";
 
