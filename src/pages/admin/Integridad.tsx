@@ -116,7 +116,7 @@ export default function AdminIntegridad() {
     setRevLoading(false);
   };
 
-  useEffect(() => { load(); loadRev(); loadGuardas(); }, []);
+  useEffect(() => { load(); loadRev(); loadGuardas(); loadContraste(); }, []);
 
   if (roleLoading) return <div className="text-sm text-muted-foreground">Cargando…</div>;
   if (role !== "admin") return <Navigate to="/" replace />;
@@ -139,8 +139,8 @@ export default function AdminIntegridad() {
         title="Integridad de datos"
         subtitle="Semáforos globales: sync, vínculos propietario↔edificio, transcripciones, notas simples"
         actions={
-          <Button variant="outline" size="sm" onClick={() => { load(); loadRev(); loadGuardas(); }} disabled={loading || revLoading}>
-            <RefreshCw className={`h-4 w-4 ${loading || revLoading ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" onClick={() => { load(); loadRev(); loadGuardas(); loadContraste(); }} disabled={loading || revLoading || contrasteLoading}>
+            <RefreshCw className={`h-4 w-4 ${loading || revLoading || contrasteLoading ? "animate-spin" : ""}`} />
             Refrescar
           </Button>
         }
@@ -150,6 +150,7 @@ export default function AdminIntegridad() {
         <TabsList>
           <TabsTrigger value="semaforos">Semáforos</TabsTrigger>
           <TabsTrigger value="revista">Campaña revista</TabsTrigger>
+          <TabsTrigger value="notas">Contraste nota simple</TabsTrigger>
         </TabsList>
 
         <TabsContent value="semaforos" className="space-y-4">
