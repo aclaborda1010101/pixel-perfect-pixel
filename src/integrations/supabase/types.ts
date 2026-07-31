@@ -7791,6 +7791,7 @@ export type Database = {
         }[]
       }
       madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
+      mantenimiento_datos_horario: { Args: never; Returns: Json }
       match_building_fuzzy: {
         Args: { p_ciudad?: string; p_direccion: string; p_threshold?: number }
         Returns: string
