@@ -158,7 +158,7 @@ export default function ComercialEdificioDetalle() {
           .eq("building_id", id!)
           .maybeSingle(),
         (supabase.from("building_owners") as any)
-          .select("owner_id, owners:owner_id(nombre_display, estado_vital, edad_anios, metadatos)")
+          .select("owner_id, cuota, owners:owner_id(nombre_display, estado_vital, edad_anios, metadatos)")
           .eq("building_id", id!),
       ]);
       const { data: companies } = await (supabase.from("building_companies" as any) as any)
@@ -183,7 +183,9 @@ export default function ComercialEdificioDetalle() {
         companies: (companies ?? []) as any[],
         catastro,
         sucesion: (sucesion ?? null) as any,
-        ownersExtra: Object.fromEntries(((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, r.owners || {}])),
+        ownersExtra: Object.fromEntries(
+          ((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, { ...(r.owners || {}), cuota: r.cuota }]),
+        ),
         hasNotaSimple: Array.isArray((b as any)?.notas_simples) && (b as any).notas_simples.length > 0,
       };
     },

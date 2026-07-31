@@ -57,3 +57,6 @@ verify_jwt = false
 
 [functions.guardas_aprobar]
 verify_jwt = false
+
+[functions.notas_por_deal_gemelo]
+verify_jwt = false
