@@ -419,6 +419,21 @@ export default function ComercialEdificioDetalle() {
                         <span className="truncate text-sm font-medium text-foreground">
                           {ownersExtra[o.owner_id]?.nombre_display || o.nombre || "—"}
                         </span>
+                        {(() => {
+                          const c = fmtCuota(ownersExtra[o.owner_id]?.cuota);
+                          return c ? (
+                            <span
+                              className="shrink-0 rounded-[4px] border border-gold/40 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-gold"
+                              title="% de propiedad registrado"
+                            >
+                              {c}
+                            </span>
+                          ) : (
+                            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50" title="Sin % de propiedad">
+                              —
+                            </span>
+                          );
+                        })()}
                         {ownersExtra[o.owner_id]?.estado_vital === "fallecido" && (
                           <Badge variant="destructive" className="h-4 px-1.5 text-[9px]">Fallecido</Badge>
                         )}
