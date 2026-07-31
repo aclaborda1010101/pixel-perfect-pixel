@@ -1,7 +1,7 @@
 // audit_calls_retro
-// Batch job: audita RETROACTIVAMENTE llamadas históricas de HubSpot que ya tienen
-// transcripción/verbatim, disposition CONECTADA (4 GUIDs) y >=60s, y que aún
-// NO tienen expediente guardado (voss_post en call_sessions).
+// Drenaje de expedientes: audita TODA llamada de HubSpot con transcripción no
+// vacía que aún NO tiene expediente en call_sessions (sin filtro de duración ni
+// de disposition). Prioriza 1º propietarios con edificio, 2º fecha descendente.
 //
 // Para cada llamada:
 //   1) Resuelve owner via external_ids (contactos asociados).
@@ -12,7 +12,8 @@
 //      la llamada, `puntuacion` = score del voss_post, `comercial_email`
 //      denormalizado (hubspot_owners.email) para que Productividad lo agregue
 //      aunque no exista fila en `calls`.
-//   4) Idempotente: si ya hay call_session con voss_post para ese hs_id, salta.
+//   4) Idempotente: si ya hay call_session para ese hs_id, salta.
+//   5) Tras cada análisis con señal, recalcula compute_score_total(building_id).
 //
 // Params opcionales: { limit?: number, dry_run?: boolean }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
@@ -22,13 +23,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
-const DEFAULT_LIMIT = 20;
-const CONNECTED_DISPOSITIONS = [
-  "f240bbac-87c9-4f6e-bf70-924b57d47db7",
-  "55428849-9fbc-4038-92d6-7c4f2b850974",
-  "371c7887-c871-4c38-b0e7-77bafc4de124",
-  "ea9e4795-50e0-4c7b-8b97-3c0bb743dbf7",
-];
+const DEFAULT_LIMIT = 12;      // lote por invocación
+const CONCURRENCY = 4;         // paralelismo controlado sobre el LLM
+const TIME_BUDGET_MS = 110_000;
 
 // Fallback fijo (admin) para llamadas cuyo hs_owner_id no mapea a un auth.user.
 // RLS: los expedientes retroactivos se leen por policy sessions_select_retroactiva_public.
@@ -55,14 +52,53 @@ Deno.serve(async (req) => {
   const out: any[] = [];
 
   try {
-    // 1) Cola pendiente (ordenada por antigüedad para vaciarla progresivamente).
+    // 1) Cola pendiente: 1º propietarios con edificio, 2º fecha descendente.
     const { data: pending, error: qErr } = await sb.from("v_retro_audit_queue")
-      .select("hs_id, hs_timestamp, hs_call_duration, hs_owner_id, associated_contact_ids")
+      .select("hs_id, hs_timestamp, hs_call_duration, hs_owner_id, associated_contact_ids, tiene_edificio")
+      .order("tiene_edificio", { ascending: false })
       .order("hs_timestamp", { ascending: false })
-      .limit(limit * 4);
+      .limit(limit * 3);
     if (qErr) throw qErr;
+
+    const { data: progress0 } = await sb.from("v_retro_audit_progress").select("*").maybeSingle();
+    const { data: logRow } = await sb.from("hubspot_sync_log").insert({
+      entity: "auto_analyze_backfill", status: "running",
+      metadatos: { pendientes_inicio: (progress0 as any)?.pendientes ?? null, limit },
+    }).select("id").maybeSingle();
+    const logId = (logRow as any)?.id ?? null;
+
+    const finish = async (status: string, processed: number, errors: number, errMsg?: string) => {
+      const { data: prog } = await sb.from("v_retro_audit_progress").select("*").maybeSingle();
+      if (logId) {
+        await sb.from("hubspot_sync_log").update({
+          finished_at: new Date().toISOString(), status,
+          records_upserted: processed, records_failed: errors,
+          error_message: errMsg ?? null,
+          metadatos: {
+            procesadas: processed,
+            pendientes_restantes: (prog as any)?.pendientes ?? null,
+            pendientes_con_edificio: (prog as any)?.pendientes_con_edificio ?? null,
+          },
+        }).eq("id", logId);
+      }
+      await sb.from("hubspot_sync_state").upsert({
+        entity: "auto_analyze",
+        last_run_status: status,
+        last_run_at: new Date().toISOString(),
+        last_error: errMsg ?? null,
+        metadatos: {
+          pendientes: (prog as any)?.pendientes ?? null,
+          pendientes_con_edificio: (prog as any)?.pendientes_con_edificio ?? null,
+          auditadas: (prog as any)?.auditadas ?? null,
+          ultimo_lote: processed,
+        },
+      }, { onConflict: "entity" });
+      return prog;
+    };
+
     if (!pending?.length) {
-      return new Response(JSON.stringify({ ok: true, processed: 0, out: [], message: "cola vacía" }),
+      const prog = await finish("ok", 0, 0);
+      return new Response(JSON.stringify({ ok: true, processed: 0, out: [], progress: prog, message: "cola vacía" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -75,44 +111,38 @@ Deno.serve(async (req) => {
     const authByEmail = new Map<string, string>();
     for (const p of profs ?? []) if (p.email) authByEmail.set(String(p.email).toLowerCase(), String(p.id));
 
-    let processed = 0;
-    for (const q of pending) {
-      if (processed >= limit) break;
+    let processed = 0, errors = 0, rateLimited = false;
 
+    const auditOne = async (q: any) => {
       // 2) Cargar la llamada completa (transcripción, summary, duración).
       const { data: c } = await sb.from("hubspot_calls")
         .select("id, hs_id, hs_timestamp, hs_call_duration, hs_call_transcription, hs_call_summary, hs_call_disposition, associated_contact_ids, hs_owner_id, raw")
         .eq("hs_id", q.hs_id).maybeSingle();
-      if (!c) { out.push({ hs_id: q.hs_id, skip: "call not found" }); continue; }
+      if (!c) return { hs_id: q.hs_id, skip: "call not found" };
 
-      // Re-check idempotencia en caliente (por si otro run avanzó).
+      // Idempotencia en caliente.
       const { data: existing } = await sb.from("call_sessions")
-        .select("id").eq("hubspot_call_id", c.hs_id).not("voss_post", "is", null).limit(1).maybeSingle();
-      if (existing?.id) { out.push({ hs_id: c.hs_id, skip: "ya auditada" }); continue; }
+        .select("id").eq("hubspot_call_id", c.hs_id).limit(1).maybeSingle();
+      if (existing?.id) return { hs_id: c.hs_id, skip: "ya auditada" };
 
       // 3) Owner interno (external_ids).
       const contactIds: string[] = (c.associated_contact_ids ?? []) as string[];
-      if (!contactIds.length) { out.push({ hs_id: c.hs_id, skip: "sin contactos hubspot" }); continue; }
+      if (!contactIds.length) return { hs_id: c.hs_id, skip: "sin contactos hubspot" };
       const { data: ext } = await sb.from("external_ids")
         .select("entity_id, provider_id")
         .eq("entity_type", "owner").eq("provider", "hubspot")
         .in("provider_id", contactIds);
       const ownerId = ext?.[0]?.entity_id ?? null;
-      if (!ownerId) { out.push({ hs_id: c.hs_id, skip: "owner no en cartera" }); continue; }
+      if (!ownerId) return { hs_id: c.hs_id, skip: "owner no en cartera" };
 
-      // Comercial: hs_owner_id → email → auth.user (si existe). Fallback admin.
       const hsOwner = c.hs_owner_id ? ownerEmailByHs.get(String(c.hs_owner_id)) : null;
       const comercialEmail = hsOwner?.email ?? null;
-      const comercialId = comercialEmail && authByEmail.get(comercialEmail.toLowerCase()) || ADMIN_FALLBACK_USER_ID;
+      const comercialId = (comercialEmail && authByEmail.get(comercialEmail.toLowerCase())) || ADMIN_FALLBACK_USER_ID;
 
-      if (dry) {
-        out.push({ hs_id: c.hs_id, owner_id: ownerId, comercial_email: comercialEmail, would_audit: true });
-        processed++; continue;
-      }
+      if (dry) return { hs_id: c.hs_id, owner_id: ownerId, comercial_email: comercialEmail, would_audit: true, _ok: true };
 
-      // 4) Analizar via agent_voss_coach mode=post.
       const transcript = c.hs_call_transcription || "";
-      if (transcript.length < 40) { out.push({ hs_id: c.hs_id, skip: "transcript vacío" }); continue; }
+      if (transcript.length < 40) return { hs_id: c.hs_id, skip: "transcript vacío" };
 
       let voss: any = null; let score: number | null = null; let aiErr: string | null = null;
       try {
@@ -128,36 +158,32 @@ Deno.serve(async (req) => {
           }),
         });
         const j = await r.json().catch(() => ({}));
-        if (r.status === 429) {
-          // Rate limit → parar la corrida y dejar el resto para el siguiente cron.
-          out.push({ hs_id: c.hs_id, error: "rate_limit_429" });
-          break;
-        }
-        if (!r.ok || j?.ok === false) {
-          aiErr = j?.error || `status ${r.status}`;
-        } else {
+        if (r.status === 429) { rateLimited = true; return { hs_id: c.hs_id, error: "rate_limit_429" }; }
+        if (!r.ok || j?.ok === false) aiErr = j?.error || `status ${r.status}`;
+        else {
           voss = j?.voss ?? null;
           score = voss?.puntuacion?.score_0_100 ?? voss?.puntuacion?.score ?? null;
         }
-      } catch (e: any) {
-        aiErr = e?.message || String(e);
-      }
+      } catch (e: any) { aiErr = e?.message || String(e); }
 
-      if (!voss) { out.push({ hs_id: c.hs_id, error: aiErr || "no voss" }); continue; }
+      if (!voss) return { hs_id: c.hs_id, error: aiErr || "no voss" };
 
-      // Anota que es retro y sin KPIs objetivo, sin re-tocar el schema del voss.
       voss._retroactiva = true;
       voss._nota_retro = "Auditoría retroactiva · sin KPIs objetivo definidos (no había brief previo).";
 
-      // Edificio: intenta atribución via v_owner_calls_enriched (misma lógica que resto del app).
+      // Edificio: v_owner_calls_enriched y, si no, el edificio del propietario.
       let buildingId: string | null = null;
       try {
         const { data: ownerCall } = await (sb.from("v_owner_calls_enriched" as any) as any)
           .select("building_id").eq("owner_id", ownerId).eq("hs_id", c.hs_id).maybeSingle();
         buildingId = (ownerCall as any)?.building_id ?? null;
-      } catch (_) { /* view opcional */ }
+      } catch (_) { /* vista opcional */ }
+      if (!buildingId) {
+        const { data: bo } = await sb.from("building_owners")
+          .select("building_id").eq("owner_id", ownerId).limit(1).maybeSingle();
+        buildingId = (bo as any)?.building_id ?? null;
+      }
 
-      // 5) Insert expediente.
       const insertRow: any = {
         comercial_id: comercialId,
         comercial_email: comercialEmail,
@@ -178,17 +204,35 @@ Deno.serve(async (req) => {
       };
 
       const { data: ins, error: insErr } = await sb.from("call_sessions").insert(insertRow).select("id").maybeSingle();
-      if (insErr) { out.push({ hs_id: c.hs_id, error: `insert: ${insErr.message}` }); continue; }
+      if (insErr) return { hs_id: c.hs_id, error: `insert: ${insErr.message}` };
 
-      out.push({ hs_id: c.hs_id, owner_id: ownerId, session_id: ins?.id, score, comercial_email: comercialEmail });
-      processed++;
+      // 5) Cadena llamada → análisis → score: recalcula el score del edificio.
+      let scoreRecalc: any = null;
+      if (buildingId) {
+        const { data: st, error: stErr } = await sb.rpc("compute_score_total", { p_building_id: buildingId });
+        scoreRecalc = stErr ? { error: stErr.message } : st;
+      }
+
+      return { hs_id: c.hs_id, owner_id: ownerId, building_id: buildingId, session_id: ins?.id, score, score_total: scoreRecalc, comercial_email: comercialEmail, _ok: true };
+    };
+
+    // Lotes en paralelo controlado.
+    const queue = (pending as any[]).slice(0, limit);
+    for (let i = 0; i < queue.length; i += CONCURRENCY) {
+      if (rateLimited || Date.now() - t0 > TIME_BUDGET_MS) break;
+      const slice = queue.slice(i, i + CONCURRENCY);
+      const res = await Promise.all(slice.map((q) => auditOne(q).catch((e) => ({ hs_id: q.hs_id, error: String(e?.message ?? e) }))));
+      for (const r of res as any[]) {
+        out.push(r);
+        if (r?._ok) processed++;
+        else if (r?.error) errors++;
+      }
     }
 
-    // Progreso agregado (informativo).
-    const { data: progress } = await sb.from("v_retro_audit_progress").select("*").maybeSingle();
+    const progress = await finish(errors && !processed ? "error" : "ok", processed, errors, rateLimited ? "rate_limit_429" : undefined);
 
     return new Response(JSON.stringify({
-      ok: true, processed, elapsed_ms: Date.now() - t0, progress, out,
+      ok: true, processed, errors, rate_limited: rateLimited, elapsed_ms: Date.now() - t0, progress, out,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: e?.message || String(e), out }),

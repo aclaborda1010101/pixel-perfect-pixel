@@ -29,13 +29,11 @@ Deno.serve(async (req) => {
   try {
     const { data: candidates, error } = await sb.from("hubspot_calls")
       .select("id, hs_id, hs_timestamp, hs_call_duration, hs_call_recording_url, hs_call_transcription, hs_call_summary, associated_contact_ids, raw")
-      .gte("hs_call_duration", 45000)
-      .not("hs_call_recording_url", "is", null)
-      .neq("hs_call_recording_url", "")
       .not("hs_call_transcription", "is", null)
       .neq("hs_call_transcription", "")
+      .filter("raw->>_auto_analyzed_at", "is", null)
       .order("hs_timestamp", { ascending: false })
-      .limit(200);
+      .limit(limit * 3);
     if (error) throw error;
 
     let processed = 0;
@@ -89,7 +87,19 @@ Deno.serve(async (req) => {
         });
       } catch (e) { console.error("[auto_analyze] wa_consent hook fail", e); }
 
-      out.push({ hs_id: c.hs_id, owner_id: ownerId, ok: okAnalysis, score: j?.voss?.puntuacion?.score_0_100 ?? null });
+      // Cadena llamada → análisis → score del edificio del propietario.
+      let buildingId: string | null = null;
+      if (okAnalysis) {
+        const { data: bo } = await sb.from("building_owners")
+          .select("building_id").eq("owner_id", ownerId).limit(1).maybeSingle();
+        buildingId = (bo as any)?.building_id ?? null;
+        if (buildingId) {
+          const { error: stErr } = await sb.rpc("compute_score_total", { p_building_id: buildingId });
+          if (stErr) console.error("[auto_analyze] compute_score_total", stErr.message);
+        }
+      }
+
+      out.push({ hs_id: c.hs_id, owner_id: ownerId, building_id: buildingId, ok: okAnalysis, score: j?.voss?.puntuacion?.score_0_100 ?? null });
       processed++;
     }
     return new Response(JSON.stringify({ ok: true, processed, elapsed_ms: Date.now() - t0, out }),
