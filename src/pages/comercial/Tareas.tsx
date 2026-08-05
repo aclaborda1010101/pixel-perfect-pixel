@@ -214,6 +214,7 @@ export default function ComercialTareas() {
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="call_queue">Cola V5</SelectItem>
                 <SelectItem value="manual">Manual</SelectItem>
               </SelectContent>
             </Select>
@@ -286,10 +287,14 @@ export default function ComercialTareas() {
                               {priorityLabel[t.priority as Priority]}
                             </Badge>
                             <Badge
-                              variant={t.task_type === "auto" ? "info" : "outline"}
+                              variant={t.task_type === "auto" ? "info" : t.task_type === "call_queue" ? "warning" : "outline"}
                               className="text-[9px]"
                             >
-                              {t.task_type === "auto" ? "Auto" : "Manual"}
+                              {t.task_type === "auto"
+                                ? "Auto"
+                                : t.task_type === "call_queue"
+                                  ? `Cola V5${taskCode(t) ? ` · ${taskCode(t)}` : ""}`
+                                  : "Manual"}
                             </Badge>
                           </div>
                         </div>
