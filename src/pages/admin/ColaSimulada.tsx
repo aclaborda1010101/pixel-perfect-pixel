@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { CheckCircle2, XCircle, HelpCircle, ShieldAlert, Eye, Ban } from "lucide-react";
+import { ColaDemo } from "@/components/admin/ColaDemo";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type Checkpoint = { key: string; label: string; estado: "PASS" | "FAIL" | "UNKNOWN"; valor: string; fuente: string };
 type Row = {
@@ -96,6 +98,7 @@ function Fila({ r }: { r: Row }) {
 }
 
 export default function ColaSimulada() {
+  const [modo, setModo] = useState<"estrictos" | "demo">("estrictos");
   const { data, isLoading, error } = useQuery({
     queryKey: ["cola-simulada"],
     queryFn: async () => {
@@ -130,6 +133,21 @@ export default function ColaSimulada() {
         subtitle="Fase 0 de fiabilidad. Esta pantalla NO crea tareas ni modifica datos: solo evalúa qué parejas edificio–propietario cumplirían los requisitos de publicación."
       />
 
+      <div className="flex flex-wrap items-center gap-3">
+        <Eyebrow>Modo</Eyebrow>
+        <ToggleGroup
+          type="single"
+          value={modo}
+          onValueChange={(v) => v && setModo(v as "estrictos" | "demo")}
+          variant="outline"
+          size="sm"
+        >
+          <ToggleGroupItem value="estrictos">Controles estrictos</ToggleGroupItem>
+          <ToggleGroupItem value="demo">Demostración (20)</ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+
+      {modo === "demo" ? <ColaDemo /> : <>
       <Card className="border-amber-400/30">
         <CardContent className="flex items-start gap-3 p-4 text-sm text-muted-foreground">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
@@ -218,6 +236,7 @@ export default function ColaSimulada() {
           </Card>
         </TabsContent>
       </Tabs>
+      </>}
     </div>
   );
 }
