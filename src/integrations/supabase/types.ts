@@ -7751,17 +7751,22 @@ export type Database = {
           contactos_previos: number | null
           cuota: number | null
           cuota_pct: number | null
+          deal_estado: string | null
+          deal_map_building_id: string | null
           dias_cadencia_vencida: number | null
           direccion: string | null
+          hs_deal_id: string | null
           last_call_at: string | null
           n_aprox: number | null
           n_con_cuota: number | null
           n_gemelos: number | null
           n_guardas: number | null
+          n_incoherentes: number | null
           n_notas: number | null
           n_notas_listas: number | null
           n_notas_texto: number | null
           n_owners: number | null
+          n_pct_nota: number | null
           n_rel: number | null
           n_rel_nota: number | null
           n_rel_sin_dato: number | null
@@ -7773,6 +7778,7 @@ export type Database = {
           score_activo_raw: number | null
           score_owner: number | null
           suma_cuotas: number | null
+          suma_nota: number | null
           telefono: string | null
           ultima_nota_at: string | null
         }
