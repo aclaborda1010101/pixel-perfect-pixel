@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
-import { madridYmd } from "@/lib/taskSchedule";
+import { madridYmd, taskCode, taskSubjectId } from "@/lib/taskSchedule";
 import { AlertTriangle } from "lucide-react";
 
 type Task = {
@@ -23,15 +23,7 @@ type Task = {
   status: string | null;
 };
 
-const ownerIdFromKey = (k?: string | null) => {
-  const m = typeof k === "string" ? k.match(/^call_queue:\d{4}-\d{2}-\d{2}:([0-9a-f-]{36})$/i) : null;
-  return m ? m[1] : null;
-};
-
-const tipoFromTitle = (t?: string | null) => {
-  const m = typeof t === "string" ? t.match(/T-\d{2}/) : null;
-  return m ? m[0] : "T-—";
-};
+const ownerIdFromKey = (k?: string | null) => taskSubjectId({ task_key: k });
 
 export function ColaDemo() {
   const hoy = madridYmd(new Date());
@@ -42,8 +34,8 @@ export function ColaDemo() {
       const { data: tasks, error: e1 } = await supabase
         .from("building_tasks")
         .select("id,building_id,user_id,task_type,task_key,title,description,priority,due_date,created_at,status")
-        .like("task_key", `call_queue:${hoy}:%`)
-        .limit(50);
+        .or(`task_key.like.v5:${hoy}:%,task_key.like.call_queue:${hoy}:%`)
+        .limit(60);
       if (e1) throw e1;
       const list = (tasks ?? []) as Task[];
 
@@ -76,7 +68,7 @@ export function ColaDemo() {
           comercial: (pMap.get(t.user_id ?? "") as string) ?? "Sin asignar",
           owner: (oMap.get(ownerId ?? "") as string) ?? null,
           direccion: (bMap.get(t.building_id ?? "") as string) ?? null,
-          tipo: tipoFromTitle(t.title),
+          tipo: taskCode(t) ?? "T-—",
           bloqueos: sMap.has(key) ? (sMap.get(key) as string[]) : (null as string[] | null),
         };
       });
@@ -127,7 +119,7 @@ export function ColaDemo() {
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando…</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No hay lote call_queue planificado para hoy ({hoy}).</p>
+        <p className="text-sm text-muted-foreground">No hay lote del motor V5 planificado para hoy ({hoy}).</p>
       ) : (
         <div className="space-y-3">
           {rows.map((r) => (

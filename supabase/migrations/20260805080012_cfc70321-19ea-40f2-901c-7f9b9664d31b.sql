@@ -1,0 +1,1 @@
+GRANT SELECT ON public.v_v5_task_candidates TO authenticated, service_role;
