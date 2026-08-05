@@ -96,6 +96,9 @@ export function AppSidebar() {
     ...(role === "admin" || (user?.email ?? "").toLowerCase() === "jesus.anzola@afflux.es"
       ? [{ url: "/admin/guardas", label: "Guardas", icon: CheckSquare } as Item]
       : []),
+    ...(role === "admin"
+      ? [{ url: "/admin/cola-simulada", label: "Simulación de cola", icon: ListChecks } as Item]
+      : []),
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
   ];
 
