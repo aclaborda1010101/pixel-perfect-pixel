@@ -18,6 +18,8 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { syncAssignedBuildingsTasks, TASK_DEFS, type Priority } from "@/lib/buildingTasks";
+import { sortByDueThenPriority, isTaskOpen } from "@/lib/taskSchedule";
+import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, any> = {
@@ -111,7 +113,11 @@ export default function ComercialTareas() {
       const pendingCount = arr.filter(
         (t) => t.status !== "completed" && t.status !== "skipped",
       ).length;
-      return { buildingId, tasks: arr, highCount, pendingCount, building: byId.get(buildingId) };
+      const ordered = [
+        ...sortByDueThenPriority(arr.filter(isTaskOpen)),
+        ...arr.filter((t) => !isTaskOpen(t)),
+      ];
+      return { buildingId, tasks: ordered, highCount, pendingCount, building: byId.get(buildingId) };
     });
     groups.sort((a, b) => b.highCount - a.highCount || b.pendingCount - a.pendingCount);
     return groups;
@@ -272,8 +278,10 @@ export default function ComercialTareas() {
                             {t.description && (
                               <div className="mt-0.5 text-xs text-muted-foreground">{t.description}</div>
                             )}
+                            <TaskScheduleMeta task={t} />
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
+                            <TaskTemporalBadge task={t} />
                             <Badge variant={priorityBadge[t.priority as Priority]} className="text-[9px]">
                               {priorityLabel[t.priority as Priority]}
                             </Badge>
