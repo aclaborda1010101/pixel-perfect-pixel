@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { syncBuildingTasks, TASK_DEFS, type Priority } from "@/lib/buildingTasks";
+import { sortByDueThenPriority } from "@/lib/taskSchedule";
+import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 
@@ -96,13 +98,7 @@ export function BuildingTasksSection({
   const pending = tasks.filter((t) => t.status !== "completed" && t.status !== "skipped");
   const completed = tasks.filter((t) => t.status === "completed" || t.status === "skipped");
 
-  const prioOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
-  const sortedPending = [...pending].sort((a, b) => {
-    const p = (prioOrder[a.priority] ?? 9) - (prioOrder[b.priority] ?? 9);
-    if (p !== 0) return p;
-    if (a.task_type !== b.task_type) return a.task_type === "auto" ? -1 : 1;
-    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-  });
+  const sortedPending = sortByDueThenPriority(pending);
 
   return (
     <Card>
@@ -221,14 +217,11 @@ function TaskRow({
           {task.description && (
             <div className="mt-0.5 text-xs text-muted-foreground">{task.description}</div>
           )}
-          {task.due_date && (
-            <div className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-              Vence: {new Date(task.due_date).toLocaleDateString("es")}
-            </div>
-          )}
+          <TaskScheduleMeta task={task} />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <div className="flex items-center gap-1">
+            <TaskTemporalBadge task={task} />
             <Badge variant={priorityBadge[task.priority as Priority]} className="text-[9px]">
               {priorityLabel[task.priority as Priority]}
             </Badge>
