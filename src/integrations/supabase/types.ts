@@ -631,6 +631,381 @@ export type Database = {
           },
         ]
       }
+      audit_phase0_building_owners_20260805: {
+        Row: {
+          building_id: string | null
+          created_at: string | null
+          cuota: number | null
+          es_influencer: boolean | null
+          influencer_reason: string | null
+          influencer_score: number | null
+          metadatos: Json | null
+          owner_id: string | null
+          owner_name_norm: string | null
+          rol_notas: string | null
+          subrole: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Insert: {
+          building_id?: string | null
+          created_at?: string | null
+          cuota?: number | null
+          es_influencer?: boolean | null
+          influencer_reason?: string | null
+          influencer_score?: number | null
+          metadatos?: Json | null
+          owner_id?: string | null
+          owner_name_norm?: string | null
+          rol_notas?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Update: {
+          building_id?: string | null
+          created_at?: string | null
+          cuota?: number | null
+          es_influencer?: boolean | null
+          influencer_reason?: string | null
+          influencer_score?: number | null
+          metadatos?: Json | null
+          owner_id?: string | null
+          owner_name_norm?: string | null
+          rol_notas?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Relationships: []
+      }
+      audit_phase0_buildings_20260805: {
+        Row: {
+          avisos_inteligentes: Json | null
+          cartera_demo_seed: boolean | null
+          catastro_ref: string | null
+          ciudad: string | null
+          cluster_asignado: string | null
+          cluster_breakdown: Json | null
+          cluster_motivo: string | null
+          cluster_score: number | null
+          cluster_secundario: string | null
+          codigo_postal: string | null
+          comercial: string | null
+          confianza_media: number | null
+          created_at: string | null
+          direccion: string | null
+          division_horizontal: boolean | null
+          es_esquina_manual: boolean | null
+          es_estrella: boolean | null
+          estado: Database["public"]["Enums"]["building_status"] | null
+          grupo_barrio: string | null
+          hs_deal_id: string | null
+          id: string | null
+          iee_actualizado_at: string | null
+          iee_deficiencias: Json | null
+          iee_estado: Database["public"]["Enums"]["iee_estado"] | null
+          iee_fecha_inspeccion: string | null
+          iee_fuente: string | null
+          iee_proxima_revision: string | null
+          last_synced_at: string | null
+          metadatos: Json | null
+          notas: string | null
+          numero_propietarios: number | null
+          pct_terciario: number | null
+          refcatastral: string | null
+          score: number | null
+          score_activo: number | null
+          score_breakdown: Json | null
+          score_propietarios: number | null
+          score_propietarios_breakdown: Json | null
+          score_propietarios_updated_at: string | null
+          score_summary: string | null
+          score_total: number | null
+          score_updated_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          avisos_inteligentes?: Json | null
+          cartera_demo_seed?: boolean | null
+          catastro_ref?: string | null
+          ciudad?: string | null
+          cluster_asignado?: string | null
+          cluster_breakdown?: Json | null
+          cluster_motivo?: string | null
+          cluster_score?: number | null
+          cluster_secundario?: string | null
+          codigo_postal?: string | null
+          comercial?: string | null
+          confianza_media?: number | null
+          created_at?: string | null
+          direccion?: string | null
+          division_horizontal?: boolean | null
+          es_esquina_manual?: boolean | null
+          es_estrella?: boolean | null
+          estado?: Database["public"]["Enums"]["building_status"] | null
+          grupo_barrio?: string | null
+          hs_deal_id?: string | null
+          id?: string | null
+          iee_actualizado_at?: string | null
+          iee_deficiencias?: Json | null
+          iee_estado?: Database["public"]["Enums"]["iee_estado"] | null
+          iee_fecha_inspeccion?: string | null
+          iee_fuente?: string | null
+          iee_proxima_revision?: string | null
+          last_synced_at?: string | null
+          metadatos?: Json | null
+          notas?: string | null
+          numero_propietarios?: number | null
+          pct_terciario?: number | null
+          refcatastral?: string | null
+          score?: number | null
+          score_activo?: number | null
+          score_breakdown?: Json | null
+          score_propietarios?: number | null
+          score_propietarios_breakdown?: Json | null
+          score_propietarios_updated_at?: string | null
+          score_summary?: string | null
+          score_total?: number | null
+          score_updated_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          avisos_inteligentes?: Json | null
+          cartera_demo_seed?: boolean | null
+          catastro_ref?: string | null
+          ciudad?: string | null
+          cluster_asignado?: string | null
+          cluster_breakdown?: Json | null
+          cluster_motivo?: string | null
+          cluster_score?: number | null
+          cluster_secundario?: string | null
+          codigo_postal?: string | null
+          comercial?: string | null
+          confianza_media?: number | null
+          created_at?: string | null
+          direccion?: string | null
+          division_horizontal?: boolean | null
+          es_esquina_manual?: boolean | null
+          es_estrella?: boolean | null
+          estado?: Database["public"]["Enums"]["building_status"] | null
+          grupo_barrio?: string | null
+          hs_deal_id?: string | null
+          id?: string | null
+          iee_actualizado_at?: string | null
+          iee_deficiencias?: Json | null
+          iee_estado?: Database["public"]["Enums"]["iee_estado"] | null
+          iee_fecha_inspeccion?: string | null
+          iee_fuente?: string | null
+          iee_proxima_revision?: string | null
+          last_synced_at?: string | null
+          metadatos?: Json | null
+          notas?: string | null
+          numero_propietarios?: number | null
+          pct_terciario?: number | null
+          refcatastral?: string | null
+          score?: number | null
+          score_activo?: number | null
+          score_breakdown?: Json | null
+          score_propietarios?: number | null
+          score_propietarios_breakdown?: Json | null
+          score_propietarios_updated_at?: string | null
+          score_summary?: string | null
+          score_total?: number | null
+          score_updated_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      audit_phase0_campana_20260805: {
+        Row: {
+          apellidos: string | null
+          created_at: string | null
+          distrito: string | null
+          grupo_dup: string | null
+          id: number | null
+          match_candidatos: number | null
+          match_metodo: string | null
+          nombre: string | null
+          nombre_norm: string | null
+          owner_id: string | null
+          telefono: string | null
+        }
+        Insert: {
+          apellidos?: string | null
+          created_at?: string | null
+          distrito?: string | null
+          grupo_dup?: string | null
+          id?: number | null
+          match_candidatos?: number | null
+          match_metodo?: string | null
+          nombre?: string | null
+          nombre_norm?: string | null
+          owner_id?: string | null
+          telefono?: string | null
+        }
+        Update: {
+          apellidos?: string | null
+          created_at?: string | null
+          distrito?: string | null
+          grupo_dup?: string | null
+          id?: number | null
+          match_candidatos?: number | null
+          match_metodo?: string | null
+          nombre?: string | null
+          nombre_norm?: string | null
+          owner_id?: string | null
+          telefono?: string | null
+        }
+        Relationships: []
+      }
+      audit_phase0_external_ids_20260805: {
+        Row: {
+          created_at: string | null
+          entity_id: string | null
+          entity_type: string | null
+          id: string | null
+          metadatos: Json | null
+          provider: string | null
+          provider_id: string | null
+          provider_object_type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string | null
+          metadatos?: Json | null
+          provider?: string | null
+          provider_id?: string | null
+          provider_object_type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string | null
+          metadatos?: Json | null
+          provider?: string | null
+          provider_id?: string | null
+          provider_object_type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      audit_phase0_notas_simples_20260805: {
+        Row: {
+          building_id: string | null
+          created_at: string | null
+          error_message: string | null
+          file_url: string | null
+          id: string | null
+          owner_id: string | null
+          processed_at: string | null
+          raw_pdf_text: string | null
+          riesgo: string | null
+          status: string | null
+          structured_json: Json | null
+        }
+        Insert: {
+          building_id?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          file_url?: string | null
+          id?: string | null
+          owner_id?: string | null
+          processed_at?: string | null
+          raw_pdf_text?: string | null
+          riesgo?: string | null
+          status?: string | null
+          structured_json?: Json | null
+        }
+        Update: {
+          building_id?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          file_url?: string | null
+          id?: string | null
+          owner_id?: string | null
+          processed_at?: string | null
+          raw_pdf_text?: string | null
+          riesgo?: string | null
+          status?: string | null
+          structured_json?: Json | null
+        }
+        Relationships: []
+      }
+      audit_phase0_note_links_20260805: {
+        Row: {
+          building_id: string | null
+          id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          id?: string | null
+        }
+        Relationships: []
+      }
+      audit_phase0_owner_quotas_20260805: {
+        Row: {
+          building_id: string | null
+          cuota: number | null
+          metadatos: Json | null
+          owner_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          cuota?: number | null
+          metadatos?: Json | null
+          owner_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          cuota?: number | null
+          metadatos?: Json | null
+          owner_id?: string | null
+        }
+        Relationships: []
+      }
+      audit_phase0_wa_consent_20260805: {
+        Row: {
+          cita_textual: string | null
+          confianza: number | null
+          detectado_at: string | null
+          escrito_en_hubspot: boolean | null
+          fecha_llamada: string | null
+          hs_call_id: string | null
+          id: string | null
+          owner_id: string | null
+          telefono: string | null
+          veredicto: string | null
+        }
+        Insert: {
+          cita_textual?: string | null
+          confianza?: number | null
+          detectado_at?: string | null
+          escrito_en_hubspot?: boolean | null
+          fecha_llamada?: string | null
+          hs_call_id?: string | null
+          id?: string | null
+          owner_id?: string | null
+          telefono?: string | null
+          veredicto?: string | null
+        }
+        Update: {
+          cita_textual?: string | null
+          confianza?: number | null
+          detectado_at?: string | null
+          escrito_en_hubspot?: boolean | null
+          fecha_llamada?: string | null
+          hs_call_id?: string | null
+          id?: string | null
+          owner_id?: string | null
+          telefono?: string | null
+          veredicto?: string | null
+        }
+        Relationships: []
+      }
       backup_q4_building_owners: {
         Row: {
           building_id: string | null
@@ -2222,6 +2597,10 @@ export type Database = {
           apellidos: string | null
           created_at: string | null
           distrito: string | null
+          feedback_cliente_estado: string | null
+          feedback_cliente_fecha: string | null
+          feedback_cliente_fuente: string | null
+          feedback_telefono_encontrado: boolean | null
           grupo_dup: string | null
           id: number
           match_candidatos: number | null
@@ -2235,6 +2614,10 @@ export type Database = {
           apellidos?: string | null
           created_at?: string | null
           distrito?: string | null
+          feedback_cliente_estado?: string | null
+          feedback_cliente_fecha?: string | null
+          feedback_cliente_fuente?: string | null
+          feedback_telefono_encontrado?: boolean | null
           grupo_dup?: string | null
           id?: number
           match_candidatos?: number | null
@@ -2248,6 +2631,10 @@ export type Database = {
           apellidos?: string | null
           created_at?: string | null
           distrito?: string | null
+          feedback_cliente_estado?: string | null
+          feedback_cliente_fecha?: string | null
+          feedback_cliente_fuente?: string | null
+          feedback_telefono_encontrado?: boolean | null
           grupo_dup?: string | null
           id?: number
           match_candidatos?: number | null
@@ -6512,6 +6899,9 @@ export type Database = {
           hs_call_id: string
           id: string
           owner_id: string | null
+          review_reason: string | null
+          review_status: string | null
+          review_updated_at: string | null
           telefono: string | null
           veredicto: string
         }
@@ -6524,6 +6914,9 @@ export type Database = {
           hs_call_id: string
           id?: string
           owner_id?: string | null
+          review_reason?: string | null
+          review_status?: string | null
+          review_updated_at?: string | null
           telefono?: string | null
           veredicto: string
         }
@@ -6536,6 +6929,9 @@ export type Database = {
           hs_call_id?: string
           id?: string
           owner_id?: string | null
+          review_reason?: string | null
+          review_status?: string | null
+          review_updated_at?: string | null
           telefono?: string | null
           veredicto?: string
         }
