@@ -7806,6 +7806,7 @@ export type Database = {
           cuota: number | null
           cuota_pct: number | null
           deal_estado: string | null
+          deal_ext_provider_id: string | null
           deal_map_building_id: string | null
           dias_cadencia_vencida: number | null
           direccion: string | null
