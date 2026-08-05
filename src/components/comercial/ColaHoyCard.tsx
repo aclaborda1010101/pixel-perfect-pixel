@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { sortByDueThenPriority, madridYmd, formatDate, plannedDate } from "@/lib/taskSchedule";
+import { sortByDueThenPriority, madridYmd, formatDate, plannedDate, taskCode, taskSubjectId } from "@/lib/taskSchedule";
 import { TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { toast } from "sonner";
-import { Flame, Snowflake, ArrowRight, Loader2, RefreshCw, Phone } from "lucide-react";
+import { ArrowRight, Loader2, RefreshCw, ListChecks } from "lucide-react";
 
 export function ColaHoyCard({ userId }: { userId: string }) {
   const qc = useQueryClient();
@@ -31,9 +31,11 @@ export function ColaHoyCard({ userId }: { userId: string }) {
   async function generar() {
     setAssigning(true);
     try {
-      const { data, error } = await supabase.functions.invoke("assign_daily_call_queue", { body: { user_id: userId, n: 20 } });
+      const { data, error } = await supabase.functions.invoke("assign_daily_call_queue", {
+        body: { user_ids: [userId], per_user: 10, replace_today: true, ensure_catalog_coverage: true },
+      });
       if (error) throw error;
-      toast.success(`Cola generada · ${(data as any)?.inserted ?? 0} llamadas`);
+      toast.success(`Cola generada · ${(data as any)?.inserted ?? 0} tareas`);
       await refetch();
       qc.invalidateQueries({ queryKey: ["comercial:dashboard"] });
     } catch (e: any) { toast.error(e?.message ?? "Error generando cola"); }
@@ -47,15 +49,15 @@ export function ColaHoyCard({ userId }: { userId: string }) {
     return p ? madridYmd(p) === today : false;
   }).length;
   const siguiente = items[0];
-  const ownerIdMatch = siguiente?.task_key?.split(":")?.[2];
+  const ownerIdMatch = siguiente ? taskSubjectId(siguiente) : null;
 
   return (
     <Card className="border-gold/30">
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
-          <Eyebrow><Phone className="mr-1 inline h-3 w-3 text-gold" /> Cola de llamadas</Eyebrow>
+          <Eyebrow><ListChecks className="mr-1 inline h-3 w-3 text-gold" /> Cola de tareas</Eyebrow>
           <CardTitle>
-            {items.length} llamadas asignadas · {hoyCount} para hoy
+            {items.length} tareas asignadas · {hoyCount} para hoy
           </CardTitle>
         </div>
         <div className="flex gap-2">
@@ -65,25 +67,28 @@ export function ColaHoyCard({ userId }: { userId: string }) {
           </Button>
           {siguiente && ownerIdMatch && (
             <Button asChild size="sm" variant="gold">
-              <Link to={`/comercial/preparar/${ownerIdMatch}`}>Siguiente llamada <ArrowRight className="h-3 w-3" /></Link>
+              <Link to={`/comercial/preparar/${ownerIdMatch}`}>Siguiente tarea <ArrowRight className="h-3 w-3" /></Link>
             </Button>
           )}
         </div>
       </CardHeader>
       <CardContent className="p-0">
         {items.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-muted-foreground">{isLoading ? "Cargando…" : "Aún no tienes cola. Pulsa Generar cola para que el sistema seleccione hoy 20 propietarios alternando calientes (60%) y fríos (40%)."}</p>
+          <p className="px-5 py-4 text-sm text-muted-foreground">
+            {isLoading
+              ? "Cargando…"
+              : "Aún no tienes cola. Pulsa Generar cola para que el motor V5 seleccione hoy 10 tareas con al menos una de cada tipo disponible (T-01 a T-09, sin T-07)."}
+          </p>
         ) : (
           <ul className="divide-y divide-border-faint">
             {items.slice(0, 12).map((t: any) => {
-              const ownerId = t.task_key?.split(":")?.[2];
-              const isHot = t.priority === "high";
+              const ownerId = taskSubjectId(t);
+              const code = taskCode(t);
               const planned = plannedDate(t);
               return (
                 <li key={t.id} className="flex items-center gap-3 px-5 py-3">
-                  <Badge variant={isHot ? "destructive" : "outline"} className="text-[10px]">
-                    {isHot ? <Flame className="mr-0.5 h-2.5 w-2.5" /> : <Snowflake className="mr-0.5 h-2.5 w-2.5" />}
-                    {isHot ? "Hot" : "Cold"}
+                  <Badge variant={t.priority === "high" ? "destructive" : "outline"} className="text-[10px]">
+                    {code ?? (t.priority === "high" ? "Alta" : "Normal")}
                   </Badge>
                   <div className="flex-1 min-w-0">
                     <div className="truncate text-sm text-foreground">{t.title}</div>
