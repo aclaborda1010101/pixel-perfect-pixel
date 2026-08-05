@@ -853,6 +853,60 @@ export type Database = {
         }
         Relationships: []
       }
+      audit_phase0_campana_feedback_prelink_20260805: {
+        Row: {
+          apellidos: string | null
+          created_at: string | null
+          distrito: string | null
+          feedback_cliente_estado: string | null
+          feedback_cliente_fecha: string | null
+          feedback_cliente_fuente: string | null
+          feedback_telefono_encontrado: boolean | null
+          grupo_dup: string | null
+          id: number | null
+          match_candidatos: number | null
+          match_metodo: string | null
+          nombre: string | null
+          nombre_norm: string | null
+          owner_id: string | null
+          telefono: string | null
+        }
+        Insert: {
+          apellidos?: string | null
+          created_at?: string | null
+          distrito?: string | null
+          feedback_cliente_estado?: string | null
+          feedback_cliente_fecha?: string | null
+          feedback_cliente_fuente?: string | null
+          feedback_telefono_encontrado?: boolean | null
+          grupo_dup?: string | null
+          id?: number | null
+          match_candidatos?: number | null
+          match_metodo?: string | null
+          nombre?: string | null
+          nombre_norm?: string | null
+          owner_id?: string | null
+          telefono?: string | null
+        }
+        Update: {
+          apellidos?: string | null
+          created_at?: string | null
+          distrito?: string | null
+          feedback_cliente_estado?: string | null
+          feedback_cliente_fecha?: string | null
+          feedback_cliente_fuente?: string | null
+          feedback_telefono_encontrado?: boolean | null
+          grupo_dup?: string | null
+          id?: number | null
+          match_candidatos?: number | null
+          match_metodo?: string | null
+          nombre?: string | null
+          nombre_norm?: string | null
+          owner_id?: string | null
+          telefono?: string | null
+        }
+        Relationships: []
+      }
       audit_phase0_external_ids_20260805: {
         Row: {
           created_at: string | null
