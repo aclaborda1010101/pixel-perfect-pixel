@@ -123,7 +123,7 @@ export default function ColaSimulada() {
     <div className="space-y-6">
       <PageHeader
         title="Simulación de cola (solo lectura)"
-        description="Fase 0 de fiabilidad. Esta pantalla NO crea tareas ni modifica datos: solo evalúa qué parejas edificio–propietario cumplirían los requisitos de publicación."
+        subtitle="Fase 0 de fiabilidad. Esta pantalla NO crea tareas ni modifica datos: solo evalúa qué parejas edificio–propietario cumplirían los requisitos de publicación."
       />
 
       <Card className="border-amber-400/30">
