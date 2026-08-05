@@ -143,7 +143,7 @@ export default function ColaSimulada() {
           size="sm"
         >
           <ToggleGroupItem value="estrictos">Controles estrictos</ToggleGroupItem>
-          <ToggleGroupItem value="demo">Demostración (20)</ToggleGroupItem>
+          <ToggleGroupItem value="demo">Demostración (40)</ToggleGroupItem>
         </ToggleGroup>
       </div>
 

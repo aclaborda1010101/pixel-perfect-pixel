@@ -197,9 +197,18 @@ Deno.serve(async (req) => {
     // 3) Candidatos por comercial
     const takenOwners = new Set<string>();
     const takenKeys = new Set<string>();
+    const yaPorUsuario = new Map<string, number>();
     const { data: existentes } = await sb.from('building_tasks')
-      .select('task_key').eq('status', 'pending').like('task_key', `v5:${hoy}:%`);
-    for (const t of existentes ?? []) takenKeys.add((t as any).task_key);
+      .select('task_key, user_id, status').like('task_key', `v5:${hoy}:%`);
+    for (const t of existentes ?? []) {
+      const key = String((t as any).task_key);
+      takenKeys.add(key);
+      // El sujeto (owner o building) ya tiene tarea hoy: no duplicar con otro T-XX.
+      const idKey = key.split(':')[3];
+      if (idKey) { takenOwners.add(`o:${idKey}`); takenOwners.add(`b:${idKey}`); }
+      const uid = String((t as any).user_id);
+      yaPorUsuario.set(uid, (yaPorUsuario.get(uid) ?? 0) + 1);
+    }
 
     const resumen: any[] = [];
     const insertados: any[] = [];
@@ -237,6 +246,8 @@ Deno.serve(async (req) => {
         return true;
       }).sort((a, b) => Number(b.prioridad ?? 0) - Number(a.prioridad ?? 0));
 
+      const yaHoy = yaPorUsuario.get(target.user_id) ?? 0;
+      const cupo = Math.max(0, perUser - yaHoy);
       const picked: any[] = [];
       const usedOwners = new Set<string>();
       const pick = (c: any) => {
@@ -253,7 +264,7 @@ Deno.serve(async (req) => {
       // 3a) Cobertura de catálogo: al menos una tarea de cada tipo con candidato real
       if (ensureCoverage) {
         for (const code of CODES_COBERTURA) {
-          if (picked.length >= perUser) break;
+          if (picked.length >= cupo) break;
           // Se prueban varios candidatos: el mejor puede tener ya otra tarea del día.
           for (const c of cands.filter((x) => x.task_code === code).slice(0, 40)) {
             if (pick(c)) break;
@@ -262,7 +273,7 @@ Deno.serve(async (req) => {
       }
       // 3b) Relleno por prioridad
       for (const c of cands) {
-        if (picked.length >= perUser) break;
+        if (picked.length >= cupo) break;
         pick(c);
       }
 
@@ -290,7 +301,7 @@ Deno.serve(async (req) => {
       for (const c of cands) disponibles[c.task_code] = (disponibles[c.task_code] ?? 0) + 1;
       const porTipo: Record<string, number> = {};
       for (const p of picked) porTipo[p.task_code] = (porTipo[p.task_code] ?? 0) + 1;
-      resumen.push({ user_id: target.user_id, comercial: target.label, generadas: picked.length, por_tipo: porTipo, disponibles_por_tipo: disponibles, candidatos: cands.length });
+      resumen.push({ user_id: target.user_id, comercial: target.label, generadas: picked.length, ya_existentes: yaHoy, objetivo: perUser, por_tipo: porTipo, disponibles_por_tipo: disponibles, candidatos: cands.length });
     }
 
     return new Response(JSON.stringify({
