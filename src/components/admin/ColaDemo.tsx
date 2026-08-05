@@ -63,7 +63,9 @@ export function ColaDemo() {
       const oMap = new Map((owners.data ?? []).map((o: any) => [o.id, o.nombre]));
       const bMap = new Map((buildings.data ?? []).map((b: any) => [b.id, b.direccion]));
       const pMap = new Map((profiles.data ?? []).map((p: any) => [p.id, p.full_name || p.email]));
-      const sMap = new Map((sim.data ?? []).map((s: any) => [`${s.building_id}|${s.owner_id}`, s.bloqueos as string[] | null]));
+      const sMap = new Map<string, string[]>(
+        (sim.data ?? []).map((s: any) => [`${s.building_id}|${s.owner_id}`, (s.bloqueos ?? []) as string[]]),
+      );
 
       return list.map((t) => {
         const ownerId = ownerIdFromKey(t.task_key);
@@ -75,7 +77,7 @@ export function ColaDemo() {
           owner: (oMap.get(ownerId ?? "") as string) ?? null,
           direccion: (bMap.get(t.building_id ?? "") as string) ?? null,
           tipo: tipoFromTitle(t.title),
-          bloqueos: sMap.has(key) ? sMap.get(key) ?? [] : null,
+          bloqueos: sMap.has(key) ? (sMap.get(key) as string[]) : (null as string[] | null),
         };
       });
     },
