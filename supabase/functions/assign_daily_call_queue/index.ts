@@ -197,9 +197,18 @@ Deno.serve(async (req) => {
     // 3) Candidatos por comercial
     const takenOwners = new Set<string>();
     const takenKeys = new Set<string>();
+    const yaPorUsuario = new Map<string, number>();
     const { data: existentes } = await sb.from('building_tasks')
-      .select('task_key').eq('status', 'pending').like('task_key', `v5:${hoy}:%`);
-    for (const t of existentes ?? []) takenKeys.add((t as any).task_key);
+      .select('task_key, user_id, status').like('task_key', `v5:${hoy}:%`);
+    for (const t of existentes ?? []) {
+      const key = String((t as any).task_key);
+      takenKeys.add(key);
+      // El sujeto (owner o building) ya tiene tarea hoy: no duplicar con otro T-XX.
+      const idKey = key.split(':')[3];
+      if (idKey) { takenOwners.add(`o:${idKey}`); takenOwners.add(`b:${idKey}`); }
+      const uid = String((t as any).user_id);
+      yaPorUsuario.set(uid, (yaPorUsuario.get(uid) ?? 0) + 1);
+    }
 
     const resumen: any[] = [];
     const insertados: any[] = [];
