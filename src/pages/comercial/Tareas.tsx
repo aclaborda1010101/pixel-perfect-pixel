@@ -18,7 +18,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { syncAssignedBuildingsTasks, TASK_DEFS, type Priority } from "@/lib/buildingTasks";
-import { sortByDueThenPriority, isTaskOpen } from "@/lib/taskSchedule";
+import { sortByDueThenPriority, isTaskOpen, taskCode } from "@/lib/taskSchedule";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 
