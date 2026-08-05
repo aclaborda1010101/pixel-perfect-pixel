@@ -46,7 +46,8 @@ function Fila({ r }: { r: Row }) {
           <div className="truncate text-sm text-foreground">{r.direccion ?? "Sin dirección"}</div>
           <div className="truncate font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
             {r.nombre ?? "Sin nombre"} · {r.cuota_pct != null ? `${Number(r.cuota_pct).toFixed(2).replace(".", ",")} %` : "sin %"} ·
-            {" "}suma {Number(r.suma_cuotas ?? 0).toFixed(2).replace(".", ",")} % · score_raw {Math.round(Number(r.score_activo_raw ?? 0))}
+            {" "}suma op. {Number(r.suma_cuotas ?? 0).toFixed(2).replace(".", ",")} % · suma nota{" "}
+            {Number(r.suma_nota ?? 0).toFixed(2).replace(".", ",")} % · score_raw {Math.round(Number(r.score_activo_raw ?? 0))}
           </div>
         </button>
         <Badge variant="outline" className="font-mono text-[10px] tabular-nums">Prioridad {Number(r.prioridad ?? 0).toFixed(0)}</Badge>
