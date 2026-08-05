@@ -18,6 +18,9 @@ type Row = {
   telefono: string | null;
   cuota_pct: number | null;
   suma_cuotas: number | null;
+  suma_nota: number | null;
+  n_incoherentes: number | null;
+  deal_estado: string | null;
   score_activo_raw: number | null;
   score_owner: number | null;
   dias_cadencia_vencida: number | null;
