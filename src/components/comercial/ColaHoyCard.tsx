@@ -32,7 +32,7 @@ export function ColaHoyCard({ userId }: { userId: string }) {
     setAssigning(true);
     try {
       const { data, error } = await supabase.functions.invoke("assign_daily_call_queue", {
-        body: { user_ids: [userId], per_user: 10, replace_today: true, ensure_catalog_coverage: true },
+        body: { user_ids: [userId], per_user: 20, replace_today: false, ensure_catalog_coverage: true },
       });
       if (error) throw error;
       toast.success(`Cola generada · ${(data as any)?.inserted ?? 0} tareas`);
@@ -63,7 +63,7 @@ export function ColaHoyCard({ userId }: { userId: string }) {
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={generar} disabled={assigning}>
             {assigning ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            {items.length === 0 ? "Generar cola" : "Regenerar"}
+            {items.length === 0 ? "Generar cola" : "Completar cola"}
           </Button>
           {siguiente && ownerIdMatch && (
             <Button asChild size="sm" variant="gold">
@@ -77,7 +77,7 @@ export function ColaHoyCard({ userId }: { userId: string }) {
           <p className="px-5 py-4 text-sm text-muted-foreground">
             {isLoading
               ? "Cargando…"
-              : "Aún no tienes cola. Pulsa Generar cola para que el motor V5 seleccione hoy 10 tareas con al menos una de cada tipo disponible (T-01 a T-09, sin T-07)."}
+              : "Aún no tienes cola. Pulsa Generar cola para que el motor V5 seleccione hoy hasta 20 tareas con al menos una de cada tipo disponible (T-01 a T-09, sin T-07)."}
           </p>
         ) : (
           <ul className="divide-y divide-border-faint">
