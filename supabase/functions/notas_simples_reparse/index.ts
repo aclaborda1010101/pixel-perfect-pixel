@@ -362,7 +362,7 @@ Deno.serve(async (req) => {
     const decision = decidePendingMatchOnDrain(lastLog as any);
     let outcome: any = null;
     if (decision.run) {
-      outcome = await runMatching(() => sb.rpc("match_notas_pendientes"));
+      outcome = await runMatching(async () => await sb.rpc("match_notas_pendientes"));
       await sb.from("hubspot_sync_log").insert({
         entity: ENTITY,
         started_at: new Date(t0).toISOString(),
@@ -433,7 +433,7 @@ Deno.serve(async (req) => {
   let matchOutcome: any = null;
   let matchPending = false;
   if (matchDecision.run) {
-    matchOutcome = await runMatching(() => sb.rpc("match_notas_pendientes"));
+    matchOutcome = await runMatching(async () => await sb.rpc("match_notas_pendientes"));
     matchPending = matchOutcome.pending;
     if (matchOutcome.status === "error") console.error(`[notas_reparse] match rpc:`, matchOutcome.error);
   }
