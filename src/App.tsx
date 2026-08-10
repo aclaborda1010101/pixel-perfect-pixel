@@ -12,8 +12,35 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AuthProvider } from "@/hooks/useAuth";
 import { RuntimeErrorBoundary } from "@/components/RuntimeErrorBoundary";
 
+// Carga perezosa resiliente: si el chunk falla (deploy/HMR con hash viejo),
+// reintenta una vez y, si sigue fallando, recarga la página una sola vez.
+function lazyRetry<T extends { default: React.ComponentType<never> }>(
+  factory: () => Promise<T>,
+) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (err) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        return await factory();
+      } catch (err2) {
+        const key = "lovable:chunk-reloaded";
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, "1");
+          window.location.reload();
+          return new Promise<T>(() => {});
+        }
+        throw err2;
+      }
+    }
+  });
+}
+
+const lazy_ = lazyRetry;
+
 // Code-splitting: cada ruta carga sólo cuando se visita.
-const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Dashboard = lazy_(() => import("./pages/Dashboard"));
 const Owners = lazy(() => import("./pages/Owners"));
 const OwnerDetail = lazy(() => import("./pages/OwnerDetail"));
 const Buildings = lazy(() => import("./pages/Buildings"));
