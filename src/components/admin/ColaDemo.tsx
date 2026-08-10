@@ -34,7 +34,7 @@ export function ColaDemo() {
       const { data: tasks, error: e1 } = await supabase
         .from("building_tasks")
         .select("id,building_id,user_id,task_type,task_key,title,description,priority,due_date,created_at,status")
-        .or(`task_key.like.v5:${hoy}:%,task_key.like.call_queue:${hoy}:%`)
+        .like("task_key", `v5:${hoy}:%`)
         .limit(60);
       if (e1) throw e1;
       const list = (tasks ?? []) as Task[];
