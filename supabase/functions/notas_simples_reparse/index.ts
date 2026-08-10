@@ -23,6 +23,13 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { extractText } from "npm:unpdf@0.12.1";
+import {
+  sanitize,
+  sanitizeDeep,
+  normalizeTitular,
+  titularKey,
+  type TitularNormalizado,
+} from "./lib.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,17 +44,9 @@ const MAX_ATTEMPTS = 5;
 const PRIMARY = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3.1-flash-lite-preview" };
 const FALLBACK = { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5.6-luna" };
 
-// Quita NUL y caracteres de control que Postgres rechaza en columnas text/jsonb.
-function sanitize(s: string): string {
-  // deno-lint-ignore no-control-regex
-  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ");
-}
-
 function backoffMinutes(attempt: number): number {
   return Math.min(360, 15 * Math.pow(2, Math.max(0, attempt - 1)));
 }
-
-const ROLES_VALIDOS = new Set(["pleno", "usufructo", "nuda_propiedad", "otro"]);
 
 // ---------- utilidades de texto ----------
 
@@ -111,7 +110,14 @@ type ExtractedFields = {
   ref_catastral?: string | null;
   finca_numero?: string | null;
   registro?: string | null;
-  titulares?: Array<{ nombre: string; cif_dni?: string | null; porcentaje?: number | null; rol?: string | null }>;
+  titulares?: Array<{
+    nombre: string;
+    cif_dni?: string | null;
+    porcentaje?: number | null;
+    rol?: string | null;
+    rol_literal?: string | null;
+    evidencia?: { cita?: string | null; pagina?: number | null; ruta?: string | null } | null;
+  }>;
 };
 
 function buildTextPrompt(rawText: string, needTitulares: boolean): string {
@@ -123,13 +129,23 @@ function buildTextPrompt(rawText: string, needTitulares: boolean): string {
   "finca_numero": "número registral de la finca",
   "registro": "Registro de la Propiedad emisor"${needTitulares ? `,
   "titulares": [
-    { "nombre": "…", "cif_dni": "…", "porcentaje": 0-100, "rol": "pleno" | "usufructo" | "nuda_propiedad" | "otro" }
+    {
+      "nombre": "…",
+      "cif_dni": "…",
+      "porcentaje": 0-100,
+      "rol": "pleno" | "usufructo" | "nuda_propiedad" | "ganancial" | "otro",
+      "rol_literal": "texto literal del derecho tal y como aparece en la nota",
+      "evidencia": { "cita": "fragmento literal donde consta", "pagina": 1, "ruta": "sección/apartado" }
+    }
   ]` : ""}
 }
 
 REGLAS:
 - Sólo la dirección de la FINCA (parte "URBANA…" / "DESCRIPCIÓN"), NUNCA la dirección del titular.
 - Los porcentajes en 0-100 (no en fracción). Si es 50%, devuelve 50.
+- "rol" debe ser uno de: pleno, usufructo, nuda_propiedad, ganancial, otro. Si el derecho no encaja con claridad en los cuatro primeros, usa "otro" (NUNCA "pleno" por defecto).
+- Un mismo titular puede aparecer varias veces con derechos distintos (p. ej. nuda propiedad y usufructo): devuélvelos como filas separadas.
+- "rol_literal" es el texto literal del derecho si aparece; "evidencia" sólo si puedes citar el fragmento real. Si no lo tienes, OMÍTELOS.
 - Si un dato no aparece con claridad, OMÍTELO (no inventes).
 
 TEXTO:
@@ -140,13 +156,13 @@ ${rawText.slice(0, 60000)}
 
 function buildVisionMessages(pdfDataUrl: string, needTitulares: boolean) {
   const schemaHint = needTitulares
-    ? `{ "direccion": "...", "ref_catastral": "...", "finca_numero": "...", "registro": "...", "titulares": [{ "nombre": "...", "cif_dni": "...", "porcentaje": 0-100, "rol": "pleno|usufructo|nuda_propiedad|otro" }] }`
+    ? `{ "direccion": "...", "ref_catastral": "...", "finca_numero": "...", "registro": "...", "titulares": [{ "nombre": "...", "cif_dni": "...", "porcentaje": 0-100, "rol": "pleno|usufructo|nuda_propiedad|ganancial|otro", "rol_literal": "...", "evidencia": { "cita": "...", "pagina": 1, "ruta": "..." } }] }`
     : `{ "direccion": "...", "ref_catastral": "...", "finca_numero": "...", "registro": "..." }`;
   return [
     {
       role: "user",
       content: [
-        { type: "text", text: `Extrae de esta NOTA SIMPLE los datos y devuelve SOLO JSON:\n${schemaHint}\n\nReglas: dirección de la FINCA (no del titular); convierte números escritos en letra a cifra; porcentajes 0-100; omite lo que no aparezca.` },
+        { type: "text", text: `Extrae de esta NOTA SIMPLE los datos y devuelve SOLO JSON:\n${schemaHint}\n\nReglas: dirección de la FINCA (no del titular); convierte números escritos en letra a cifra; porcentajes 0-100; "rol" sólo puede ser pleno, usufructo, nuda_propiedad, ganancial u otro (usa "otro" si no está claro, NUNCA "pleno" por defecto); un mismo titular con derechos distintos va en filas separadas; "rol_literal" y "evidencia" sólo si constan realmente; omite lo que no aparezca.` },
         { type: "image_url", image_url: { url: pdfDataUrl } },
       ],
     },
@@ -185,7 +201,7 @@ async function callLLM(messages: any[]): Promise<{ data: ExtractedFields | null;
       const j = await r.json();
       let txt = j?.choices?.[0]?.message?.content || "{}";
       txt = String(txt).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-      return { data: JSON.parse(txt) as ExtractedFields, model: `${p.name}/${p.model}` };
+      return { data: sanitizeDeep(JSON.parse(txt)) as ExtractedFields, model: `${p.name}/${p.model}` };
     } catch (e) {
       console.error(`[notas_reparse] ${p.name}/${p.model} excepción`, e);
       errores.push(`${p.name}/${p.model} excepción: ${String((e as Error).message ?? e).slice(0, 200)}`);
@@ -250,16 +266,47 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
     if (Object.keys(finca).length) merged.finca = finca;
 
     // Titulares en structured_json si no había ninguno y llegaron
+    let titulares: TitularNormalizado[] = [];
     if (needTitulares && Array.isArray(extracted.titulares) && extracted.titulares.length) {
-      merged.titulares = extracted.titulares.map((t) => ({
-        nombre: String(t.nombre ?? "").trim(),
-        cif_dni: t.cif_dni ? String(t.cif_dni).trim() : null,
-        porcentaje: t.porcentaje != null ? Number(t.porcentaje) : null,
-        rol: ROLES_VALIDOS.has(String(t.rol ?? "").toLowerCase()) ? String(t.rol).toLowerCase() : "pleno",
-      })).filter((t) => t.nombre);
+      titulares = extracted.titulares
+        .map((t) => normalizeTitular(t))
+        .filter((t): t is TitularNormalizado => !!t);
+      if (titulares.length) merged.titulares = titulares;
     }
 
     merged.reparse_model = llm.model ?? null;
+
+    // 3.bis) Insertar titulares ANTES de marcar reparse_done: si falla alguno,
+    // la nota NO se marca como hecha y entra en retry/backoff/dead-letter.
+    let titInserted = 0;
+    if (titulares.length) {
+      const { data: existing, error: exErr } = await sb.from("nota_simple_titulares")
+        .select("nombre_extraido, cif_dni, porcentaje, rol")
+        .eq("nota_simple_id", id);
+      if (exErr) return { id, ok: false, reason: `titulares_read_fail:${exErr.message}`.slice(0, 400) };
+      const seen = new Set((existing ?? []).map((r: any) => titularKey(r)));
+      for (const t of titulares) {
+        const key = titularKey(t);
+        if (seen.has(key)) continue;
+        const { error } = await sb.from("nota_simple_titulares").insert({
+          nota_simple_id: id,
+          nombre_extraido: t.nombre,
+          cif_dni: t.cif_dni,
+          porcentaje: t.porcentaje,
+          rol: t.rol,
+          rol_literal: t.rol_literal,
+          evidencia: t.evidencia,
+        });
+        if (error) {
+          console.warn(`[notas_reparse] tit insert ${id}:`, error.message);
+          return { id, ok: false, reason: `titular_insert_fail:${error.message}`.slice(0, 400) };
+        }
+        titInserted++;
+        seen.add(key);
+      }
+    }
+
+    // 4) Marcar la nota como reparseada
     const { error: updErr } = await sb.from("notas_simples").update({
       raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
       structured_json: merged,
@@ -269,30 +316,6 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
       claimed_at: null,
     }).eq("id", id);
     if (updErr) return { id, ok: false, reason: `update_fail:${updErr.message}` };
-
-    // 4) Insertar titulares (idempotente: nota + nombre normalizado + porcentaje)
-    let titInserted = 0;
-    if (needTitulares && Array.isArray(merged.titulares) && merged.titulares.length) {
-      const { data: existing } = await sb.from("nota_simple_titulares")
-        .select("nombre_extraido, porcentaje")
-        .eq("nota_simple_id", id);
-      const seen = new Set((existing ?? []).map((r: any) =>
-        `${String(r.nombre_extraido ?? "").toLowerCase().trim()}|${r.porcentaje ?? ""}`
-      ));
-      for (const t of merged.titulares as any[]) {
-        const key = `${String(t.nombre).toLowerCase().trim()}|${t.porcentaje ?? ""}`;
-        if (seen.has(key)) continue;
-        const { error } = await sb.from("nota_simple_titulares").insert({
-          nota_simple_id: id,
-          nombre_extraido: t.nombre,
-          cif_dni: t.cif_dni ?? null,
-          porcentaje: t.porcentaje ?? null,
-          rol: t.rol ?? "pleno",
-        });
-        if (!error) { titInserted++; seen.add(key); }
-        else console.warn(`[notas_reparse] tit insert ${id}:`, error.message);
-      }
-    }
 
     return {
       id, ok: true,
