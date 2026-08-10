@@ -239,6 +239,20 @@ export function normalizeTitular(raw: any): TitularNormalizado | null {
 }
 
 /** Identidad base (legado): nombre + documento + porcentaje. */
+export function normalizeTitularesChecked(source: unknown): Result<TitularNormalizado[]> {
+  if (!Array.isArray(source) || source.length === 0) {
+    return { ok: false, reason: "titulares_source_empty" };
+  }
+  const out: TitularNormalizado[] = [];
+  for (const raw of source) {
+    const r = normalizeTitularChecked(raw);
+    if (!r.ok) return r;
+    out.push(r.value);
+  }
+  if (out.length === 0) return { ok: false, reason: "titulares_all_discarded" };
+  return { ok: true, value: out };
+}
+
 export function titularKey(t: {
   nombre?: unknown; nombre_extraido?: unknown; cif_dni?: unknown; porcentaje?: unknown; rol?: unknown;
 }): string {
