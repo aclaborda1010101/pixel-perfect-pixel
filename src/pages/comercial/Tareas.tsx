@@ -17,7 +17,11 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { syncAssignedBuildingsTasks, TASK_DEFS, type Priority } from "@/lib/buildingTasks";
+import { TASK_DEFS, type Priority } from "@/lib/buildingTasks";
+import {
+  filterVisibleOperationalTasks,
+  VISIBLE_OPERATIONAL_TASK_OR_FILTER,
+} from "@/lib/operationalTasks";
 import { sortByDueThenPriority, isTaskOpen, taskCode } from "@/lib/taskSchedule";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
@@ -37,18 +41,7 @@ export default function ComercialTareas() {
   const [statusFilter, setStatusFilter] = useState<string>("pending");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [syncing, setSyncing] = useState(false);
-
-  // Auto-sync on first mount
-  useEffect(() => {
-    if (!userId) return;
-    setSyncing(true);
-    syncAssignedBuildingsTasks(userId).finally(() => {
-      setSyncing(false);
-      qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  // Legacy auto-task generation retired: mounting this page performs no writes.
 
   const { data, isLoading } = useQuery({
     queryKey: ["building_tasks_all", userId],
@@ -58,11 +51,13 @@ export default function ComercialTareas() {
         (supabase.from("building_tasks" as any) as any)
           .select("*")
           .eq("user_id", userId)
+          .or(VISIBLE_OPERATIONAL_TASK_OR_FILTER)
           .order("created_at", { ascending: false }),
         (supabase.from("v_building_score" as any) as any)
           .select("id,direccion,ciudad,score,score_total,score_activo"),
       ]);
-      const tasks = (tasksRes.data ?? []) as any[];
+      // Defensive client-side filter on top of the server-side filter.
+      const tasks = filterVisibleOperationalTasks((tasksRes.data ?? []) as any[]);
       const scores = (scoresRes.data ?? []) as any[];
       const byId = new Map<string, any>();
       scores.forEach((s) => byId.set(s.id, s));
@@ -130,14 +125,6 @@ export default function ComercialTareas() {
     { label: "Edificios con tareas", value: buildingsWithTasks, icon: Building2 },
   ];
 
-  const refresh = async () => {
-    if (!userId) return;
-    setSyncing(true);
-    await syncAssignedBuildingsTasks(userId);
-    setSyncing(false);
-    qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
-  };
-
   const toggle = async (id: string, completed: boolean) => {
     await (supabase.from("building_tasks" as any) as any)
       .update({
@@ -154,12 +141,6 @@ export default function ComercialTareas() {
         eyebrow="Operativa · Tareas"
         title="Mis tareas"
         subtitle={`${totalPending} pendientes en tu cartera`}
-        actions={
-          <Button variant="outline" size="sm" onClick={refresh} disabled={syncing}>
-            <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
-            Re-evaluar todas
-          </Button>
-        }
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
