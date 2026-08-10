@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { GESTOR_PATH } from "@/lib/access";
 import { toast } from "sonner";
 
 type Mode = "signin" | "signup";
