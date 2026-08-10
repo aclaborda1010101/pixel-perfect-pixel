@@ -26,10 +26,16 @@ import { extractText } from "npm:unpdf@0.12.1";
 import {
   sanitize,
   sanitizeDeep,
-  normalizeTitular,
+  normalizeTitularesChecked,
   type TitularNormalizado,
 } from "./lib.ts";
-import { buildReconcilePlan, needsTitularesRefetch, summarizeBatch } from "./reconcile.ts";
+import {
+  needsTitularesRefetch,
+  summarizeBatch,
+  runReconciliation,
+  type ReconcileRepo,
+  type OpResult,
+} from "./reconcile.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
