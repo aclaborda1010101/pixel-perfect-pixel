@@ -152,12 +152,142 @@ export function normalizePorcentajeChecked(raw: unknown): Result<number | null> 
   return { ok: true, value: v };
 }
 
-export type Evidencia = {
+/**
+ * EVIDENCIA CANÓNICA: colección ordenada y deduplicada de FUENTES REALES.
+ * Cada fuente puede llevar `cita` (texto literal no vacío) y un localizador
+ * (`pagina` entero positivo, `ruta` no vacía u `offset` entero >= 0).
+ * Los metadatos de normalización NUNCA son evidencia.
+ */
+export type EvidenciaFuente = {
   cita?: string;
   pagina?: number;
   ruta?: string;
-  normalizacion?: { raw_rol: string | null; raw_literal: string | null; role_conflict: boolean };
-} | null;
+  offset?: number;
+};
+
+export type Evidencia = { fuentes: EvidenciaFuente[] } | null;
+
+const CLAVES_FUENTE = ["cita", "pagina", "ruta", "offset"] as const;
+
+function enteroPositivo(v: unknown): number | null {
+  let n: number | null = null;
+  if (typeof v === "number") n = v;
+  else if (typeof v === "string" && /^\d+$/.test(v.trim())) n = Number(v.trim());
+  return n != null && Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function enteroNoNegativo(v: unknown): number | null {
+  let n: number | null = null;
+  if (typeof v === "number") n = v;
+  else if (typeof v === "string" && /^\d+$/.test(v.trim())) n = Number(v.trim());
+  return n != null && Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+function coerceFuente(raw: unknown): EvidenciaFuente | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const out: EvidenciaFuente = {};
+  if (typeof r.cita === "string" && sanitize(r.cita).trim()) out.cita = sanitize(r.cita).trim();
+  const p = enteroPositivo(r.pagina);
+  if (p != null) out.pagina = p;
+  if (typeof r.ruta === "string" && sanitize(r.ruta).trim()) out.ruta = sanitize(r.ruta).trim();
+  const o = enteroNoNegativo(r.offset);
+  if (o != null) out.offset = o;
+  return Object.keys(out).length ? out : null;
+}
+
+function fuenteStable(f: EvidenciaFuente): string {
+  return CLAVES_FUENTE.map((k) => `${k}=${(f as Record<string, unknown>)[k] ?? ""}`).join("|");
+}
+
+/** Identidad de localizador: dos fuentes con el mismo localizador son la MISMA fuente. */
+export function fuenteLocatorKey(f: EvidenciaFuente): string {
+  const partes: string[] = [];
+  if (f.pagina != null) partes.push(`p:${f.pagina}`);
+  if (f.ruta != null) partes.push(`r:${f.ruta.toLowerCase()}`);
+  if (f.offset != null) partes.push(`o:${f.offset}`);
+  if (partes.length) return partes.join("+");
+  return `c:${(f.cita ?? "").toLowerCase()}`;
+}
+
+/** ¿La fuente tiene un localizador válido (no es solo una cita suelta)? */
+export function fuenteTieneLocalizador(f: EvidenciaFuente): boolean {
+  return f.pagina != null || f.ruta != null || f.offset != null;
+}
+
+/** Extrae fuentes reales de cualquier forma: canónica {fuentes}, array o legado plano. */
+export function evidenciaFuentes(raw: unknown): EvidenciaFuente[] {
+  const acc: EvidenciaFuente[] = [];
+  const push = (f: EvidenciaFuente | null) => {
+    if (!f) return;
+    const s = fuenteStable(f);
+    if (!acc.some((x) => fuenteStable(x) === s)) acc.push(f);
+  };
+  const visit = (v: unknown) => {
+    if (v == null) return;
+    if (Array.isArray(v)) { v.forEach(visit); return; }
+    if (typeof v !== "object") return;
+    const o = v as Record<string, unknown>;
+    if (Array.isArray(o.fuentes)) o.fuentes.forEach(visit);
+    push(coerceFuente(o)); // compatibilidad con el JSON legado plano
+  };
+  visit(raw);
+  return acc;
+}
+
+/** Normaliza a evidencia canónica (null si no hay ninguna fuente real). */
+export function parseEvidencia(raw: unknown): Evidencia {
+  const fuentes = evidenciaFuentes(raw);
+  return fuentes.length ? { fuentes } : null;
+}
+
+export type MergeEvidenciaResult =
+  | { ok: true; value: Evidencia }
+  | { ok: false; reason: "evidence_conflict"; detalle: string };
+
+/**
+ * Fusiona evidencias SIN PÉRDIDA: unión ordenada y deduplicada de fuentes.
+ * Dos fuentes con el mismo localizador se funden campo a campo; si un mismo
+ * campo pretende dos valores distintos => evidence_conflict (bloquea).
+ */
+export function mergeEvidencias(...entradas: unknown[]): MergeEvidenciaResult {
+  const orden: string[] = [];
+  const porLocalizador = new Map<string, EvidenciaFuente>();
+  for (const e of entradas) {
+    for (const f of evidenciaFuentes(e)) {
+      const k = fuenteLocatorKey(f);
+      const prev = porLocalizador.get(k);
+      if (!prev) {
+        porLocalizador.set(k, { ...f });
+        orden.push(k);
+        continue;
+      }
+      const merged: EvidenciaFuente = { ...prev };
+      for (const campo of CLAVES_FUENTE) {
+        const nuevo = (f as Record<string, unknown>)[campo];
+        if (nuevo == null) continue;
+        const actual = (merged as Record<string, unknown>)[campo];
+        if (actual != null && actual !== nuevo) {
+          return { ok: false, reason: "evidence_conflict", detalle: `${k}:${campo}` };
+        }
+        (merged as Record<string, unknown>)[campo] = nuevo;
+      }
+      porLocalizador.set(k, merged);
+    }
+  }
+  if (!orden.length) return { ok: true, value: null };
+  return { ok: true, value: { fuentes: orden.map((k) => porLocalizador.get(k)!) } };
+}
+
+/** Evidencia registral utilizable: al menos una fuente con localizador válido. */
+export function hasRealEvidence(raw: unknown): boolean {
+  return evidenciaFuentes(raw).some(fuenteTieneLocalizador);
+}
+
+/** Comparación estable de dos evidencias ya canónicas. */
+export function evidenciaStable(raw: unknown): string {
+  return evidenciaFuentes(raw).map(fuenteStable).join(";;");
+}
 
 export type TitularNormalizado = {
   nombre: string;
@@ -169,24 +299,16 @@ export type TitularNormalizado = {
 };
 
 /**
- * La evidencia NO se inventa: solo se conserva lo que el modelo devuelve.
- * - `evidencia` debe ser un objeto NO array (si no, se ignora esa fuente).
- * - `pagina` solo entero positivo.
- * - cadenas vacías se descartan.
+ * La evidencia NO se inventa: solo se conserva lo que el modelo devuelve,
+ * en forma canónica {fuentes:[...]}. Acepta `evidencia` (objeto, array o
+ * canónica) y también los campos sueltos cita/pagina/ruta/offset del titular.
  */
 export function buildEvidencia(t: any): Evidencia {
-  const src = (t?.evidencia && typeof t.evidencia === "object" && !Array.isArray(t.evidencia)) ? t.evidencia : null;
-  const cita = src?.cita ?? t?.cita ?? null;
-  const pagina = src?.pagina ?? t?.pagina ?? null;
-  const ruta = src?.ruta ?? t?.ruta ?? null;
-  const out: NonNullable<Evidencia> = {};
-  if (typeof cita === "string" && sanitize(cita).trim()) out.cita = sanitize(cita).trim();
-  let p: number | null = null;
-  if (typeof pagina === "number") p = pagina;
-  else if (typeof pagina === "string" && pagina.trim() && /^\d+$/.test(pagina.trim())) p = Number(pagina.trim());
-  if (p != null && Number.isInteger(p) && p > 0) out.pagina = p;
-  if (typeof ruta === "string" && sanitize(ruta).trim()) out.ruta = sanitize(ruta).trim();
-  return Object.keys(out).length ? out : null;
+  const merged = mergeEvidencias(
+    t?.evidencia ?? null,
+    { cita: t?.cita, pagina: t?.pagina, ruta: t?.ruta, offset: t?.offset },
+  );
+  return merged.ok ? merged.value : null;
 }
 
 /** Normalización chequeada: distingue "sin nombre" de "porcentaje no vacío inválido". */
@@ -211,17 +333,18 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
   const rolDesdeRol = rawRol == null ? null : normalizeRol(rawRol);
   const rolDesdeLiteral = rol_literal == null ? null : normalizeRol(rol_literal);
 
-  // El literal jurídico manda si existe.
-  const rol: RolCanonico = rolDesdeLiteral ?? rolDesdeRol ?? "otro";
-  const role_conflict = rolDesdeLiteral != null && rolDesdeRol != null && rolDesdeLiteral !== rolDesdeRol;
-
-  let evidencia = buildEvidencia(t);
-  if (role_conflict) {
-    evidencia = {
-      ...(evidencia ?? {}),
-      normalizacion: { raw_rol: rawRol, raw_literal: rol_literal, role_conflict: true },
+  // Conflicto rol declarado vs literal reconocido: BLOQUEA antes de escribir.
+  if (rolDesdeLiteral != null && rolDesdeRol != null && rolDesdeLiteral !== rolDesdeRol) {
+    return {
+      ok: false,
+      reason: "role_conflict",
+      detalle: `${nombre}: raw_rol=${rawRol} raw_literal=${rol_literal}`.slice(0, 200),
     };
   }
+
+  // El literal jurídico manda si existe.
+  const rol: RolCanonico = rolDesdeLiteral ?? rolDesdeRol ?? "otro";
+  const evidencia = buildEvidencia(t);
 
   return {
     ok: true,
