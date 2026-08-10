@@ -404,7 +404,7 @@ BEGIN
 END $$;
 
 COMMENT ON FUNCTION public.p0_evidence_check(uuid) IS
-  'Evidencia triple: titular_ok + derecho_ok (el derecho de ESA fila) + porcentaje_ok (tolerando coma/punto y %) + trazable. Fuente: titular.evidencia > raw_pdf_text > structured_json. No inventa página ni offset.';
+  'Evidencia triple: titular_ok + derecho_ok (el derecho de ESA fila) + porcentaje_ok (tolerando coma/punto y %) + trazable. Fuente principal: titular.evidencia; si existe y contradice, NO se rescata con raw_pdf_text ni structured_json. Los fallbacks solo operan cuando la evidencia del titular está realmente ausente. No inventa página ni offset.';
 
 -- ---------------------------------------------------------------------
 -- 5) Staging read-only, 1:1 con nota_simple_titulares
@@ -492,17 +492,28 @@ WITH tit AS (
     (coalesce(us.n_firmas, 0) > 1) AS unidad_contradictoria,
     (s.porcentaje IS NULL) AS percentage_null,
     (s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL) AS conflicto_ids,
-    -- Vínculos: se CONSERVAN los preexistentes; nunca se elige entre ambos.
-    coalesce(s.pre_owner_id,
-             CASE WHEN NOT s.es_sociedad THEN
-               CASE WHEN md.n = 1 THEN md.owner_id WHEN mn.n = 1 THEN mn.owner_id END
-             END) AS f_owner_id,
-    coalesce(s.pre_company_id,
-             CASE WHEN s.es_sociedad THEN
-               CASE WHEN mf.n = 1 THEN mf.company_id WHEN mc.n = 1 THEN mc.company_id END
-             END) AS f_company_id,
+    -- Vínculos operativos: nunca se elige entre ambos.
+    --  · Si la fuente trae owner_id Y company_id: AMBOS quedan NULL en la salida
+    --    operativa (los originales se conservan solo en audit_ids).
+    --  · Si solo hay pre_owner_id: prevalece owner y NO se infiere company aunque
+    --    el nombre parezca sociedad. Simétrico para pre_company_id.
+    CASE
+      WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN NULL
+      WHEN s.pre_owner_id IS NOT NULL THEN s.pre_owner_id
+      WHEN s.pre_company_id IS NOT NULL THEN NULL
+      WHEN NOT s.es_sociedad THEN
+        CASE WHEN md.n = 1 THEN md.owner_id WHEN mn.n = 1 THEN mn.owner_id END
+    END AS f_owner_id,
+    CASE
+      WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN NULL
+      WHEN s.pre_company_id IS NOT NULL THEN s.pre_company_id
+      WHEN s.pre_owner_id IS NOT NULL THEN NULL
+      WHEN s.es_sociedad THEN
+        CASE WHEN mf.n = 1 THEN mf.company_id WHEN mc.n = 1 THEN mc.company_id END
+    END AS f_company_id,
     -- Solo un DNI exacto e inequívoco habilita cuota personal.
-    (md.n = 1 AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
+    (md.n = 1 AND s.pre_company_id IS NULL
+     AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
     CASE
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN 'conflicto_owner_y_company'
       WHEN s.es_sociedad AND s.pre_company_id IS NOT NULL THEN 'company_preexistente'
