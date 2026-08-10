@@ -32,7 +32,6 @@ import {
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
-import { syncBuildingTasks } from "@/lib/buildingTasks";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
