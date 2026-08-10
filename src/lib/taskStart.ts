@@ -13,6 +13,32 @@ export async function startBuildingTask(taskId: string): Promise<{ ok: boolean; 
 }
 
 export function canStartTask(task: { status?: string | null; started_at?: string | null } | null | undefined): boolean {
-  if (!task) return false;
-  return task.status === "pending" && !task.started_at;
+  return decideTaskStart(task).action === "start";
+}
+
+export type TaskStartDecision =
+  | { action: "start"; reason: "pending" }
+  | { action: "noop_ok"; reason: "ya_iniciada" }
+  | { action: "reject"; reason: "estado_no_iniciable" };
+
+/**
+ * Decisión pura equivalente a la del RPC start_building_task.
+ * - pending                    -> se inicia (fija started_at si estaba a NULL)
+ * - in_progress con started_at -> éxito idempotente, sin escritura
+ * - resto de estados           -> rechazo explícito (no se falsea éxito)
+ */
+export function decideTaskStart(
+  task: { status?: string | null; started_at?: string | null } | null | undefined,
+): TaskStartDecision {
+  const status = task?.status ?? null;
+  if (status === "pending") return { action: "start", reason: "pending" };
+  if (status === "in_progress" && task?.started_at) {
+    return { action: "noop_ok", reason: "ya_iniciada" };
+  }
+  return { action: "reject", reason: "estado_no_iniciable" };
+}
+
+/** Reapertura: volver a pending limpia started_at para no arrastrar duraciones falsas. */
+export function reopenPatch(): { status: "pending"; started_at: null; completed_at: null } {
+  return { status: "pending", started_at: null, completed_at: null };
 }

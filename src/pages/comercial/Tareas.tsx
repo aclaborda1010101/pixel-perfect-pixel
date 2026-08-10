@@ -22,7 +22,10 @@ import {
   filterVisibleOperationalTasks,
   VISIBLE_OPERATIONAL_TASK_OR_FILTER,
 } from "@/lib/operationalTasks";
-import { sortByDueThenPriority, isTaskOpen, taskCode } from "@/lib/taskSchedule";
+import { sortByDueThenPriority, isTaskOpen } from "@/lib/taskSchedule";
+import { operationalTaskBadge } from "@/lib/operationalTasks";
+import { startBuildingTask, canStartTask, reopenPatch } from "@/lib/taskStart";
+import { toast } from "sonner";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 
@@ -125,12 +128,20 @@ export default function ComercialTareas() {
     { label: "Edificios con tareas", value: buildingsWithTasks, icon: Building2 },
   ];
 
+  const start = async (id: string) => {
+    const res = await startBuildingTask(id);
+    if (!res.ok) return toast.error(res.error ?? "No se pudo marcar el inicio");
+    toast.success("Tarea iniciada");
+    qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+  };
+
   const toggle = async (id: string, completed: boolean) => {
     await (supabase.from("building_tasks" as any) as any)
-      .update({
-        status: completed ? "completed" : "pending",
-        completed_at: completed ? new Date().toISOString() : null,
-      })
+      .update(
+        completed
+          ? { status: "completed", completed_at: new Date().toISOString() }
+          : reopenPatch(),
+      )
       .eq("id", id);
     qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
   };
@@ -261,21 +272,24 @@ export default function ComercialTareas() {
                               <div className="mt-0.5 text-xs text-muted-foreground">{t.description}</div>
                             )}
                             <TaskScheduleMeta task={t} />
+                            {canStartTask(t) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="mt-2 h-6 px-2 text-[11px]"
+                                onClick={() => start(t.id)}
+                              >
+                                Empezar
+                              </Button>
+                            )}
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <TaskTemporalBadge task={t} />
                             <Badge variant={priorityBadge[t.priority as Priority]} className="text-[9px]">
                               {priorityLabel[t.priority as Priority]}
                             </Badge>
-                            <Badge
-                              variant={t.task_type === "auto" ? "info" : t.task_type === "call_queue" ? "warning" : "outline"}
-                              className="text-[9px]"
-                            >
-                              {t.task_type === "auto"
-                                ? "Auto"
-                                : t.task_type === "call_queue"
-                                  ? `Cola V5${taskCode(t) ? ` · ${taskCode(t)}` : ""}`
-                                  : "Manual"}
+                            <Badge variant={operationalTaskBadge(t).variant} className="text-[9px]">
+                              {operationalTaskBadge(t).label}
                             </Badge>
                           </div>
                         </div>
