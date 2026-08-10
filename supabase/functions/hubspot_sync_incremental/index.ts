@@ -45,16 +45,20 @@ function toRow(type: EngType, e: any): Record<string, unknown> {
   const assoc = e.associations || {};
   const contactIds: string[] = (assoc.contacts?.results || []).map((r: any) => String(r.id));
   const dealIds: string[] = (assoc.deals?.results || []).map((r: any) => String(r.id));
-  const base = {
+  const base: Record<string, unknown> = {
     hs_id: String(e.id),
     hs_timestamp: tsOrNull(p.hs_timestamp),
     hs_createdate: tsOrNull(p.hs_createdate ?? e.createdAt),
     hs_lastmodifieddate: tsOrNull(p.hs_lastmodifieddate ?? e.updatedAt),
-    associated_contact_ids: contactIds,
-    associated_deal_ids: dealIds,
     raw: e,
     updated_at: new Date().toISOString(),
   };
+  // NUNCA sobrescribir asociaciones con [] si la lectura de asociaciones falló:
+  // solo se escriben cuando la consulta fue correcta.
+  if (e.__assoc_ok !== false) {
+    base.associated_contact_ids = contactIds;
+    base.associated_deal_ids = dealIds;
+  }
   if (type === "calls") {
     return {
       ...base,
@@ -105,15 +109,19 @@ function toRow(type: EngType, e: any): Record<string, unknown> {
   };
 }
 
-async function fetchAssociations(type: EngType, id: string): Promise<{ contacts: string[]; deals: string[] }> {
+async function fetchAssociations(type: EngType, id: string): Promise<{ contacts: string[]; deals: string[]; ok: boolean }> {
   try {
     const j = await hubspotFetch(`/crm/v3/objects/${type}/${id}?associations=contacts,deals`);
     const assoc = j?.associations || {};
     return {
       contacts: (assoc.contacts?.results || []).map((r: any) => String(r.id)),
       deals: (assoc.deals?.results || []).map((r: any) => String(r.id)),
+      ok: true,
     };
-  } catch { return { contacts: [], deals: [] }; }
+  } catch (e) {
+    console.warn(`[inc ${type}] asociaciones ${id} fallaron, se conservan las existentes:`, (e as Error).message);
+    return { contacts: [], deals: [], ok: false };
+  }
 }
 
 async function syncType(supabase: any, type: EngType, pages: number, sinceIsoOverride: string | null, fallbackDays: number) {
@@ -167,6 +175,7 @@ async function syncType(supabase: any, type: EngType, pages: number, sinceIsoOve
         const assocs = await Promise.all(slice.map((e) => fetchAssociations(type, String(e.id))));
         for (let j = 0; j < slice.length; j++) {
           const e = slice[j];
+          e.__assoc_ok = assocs[j].ok;
           e.associations = {
             contacts: { results: assocs[j].contacts.map((id: string) => ({ id, type: "contact_to_" + type })) },
             deals:    { results: assocs[j].deals.map((id: string)    => ({ id, type: "deal_to_" + type })) },

@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
   try {
     const { data, error } = await admin.rpc("integridad_alertas_pendientes");
     if (error) throw error;
-    const rows = (data ?? []) as Array<{ issue_key: string; detalle: string }>;
+    const rows = (data ?? []) as Array<{ issue_key: string; detalle: string; severidad?: string }>;
 
     if (rows.length === 0) {
       await admin.from("hubspot_sync_log").insert({
@@ -36,18 +36,31 @@ Deno.serve(async (req) => {
     }
 
     const n = rows.length;
-    const subject = `[AffluxOS] Aviso: ${n} flujo(s) de sincronización con problemas`;
-    const itemsHtml = rows
-      .map((r) => `<li><b>${escapeHtml(r.issue_key)}</b>: ${escapeHtml(r.detalle)}</li>`)
+    const orden = ["ERROR", "CALIDAD", "AVISO"];
+    const etiqueta: Record<string, string> = {
+      ERROR: "Errores técnicos",
+      CALIDAD: "Problemas de calidad de datos",
+      AVISO: "Avisos",
+    };
+    const nErr = rows.filter((r) => (r.severidad ?? "AVISO") === "ERROR").length;
+    const subject = nErr > 0
+      ? `[AffluxOS] ${nErr} error(es) técnico(s) y ${n - nErr} aviso(s) de integridad`
+      : `[AffluxOS] ${n} aviso(s) de integridad`;
+    const itemsHtml = orden
+      .filter((sev) => rows.some((r) => (r.severidad ?? "AVISO") === sev))
+      .map((sev) => `<h3 style="margin:14px 0 4px">${etiqueta[sev]}</h3><ul>` +
+        rows.filter((r) => (r.severidad ?? "AVISO") === sev)
+          .map((r) => `<li><b>${escapeHtml(r.issue_key)}</b>: ${escapeHtml(r.detalle)}</li>`)
+          .join("") + `</ul>`)
       .join("");
     const html = `
       <div style="font-family:Arial,sans-serif;font-size:14px;color:#111">
         <h2 style="margin:0 0 12px">Vigía de integridad · ${n} alerta(s)</h2>
-        <ul>${itemsHtml}</ul>
+        ${itemsHtml}
         <p style="margin-top:16px">Panel: <code>/admin/integridad</code></p>
       </div>`;
     const text = `Vigía de integridad · ${n} alerta(s)\n\n` +
-      rows.map((r) => `- ${r.issue_key}: ${r.detalle}`).join("\n") +
+      rows.map((r) => `- [${r.severidad ?? "AVISO"}] ${r.issue_key}: ${r.detalle}`).join("\n") +
       `\n\nPanel: /admin/integridad`;
 
     const send = await sendEmail({ to: NOTIFY_EMAIL, subject, html, text });

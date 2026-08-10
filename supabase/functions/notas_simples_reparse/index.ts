@@ -32,8 +32,20 @@ const corsHeaders = {
 
 const ENTITY = "notas_simples_reparse";
 const DEFAULT_LIMIT = 12;
-const PRIMARY = { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5.6-luna" };
-const FALLBACK = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3-flash-preview" };
+const MAX_ATTEMPTS = 5;
+// Modelo estable, el mismo que ya usa analyze_nota_simple.
+const PRIMARY = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3.1-flash-lite-preview" };
+const FALLBACK = { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5.6-luna" };
+
+// Quita NUL y caracteres de control que Postgres rechaza en columnas text/jsonb.
+function sanitize(s: string): string {
+  // deno-lint-ignore no-control-regex
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ");
+}
+
+function backoffMinutes(attempt: number): number {
+  return Math.min(360, 15 * Math.pow(2, Math.max(0, attempt - 1)));
+}
 
 const ROLES_VALIDOS = new Set(["pleno", "usufructo", "nuda_propiedad", "otro"]);
 
@@ -141,14 +153,16 @@ function buildVisionMessages(pdfDataUrl: string, needTitulares: boolean) {
   ];
 }
 
-async function callLLM(messages: any[]): Promise<ExtractedFields | null> {
+async function callLLM(messages: any[]): Promise<{ data: ExtractedFields | null; error?: string; model?: string }> {
   const OR = Deno.env.get("OPENROUTER_API_KEY") || "";
   const LK = Deno.env.get("LOVABLE_API_KEY") || "";
   const providers = [
-    OR ? { ...PRIMARY, auth: `Bearer ${OR}`, extra: { "HTTP-Referer": "https://affluxosv2.world", "X-Title": "Afflux OS · Notas Reparse" } } : null,
-    LK ? { ...FALLBACK, auth: `Bearer ${LK}`, extra: {} as Record<string, string> } : null,
+    LK ? { ...PRIMARY, auth: `Bearer ${LK}`, extra: {} as Record<string, string> } : null,
+    OR ? { ...FALLBACK, auth: `Bearer ${OR}`, extra: { "HTTP-Referer": "https://affluxosv2.world", "X-Title": "Afflux OS · Notas Reparse" } } : null,
   ].filter(Boolean) as any[];
+  if (!providers.length) return { data: null, error: "sin_proveedor_ia_configurado" };
 
+  const errores: string[] = [];
   for (const p of providers) {
     try {
       const r = await fetch(p.url, {
@@ -163,18 +177,21 @@ async function callLLM(messages: any[]): Promise<ExtractedFields | null> {
         }),
       });
       if (!r.ok) {
-        console.error(`[notas_reparse] ${p.name} ${r.status} ${(await r.text()).slice(0, 200)}`);
+        const detalle = (await r.text()).slice(0, 300);
+        console.error(`[notas_reparse] ${p.name}/${p.model} HTTP ${r.status} ${detalle}`);
+        errores.push(`${p.name}/${p.model} HTTP ${r.status}: ${detalle}`);
         continue;
       }
       const j = await r.json();
       let txt = j?.choices?.[0]?.message?.content || "{}";
       txt = String(txt).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-      return JSON.parse(txt) as ExtractedFields;
+      return { data: JSON.parse(txt) as ExtractedFields, model: `${p.name}/${p.model}` };
     } catch (e) {
-      console.error(`[notas_reparse] provider exception`, e);
+      console.error(`[notas_reparse] ${p.name}/${p.model} excepción`, e);
+      errores.push(`${p.name}/${p.model} excepción: ${String((e as Error).message ?? e).slice(0, 200)}`);
     }
   }
-  return null;
+  return { data: null, error: errores.join(" | ").slice(0, 500) };
 }
 
 // ---------- procesamiento por nota ----------
@@ -196,14 +213,14 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
     } catch (e) {
       console.warn(`[notas_reparse] unpdf ${id}`, (e as Error).message);
     }
-    if (rawText) rawText = letrasANumerosEnTexto(rawText);
+    if (rawText) rawText = sanitize(letrasANumerosEnTexto(rawText));
 
     const currentTitulares = Array.isArray(nota.structured_json?.titulares) ? nota.structured_json.titulares : [];
     const needTitulares = currentTitulares.length === 0;
 
-    let extracted: ExtractedFields | null = null;
+    let llm: { data: ExtractedFields | null; error?: string; model?: string };
     if (rawText.length >= 200) {
-      extracted = await callLLM([
+      llm = await callLLM([
         { role: "system", content: "Eres un experto en notas simples del Registro de la Propiedad español. Devuelves SIEMPRE JSON válido." },
         { role: "user", content: buildTextPrompt(rawText, needTitulares) },
       ]);
@@ -214,9 +231,10 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
       for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
       const b64 = btoa(bin);
       const dataUrl = `data:application/pdf;base64,${b64}`;
-      extracted = await callLLM(buildVisionMessages(dataUrl, needTitulares));
+      llm = await callLLM(buildVisionMessages(dataUrl, needTitulares));
     }
-    if (!extracted) return { id, ok: false, reason: "llm_fail" };
+    const extracted = llm.data;
+    if (!extracted) return { id, ok: false, reason: `llm_fail: ${llm.error ?? "sin detalle"}`.slice(0, 400) };
 
     // 3) Merge structured_json
     const prev = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
@@ -241,9 +259,14 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
       })).filter((t) => t.nombre);
     }
 
+    merged.reparse_model = llm.model ?? null;
     const { error: updErr } = await sb.from("notas_simples").update({
-      raw_pdf_text: rawText ? rawText.slice(0, 60000) : null,
+      raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
       structured_json: merged,
+      attempt_count: (nota.attempt_count ?? 0) + 1,
+      last_error: null,
+      next_retry_at: null,
+      claimed_at: null,
     }).eq("id", id);
     if (updErr) return { id, ok: false, reason: `update_fail:${updErr.message}` };
 
@@ -298,16 +321,11 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
 
-  // 1) Selección: sin building_id, listo, sin reparse_done
-  // building_id IS NULL  OR  needs_extract='1' → ambos entran al reparse.
-  const { data: notas, error: selErr } = await sb
-    .from("notas_simples")
-    .select("id, file_url, structured_json, building_id")
-    .eq("status", "listo")
-    .or("building_id.is.null,structured_json->>needs_extract.eq.1")
-    .or("structured_json->>reparse_done.is.null,structured_json->>reparse_done.neq.1")
-    .order("created_at", { ascending: true })
-    .limit(limit);
+  // 1) Reclamar lote con bloqueo (evita repetir siempre las mismas 12)
+  const { data: notas, error: selErr } = await sb.rpc("reparse_claim_batch", {
+    p_limit: limit,
+    p_lock_minutes: 10,
+  });
 
   if (selErr) {
     return new Response(JSON.stringify({ error: selErr.message }), {
@@ -325,31 +343,48 @@ Deno.serve(async (req) => {
   const results: any[] = [];
   for (const n of notas) {
     const r = await processOne(sb, n);
+    if (!r.ok) {
+      const attempts = (n.attempt_count ?? 0) + 1;
+      const dead = attempts >= 5;
+      await sb.from("notas_simples").update({
+        attempt_count: attempts,
+        last_error: String(r.reason ?? "desconocido").slice(0, 500),
+        next_retry_at: dead ? null : new Date(Date.now() + backoffMinutes(attempts) * 60_000).toISOString(),
+        dead_letter: dead,
+        claimed_at: null,
+      }).eq("id", n.id);
+      r.attempt_count = attempts;
+      r.dead_letter = dead;
+    }
     results.push(r);
   }
+  const ok = results.filter((r) => r.ok).length;
 
-  // 3) Emparejado batch en BD
+  // 3) Emparejado batch en BD (solo si hubo algún éxito)
   let matchResult: any = null;
-  try {
-    const { data, error } = await sb.rpc("match_notas_pendientes");
-    if (error) console.error(`[notas_reparse] match rpc:`, error.message);
-    else matchResult = data ?? null;
-  } catch (e) {
-    console.error(`[notas_reparse] match rpc exception`, e);
+  if (ok > 0) {
+    try {
+      const { data, error } = await sb.rpc("match_notas_pendientes");
+      if (error) console.error(`[notas_reparse] match rpc:`, error.message);
+      else matchResult = data ?? null;
+    } catch (e) {
+      console.error(`[notas_reparse] match rpc exception`, e);
+    }
   }
 
   // 4) Log
-  const ok = results.filter((r) => r.ok).length;
   try {
     const { error: logErr } = await sb.from("hubspot_sync_log").insert({
       entity: ENTITY,
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      records_upserted: results.length,
+      records_upserted: ok,
+      records_failed: results.length - ok,
       status: ok === results.length ? "ok" : (ok === 0 ? "error" : "partial"),
       metadatos: {
         ok,
         fail: results.length - ok,
+        dead_letter: results.filter((r) => r.dead_letter).length,
         match_result: matchResult,
         fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
       },
@@ -360,12 +395,15 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({
-    ok: true,
+    ok: ok > 0,
     procesadas: results.length,
     correctas: ok,
     fallidas: results.length - ok,
     match_result: matchResult,
     elapsed_ms: Date.now() - t0,
     resultados: results,
-  }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }), {
+    status: ok === 0 ? 500 : 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });
