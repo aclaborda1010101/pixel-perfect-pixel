@@ -8,10 +8,7 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
 import { EmptyState } from "@/components/common/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  filterVisibleOperationalTasks,
-  VISIBLE_OPERATIONAL_TASK_OR_FILTER,
-} from "@/lib/operationalTasks";
+import { fetchVisibleUserTasks } from "@/lib/dashboardTasks";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import {
@@ -51,11 +48,21 @@ export default function ComercialDashboard() {
       // 2. Profile (nombre)
       const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", userId!).maybeSingle();
 
+      // 2b. Tareas visibles (manual | V5). Se cargan SIEMPRE: no dependen de
+      // que el comercial tenga edificios activos asignados.
+      const tasks = await fetchVisibleUserTasks<any>(supabase as any, userId!);
+
+      const { count: requiereCodigoCount } = await (supabase.from("building_feedback" as any) as any)
+        .select("id", { count: "exact", head: true })
+        .eq("estado", "requiere_codigo");
+
       if (buildingIds.length === 0) {
         return {
           firstName: (profile?.full_name?.split(" ")[0]) ?? "",
           assigned: 0, pendingCalls: 0, noContact: 0, weekRate: 0,
           buildings: [] as any[], agenda: [] as any[],
+          tasks,
+          requiereCodigoCount: requiereCodigoCount ?? 0,
         };
       }
 
@@ -111,21 +118,6 @@ export default function ComercialDashboard() {
         .select("id,owner_id,fecha")
         .gte("fecha", weekAgo)
         .limit(1000);
-
-      // 7. Tareas pendientes del usuario
-      const { data: tasksData } = await (supabase.from("building_tasks" as any) as any)
-        .select("id,title,priority,task_type,task_key,building_id,status,created_at")
-        .eq("user_id", userId)
-        .in("status", ["pending", "in_progress"])
-        .or(VISIBLE_OPERATIONAL_TASK_OR_FILTER)
-        .order("created_at", { ascending: false });
-      // Defensive client-side filter on top of the server-side filter.
-      const tasks = filterVisibleOperationalTasks((tasksData ?? []) as any[]);
-
-      // 7b. Feedback que requiere código (solo admin)
-      const { count: requiereCodigoCount } = await (supabase.from("building_feedback" as any) as any)
-        .select("id", { count: "exact", head: true })
-        .eq("estado", "requiere_codigo");
 
       // Agregaciones por edificio
       const ownersByBuilding = new Map<string, any[]>();
