@@ -175,6 +175,7 @@ async function syncType(supabase: any, type: EngType, pages: number, sinceIsoOve
         const assocs = await Promise.all(slice.map((e) => fetchAssociations(type, String(e.id))));
         for (let j = 0; j < slice.length; j++) {
           const e = slice[j];
+          e.__assoc_ok = assocs[j].ok;
           e.associations = {
             contacts: { results: assocs[j].contacts.map((id: string) => ({ id, type: "contact_to_" + type })) },
             deals:    { results: assocs[j].deals.map((id: string)    => ({ id, type: "deal_to_" + type })) },
