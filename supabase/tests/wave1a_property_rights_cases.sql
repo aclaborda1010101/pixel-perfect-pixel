@@ -146,9 +146,9 @@ VALUES ('55555555-0000-0000-0000-00000000000d', '44444444-0000-0000-0000-0000000
 -- CASO F · ganancial y CASO G · rol desconocido (B3)
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal)
 VALUES ('55555555-0000-0000-0000-00000000000f', '44444444-0000-0000-0000-000000000003',
-        'JUAN PEREZ LOPEZ', '87654321X', 100, NULL, 'con carácter ganancial'),
+        'JUAN PEREZ LOPEZ', '87654321X', 100, 'ganancial', 'con carácter ganancial'),
        ('55555555-0000-0000-0000-000000000017', '44444444-0000-0000-0000-000000000003',
-        'ANA GARCIA SOTO', '12345678Z', 100, NULL, 'titular');
+        'ANA GARCIA SOTO', '12345678Z', 100, 'otro', 'titular');
 
 -- CASO H · evidencia con DERECHO EQUIVOCADO (dice usufructo, la fila es pleno)
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, evidencia)
@@ -185,6 +185,32 @@ SELECT '55555555-0000-0000-0000-000000000016', '44444444-0000-0000-0000-00000000
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, company_id)
 SELECT '55555555-0000-0000-0000-000000000018', '44444444-0000-0000-0000-000000000005',
        'HERMANOS MARTINEZ', NULL, 5, 'pleno', 'pleno dominio', c_soc FROM _ids;
+
+-- CASOS M · negativos de structured_json (B7, sin DH, sin evidencia de titular,
+-- raw vacío: el único camino posible sería el fallback structured_json).
+INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
+VALUES ('44444444-0000-0000-0000-000000000007', (SELECT b7 FROM _ids), 'listo', '',
+        '{"fecha_nota":"2026-03-01","titulares":[
+           {"nombre":"ANA GARCIA SOTO","derecho":"usufructo","porcentaje":"50","cita":"El usufructo del 50 % de ANA GARCIA SOTO"},
+           {"nombre":"JUAN PEREZ LOPEZ","derecho":"pleno dominio","porcentaje":"45","cita":"El pleno dominio del 45 % de JUAN PEREZ LOPEZ"},
+           {"nombre":"MARIA LOPEZ RUIZ","derecho":"pleno dominio","porcentaje":"25","cita":"   ","pagina":"  ","ruta":""},
+           {"nombre":"PEDRO SANZ GIL","derecho":"pleno dominio","porcentaje":"cincuenta por ciento","cita":"El pleno dominio de PEDRO SANZ GIL"}
+         ]}'::jsonb);
+
+INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal)
+VALUES
+  -- M1 · el structured_json declara OTRO derecho (usufructo) para una fila pleno
+  ('55555555-0000-0000-0000-000000000019', '44444444-0000-0000-0000-000000000007',
+   'ANA GARCIA SOTO', '12345678Z', 50, 'pleno', 'pleno dominio'),
+  -- M2 · el structured_json declara OTRO porcentaje (45 vs 40)
+  ('55555555-0000-0000-0000-00000000001a', '44444444-0000-0000-0000-000000000007',
+   'JUAN PEREZ LOPEZ', '87654321X', 40, 'pleno', 'pleno dominio'),
+  -- M3 · coincide todo pero el localizador está vacío (no hay trazabilidad)
+  ('55555555-0000-0000-0000-00000000001b', '44444444-0000-0000-0000-000000000007',
+   'MARIA LOPEZ RUIZ', NULL, 25, 'pleno', 'pleno dominio'),
+  -- M4 · porcentaje textual NO numérico: no debe abortar el dry-run
+  ('55555555-0000-0000-0000-00000000001c', '44444444-0000-0000-0000-000000000007',
+   'PEDRO SANZ GIL', NULL, 25, 'pleno', 'pleno dominio');
 
 -- ---------------------------------------------------------------------
 -- 2) Aserciones
