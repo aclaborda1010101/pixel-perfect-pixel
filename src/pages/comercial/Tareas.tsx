@@ -206,7 +206,7 @@ export default function ComercialTareas() {
       {grouped.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            {isLoading || syncing ? "Cargando tareas…" : "No hay tareas con los filtros actuales."}
+            {isLoading ? "Cargando tareas…" : "No hay tareas con los filtros actuales."}
           </CardContent>
         </Card>
       ) : (
