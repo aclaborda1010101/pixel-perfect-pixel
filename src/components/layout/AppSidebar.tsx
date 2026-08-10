@@ -107,7 +107,7 @@ export function AppSidebar() {
       ? [{ url: "/admin/cola-simulada", label: "Simulación de cola", icon: ListChecks } as Item]
       : []),
     { url: "/ajustes", label: t.nav.settings, icon: SettingsIcon },
-  ].filter((it) => role !== "sales_manager" || !it.url.startsWith("/admin"));
+  ];
 
   const renderGroup = (label: string, items: Item[]) => (
     <SidebarGroup className="px-2 py-1 md:py-1">
