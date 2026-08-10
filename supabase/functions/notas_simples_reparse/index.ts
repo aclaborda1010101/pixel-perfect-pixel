@@ -321,16 +321,11 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
 
-  // 1) Selección: sin building_id, listo, sin reparse_done
-  // building_id IS NULL  OR  needs_extract='1' → ambos entran al reparse.
-  const { data: notas, error: selErr } = await sb
-    .from("notas_simples")
-    .select("id, file_url, structured_json, building_id")
-    .eq("status", "listo")
-    .or("building_id.is.null,structured_json->>needs_extract.eq.1")
-    .or("structured_json->>reparse_done.is.null,structured_json->>reparse_done.neq.1")
-    .order("created_at", { ascending: true })
-    .limit(limit);
+  // 1) Reclamar lote con bloqueo (evita repetir siempre las mismas 12)
+  const { data: notas, error: selErr } = await sb.rpc("reparse_claim_batch", {
+    p_limit: limit,
+    p_lock_minutes: 10,
+  });
 
   if (selErr) {
     return new Response(JSON.stringify({ error: selErr.message }), {
@@ -348,31 +343,48 @@ Deno.serve(async (req) => {
   const results: any[] = [];
   for (const n of notas) {
     const r = await processOne(sb, n);
+    if (!r.ok) {
+      const attempts = (n.attempt_count ?? 0) + 1;
+      const dead = attempts >= 5;
+      await sb.from("notas_simples").update({
+        attempt_count: attempts,
+        last_error: String(r.reason ?? "desconocido").slice(0, 500),
+        next_retry_at: dead ? null : new Date(Date.now() + backoffMinutes(attempts) * 60_000).toISOString(),
+        dead_letter: dead,
+        claimed_at: null,
+      }).eq("id", n.id);
+      r.attempt_count = attempts;
+      r.dead_letter = dead;
+    }
     results.push(r);
   }
+  const ok = results.filter((r) => r.ok).length;
 
-  // 3) Emparejado batch en BD
+  // 3) Emparejado batch en BD (solo si hubo algún éxito)
   let matchResult: any = null;
-  try {
-    const { data, error } = await sb.rpc("match_notas_pendientes");
-    if (error) console.error(`[notas_reparse] match rpc:`, error.message);
-    else matchResult = data ?? null;
-  } catch (e) {
-    console.error(`[notas_reparse] match rpc exception`, e);
+  if (ok > 0) {
+    try {
+      const { data, error } = await sb.rpc("match_notas_pendientes");
+      if (error) console.error(`[notas_reparse] match rpc:`, error.message);
+      else matchResult = data ?? null;
+    } catch (e) {
+      console.error(`[notas_reparse] match rpc exception`, e);
+    }
   }
 
   // 4) Log
-  const ok = results.filter((r) => r.ok).length;
   try {
     const { error: logErr } = await sb.from("hubspot_sync_log").insert({
       entity: ENTITY,
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      records_upserted: results.length,
+      records_upserted: ok,
+      records_failed: results.length - ok,
       status: ok === results.length ? "ok" : (ok === 0 ? "error" : "partial"),
       metadatos: {
         ok,
         fail: results.length - ok,
+        dead_letter: results.filter((r) => r.dead_letter).length,
         match_result: matchResult,
         fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
       },
@@ -383,12 +395,15 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({
-    ok: true,
+    ok: ok > 0,
     procesadas: results.length,
     correctas: ok,
     fallidas: results.length - ok,
     match_result: matchResult,
     elapsed_ms: Date.now() - t0,
     resultados: results,
-  }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }), {
+    status: ok === 0 ? 500 : 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });
