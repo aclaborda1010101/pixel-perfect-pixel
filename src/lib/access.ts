@@ -20,6 +20,18 @@ export function canAccessGestor(role: AccessRole): boolean {
   return role === "admin" || role === "sales_manager";
 }
 
+/** Mínimo privilegio: rutas permitidas a sales_manager. */
+export const SALES_MANAGER_ALLOWED = [GESTOR_PATH, PASSWORD_PATH, "/logout"] as const;
+
+export function isSalesManagerAllowedPath(pathname: string): boolean {
+  return SALES_MANAGER_ALLOWED.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
+/** Destino tras completar el cambio de contraseña obligatorio. */
+export function postPasswordChangePath(role: AccessRole): string {
+  return role === "sales_manager" ? GESTOR_PATH : "/";
+}
+
 export type AccessDecision =
   | { type: "allow" }
   | { type: "redirect"; to: string };
@@ -48,8 +60,8 @@ export function decideAccess(params: {
   }
 
   if (role === "sales_manager") {
-    // Nunca administración general
-    if (isAdminOnlyPath(pathname)) return { type: "redirect", to: GESTOR_PATH };
+    // Sólo su panel (y cambio de contraseña / logout). Todo lo demás, incluido /admin*.
+    if (!isSalesManagerAllowedPath(pathname)) return { type: "redirect", to: GESTOR_PATH };
     return { type: "allow" };
   }
 
