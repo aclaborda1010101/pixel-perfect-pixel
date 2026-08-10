@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { postPasswordChangePath } from "@/lib/access";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +13,7 @@ import { toast } from "sonner";
 
 export default function CambiarPasswordObligatorio() {
   const { user } = useAuth();
+  const { role } = useCurrentRole();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [pwd, setPwd] = useState("");
@@ -36,7 +39,7 @@ export default function CambiarPasswordObligatorio() {
     if (profErr) return setError(`Contraseña actualizada, pero no se pudo marcar el perfil: ${profErr.message}`);
     await queryClient.invalidateQueries({ queryKey: ["mustChangePassword"] });
     toast.success("Contraseña actualizada");
-    navigate("/", { replace: true });
+    navigate(postPasswordChangePath(role), { replace: true });
   };
 
   return (
