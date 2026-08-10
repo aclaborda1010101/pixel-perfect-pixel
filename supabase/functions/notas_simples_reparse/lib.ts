@@ -167,24 +167,37 @@ export type TitularNormalizado = {
   evidencia: Evidencia;
 };
 
-/** La evidencia NO se inventa: solo se conserva lo que el modelo devuelve. */
-function buildEvidencia(t: any): Evidencia {
-  const src = (t?.evidencia && typeof t.evidencia === "object") ? t.evidencia : null;
+/**
+ * La evidencia NO se inventa: solo se conserva lo que el modelo devuelve.
+ * - `evidencia` debe ser un objeto NO array (si no, se ignora esa fuente).
+ * - `pagina` solo entero positivo.
+ * - cadenas vacías se descartan.
+ */
+export function buildEvidencia(t: any): Evidencia {
+  const src = (t?.evidencia && typeof t.evidencia === "object" && !Array.isArray(t.evidencia)) ? t.evidencia : null;
   const cita = src?.cita ?? t?.cita ?? null;
   const pagina = src?.pagina ?? t?.pagina ?? null;
   const ruta = src?.ruta ?? t?.ruta ?? null;
   const out: NonNullable<Evidencia> = {};
-  if (typeof cita === "string" && cita.trim()) out.cita = sanitize(cita).trim();
-  const p = typeof pagina === "number" ? pagina : (typeof pagina === "string" && pagina.trim() ? Number(pagina) : null);
-  if (p != null && Number.isFinite(p)) out.pagina = p as number;
-  if (typeof ruta === "string" && ruta.trim()) out.ruta = sanitize(ruta).trim();
+  if (typeof cita === "string" && sanitize(cita).trim()) out.cita = sanitize(cita).trim();
+  let p: number | null = null;
+  if (typeof pagina === "number") p = pagina;
+  else if (typeof pagina === "string" && pagina.trim() && /^\d+$/.test(pagina.trim())) p = Number(pagina.trim());
+  if (p != null && Number.isInteger(p) && p > 0) out.pagina = p;
+  if (typeof ruta === "string" && sanitize(ruta).trim()) out.ruta = sanitize(ruta).trim();
   return Object.keys(out).length ? out : null;
 }
 
-export function normalizeTitular(raw: any): TitularNormalizado | null {
-  const t = sanitizeDeep(raw ?? {});
-  const nombre = String(t?.nombre ?? t?.nombre_extraido ?? "").replace(/\s+/g, " ").trim();
-  if (!nombre) return null;
+/** Normalización chequeada: distingue "sin nombre" de "porcentaje no vacío inválido". */
+export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
+  const san = trySanitizeDeep(raw ?? {});
+  if (!san.ok) return san;
+  const t: any = san.value;
+  const nombre = sanitize(String(t?.nombre ?? t?.nombre_extraido ?? "")).replace(/\s+/g, " ").trim();
+  if (!nombre) return { ok: false, reason: "titular_sin_nombre" };
+
+  const pct = normalizePorcentajeChecked(t?.porcentaje);
+  if (!pct.ok) return { ok: false, reason: pct.reason, detalle: `${nombre}: ${pct.detalle ?? ""}`.trim() };
 
   // rol_literal SOLO de campos literales explícitos. Nunca se copia de t.rol.
   const literalRaw = t?.rol_literal ?? t?.derecho_literal ?? t?.derecho ?? null;
@@ -207,13 +220,22 @@ export function normalizeTitular(raw: any): TitularNormalizado | null {
   }
 
   return {
-    nombre,
-    cif_dni: t?.cif_dni ? String(t.cif_dni).trim() : null,
-    porcentaje: normalizePorcentaje(t?.porcentaje),
-    rol,
-    rol_literal,
-    evidencia,
+    ok: true,
+    value: {
+      nombre,
+      cif_dni: t?.cif_dni ? String(t.cif_dni).trim() : null,
+      porcentaje: pct.value,
+      rol,
+      rol_literal,
+      evidencia,
+    },
   };
+}
+
+/** Compatibilidad: null si el titular no es utilizable. */
+export function normalizeTitular(raw: any): TitularNormalizado | null {
+  const r = normalizeTitularChecked(raw);
+  return r.ok ? r.value : null;
 }
 
 /** Identidad base (legado): nombre + documento + porcentaje. */
