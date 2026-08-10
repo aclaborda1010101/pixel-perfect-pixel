@@ -104,6 +104,20 @@ INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structu
 VALUES ('44444444-0000-0000-0000-000000000005', (SELECT b5 FROM _ids), 'listo',
         'Pleno dominio: ANA GARCIA SOTO 90 %.', '{}'::jsonb);
 
+-- Notas auxiliares para p0_nota_unit_key (sin titulares: no entran en staging)
+-- Ne: idufir vacío/espacios + referencia catastral válida posterior (B2, DH)
+INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
+VALUES ('44444444-0000-0000-0000-00000000000e', (SELECT b2 FROM _ids), 'listo', '',
+        '{"idufir":"   ","finca_registral":"","referencia_catastral":"9872023 VH5797S 0001 WX"}'::jsonb);
+-- Nf: clave que normaliza a cadena vacía
+INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
+VALUES ('44444444-0000-0000-0000-00000000000f', (SELECT b2 FROM _ids), 'listo', '',
+        '{"finca_registral":"--/--"}'::jsonb);
+-- N10: mismo valor 12345 pero como IDUFIR (no debe colisionar con finca 12.345)
+INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
+VALUES ('44444444-0000-0000-0000-000000000010', (SELECT b2 FROM _ids), 'listo', '',
+        '{"idufir":"12345"}'::jsonb);
+
 -- Titulares --------------------------------------------------------------
 -- CASO A · pleno 100 con DNI exacto, evidencia en rol_literal + raw (apta) → feeds_cuota
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal)
