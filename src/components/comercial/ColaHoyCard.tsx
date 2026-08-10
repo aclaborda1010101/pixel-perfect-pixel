@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { filterVisibleOperationalTasks, V5_TASK_KEY_PREFIX } from "@/lib/operationalTasks";
 import { sortByDueThenPriority, madridYmd, formatDate, plannedDate, taskCode, taskSubjectId } from "@/lib/taskSchedule";
 import { TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { toast } from "sonner";
@@ -19,12 +20,13 @@ export function ColaHoyCard({ userId }: { userId: string }) {
     queryKey: ["cola-hoy", userId],
     queryFn: async () => {
       const { data: tasks } = await (supabase.from("building_tasks" as any) as any)
-        .select("id, title, description, priority, building_id, task_key, status, due_date, created_at")
+        .select("id, title, description, priority, building_id, task_type, task_key, status, due_date, created_at")
         .eq("user_id", userId)
-        .eq("task_type", "call_queue")
+        .like("task_key", `${V5_TASK_KEY_PREFIX}*`)
         .eq("status", "pending")
         .order("priority");
-      return sortByDueThenPriority((tasks ?? []) as any[]);
+      // Defensive client-side filter: only V5 / manual tasks are operational.
+      return sortByDueThenPriority(filterVisibleOperationalTasks((tasks ?? []) as any[]));
     },
   });
 
