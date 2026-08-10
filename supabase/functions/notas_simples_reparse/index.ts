@@ -153,14 +153,16 @@ function buildVisionMessages(pdfDataUrl: string, needTitulares: boolean) {
   ];
 }
 
-async function callLLM(messages: any[]): Promise<ExtractedFields | null> {
+async function callLLM(messages: any[]): Promise<{ data: ExtractedFields | null; error?: string; model?: string }> {
   const OR = Deno.env.get("OPENROUTER_API_KEY") || "";
   const LK = Deno.env.get("LOVABLE_API_KEY") || "";
   const providers = [
-    OR ? { ...PRIMARY, auth: `Bearer ${OR}`, extra: { "HTTP-Referer": "https://affluxosv2.world", "X-Title": "Afflux OS · Notas Reparse" } } : null,
-    LK ? { ...FALLBACK, auth: `Bearer ${LK}`, extra: {} as Record<string, string> } : null,
+    LK ? { ...PRIMARY, auth: `Bearer ${LK}`, extra: {} as Record<string, string> } : null,
+    OR ? { ...FALLBACK, auth: `Bearer ${OR}`, extra: { "HTTP-Referer": "https://affluxosv2.world", "X-Title": "Afflux OS · Notas Reparse" } } : null,
   ].filter(Boolean) as any[];
+  if (!providers.length) return { data: null, error: "sin_proveedor_ia_configurado" };
 
+  const errores: string[] = [];
   for (const p of providers) {
     try {
       const r = await fetch(p.url, {
@@ -175,18 +177,21 @@ async function callLLM(messages: any[]): Promise<ExtractedFields | null> {
         }),
       });
       if (!r.ok) {
-        console.error(`[notas_reparse] ${p.name} ${r.status} ${(await r.text()).slice(0, 200)}`);
+        const detalle = (await r.text()).slice(0, 300);
+        console.error(`[notas_reparse] ${p.name}/${p.model} HTTP ${r.status} ${detalle}`);
+        errores.push(`${p.name}/${p.model} HTTP ${r.status}: ${detalle}`);
         continue;
       }
       const j = await r.json();
       let txt = j?.choices?.[0]?.message?.content || "{}";
       txt = String(txt).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-      return JSON.parse(txt) as ExtractedFields;
+      return { data: JSON.parse(txt) as ExtractedFields, model: `${p.name}/${p.model}` };
     } catch (e) {
-      console.error(`[notas_reparse] provider exception`, e);
+      console.error(`[notas_reparse] ${p.name}/${p.model} excepción`, e);
+      errores.push(`${p.name}/${p.model} excepción: ${String((e as Error).message ?? e).slice(0, 200)}`);
     }
   }
-  return null;
+  return { data: null, error: errores.join(" | ").slice(0, 500) };
 }
 
 // ---------- procesamiento por nota ----------
