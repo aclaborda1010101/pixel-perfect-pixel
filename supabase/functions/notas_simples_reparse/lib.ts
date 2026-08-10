@@ -15,7 +15,8 @@ export class SanitizeDepthError extends Error {
   }
 }
 
-export type Result<T> = { ok: true; value: T } | { ok: false; reason: string; detalle?: string };
+export type Fallo = { ok: false; reason: string; detalle?: string };
+export type Result<T> = { ok: true; value: T } | Fallo;
 
 /**
  * Quita NUL, controles C0 y C1 (U+0080–U+009F), sustituye surrogates huérfanos
@@ -197,7 +198,10 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
   if (!nombre) return { ok: false, reason: "titular_sin_nombre" };
 
   const pct = normalizePorcentajeChecked(t?.porcentaje);
-  if (!pct.ok) return { ok: false, reason: pct.reason, detalle: `${nombre}: ${pct.detalle ?? ""}`.trim() };
+  if (!pct.ok) {
+    const f = pct as Fallo;
+    return { ok: false, reason: f.reason, detalle: `${nombre}: ${f.detalle ?? ""}`.trim() };
+  }
 
   // rol_literal SOLO de campos literales explícitos. Nunca se copia de t.rol.
   const literalRaw = t?.rol_literal ?? t?.derecho_literal ?? t?.derecho ?? null;
@@ -224,7 +228,7 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
     value: {
       nombre,
       cif_dni: t?.cif_dni ? String(t.cif_dni).trim() : null,
-      porcentaje: pct.value,
+      porcentaje: (pct as { ok: true; value: number | null }).value,
       rol,
       rol_literal,
       evidencia,
@@ -246,8 +250,8 @@ export function normalizeTitularesChecked(source: unknown): Result<TitularNormal
   const out: TitularNormalizado[] = [];
   for (const raw of source) {
     const r = normalizeTitularChecked(raw);
-    if (!r.ok) return r;
-    out.push(r.value);
+    if (!r.ok) return r as Fallo;
+    out.push((r as { ok: true; value: TitularNormalizado }).value);
   }
   if (out.length === 0) return { ok: false, reason: "titulares_all_discarded" };
   return { ok: true, value: out };
