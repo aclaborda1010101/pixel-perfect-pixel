@@ -354,7 +354,31 @@ Deno.serve(async (req) => {
   }
 
   if (!notas || notas.length === 0) {
-    return new Response(JSON.stringify({ ok: true, procesadas: 0, drained: true }), {
+    // Drenado: intento ACOTADO de matching sólo si quedó pendiente de un lote anterior
+    // (marcador durable en hubspot_sync_log.metadatos.match_pending). Sin bucle caro.
+    const { data: lastLog } = await sb.from("hubspot_sync_log")
+      .select("metadatos").eq("entity", ENTITY)
+      .order("started_at", { ascending: false }).limit(1).maybeSingle();
+    const decision = decidePendingMatchOnDrain(lastLog as any);
+    let outcome: any = null;
+    if (decision.run) {
+      outcome = await runMatching(() => sb.rpc("match_notas_pendientes"));
+      await sb.from("hubspot_sync_log").insert({
+        entity: ENTITY,
+        started_at: new Date(t0).toISOString(),
+        finished_at: new Date().toISOString(),
+        records_upserted: 0,
+        records_failed: 0,
+        status: outcome.status === "error" ? "partial" : "ok",
+        error_message: outcome.error ?? null,
+        metadatos: { drained: true, match_pending: outcome.pending, match_status: outcome.status, match_result: outcome.data ?? null },
+      });
+    }
+    return new Response(JSON.stringify({
+      ok: true, procesadas: 0, drained: true,
+      match_attempt: decision.run ? outcome : null,
+      match_reason: decision.reason,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -402,17 +426,18 @@ Deno.serve(async (req) => {
   const ok = results.filter((r) => r.ok).length;
   const resumen = summarizeBatch(results.length, ok, errores);
 
-  // 3) Emparejado batch en BD (solo si TODO el lote fue bien)
-  let matchResult: any = null;
-  if (resumen.ok && ok > 0 && retryStateFailed === 0) {
-    try {
-      const { data, error } = await sb.rpc("match_notas_pendientes");
-      if (error) console.error(`[notas_reparse] match rpc:`, error.message);
-      else matchResult = data ?? null;
-    } catch (e) {
-      console.error(`[notas_reparse] match rpc exception`, e);
-    }
+  // 3) Emparejado en BD: se ejecuta si AL MENOS una nota finalizó bien, aunque
+  //    otras fallen. Un fallo del RPC se registra aparte y NUNCA convierte una
+  //    nota finalizada en no finalizada; deja match_pending durable.
+  const matchDecision = decideMatching({ ok, failed: resumen.records_failed });
+  let matchOutcome: any = null;
+  let matchPending = false;
+  if (matchDecision.run) {
+    matchOutcome = await runMatching(() => sb.rpc("match_notas_pendientes"));
+    matchPending = matchOutcome.pending;
+    if (matchOutcome.status === "error") console.error(`[notas_reparse] match rpc:`, matchOutcome.error);
   }
+  const matchResult = matchOutcome?.data ?? null;
 
   // 4) Log
   try {
@@ -430,6 +455,10 @@ Deno.serve(async (req) => {
         retry_state_failed: retryStateFailed,
         dead_letter: results.filter((r) => r.dead_letter).length,
         match_result: matchResult,
+        match_status: matchOutcome?.status ?? "skipped",
+        match_error: matchOutcome?.error ?? null,
+        match_reason: matchDecision.reason,
+        match_pending: matchPending,
         fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
       },
     });
@@ -447,6 +476,8 @@ Deno.serve(async (req) => {
     error_message: resumen.error_message,
     retry_state_failed: retryStateFailed,
     match_result: matchResult,
+    match_status: matchOutcome?.status ?? "skipped",
+    match_pending: matchPending,
     elapsed_ms: Date.now() - t0,
     resultados: results,
   }), {
