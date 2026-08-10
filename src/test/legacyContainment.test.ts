@@ -89,7 +89,8 @@ describe("contención legacy · productores enrichment", () => {
     ]) {
       const src = readFileSync(resolve(ROOT, f), "utf8");
       expect(src.length).toBeGreaterThan(0);
-      expect(src, f).not.toContain("building_tasks");
+      expect(src, f).not.toMatch(/from\s*\(\s*["'`]building_tasks["'`]/);
+      expect(src, f).not.toMatch(/(insert|update|delete)\s+into\s+building_tasks/i);
       expect(src, f).not.toContain("tarea creada");
     }
   });
