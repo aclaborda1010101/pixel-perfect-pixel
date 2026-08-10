@@ -12,55 +12,82 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AuthProvider } from "@/hooks/useAuth";
 import { RuntimeErrorBoundary } from "@/components/RuntimeErrorBoundary";
 
+// Carga perezosa resiliente: si el chunk falla (deploy/HMR con hash viejo),
+// reintenta una vez y, si sigue fallando, recarga la página una sola vez.
+function lazyRetry<T extends { default: React.ComponentType<Record<string, unknown>> }>(
+  factory: () => Promise<T>,
+) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (err) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        return await factory();
+      } catch (err2) {
+        const key = "lovable:chunk-reloaded";
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, "1");
+          window.location.reload();
+          return new Promise<T>(() => {});
+        }
+        throw err2;
+      }
+    }
+  });
+}
+
+const lazy_ = lazyRetry;
+
 // Code-splitting: cada ruta carga sólo cuando se visita.
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Owners = lazy(() => import("./pages/Owners"));
-const OwnerDetail = lazy(() => import("./pages/OwnerDetail"));
-const Buildings = lazy(() => import("./pages/Buildings"));
-const Assets = lazy(() => import("./pages/Assets"));
-const Calls = lazy(() => import("./pages/Calls"));
-const Investors = lazy(() => import("./pages/Investors"));
-const Assistant = lazy(() => import("./pages/Assistant"));
-const Settings = lazy(() => import("./pages/Settings"));
-const CallExpediente = lazy(() => import("./pages/comercial/CallExpediente"));
-const CallLegacyRedirect = lazy(() => import("./pages/comercial/CallLegacyRedirect"));
-const AssetDetail = lazy(() => import("./pages/AssetDetail"));
-const BuildingDetail = lazy(() => import("./pages/BuildingDetail"));
-const PrepareCallWizard = lazy(() => import("./pages/wizards/PrepareCallWizard"));
-const AnalyzeCallWizard = lazy(() => import("./pages/wizards/AnalyzeCallWizard"));
-const Leads = lazy(() => import("./pages/Leads"));
-const NotasSimples = lazy(() => import("./pages/NotasSimples"));
-const NotaSimpleDetail = lazy(() => import("./pages/NotaSimpleDetail"));
-const Mensajes = lazy(() => import("./pages/Mensajes"));
-const NextActions = lazy(() => import("./pages/NextActions"));
-const Productividad = lazy(() => import("./pages/Productividad"));
-const JobProgressPage = lazy(() => import("./pages/admin/JobProgressPage"));
-const Login = lazy(() => import("./pages/auth/Login"));
-const RecoverPassword = lazy(() => import("./pages/auth/RecoverPassword"));
-const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
-const ComercialDashboard = lazy(() => import("./pages/comercial/Dashboard"));
-const ComercialEdificios = lazy(() => import("./pages/comercial/Edificios"));
-const ComercialEdificio = lazy(() => import("./pages/comercial/EdificioDetalle"));
-const ComercialPreparar = lazy(() => import("./pages/comercial/PrepararLlamada"));
-const ComercialTareas = lazy(() => import("./pages/comercial/Tareas"));
-const ComercialCuenta = lazy(() => import("./pages/comercial/Cuenta"));
-const AdminRankingComercial = lazy(() => import("./pages/admin/RankingComercial"));
-const AdminProteccionValidation = lazy(() => import("./pages/admin/ProteccionValidationQueue"));
-const Enriquecimiento = lazy(() => import("./pages/Enriquecimiento"));
-const AdminEquipo = lazy(() => import("./pages/admin/Equipo"));
-const AdminZonas = lazy(() => import("./pages/admin/Zonas"));
-const AdminIA = lazy(() => import("./pages/admin/IA"));
-const AdminOps = lazy(() => import("./pages/admin/Ops"));
-const AdminSync = lazy(() => import("./pages/admin/Sync"));
-const AdminIntegridad = lazy(() => import("./pages/admin/Integridad"));
-const AdminGuardas = lazy(() => import("./pages/admin/Guardas"));
-const AdminColaSimulada = lazy(() => import("./pages/admin/ColaSimulada"));
-const WhatsappDashboard = lazy(() => import("./pages/whatsapp/WhatsappDashboard"));
-const GestorComerciales = lazy(() => import("./pages/GestorComerciales"));
-const CambiarPasswordObligatorio = lazy(() => import("./pages/auth/CambiarPasswordObligatorio"));
-const Oportunidades = lazy(() => import("./pages/Oportunidades"));
-const RevisionEscaleras = lazy(() => import("./pages/RevisionEscaleras"));
-const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
+const Dashboard = lazy_(() => import("./pages/Dashboard"));
+const Owners = lazy_(() => import("./pages/Owners"));
+const OwnerDetail = lazy_(() => import("./pages/OwnerDetail"));
+const Buildings = lazy_(() => import("./pages/Buildings"));
+const Assets = lazy_(() => import("./pages/Assets"));
+const Calls = lazy_(() => import("./pages/Calls"));
+const Investors = lazy_(() => import("./pages/Investors"));
+const Assistant = lazy_(() => import("./pages/Assistant"));
+const Settings = lazy_(() => import("./pages/Settings"));
+const CallExpediente = lazy_(() => import("./pages/comercial/CallExpediente"));
+const CallLegacyRedirect = lazy_(() => import("./pages/comercial/CallLegacyRedirect"));
+const AssetDetail = lazy_(() => import("./pages/AssetDetail"));
+const BuildingDetail = lazy_(() => import("./pages/BuildingDetail"));
+const PrepareCallWizard = lazy_(() => import("./pages/wizards/PrepareCallWizard"));
+const AnalyzeCallWizard = lazy_(() => import("./pages/wizards/AnalyzeCallWizard"));
+const Leads = lazy_(() => import("./pages/Leads"));
+const NotasSimples = lazy_(() => import("./pages/NotasSimples"));
+const NotaSimpleDetail = lazy_(() => import("./pages/NotaSimpleDetail"));
+const Mensajes = lazy_(() => import("./pages/Mensajes"));
+const NextActions = lazy_(() => import("./pages/NextActions"));
+const Productividad = lazy_(() => import("./pages/Productividad"));
+const JobProgressPage = lazy_(() => import("./pages/admin/JobProgressPage"));
+const Login = lazy_(() => import("./pages/auth/Login"));
+const RecoverPassword = lazy_(() => import("./pages/auth/RecoverPassword"));
+const ResetPassword = lazy_(() => import("./pages/auth/ResetPassword"));
+const ComercialDashboard = lazy_(() => import("./pages/comercial/Dashboard"));
+const ComercialEdificios = lazy_(() => import("./pages/comercial/Edificios"));
+const ComercialEdificio = lazy_(() => import("./pages/comercial/EdificioDetalle"));
+const ComercialPreparar = lazy_(() => import("./pages/comercial/PrepararLlamada"));
+const ComercialTareas = lazy_(() => import("./pages/comercial/Tareas"));
+const ComercialCuenta = lazy_(() => import("./pages/comercial/Cuenta"));
+const AdminRankingComercial = lazy_(() => import("./pages/admin/RankingComercial"));
+const AdminProteccionValidation = lazy_(() => import("./pages/admin/ProteccionValidationQueue"));
+const Enriquecimiento = lazy_(() => import("./pages/Enriquecimiento"));
+const AdminEquipo = lazy_(() => import("./pages/admin/Equipo"));
+const AdminZonas = lazy_(() => import("./pages/admin/Zonas"));
+const AdminIA = lazy_(() => import("./pages/admin/IA"));
+const AdminOps = lazy_(() => import("./pages/admin/Ops"));
+const AdminSync = lazy_(() => import("./pages/admin/Sync"));
+const AdminIntegridad = lazy_(() => import("./pages/admin/Integridad"));
+const AdminGuardas = lazy_(() => import("./pages/admin/Guardas"));
+const AdminColaSimulada = lazy_(() => import("./pages/admin/ColaSimulada"));
+const WhatsappDashboard = lazy_(() => import("./pages/whatsapp/WhatsappDashboard"));
+const GestorComerciales = lazy_(() => import("./pages/GestorComerciales"));
+const CambiarPasswordObligatorio = lazy_(() => import("./pages/auth/CambiarPasswordObligatorio"));
+const Oportunidades = lazy_(() => import("./pages/Oportunidades"));
+const RevisionEscaleras = lazy_(() => import("./pages/RevisionEscaleras"));
+const OAuthConsent = lazy_(() => import("./pages/OAuthConsent"));
 
 // React Query: cachea datos entre navegaciones. Volver a una vista ya cargada es instantáneo.
 const queryClient = new QueryClient({
