@@ -293,7 +293,7 @@ export default function ComercialDashboard() {
                           const res = await startBuildingTask(t.id);
                           if (!res.ok) return toast.error(res.error ?? "No se pudo marcar el inicio");
                           toast.success("Tarea iniciada");
-                          qc.invalidateQueries({ queryKey: ["comercial_dashboard"] });
+                          qc.invalidateQueries({ queryKey: ["comercial:dashboard", userId] });
                         }}
                       >
                         Empezar
