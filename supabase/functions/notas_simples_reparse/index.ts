@@ -27,9 +27,9 @@ import {
   sanitize,
   sanitizeDeep,
   normalizeTitular,
-  titularKey,
   type TitularNormalizado,
 } from "./lib.ts";
+import { buildReconcilePlan, needsTitularesRefetch, summarizeBatch } from "./reconcile.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,7 +38,9 @@ const corsHeaders = {
 };
 
 const ENTITY = "notas_simples_reparse";
-const DEFAULT_LIMIT = 12;
+const DEFAULT_LIMIT = 2;
+const MAX_LIMIT = 5;
+const CLAIM_MINUTES = 30;
 const MAX_ATTEMPTS = 5;
 // Modelo estable, el mismo que ya usa analyze_nota_simple.
 const PRIMARY = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3.1-flash-lite-preview" };
@@ -212,7 +214,7 @@ async function callLLM(messages: any[]): Promise<{ data: ExtractedFields | null;
 
 // ---------- procesamiento por nota ----------
 
-async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean; reason?: string; ref_catastral?: string | null; direccion?: string | null; titulares_insertados?: number }> {
+async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean; reason?: string; ref_catastral?: string | null; direccion?: string | null; titulares_insertados?: number; titulares_actualizados?: number }> {
   const id = nota.id as string;
   try {
     // 1) Descargar PDF
@@ -232,7 +234,7 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
     if (rawText) rawText = sanitize(letrasANumerosEnTexto(rawText));
 
     const currentTitulares = Array.isArray(nota.structured_json?.titulares) ? nota.structured_json.titulares : [];
-    const needTitulares = currentTitulares.length === 0;
+    const needTitulares = needsTitularesRefetch(nota.structured_json);
 
     let llm: { data: ExtractedFields | null; error?: string; model?: string };
     if (rawText.length >= 200) {
@@ -265,29 +267,37 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
     if (extracted.ref_catastral && !finca.ref_catastral) finca.ref_catastral = merged.ref_catastral;
     if (Object.keys(finca).length) merged.finca = finca;
 
-    // Titulares en structured_json si no había ninguno y llegaron
-    let titulares: TitularNormalizado[] = [];
-    if (needTitulares && Array.isArray(extracted.titulares) && extracted.titulares.length) {
-      titulares = extracted.titulares
-        .map((t) => normalizeTitular(t))
-        .filter((t): t is TitularNormalizado => !!t);
-      if (titulares.length) merged.titulares = titulares;
-    }
+    // Titulares: usa los extraídos si llegan; si no, normaliza los actuales.
+    const fuenteTitulares = (Array.isArray(extracted.titulares) && extracted.titulares.length)
+      ? extracted.titulares
+      : currentTitulares;
+    const titulares: TitularNormalizado[] = (fuenteTitulares as any[])
+      .map((t) => normalizeTitular(t))
+      .filter((t): t is TitularNormalizado => !!t);
+    if (titulares.length) merged.titulares = titulares;
 
     merged.reparse_model = llm.model ?? null;
 
-    // 3.bis) Insertar titulares ANTES de marcar reparse_done: si falla alguno,
+    // 3.bis) Conciliar titulares ANTES de marcar reparse_done: si falla algo,
     // la nota NO se marca como hecha y entra en retry/backoff/dead-letter.
     let titInserted = 0;
+    let titUpdated = 0;
     if (titulares.length) {
       const { data: existing, error: exErr } = await sb.from("nota_simple_titulares")
-        .select("nombre_extraido, cif_dni, porcentaje, rol")
+        .select("id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, evidencia")
         .eq("nota_simple_id", id);
       if (exErr) return { id, ok: false, reason: `titulares_read_fail:${exErr.message}`.slice(0, 400) };
-      const seen = new Set((existing ?? []).map((r: any) => titularKey(r)));
-      for (const t of titulares) {
-        const key = titularKey(t);
-        if (seen.has(key)) continue;
+
+      const plan = buildReconcilePlan(existing ?? [], titulares);
+      if (!plan.ok) {
+        return { id, ok: false, reason: `${plan.reason}:${plan.detalle}`.slice(0, 400) };
+      }
+      for (const u of plan.updates) {
+        const { error } = await sb.from("nota_simple_titulares").update(u.patch).eq("id", u.id);
+        if (error) return { id, ok: false, reason: `titular_update_fail:${error.message}`.slice(0, 400) };
+        titUpdated++;
+      }
+      for (const t of plan.inserts) {
         const { error } = await sb.from("nota_simple_titulares").insert({
           nota_simple_id: id,
           nombre_extraido: t.nombre,
@@ -302,9 +312,10 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
           return { id, ok: false, reason: `titular_insert_fail:${error.message}`.slice(0, 400) };
         }
         titInserted++;
-        seen.add(key);
       }
     }
+
+    merged.reparse_schema_version = 2;
 
     // 4) Marcar la nota como reparseada
     const { error: updErr } = await sb.from("notas_simples").update({
@@ -322,6 +333,7 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
       ref_catastral: merged.ref_catastral ?? null,
       direccion: merged.direccion ?? null,
       titulares_insertados: titInserted,
+      titulares_actualizados: titUpdated,
     };
   } catch (e) {
     return { id, ok: false, reason: `exception:${(e as Error).message ?? String(e)}`.slice(0, 300) };
@@ -340,14 +352,14 @@ Deno.serve(async (req) => {
 
   let body: any = {};
   try { body = await req.json(); } catch { /* ok */ }
-  const limit = Math.max(1, Math.min(50, Number(body?.limit ?? DEFAULT_LIMIT)));
+  const limit = Math.max(1, Math.min(MAX_LIMIT, Number(body?.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
 
   const t0 = Date.now();
 
   // 1) Reclamar lote con bloqueo (evita repetir siempre las mismas 12)
   const { data: notas, error: selErr } = await sb.rpc("reparse_claim_batch", {
     p_limit: limit,
-    p_lock_minutes: 10,
+    p_lock_minutes: CLAIM_MINUTES,
   });
 
   if (selErr) {
@@ -364,28 +376,38 @@ Deno.serve(async (req) => {
 
   // 2) Procesar en serie (LLM ya es lo costoso; evitamos golpear rate limit)
   const results: any[] = [];
+  const errores: string[] = [];
+  let retryStateFailed = 0;
   for (const n of notas) {
+    // refrescar el claim al empezar cada nota
+    await sb.from("notas_simples").update({ claimed_at: new Date().toISOString() }).eq("id", n.id);
     const r = await processOne(sb, n);
     if (!r.ok) {
+      errores.push(`${n.id}:${String(r.reason ?? "desconocido").slice(0, 160)}`);
       const attempts = (n.attempt_count ?? 0) + 1;
-      const dead = attempts >= 5;
-      await sb.from("notas_simples").update({
+      const dead = attempts >= MAX_ATTEMPTS;
+      const { error: retryErr } = await sb.from("notas_simples").update({
         attempt_count: attempts,
         last_error: String(r.reason ?? "desconocido").slice(0, 500),
         next_retry_at: dead ? null : new Date(Date.now() + backoffMinutes(attempts) * 60_000).toISOString(),
         dead_letter: dead,
         claimed_at: null,
       }).eq("id", n.id);
+      if (retryErr) {
+        retryStateFailed++;
+        errores.push(`${n.id}:retry_state_fail:${retryErr.message}`.slice(0, 200));
+      }
       r.attempt_count = attempts;
       r.dead_letter = dead;
     }
     results.push(r);
   }
   const ok = results.filter((r) => r.ok).length;
+  const resumen = summarizeBatch(results.length, ok, errores);
 
-  // 3) Emparejado batch en BD (solo si hubo algún éxito)
+  // 3) Emparejado batch en BD (solo si TODO el lote fue bien)
   let matchResult: any = null;
-  if (ok > 0) {
+  if (resumen.ok && ok > 0 && retryStateFailed === 0) {
     try {
       const { data, error } = await sb.rpc("match_notas_pendientes");
       if (error) console.error(`[notas_reparse] match rpc:`, error.message);
@@ -401,12 +423,14 @@ Deno.serve(async (req) => {
       entity: ENTITY,
       started_at: new Date(t0).toISOString(),
       finished_at: new Date().toISOString(),
-      records_upserted: ok,
-      records_failed: results.length - ok,
-      status: ok === results.length ? "ok" : (ok === 0 ? "error" : "partial"),
+      records_upserted: resumen.records_upserted,
+      records_failed: resumen.records_failed,
+      status: resumen.status,
+      error_message: resumen.error_message,
       metadatos: {
         ok,
-        fail: results.length - ok,
+        fail: resumen.records_failed,
+        retry_state_failed: retryStateFailed,
         dead_letter: results.filter((r) => r.dead_letter).length,
         match_result: matchResult,
         fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
@@ -418,15 +442,18 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({
-    ok: ok > 0,
+    ok: resumen.ok,
+    status: resumen.status,
     procesadas: results.length,
-    correctas: ok,
-    fallidas: results.length - ok,
+    correctas: resumen.records_upserted,
+    fallidas: resumen.records_failed,
+    error_message: resumen.error_message,
+    retry_state_failed: retryStateFailed,
     match_result: matchResult,
     elapsed_ms: Date.now() - t0,
     resultados: results,
   }), {
-    status: ok === 0 ? 500 : 200,
+    status: resumen.http,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
