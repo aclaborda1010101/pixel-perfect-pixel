@@ -187,16 +187,21 @@ describe("plan de conciliación", () => {
 
 describe("semántica de respuesta", () => {
   it("lote completo -> 200/ok", () => {
-    expect(summarizeBatch(3, 3)).toEqual({ ok: true, status: "ok", http: 200, records_upserted: 3, records_failed: 0, error_message: null });
+    expect(summarizeBatch(3, 3)).toEqual({ ok: true, status: "ok", http: 200, records_upserted: 3, records_failed: 0, error_message: null, partial: false });
   });
-  it("parcial -> 207/partial/ok=false", () => {
+  it("parcial -> HTTP 500, status partial, ok=false, partial=true", () => {
     const r = summarizeBatch(3, 2, ["n1:llm_fail"]);
-    expect([r.ok, r.status, r.http, r.records_failed]).toEqual([false, "partial", 207, 1]);
+    expect([r.ok, r.status, r.http, r.records_failed, r.partial]).toEqual([false, "partial", 500, 1, true]);
     expect(r.error_message).toContain("llm_fail");
   });
   it("cero éxitos -> 500/error/ok=false", () => {
     const r = summarizeBatch(2, 0, ["a", "b"]);
     expect([r.ok, r.status, r.http, r.records_upserted, r.records_failed]).toEqual([false, "error", 500, 0, 2]);
+  });
+  it("ningún resultado 2xx si hay algún fallo", () => {
+    for (const [t, c] of [[3, 2], [5, 4], [2, 1], [10, 9]] as const) {
+      expect(summarizeBatch(t, c, ["x"]).http).toBe(500);
+    }
   });
 });
 
