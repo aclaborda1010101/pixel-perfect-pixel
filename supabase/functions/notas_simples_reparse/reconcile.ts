@@ -174,24 +174,27 @@ export type ResumenLote = {
   error_message: string | null;
 };
 
-/** Resultado honesto del lote: ok=true solo si fallos=0. */
+/**
+ * Resultado honesto del lote: ok=true solo si fallos=0.
+ * CUALQUIER fallo devuelve HTTP 500 (también el parcial), conservando status="partial".
+ */
 export function summarizeBatch(
   total: number,
   correctas: number,
   errores: string[] = [],
-): ResumenLote {
+): ResumenLote & { partial: boolean } {
   const fallidas = Math.max(0, total - correctas);
   const error_message = fallidas > 0 ? (errores.filter(Boolean).join(" | ").slice(0, 1000) || "fallos sin detalle") : null;
   if (total === 0) {
-    return { ok: true, status: "ok", http: 200, records_upserted: 0, records_failed: 0, error_message: null };
+    return { ok: true, status: "ok", http: 200, records_upserted: 0, records_failed: 0, error_message: null, partial: false };
   }
   if (fallidas === 0) {
-    return { ok: true, status: "ok", http: 200, records_upserted: correctas, records_failed: 0, error_message: null };
+    return { ok: true, status: "ok", http: 200, records_upserted: correctas, records_failed: 0, error_message: null, partial: false };
   }
   if (correctas > 0) {
-    return { ok: false, status: "partial", http: 207, records_upserted: correctas, records_failed: fallidas, error_message };
+    return { ok: false, status: "partial", http: 500, records_upserted: correctas, records_failed: fallidas, error_message, partial: true };
   }
-  return { ok: false, status: "error", http: 500, records_upserted: 0, records_failed: fallidas, error_message };
+  return { ok: false, status: "error", http: 500, records_upserted: 0, records_failed: fallidas, error_message, partial: false };
 }
 
 /** ¿Hay que pedir titulares al modelo? */
