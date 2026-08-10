@@ -1,81 +1,80 @@
-# Diagnóstico del backend (solo lectura, sin cambios)
+# Inventario de tareas programadas (cron) — reconstrucción desde código
 
-## 1. Evidencia observada ahora mismo
+Sin SQL, sin cambios, sin despliegues. Todo lo de abajo sale de leer el repositorio.
 
-Comprobaciones ejecutadas (todas de lectura):
+## Advertencia importante sobre las fuentes
 
-- Estado del backend: **activo y sano** desde el panel de la plataforma.
-- `select 1` → **funciona** (respuesta inmediata).
-- Conexiones: **12 en uso de 60 disponibles** → no hay agotamiento de conexiones.
-- Tamaño de base de datos: **871 MB** → lejos de cualquier límite de disco.
-- Consultas algo más pesadas (actividad detallada, historial de cron, estadísticas de consultas, métricas de salud) → **fallan de forma intermitente** con "Connection terminated due to connection timeout" y "context deadline exceeded".
-- Registros de la base de datos: varios **"canceling statement due to statement timeout"** en los últimos minutos.
-- Cron: **27 trabajos activos**, de los cuales 2 se ejecutan **cada minuto** y 9 **cada 5 minutos** (transcripciones, análisis de llamadas, sincronización HubSpot, reparse de notas, consentimiento WhatsApp, watchdog, etc.).
+En el repositorio **solo hay 2 tareas programadas versionadas**:
 
-## 2. Qué está fallando exactamente
+- `supabase/migrations/20260630130000_wa_ai_jobs_reaper.sql:16` → `cron.schedule('wa-ai-jobs-reaper-1min','* * * * *', ...)` llamando a `/functions/v1/wa_ai_jobs_reaper`.
+- `supabase/migrations/20260721095548_...sql:115` → `cron.schedule('link_orphan_contacts_10m','*/10 * * * *', ...)` llamando a `/functions/v1/link_orphan_contacts`.
+- Además, `supabase/migrations/20260616035630_...sql:2-8` desprograma 7 tareas antiguas (`coach-weekly`, `analyze-daily`, `transcribe-daily`, `generate-embeddings-hourly`, `learn_from_calls_daily`, `sync_hubspot_calls_to_sessions_10min`, `reprocess-cohort-77-watchdog`).
 
-No falla "el backend" entero: falla la **capa de ejecución de consultas por saturación de CPU/E-S de la instancia**.
+**El resto de las tareas se crearon directamente contra la base (no están en migraciones versionadas).** Por tanto su horario y su cuerpo exacto **no pueden confirmarse offline**; el mapeo de abajo combina el listado de nombres/horarios que sí llegué a leer antes de que la base empezara a cancelar consultas, con el código de cada función en `supabase/functions/`. Cuando la base vuelva a responder habrá que verificar el cuerpo real de cada job.
 
-- La base de datos responde a lo trivial (`select 1`), luego el proceso Postgres está vivo y accesible.
-- Todo lo que requiere trabajo real (leer catálogos grandes, estadísticas, métricas) se corta por tiempo.
-- Auth Admin (`listUsers`) devolvió 504 y el endpoint de métricas expira: ambos dependen de la misma instancia saturada.
-- Los códigos 499/502/504 que viste son **síntomas del mismo cuello de botella**, no fallos distintos: la petición se agota antes de recibir respuesta y cada capa la reporta con su propio código.
+## Las 2 tareas de cada minuto (`* * * * *`)
 
-**Confianza: alta (~85%)** en que es saturación de recursos de la instancia (CPU/E-S), no una caída de la plataforma ni un problema de conexiones ni de disco.
-Confianza media en la causa concreta: el volumen de trabajos programados es el sospechoso principal, pero no he podido leer el historial de ejecuciones de cron ni las estadísticas de consultas justamente porque esas consultas expiran.
+| Job | Función | Qué hace | Escribe | Coste |
+|---|---|---|---|---|
+| `wa-ai-jobs-reaper-1min` | `wa_ai_jobs_reaper` | Recupera respuestas de WhatsApp con IA encalladas | Sí | Bajo-medio (llama IA si hay pendientes) |
+| `wa-conversation-email-dispatcher` | `wa_conversation_email_dispatcher` | Envía por email los resúmenes de conversación | Sí | Bajo, pero envía correo |
+| `finalize_pending_retries_1m` | `finalize_pending_retries` | Reintenta cierres de llamada; hasta **20 invocaciones encadenadas** de `finalize_call_session` por pasada (`finalize_pending_retries/index.ts:15-31`) | Sí | **Alto**: cada reintento dispara IA y escrituras |
 
-## 3. Descartado con datos
+Nota: son **3**, no 2, con expresión `* * * * *`. `finalize_pending_retries_1m` es el más caro de los tres con diferencia.
 
-- **Agotamiento de conexiones**: no (12/60).
-- **Disco lleno**: no (871 MB).
-- **Backend pausado o caído**: no, figura activo y responde.
-- **Bloqueos/locks de larga duración**: no observados en el muestreo que sí completó (sólo 2 consultas activas, ninguna antigua salvo una conexión inactiva histórica).
+## Las tareas de cada 5 minutos (`*/5 * * * *`)
 
-## 4. Servicios externos (Maps, Drive, FileCloud, Firecrawl)
+| Job | Función | Finalidad | Escribe | Coste |
+|---|---|---|---|---|
+| `transcribe_calls_drain` | `transcribe_calls` | Transcribe audio de llamadas (STT externo) | Sí | **Muy alto** (audio + IA) |
+| `auto_analyze_hubspot_calls_5m` | `auto_analyze_hubspot_calls` | Analiza llamadas con IA | Sí | **Muy alto** |
+| `audit_calls_retro_every_5m` | `audit_calls_retro` | Auditoría retroactiva del histórico (~1.300 llamadas) | Sí | **Muy alto**, es un backfill disfrazado de cron |
+| `hubspot_sync_incremental_5m` | `hubspot_sync_incremental` | Sincroniza llamadas/notas/tareas/reuniones de HubSpot; hasta 20 páginas × 100 registros por tipo y **una petición extra de asociaciones por registro** (`hubspot_sync_incremental/index.ts:112-125,156-201`); además encadena transcripción y análisis (línea 266-283) | Sí | **Alto** |
+| `detect_whatsapp_consent_5m` | `detect_whatsapp_consent` | Detecta consentimiento con LLM | Sí | Medio-alto |
+| `notas_simples_reparse_5m` | `notas_simples_reparse` | Relee PDFs de notas simples con visión IA (431 líneas, el proceso más pesado por documento) | Sí | **Muy alto** |
+| `wa-replay-deferred-open` | `wa_replay_deferred` | Reenvía mensajes diferidos, sólo 6-9h L-V | Sí | Bajo |
+| `hubspot_deals_inc_15m` / `hubspot_contacts_inc_15m` / `promote_hubspot_metadata_15m` | varias | Sincronización incremental cada 15 min | Sí | Medio |
+| `wa-match-backfill-every-10min`, `link_orphan_contacts_10m`, `auto_link_owner_building_10m` | varias | Emparejado y enlazado de contactos | Sí | Medio (consultas de similitud, caras en CPU) |
 
-**No hay relación causal.** Esos servicios no consumen CPU de la base de datos; sólo la afectarían si alguna función programada los llamara y escribiera resultados masivamente. Desactivarlos no arregla los timeouts. Puede existir **correlación** aparente si el corte coincidió con un lote de enriquecimiento, pero eso sería el trabajo programado el que satura, no el servicio externo.
+## Otras activas (menos frecuentes)
 
-## 5. Riesgo de pérdida o corrupción de datos
+`wa_followups_hourly`, `notas_simples_attach_hourly` (`:10`), `notas_simples_ingest_hourly` (`:25`), `hubspot_companies_inc_60m` (`:07`), `guardas_detect_hourly` (`:07`), `mantenimiento_datos_1h` (`:07`), `integrity_watchdog_30m` (`:02` y `:32`), `notas_por_deal_gemelo_6h`, y las nocturnas `iee-batch-nightly` (03:30), `whatsapp_daily` (04:45), `stale-daily` (07:00), `hygiene-daily` (07:15).
 
-**Riesgo de corrupción: prácticamente nulo.** Postgres es transaccional: una consulta cancelada por timeout deshace su transacción entera.
-**Riesgo real: trabajo no realizado.** Ejecuciones de cron que fallen ahora (sincronizaciones, transcripciones, análisis) simplemente no se completan; se recuperarán en la siguiente pasada si el flujo es idempotente (el nuestro lo es, con claves de idempotencia y colas de reintento).
+Inactivas ya: `contacts_backfill_tmp`, `notas_ingest_drain_tmp`.
 
-## 6. Qué hacemos nosotros (cuando lo autorices)
+Detalle a vigilar: **tres jobs coinciden en el minuto :07 de cada hora** (`hubspot_companies_inc_60m`, `guardas_detect_hourly`, `mantenimiento_datos_1h`) — pico de carga sincronizado cada hora.
 
-1. **Pausar temporalmente los trabajos más agresivos** (los de cada minuto y varios de cada 5 minutos) para dejar respirar a la instancia. Es la palanca más rápida y reversible.
-2. **No lanzar ahora**: creación del usuario Carlos, migraciones, backfills, reparse masivo de notas, auditorías retroactivas. Esperar a que la instancia responda con normalidad.
-3. Una vez estable, **medir**: historial de cron y estadísticas de consultas para identificar los 3-5 procesos que se llevan el tiempo.
-4. Valorar **subir el tamaño de la instancia** de Lovable Cloud (Cloud → Ajustes avanzados → ampliar instancia). Con ~27 trabajos programados y sincronizaciones continuas contra HubSpot, el proyecto ha superado el dimensionamiento inicial.
+## Clasificación
 
-## 7. Qué debe hacer soporte de Lovable
+### A) Pausar primero (riesgo bajo, ahorro alto)
+1. `audit_calls_retro_every_5m` — es un backfill histórico, no necesita tiempo real.
+2. `notas_simples_reparse_5m` — visión IA sobre PDFs; ya de por sí es el proceso más lento y con cola de reintentos.
+3. `transcribe_calls_drain` — STT costoso; la cola se conserva y se drena después.
+4. `auto_analyze_hubspot_calls_5m` — el análisis puede esperar unas horas.
+5. `finalize_pending_retries_1m` — cada minuto lanzando hasta 20 cierres encadenados.
+6. `detect_whatsapp_consent_5m` — clasificación diferible.
 
-Confirmar si hay incidencia o degradación en la infraestructura de esa instancia, y revisar CPU/E-S y el endpoint de métricas (que hoy expira).
+Nada de esto pierde datos: todos trabajan sobre colas persistentes con claves de idempotencia y reintentos, así que al reanudarlos recuperan lo pendiente.
 
-### Texto exacto para soporte
+### B) Espaciar, no apagar
+- `hubspot_sync_incremental_5m` → pasar a cada 15-30 min y reducir `pages`. Es el que mantiene el CRM al día, pero su coste por pasada es alto por las peticiones de asociaciones una a una.
+- `wa-match-backfill-every-10min`, `auto_link_owner_building_10m`, `link_orphan_contacts_10m` → a 30-60 min.
+- `hubspot_deals_inc_15m`, `hubspot_contacts_inc_15m`, `hubspot_companies_inc_60m`, `promote_hubspot_metadata_15m` → mantener pero desplazar minutos para que no coincidan.
+- `integrity_watchdog_30m` → a cada hora mientras dure la incidencia (si no, avisará de fallos causados por la propia pausa).
 
-```text
-Asunto: Timeouts intermitentes en la base de datos — project_id 9c1df87e-c8db-480f-94ec-e2461d3355cf / ref vsbrupwznqaaoiflvliu
+### C) Mantener
+- `wa-ai-jobs-reaper-1min` y `wa-conversation-email-dispatcher` → afectan a conversaciones vivas con clientes; baratos.
+- `wa_followups_hourly`, `wa-replay-deferred-open` → contacto con cliente en horario comercial.
+- Nocturnas (`iee-batch-nightly`, `whatsapp_daily`, `stale-daily`, `hygiene-daily`) → fuera de hora punta, no compiten.
 
-El backend figura activo y responde a "select 1", pero cualquier consulta con algo de carga
-falla de forma intermitente:
-- "Connection terminated due to connection timeout" (HTTP 544 desde la API de consultas)
-- "context deadline exceeded" al pedir /customer/v1/privileged/metrics (métricas no disponibles)
-- Errores en los logs de Postgres: "canceling statement due to statement timeout"
-- Auth Admin listUsers devolvió 504
-- Previamente 499 (request_cancelled) y 502 (UNAVAILABLE) para la misma consulta mínima
+No conviene pausar **toda** la sincronización de HubSpot: dejar al menos `hubspot_sync_incremental` (espaciado) y `hubspot_contacts_inc`, o los cursores se atrasarán y la recuperación posterior será un lote mucho más pesado.
 
-Descartado por nuestra parte:
-- Conexiones: 12 de 60 en uso
-- Tamaño de base de datos: 871 MB
-- Sin locks ni consultas largas visibles en el muestreo
+## Qué no puedo confirmar offline
 
-Petición:
-1) Confirmar si hay incidencia/degradación en la instancia o en el nodo que la aloja.
-2) Revisar saturación de CPU/E-S y por qué el endpoint de métricas expira.
-3) Indicar el tamaño de instancia actual y si recomiendan ampliarlo para este volumen
-   (27 trabajos pg_cron activos, 2 cada minuto, 9 cada 5 minutos, sincronización continua con HubSpot).
-```
+- El cuerpo SQL real y el horario vigente de los ~27 jobs no versionados (sólo 2 están en migraciones).
+- El historial de ejecuciones (`cron.job_run_details`) y cuáles están fallando o solapándose ahora mismo: esa consulta es precisamente una de las que se cancela.
+- Si alguna pasada está solapándose consigo misma (varias instancias del mismo job a la vez), que sería el agravante más probable en `transcribe_calls_drain`, `audit_calls_retro` y `notas_simples_reparse`.
 
-## 8. Siguiente paso que te propongo
+## Siguiente paso propuesto
 
-Autorízame a **pausar temporalmente los cron más frecuentes** (acción reversible, sin tocar datos) y a repetir las mediciones cuando la instancia se estabilice. Nada más se ejecutará hasta que lo apruebes.
+Cuando lo autorices, pausar el grupo A (acción reversible, sin tocar datos) y reprogramar el grupo B. Hasta entonces no ejecuto nada.
