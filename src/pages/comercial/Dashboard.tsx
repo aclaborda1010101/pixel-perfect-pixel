@@ -8,6 +8,10 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
 import { EmptyState } from "@/components/common/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  filterVisibleOperationalTasks,
+  VISIBLE_OPERATIONAL_TASK_OR_FILTER,
+} from "@/lib/operationalTasks";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import {
