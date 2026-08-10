@@ -143,7 +143,9 @@ describe("plan de conciliación", () => {
 
   it("fallback ambiguo bloquea el plan", () => {
     const d = normalizeTitular({ nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol_literal: "usufructo vitalicio" })!;
-    const plan = buildReconcilePlan([fila({ id: "r1" }), fila({ id: "r2" })], [d]);
+    // dos filas legadas (sin rol_literal) con rol distinto: no son duplicado lógico,
+    // pero ambas son candidatas por identidad base -> ambigüedad.
+    const plan = buildReconcilePlan([fila({ id: "r1", rol: "pleno" }), fila({ id: "r2", rol: "otro" })], [d]);
     expect(plan.ok).toBe(false);
     expect((plan as any).reason).toBe("titular_reconcile_ambiguous");
     expect(plan.updates).toHaveLength(0);
