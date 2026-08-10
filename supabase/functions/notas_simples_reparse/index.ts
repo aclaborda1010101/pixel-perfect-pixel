@@ -201,7 +201,7 @@ async function callLLM(messages: any[]): Promise<{ data: ExtractedFields | null;
       const j = await r.json();
       let txt = j?.choices?.[0]?.message?.content || "{}";
       txt = String(txt).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-      return { data: JSON.parse(txt) as ExtractedFields, model: `${p.name}/${p.model}` };
+      return { data: sanitizeDeep(JSON.parse(txt)) as ExtractedFields, model: `${p.name}/${p.model}` };
     } catch (e) {
       console.error(`[notas_reparse] ${p.name}/${p.model} excepción`, e);
       errores.push(`${p.name}/${p.model} excepción: ${String((e as Error).message ?? e).slice(0, 200)}`);
