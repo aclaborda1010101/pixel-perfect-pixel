@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { GESTOR_PATH } from "@/lib/access";
 import { toast } from "sonner";
 
 type Mode = "signin" | "signup";
@@ -42,7 +43,14 @@ export default function Login() {
     if (!session) return;
     // Espera a resolver el rol antes de redirigir (evita parpadeo al dashboard admin)
     if (roleLoading) return;
-    const target = role === "comercial_zona" ? "/comercial" : role === "whatsapp" ? "/whatsapp" : from;
+    const target =
+      role === "comercial_zona"
+        ? "/comercial"
+        : role === "whatsapp"
+          ? "/whatsapp"
+          : role === "sales_manager"
+            ? GESTOR_PATH
+            : from;
     navigate(target, { replace: true });
   }, [session, role, roleLoading, from, navigate]);
 

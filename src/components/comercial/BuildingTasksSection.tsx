@@ -27,6 +27,7 @@ import { sortByDueThenPriority } from "@/lib/taskSchedule";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { startBuildingTask, canStartTask } from "@/lib/taskStart";
 
 const ICONS: Record<string, any> = {
   Phone, PhoneCall, Mail, ClipboardList, FileSearch, AlertTriangle, Brain, MapPin,
@@ -82,6 +83,18 @@ export function BuildingTasksSection({
     },
   });
 
+  const startMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await startBuildingTask(id);
+      if (!res.ok) throw new Error(res.error ?? "No se pudo empezar la tarea");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["building_tasks", buildingId, userId] });
+      qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+    },
+    onError: (e: Error) => toast({ title: "No se pudo empezar", description: e.message }),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await (supabase.from("building_tasks" as any) as any).delete().eq("id", id);
@@ -130,6 +143,7 @@ export function BuildingTasksSection({
                 key={t.id}
                 task={t}
                 onToggle={(c) => toggleMutation.mutate({ id: t.id, completed: c })}
+                onStart={() => startMutation.mutate(t.id)}
                 onDelete={t.task_type === "manual" ? () => deleteMutation.mutate(t.id) : undefined}
               />
             ))}
@@ -174,10 +188,12 @@ export function BuildingTasksSection({
 function TaskRow({
   task,
   onToggle,
+  onStart,
   onDelete,
 }: {
   task: any;
   onToggle: (completed: boolean) => void;
+  onStart?: () => void;
   onDelete?: () => void;
 }) {
   const Icon = ICONS[TASK_DEFS[task.task_key as keyof typeof TASK_DEFS]?.icon] ?? ClipboardList;
@@ -206,6 +222,19 @@ function TaskRow({
             <div className="mt-0.5 text-xs text-muted-foreground">{task.description}</div>
           )}
           <TaskScheduleMeta task={task} />
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            {task.started_at ? (
+              <span>Inicio real: {new Date(task.started_at).toLocaleString("es-ES")}</span>
+            ) : (
+              <span>Sin inicio registrado</span>
+            )}
+            {task.completed_at && <span>· Cierre: {new Date(task.completed_at).toLocaleString("es-ES")}</span>}
+            {onStart && canStartTask(task) && (
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={onStart}>
+                Empezar
+              </Button>
+            )}
+          </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <div className="flex items-center gap-1">
