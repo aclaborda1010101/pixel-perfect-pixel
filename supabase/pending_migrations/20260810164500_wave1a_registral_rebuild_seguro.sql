@@ -261,6 +261,7 @@ DECLARE
   v_ok_der   boolean := false;
   v_ok_pct   boolean := false;
   v_traz     boolean := false;
+  v_evid_presente boolean := false;
   v_fuente   text := 'ninguna';
   v_ref      text := NULL;
   r          jsonb;
@@ -295,7 +296,18 @@ BEGIN
 
   IF v_evid IS NOT NULL THEN
     v_cita := nullif(btrim(coalesce(v_evid ->> 'cita', v_evid ->> 'texto', v_evid ->> 'snippet','')), '');
-    v_ref  := coalesce(v_evid ->> 'pagina', v_evid ->> 'page', v_evid ->> 'ruta', v_evid ->> 'path', v_evid ->> 'offset');
+    v_ref  := coalesce(
+                nullif(btrim(coalesce(v_evid ->> 'pagina','')), ''),
+                nullif(btrim(coalesce(v_evid ->> 'page','')), ''),
+                nullif(btrim(coalesce(v_evid ->> 'ruta','')), ''),
+                nullif(btrim(coalesce(v_evid ->> 'path','')), ''),
+                nullif(btrim(coalesce(v_evid ->> 'offset','')), ''));
+    -- La fuente principal se considera PRESENTE si trae cita o cualquier dato
+    -- declarado (derecho / porcentaje). Si está presente y contradice, NO se
+    -- rescata con raw_pdf_text ni structured_json.
+    v_evid_presente := v_cita IS NOT NULL
+                       OR nullif(btrim(coalesce(v_evid ->> 'derecho','')), '') IS NOT NULL
+                       OR nullif(btrim(coalesce(v_evid ->> 'porcentaje','')), '') IS NOT NULL;
     IF v_cita IS NOT NULL THEN
       v_fuente := 'titular.evidencia';
       v_ok_tit := v_nn IS NOT NULL AND public.norm_person_name(v_cita) LIKE '%' || v_nn || '%';
@@ -308,13 +320,21 @@ BEGIN
       END IF;
       IF (v_evid ->> 'porcentaje') IS NOT NULL THEN
         v_ok_pct := v_ok_pct AND v_pct IS NOT NULL
-                    AND abs((v_evid ->> 'porcentaje')::numeric - v_pct) <= 0.01;
+                    AND public.p0_parse_pct(v_evid ->> 'porcentaje') IS NOT NULL
+                    AND abs(public.p0_parse_pct(v_evid ->> 'porcentaje') - v_pct) <= 0.01;
+      END IF;
+    ELSE
+      -- Hay evidencia declarada pero sin cita: no es trazable y no se rescata.
+      IF v_evid_presente THEN
+        v_fuente := 'titular.evidencia';
       END IF;
     END IF;
   END IF;
 
-  -- (b) FALLBACK 1: texto bruto. La MISMA cita debe traer titular + SU derecho + SU porcentaje.
-  IF NOT (v_ok_tit AND v_ok_der AND v_ok_pct) AND v_raw IS NOT NULL AND v_nn IS NOT NULL
+  -- (b) FALLBACK 1: texto bruto. Solo si la fuente principal está REALMENTE
+  -- ausente. La MISMA cita debe traer titular + SU derecho + SU porcentaje.
+  IF NOT v_evid_presente
+     AND NOT (v_ok_tit AND v_ok_der AND v_ok_pct) AND v_raw IS NOT NULL AND v_nn IS NOT NULL
      AND v_rx_right IS NOT NULL AND v_rx_pct IS NOT NULL THEN
     SELECT frag INTO v_cita
     FROM (
@@ -335,20 +355,30 @@ BEGIN
 
   -- (c) FALLBACK 2: structured_json. El MISMO elemento del MISMO titular debe
   -- mapear al mismo right_type, al mismo porcentaje (<=0,01) y traer cita o ruta.
-  IF NOT (v_ok_tit AND v_ok_der AND v_ok_pct) AND jsonb_typeof(v_sj -> 'titulares') = 'array' THEN
+  IF NOT v_evid_presente
+     AND NOT (v_ok_tit AND v_ok_der AND v_ok_pct) AND jsonb_typeof(v_sj -> 'titulares') = 'array' THEN
     SELECT jsonb_build_object(
-             'cita', nullif(btrim(coalesce(tj ->> 'cita', tj ->> 'texto','')), ''),
-             'ruta', coalesce(tj ->> 'pagina', tj ->> 'page', tj ->> 'ruta', tj ->> 'path'))
+             'cita', coalesce(nullif(btrim(coalesce(tj ->> 'cita','')), ''),
+                              nullif(btrim(coalesce(tj ->> 'texto','')), '')),
+             'ruta', coalesce(nullif(btrim(coalesce(tj ->> 'pagina','')), ''),
+                              nullif(btrim(coalesce(tj ->> 'page','')), ''),
+                              nullif(btrim(coalesce(tj ->> 'ruta','')), ''),
+                              nullif(btrim(coalesce(tj ->> 'path','')), '')))
       INTO r
     FROM jsonb_array_elements(v_sj -> 'titulares') tj
     WHERE public.norm_person_name(tj ->> 'nombre') = v_nn
       AND v_right <> 'otro'
       AND public.p0_right_type_from_rol(NULL, coalesce(tj ->> 'derecho', tj ->> 'rol'), NULL) = v_right
       AND v_pct IS NOT NULL
-      AND (tj ->> 'porcentaje') IS NOT NULL
-      AND abs((tj ->> 'porcentaje')::numeric - v_pct) <= 0.01
-      AND coalesce(nullif(btrim(coalesce(tj ->> 'cita', tj ->> 'texto','')), ''),
-                   tj ->> 'pagina', tj ->> 'page', tj ->> 'ruta', tj ->> 'path') IS NOT NULL
+      AND public.p0_parse_pct(tj ->> 'porcentaje') IS NOT NULL
+      AND abs(public.p0_parse_pct(tj ->> 'porcentaje') - v_pct) <= 0.01
+      -- localizador vacío no es trazabilidad
+      AND coalesce(nullif(btrim(coalesce(tj ->> 'cita','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'texto','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'pagina','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'page','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'ruta','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'path','')), '')) IS NOT NULL
     LIMIT 1;
 
     IF r IS NOT NULL THEN
