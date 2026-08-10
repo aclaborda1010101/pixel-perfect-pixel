@@ -14,7 +14,7 @@ import { RuntimeErrorBoundary } from "@/components/RuntimeErrorBoundary";
 
 // Carga perezosa resiliente: si el chunk falla (deploy/HMR con hash viejo),
 // reintenta una vez y, si sigue fallando, recarga la página una sola vez.
-function lazyRetry<T extends { default: React.ComponentType<never> }>(
+function lazyRetry<T extends { default: React.ComponentType<Record<string, unknown>> }>(
   factory: () => Promise<T>,
 ) {
   return lazy(async () => {
