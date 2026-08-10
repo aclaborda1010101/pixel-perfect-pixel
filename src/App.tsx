@@ -56,6 +56,8 @@ const AdminIntegridad = lazy(() => import("./pages/admin/Integridad"));
 const AdminGuardas = lazy(() => import("./pages/admin/Guardas"));
 const AdminColaSimulada = lazy(() => import("./pages/admin/ColaSimulada"));
 const WhatsappDashboard = lazy(() => import("./pages/whatsapp/WhatsappDashboard"));
+const GestorComerciales = lazy(() => import("./pages/GestorComerciales"));
+const CambiarPasswordObligatorio = lazy(() => import("./pages/auth/CambiarPasswordObligatorio"));
 const Oportunidades = lazy(() => import("./pages/Oportunidades"));
 const RevisionEscaleras = lazy(() => import("./pages/RevisionEscaleras"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
@@ -155,6 +157,8 @@ const App = () => (
                 <Route path="/admin/cola-simulada" element={<AdminColaSimulada />} />
                 <Route path="/enriquecimiento" element={<Enriquecimiento />} />
                 <Route path="/whatsapp" element={<WhatsappDashboard />} />
+                <Route path="/gestor-comerciales" element={<GestorComerciales />} />
+                <Route path="/cambiar-password" element={<CambiarPasswordObligatorio />} />
                 <Route path="/oportunidades" element={<Oportunidades />} />
                 <Route path="/revision-escaleras" element={<RevisionEscaleras />} />
               </Route>

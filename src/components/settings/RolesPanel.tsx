@@ -46,7 +46,7 @@ export function RolesPanel() {
       // borrar todos los roles existentes del user y poner el nuevo
       const { error: delErr } = await supabase.from("user_roles").delete().eq("user_id", userId);
       if (delErr) throw delErr;
-      const { error: insErr } = await supabase.from("user_roles").insert({ user_id: userId, role });
+      const { error: insErr } = await (supabase.from("user_roles") as any).insert({ user_id: userId, role });
       if (insErr) throw insErr;
       toast.success(`Rol actualizado: ${role}`);
       await qc.invalidateQueries({ queryKey: ["settings:roles"] });

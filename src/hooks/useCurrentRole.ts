@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
-export type AppRole = "admin" | "captacion" | "comercial_zona" | "prevalificacion" | "viewer" | "whatsapp" | null;
+export type AppRole = "admin" | "sales_manager" | "captacion" | "comercial_zona" | "prevalificacion" | "viewer" | "whatsapp" | null;
 
 /** Devuelve el rol principal del usuario actual (cacheado 5 min). */
 export function useCurrentRole() {
@@ -23,5 +23,7 @@ export function useCurrentRole() {
     isAdmin: q.data === "admin",
     isComercial: q.data === "comercial_zona",
     isWhatsapp: q.data === "whatsapp",
+    isSalesManager: q.data === "sales_manager",
+    canManageComerciales: q.data === "admin" || q.data === "sales_manager",
   };
 }
