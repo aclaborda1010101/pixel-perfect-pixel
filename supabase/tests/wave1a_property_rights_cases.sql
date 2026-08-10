@@ -260,9 +260,22 @@ BEGIN
   -- DH con clave fiable / sin clave fiable
   PERFORM pg_temp.assert(
     public.p0_nota_unit_key('44444444-0000-0000-0000-000000000002')
-    = 'dh:' || (SELECT b2 FROM _ids)::text || ':12345', 'DH con clave fiable');
+    = 'dh:' || (SELECT b2 FROM _ids)::text || ':finca:12345', 'DH con clave fiable y namespace de fuente');
   PERFORM pg_temp.assert(public.p0_nota_unit_key('44444444-0000-0000-0000-000000000003') IS NULL,
                          'DH sin clave fiable devuelve NULL');
+  -- candidato vacío anterior no puede ocultar una clave válida posterior
+  PERFORM pg_temp.assert(
+    public.p0_nota_unit_key('44444444-0000-0000-0000-00000000000e')
+    = 'dh:' || (SELECT b2 FROM _ids)::text || ':refcat:9872023VH5797S0001WX',
+    'idufir vacío no oculta la referencia catastral posterior');
+  -- normalización que queda vacía = sin clave fiable
+  PERFORM pg_temp.assert(public.p0_nota_unit_key('44444444-0000-0000-0000-00000000000f') IS NULL,
+                         'clave con solo signos normaliza a vacío: sin unidad fiable');
+  -- mismo valor con fuentes distintas NO colisiona
+  PERFORM pg_temp.assert(
+    public.p0_nota_unit_key('44444444-0000-0000-0000-000000000002')
+    <> public.p0_nota_unit_key('44444444-0000-0000-0000-000000000010'),
+    'idufir 12345 y finca 12345 no pueden colisionar');
   PERFORM pg_temp.assert(
     (SELECT bool_and(unit_block_reason = 'dh_sin_unidad_registral' AND NOT feeds_cuota)
      FROM _s WHERE building_id = (SELECT b3 FROM _ids)),
