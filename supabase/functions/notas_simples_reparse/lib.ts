@@ -6,10 +6,25 @@ export type RolCanonico = (typeof ROLES_CANONICOS)[number];
 
 const CLAVES_PROHIBIDAS = new Set(["__proto__", "prototype", "constructor"]);
 
-/** Quita NUL/controles y sustituye surrogates huérfanos (conserva pares válidos y \t \n \r). */
+export const MAX_SANITIZE_DEPTH = 12;
+
+export class SanitizeDepthError extends Error {
+  constructor(public readonly depth: number) {
+    super(`sanitize_depth_exceeded:${depth}`);
+    this.name = "SanitizeDepthError";
+  }
+}
+
+export type Fallo = { ok: false; reason: string; detalle?: string };
+export type Result<T> = { ok: true; value: T } | Fallo;
+
+/**
+ * Quita NUL, controles C0 y C1 (U+0080–U+009F), sustituye surrogates huérfanos
+ * (conserva pares válidos y \t \n \r) y normaliza a NFC.
+ */
 export function sanitize(s: string): string {
   // deno-lint-ignore no-control-regex
-  const sinControl = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ");
+  const sinControl = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, " ");
   let out = "";
   for (let i = 0; i < sinControl.length; i++) {
     const c = sinControl.charCodeAt(i);
@@ -27,24 +42,40 @@ export function sanitize(s: string): string {
       out += sinControl[i];
     }
   }
-  return out;
+  return out.normalize("NFC");
 }
 
-/** Sanea recursivamente. Bloquea __proto__/prototype/constructor (sin contaminación de prototipo). */
-export function sanitizeDeep<T>(value: T): T {
+/**
+ * Sanea recursivamente con límite de profundidad. Bloquea __proto__/prototype/constructor.
+ * Si se excede la profundidad lanza SanitizeDepthError (fallo controlado, sin recursión ilimitada).
+ */
+export function sanitizeDeep<T>(value: T, depth = 0): T {
+  if (depth > MAX_SANITIZE_DEPTH) throw new SanitizeDepthError(depth);
   if (typeof value === "string") return sanitize(value) as unknown as T;
-  if (Array.isArray(value)) return value.map((v) => sanitizeDeep(v)) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => sanitizeDeep(v, depth + 1)) as unknown as T;
   if (value && typeof value === "object") {
     const safe: Record<string, unknown> = Object.create(null);
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       const key = sanitize(k);
       if (CLAVES_PROHIBIDAS.has(key)) continue;
-      safe[key] = sanitizeDeep(v);
+      safe[key] = sanitizeDeep(v, depth + 1);
     }
     // Copia a objeto plano (sin heredar nada peligroso): las claves prohibidas ya no existen.
     return { ...safe } as unknown as T;
   }
   return value;
+}
+
+/** Variante sin excepciones: devuelve un fallo controlado si se excede la profundidad. */
+export function trySanitizeDeep<T>(value: T): Result<T> {
+  try {
+    return { ok: true, value: sanitizeDeep(value) };
+  } catch (e) {
+    if (e instanceof SanitizeDepthError) {
+      return { ok: false, reason: "sanitize_depth_exceeded", detalle: String(e.depth) };
+    }
+    return { ok: false, reason: "sanitize_fail", detalle: String((e as Error)?.message ?? e) };
+  }
 }
 
 function foldAccents(s: string): string {
@@ -107,6 +138,20 @@ export function normalizePorcentaje(raw: unknown): number | null {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Distingue porcentaje AUSENTE (ok, value null) de porcentaje NO VACÍO INVÁLIDO (fallo).
+ * La regla de rango sigue siendo (0,100].
+ */
+export function normalizePorcentajeChecked(raw: unknown): Result<number | null> {
+  if (raw == null) return { ok: true, value: null };
+  if (typeof raw === "string" && raw.trim() === "") return { ok: true, value: null };
+  const v = normalizePorcentaje(raw);
+  if (v == null) {
+    return { ok: false, reason: "porcentaje_invalido", detalle: String(typeof raw === "object" ? "[objeto]" : raw).slice(0, 60) };
+  }
+  return { ok: true, value: v };
+}
+
 export type Evidencia = {
   cita?: string;
   pagina?: number;
@@ -123,24 +168,40 @@ export type TitularNormalizado = {
   evidencia: Evidencia;
 };
 
-/** La evidencia NO se inventa: solo se conserva lo que el modelo devuelve. */
-function buildEvidencia(t: any): Evidencia {
-  const src = (t?.evidencia && typeof t.evidencia === "object") ? t.evidencia : null;
+/**
+ * La evidencia NO se inventa: solo se conserva lo que el modelo devuelve.
+ * - `evidencia` debe ser un objeto NO array (si no, se ignora esa fuente).
+ * - `pagina` solo entero positivo.
+ * - cadenas vacías se descartan.
+ */
+export function buildEvidencia(t: any): Evidencia {
+  const src = (t?.evidencia && typeof t.evidencia === "object" && !Array.isArray(t.evidencia)) ? t.evidencia : null;
   const cita = src?.cita ?? t?.cita ?? null;
   const pagina = src?.pagina ?? t?.pagina ?? null;
   const ruta = src?.ruta ?? t?.ruta ?? null;
   const out: NonNullable<Evidencia> = {};
-  if (typeof cita === "string" && cita.trim()) out.cita = sanitize(cita).trim();
-  const p = typeof pagina === "number" ? pagina : (typeof pagina === "string" && pagina.trim() ? Number(pagina) : null);
-  if (p != null && Number.isFinite(p)) out.pagina = p as number;
-  if (typeof ruta === "string" && ruta.trim()) out.ruta = sanitize(ruta).trim();
+  if (typeof cita === "string" && sanitize(cita).trim()) out.cita = sanitize(cita).trim();
+  let p: number | null = null;
+  if (typeof pagina === "number") p = pagina;
+  else if (typeof pagina === "string" && pagina.trim() && /^\d+$/.test(pagina.trim())) p = Number(pagina.trim());
+  if (p != null && Number.isInteger(p) && p > 0) out.pagina = p;
+  if (typeof ruta === "string" && sanitize(ruta).trim()) out.ruta = sanitize(ruta).trim();
   return Object.keys(out).length ? out : null;
 }
 
-export function normalizeTitular(raw: any): TitularNormalizado | null {
-  const t = sanitizeDeep(raw ?? {});
-  const nombre = String(t?.nombre ?? t?.nombre_extraido ?? "").replace(/\s+/g, " ").trim();
-  if (!nombre) return null;
+/** Normalización chequeada: distingue "sin nombre" de "porcentaje no vacío inválido". */
+export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
+  const san = trySanitizeDeep(raw ?? {});
+  if (!san.ok) return san;
+  const t: any = san.value;
+  const nombre = sanitize(String(t?.nombre ?? t?.nombre_extraido ?? "")).replace(/\s+/g, " ").trim();
+  if (!nombre) return { ok: false, reason: "titular_sin_nombre" };
+
+  const pct = normalizePorcentajeChecked(t?.porcentaje);
+  if (!pct.ok) {
+    const f = pct as Fallo;
+    return { ok: false, reason: f.reason, detalle: `${nombre}: ${f.detalle ?? ""}`.trim() };
+  }
 
   // rol_literal SOLO de campos literales explícitos. Nunca se copia de t.rol.
   const literalRaw = t?.rol_literal ?? t?.derecho_literal ?? t?.derecho ?? null;
@@ -163,16 +224,39 @@ export function normalizeTitular(raw: any): TitularNormalizado | null {
   }
 
   return {
-    nombre,
-    cif_dni: t?.cif_dni ? String(t.cif_dni).trim() : null,
-    porcentaje: normalizePorcentaje(t?.porcentaje),
-    rol,
-    rol_literal,
-    evidencia,
+    ok: true,
+    value: {
+      nombre,
+      cif_dni: t?.cif_dni ? String(t.cif_dni).trim() : null,
+      porcentaje: (pct as { ok: true; value: number | null }).value,
+      rol,
+      rol_literal,
+      evidencia,
+    },
   };
 }
 
+/** Compatibilidad: null si el titular no es utilizable. */
+export function normalizeTitular(raw: any): TitularNormalizado | null {
+  const r = normalizeTitularChecked(raw);
+  return r.ok ? r.value : null;
+}
+
 /** Identidad base (legado): nombre + documento + porcentaje. */
+export function normalizeTitularesChecked(source: unknown): Result<TitularNormalizado[]> {
+  if (!Array.isArray(source) || source.length === 0) {
+    return { ok: false, reason: "titulares_source_empty" };
+  }
+  const out: TitularNormalizado[] = [];
+  for (const raw of source) {
+    const r = normalizeTitularChecked(raw);
+    if (!r.ok) return r as Fallo;
+    out.push((r as { ok: true; value: TitularNormalizado }).value);
+  }
+  if (out.length === 0) return { ok: false, reason: "titulares_all_discarded" };
+  return { ok: true, value: out };
+}
+
 export function titularKey(t: {
   nombre?: unknown; nombre_extraido?: unknown; cif_dni?: unknown; porcentaje?: unknown; rol?: unknown;
 }): string {
