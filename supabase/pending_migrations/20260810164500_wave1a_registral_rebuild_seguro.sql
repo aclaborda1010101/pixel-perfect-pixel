@@ -135,28 +135,47 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
     LEFT JOIN public.buildings b ON b.id = ns.building_id
     WHERE ns.id = p_nota_id
   ), k AS (
-    SELECT n.*,
-      nullif(btrim(coalesce(
-        n.sj ->> 'idufir', n.sj ->> 'idufir_cru', n.sj ->> 'cru',
-        n.sj ->> 'finca_registral', n.sj ->> 'numero_finca',
-        n.sj #>> '{finca,idufir}', n.sj #>> '{finca,numero}',
-        n.sj #>> '{registro,finca}',
-        n.sj ->> 'referencia_catastral', n.sj #>> '{finca,referencia_catastral}'
-      )), '') AS clave_fiable
+    -- NULLIF por CADA candidato antes del COALESCE: una cadena vacía o de solo
+    -- espacios NO puede ocultar una clave válida posterior. Se conserva el
+    -- namespace de la fuente para que valores iguales de tipos distintos
+    -- (idufir 12345 vs finca 12345) no colisionen.
+    SELECT n.*, c.ns_fuente, c.clave_norm
     FROM n
+    LEFT JOIN LATERAL (
+      SELECT v.ns_fuente,
+             nullif(upper(regexp_replace(v.valor, '[^A-Za-z0-9]', '', 'g')), '') AS clave_norm
+      FROM (
+        VALUES
+          (1, 'idufir', nullif(btrim(coalesce(n.sj ->> 'idufir','')), '')),
+          (2, 'idufir', nullif(btrim(coalesce(n.sj ->> 'idufir_cru','')), '')),
+          (3, 'idufir', nullif(btrim(coalesce(n.sj ->> 'cru','')), '')),
+          (4, 'idufir', nullif(btrim(coalesce(n.sj #>> '{finca,idufir}','')), '')),
+          (5, 'finca',  nullif(btrim(coalesce(n.sj ->> 'finca_registral','')), '')),
+          (6, 'finca',  nullif(btrim(coalesce(n.sj ->> 'numero_finca','')), '')),
+          (7, 'finca',  nullif(btrim(coalesce(n.sj #>> '{finca,numero}','')), '')),
+          (8, 'finca',  nullif(btrim(coalesce(n.sj #>> '{registro,finca}','')), '')),
+          (9, 'refcat', nullif(btrim(coalesce(n.sj ->> 'referencia_catastral','')), '')),
+          (10,'refcat', nullif(btrim(coalesce(n.sj #>> '{finca,referencia_catastral}','')), ''))
+      ) AS v(prioridad, ns_fuente, valor)
+      -- la normalización alfanumérica tampoco puede quedar vacía
+      WHERE v.valor IS NOT NULL
+        AND nullif(upper(regexp_replace(v.valor, '[^A-Za-z0-9]', '', 'g')), '') IS NOT NULL
+      ORDER BY v.prioridad
+      LIMIT 1
+    ) c ON true
   )
   SELECT CASE
     WHEN k.building_id IS NULL THEN NULL
     WHEN NOT k.dh THEN 'building:' || k.building_id::text
-    WHEN k.clave_fiable IS NOT NULL
-      THEN 'dh:' || k.building_id::text || ':' || upper(regexp_replace(k.clave_fiable, '[^A-Za-z0-9]', '', 'g'))
+    WHEN k.clave_norm IS NOT NULL
+      THEN 'dh:' || k.building_id::text || ':' || k.ns_fuente || ':' || k.clave_norm
     ELSE NULL
   END
   FROM k;
 $$;
 
 COMMENT ON FUNCTION public.p0_nota_unit_key(uuid) IS
-  'Sin DH: building:<id>. Con DH: solo clave registral fiable de la nota; si no existe devuelve NULL (dh_sin_unidad_registral).';
+  'Sin DH: building:<id>. Con DH: dh:<building>:<idufir|finca|refcat>:<clave normalizada> tomada de la propia nota, con NULLIF por candidato y normalización no vacía; si no hay clave fiable devuelve NULL (dh_sin_unidad_registral).';
 
 -- ---------------------------------------------------------------------
 -- 3) Firma de nota: rol_literal + derecho + porcentaje + régimen + vigencia
