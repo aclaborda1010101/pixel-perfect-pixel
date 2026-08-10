@@ -388,8 +388,8 @@ describe("V5 manual y demo", () => {
       createdBy: "U1",
     });
     expect(res.valid).toBe(false);
-    const errors = res.valid ? [] : res.errors;
-    expect(errors.join()).toContain("anterior");
+    expect(res.errors.join()).toContain("anterior");
+    expect(res.draft).toBeNull();
   });
 
   it("demo devuelve 20 si hay y no escribe (repo falso)", () => {

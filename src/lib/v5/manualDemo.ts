@@ -18,9 +18,11 @@ export type V5ManualDraft = {
   createdBy: string;
 };
 
-export type V5ManualValidation =
-  | { valid: true; draft: V5ManualDraft & { generationMode: "manual"; rulesVersion: string; taskType: "manual" } }
-  | { valid: false; errors: string[] };
+export type V5ManualValidation = {
+  valid: boolean;
+  errors: string[];
+  draft: (V5ManualDraft & { generationMode: "manual"; rulesVersion: string; taskType: "manual" }) | null;
+};
 
 export const V5_MANUAL_SUBTYPES: readonly V5ManualSubtype[] = ["posible_interes", "otro"];
 
@@ -39,9 +41,10 @@ export function validateManualDraft(draft: Partial<V5ManualDraft>): V5ManualVali
   if (Number.isFinite(start) && Number.isFinite(end) && end < start) {
     errors.push("La fecha de fin no puede ser anterior a la de inicio.");
   }
-  if (errors.length > 0) return { valid: false, errors };
+  if (errors.length > 0) return { valid: false, errors, draft: null };
   return {
     valid: true,
+    errors: [],
     draft: {
       ...(draft as V5ManualDraft),
       taskType: "manual",
