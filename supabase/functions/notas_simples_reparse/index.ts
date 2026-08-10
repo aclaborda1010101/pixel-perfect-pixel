@@ -266,16 +266,47 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
     if (Object.keys(finca).length) merged.finca = finca;
 
     // Titulares en structured_json si no había ninguno y llegaron
+    let titulares: TitularNormalizado[] = [];
     if (needTitulares && Array.isArray(extracted.titulares) && extracted.titulares.length) {
-      merged.titulares = extracted.titulares.map((t) => ({
-        nombre: String(t.nombre ?? "").trim(),
-        cif_dni: t.cif_dni ? String(t.cif_dni).trim() : null,
-        porcentaje: t.porcentaje != null ? Number(t.porcentaje) : null,
-        rol: ROLES_VALIDOS.has(String(t.rol ?? "").toLowerCase()) ? String(t.rol).toLowerCase() : "pleno",
-      })).filter((t) => t.nombre);
+      titulares = extracted.titulares
+        .map((t) => normalizeTitular(t))
+        .filter((t): t is TitularNormalizado => !!t);
+      if (titulares.length) merged.titulares = titulares;
     }
 
     merged.reparse_model = llm.model ?? null;
+
+    // 3.bis) Insertar titulares ANTES de marcar reparse_done: si falla alguno,
+    // la nota NO se marca como hecha y entra en retry/backoff/dead-letter.
+    let titInserted = 0;
+    if (titulares.length) {
+      const { data: existing, error: exErr } = await sb.from("nota_simple_titulares")
+        .select("nombre_extraido, cif_dni, porcentaje, rol")
+        .eq("nota_simple_id", id);
+      if (exErr) return { id, ok: false, reason: `titulares_read_fail:${exErr.message}`.slice(0, 400) };
+      const seen = new Set((existing ?? []).map((r: any) => titularKey(r)));
+      for (const t of titulares) {
+        const key = titularKey(t);
+        if (seen.has(key)) continue;
+        const { error } = await sb.from("nota_simple_titulares").insert({
+          nota_simple_id: id,
+          nombre_extraido: t.nombre,
+          cif_dni: t.cif_dni,
+          porcentaje: t.porcentaje,
+          rol: t.rol,
+          rol_literal: t.rol_literal,
+          evidencia: t.evidencia,
+        });
+        if (error) {
+          console.warn(`[notas_reparse] tit insert ${id}:`, error.message);
+          return { id, ok: false, reason: `titular_insert_fail:${error.message}`.slice(0, 400) };
+        }
+        titInserted++;
+        seen.add(key);
+      }
+    }
+
+    // 4) Marcar la nota como reparseada
     const { error: updErr } = await sb.from("notas_simples").update({
       raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
       structured_json: merged,
@@ -285,30 +316,6 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
       claimed_at: null,
     }).eq("id", id);
     if (updErr) return { id, ok: false, reason: `update_fail:${updErr.message}` };
-
-    // 4) Insertar titulares (idempotente: nota + nombre normalizado + porcentaje)
-    let titInserted = 0;
-    if (needTitulares && Array.isArray(merged.titulares) && merged.titulares.length) {
-      const { data: existing } = await sb.from("nota_simple_titulares")
-        .select("nombre_extraido, porcentaje")
-        .eq("nota_simple_id", id);
-      const seen = new Set((existing ?? []).map((r: any) =>
-        `${String(r.nombre_extraido ?? "").toLowerCase().trim()}|${r.porcentaje ?? ""}`
-      ));
-      for (const t of merged.titulares as any[]) {
-        const key = `${String(t.nombre).toLowerCase().trim()}|${t.porcentaje ?? ""}`;
-        if (seen.has(key)) continue;
-        const { error } = await sb.from("nota_simple_titulares").insert({
-          nota_simple_id: id,
-          nombre_extraido: t.nombre,
-          cif_dni: t.cif_dni ?? null,
-          porcentaje: t.porcentaje ?? null,
-          rol: t.rol ?? "pleno",
-        });
-        if (!error) { titInserted++; seen.add(key); }
-        else console.warn(`[notas_reparse] tit insert ${id}:`, error.message);
-      }
-    }
 
     return {
       id, ok: true,
