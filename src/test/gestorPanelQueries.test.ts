@@ -42,7 +42,8 @@ describe("migración pendiente sales_manager", () => {
     expect(sql).toContain("must_change_password boolean NOT NULL DEFAULT false");
     expect(sql).toContain("started_at timestamptz NULL");
     expect(sql).toContain("building_tasks_user_created_idx");
-    expect(sql).not.toMatch(/UPDATE public\.building_tasks\s+SET started_at/i);
+    // No hay backfill del histórico: started_at nunca se deriva de otra columna.
+    expect(sql).not.toMatch(/started_at\s*=\s*(created_at|completed_at)/i);
   });
 
   it("no concede lectura global de building_tasks al gestor", () => {
