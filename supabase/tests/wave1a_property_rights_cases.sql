@@ -21,13 +21,12 @@ BEGIN;
 -- ---------------------------------------------------------------------
 DO $$
 BEGIN
-  IF coalesce(current_setting('wave1a.ephemeral', true), '') <> 'yes' THEN
+  -- Wave 1A.3: la guarda ya NO depende de un GUC falsificable. La única
+  -- condición admitida es estar en la base desechable que crea
+  -- supabase/tests/wave1a3_integration_runner.sh.
+  IF current_database() NOT LIKE 'wave1a\_test\_%' THEN
     RAISE EXCEPTION
-      'ABORT: falta la marca de entorno efímero (SET wave1a.ephemeral = ''yes''). Este script NO puede ejecutarse en producción.';
-  END IF;
-  IF current_database() !~* '(test|tmp|temp|ephemeral|local|shadow|ci)' THEN
-    RAISE EXCEPTION
-      'ABORT: la base de datos "%" no parece efímera/de test. Este script NO puede ejecutarse en producción.',
+      'ABORT: este script con fixtures solo puede ejecutarse en la base desechable wave1a_test_* creada por wave1a3_integration_runner.sh. Base actual: %.',
       current_database();
   END IF;
 END $$;
