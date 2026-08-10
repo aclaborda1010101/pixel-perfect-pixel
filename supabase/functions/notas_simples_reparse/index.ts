@@ -110,7 +110,14 @@ type ExtractedFields = {
   ref_catastral?: string | null;
   finca_numero?: string | null;
   registro?: string | null;
-  titulares?: Array<{ nombre: string; cif_dni?: string | null; porcentaje?: number | null; rol?: string | null }>;
+  titulares?: Array<{
+    nombre: string;
+    cif_dni?: string | null;
+    porcentaje?: number | null;
+    rol?: string | null;
+    rol_literal?: string | null;
+    evidencia?: { cita?: string | null; pagina?: number | null; ruta?: string | null } | null;
+  }>;
 };
 
 function buildTextPrompt(rawText: string, needTitulares: boolean): string {
@@ -122,13 +129,23 @@ function buildTextPrompt(rawText: string, needTitulares: boolean): string {
   "finca_numero": "número registral de la finca",
   "registro": "Registro de la Propiedad emisor"${needTitulares ? `,
   "titulares": [
-    { "nombre": "…", "cif_dni": "…", "porcentaje": 0-100, "rol": "pleno" | "usufructo" | "nuda_propiedad" | "otro" }
+    {
+      "nombre": "…",
+      "cif_dni": "…",
+      "porcentaje": 0-100,
+      "rol": "pleno" | "usufructo" | "nuda_propiedad" | "ganancial" | "otro",
+      "rol_literal": "texto literal del derecho tal y como aparece en la nota",
+      "evidencia": { "cita": "fragmento literal donde consta", "pagina": 1, "ruta": "sección/apartado" }
+    }
   ]` : ""}
 }
 
 REGLAS:
 - Sólo la dirección de la FINCA (parte "URBANA…" / "DESCRIPCIÓN"), NUNCA la dirección del titular.
 - Los porcentajes en 0-100 (no en fracción). Si es 50%, devuelve 50.
+- "rol" debe ser uno de: pleno, usufructo, nuda_propiedad, ganancial, otro. Si el derecho no encaja con claridad en los cuatro primeros, usa "otro" (NUNCA "pleno" por defecto).
+- Un mismo titular puede aparecer varias veces con derechos distintos (p. ej. nuda propiedad y usufructo): devuélvelos como filas separadas.
+- "rol_literal" es el texto literal del derecho si aparece; "evidencia" sólo si puedes citar el fragmento real. Si no lo tienes, OMÍTELOS.
 - Si un dato no aparece con claridad, OMÍTELO (no inventes).
 
 TEXTO:
