@@ -1,23 +1,22 @@
 -- =====================================================================
 -- SALES MANAGER — FASE B (migración FORWARD, PENDIENTE DE APLICAR)
 -- =====================================================================
--- Esta migración NO se ha aplicado. Es idempotente y sólo avanza:
--- no reescribe migraciones históricas ni borra datos.
+-- NO aplicada. Idempotente y sólo hacia delante: no reescribe migraciones
+-- históricas ni borra datos operativos. Sin SQL dinámico en ningún punto.
 --
--- Contenido:
---   1. profiles.must_change_password / building_tasks.started_at
---   2. Índices para métricas
---   3. sales_manager_team_members
---   4. Modos de reparto de tareas (catálogo, pesos, modo activo, auditoría)
---   5. current_user_role() con prioridad explícita
---   6. RPC SECURITY DEFINER del panel (agregados, config, arranque de tarea)
---   7. RLS mínima para el gestor
+--   1. Columnas (must_change_password, started_at) e índices
+--   2. Equipo del gestor (FK ON DELETE CASCADE, manager <> member)
+--   3. Catálogo de modos, pesos, modo activo y auditoría
+--   4. current_user_role() -> public.app_role con prioridad explícita
+--   5. Helpers internos (INACCESIBLES para anon/authenticated/PUBLIC)
+--   6. RPC del panel: agregados, config, arranque de tarea, alta de gestor
+--   7. RLS efectiva: se ELIMINAN las políticas permisivas históricas
 -- =====================================================================
 
 BEGIN;
 
 -- ---------------------------------------------------------------------
--- 0. Guardas de entorno: si falta el rol sales_manager, abortar claro.
+-- 0. Guardas de entorno
 -- ---------------------------------------------------------------------
 DO $$
 BEGIN
@@ -33,7 +32,7 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------
--- 1. Columnas nuevas
+-- 1. Columnas nuevas e índices
 -- ---------------------------------------------------------------------
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false;
@@ -43,11 +42,8 @@ ALTER TABLE public.building_tasks
   ADD COLUMN IF NOT EXISTS started_at timestamptz NULL;
 
 COMMENT ON COLUMN public.building_tasks.started_at IS
-  'Inicio REAL de la tarea (acción "Empezar"). NULL en el histórico anterior a esta migración: esas tareas no computan duración.';
+  'Inicio REAL de la tarea (acción "Empezar"). NULL en el histórico anterior: esas tareas no computan duración.';
 
--- ---------------------------------------------------------------------
--- 2. Índices para las métricas del panel
--- ---------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS building_tasks_user_created_idx
   ON public.building_tasks (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS building_tasks_user_completed_idx
@@ -60,17 +56,37 @@ CREATE INDEX IF NOT EXISTS building_tasks_started_idx
   ON public.building_tasks (started_at) WHERE started_at IS NOT NULL;
 
 -- ---------------------------------------------------------------------
--- 3. Equipo del gestor comercial
+-- 2. Equipo del gestor comercial
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.sales_manager_team_members (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  manager_id uuid NOT NULL,
-  member_id  uuid NOT NULL,
+  manager_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  member_id  uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   active     boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT smtm_manager_ne_member CHECK (manager_id <> member_id),
   UNIQUE (manager_id, member_id)
 );
+
+-- Reparación idempotente si la tabla ya existía sin las garantías.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_manager_ne_member') THEN
+    ALTER TABLE public.sales_manager_team_members
+      ADD CONSTRAINT smtm_manager_ne_member CHECK (manager_id <> member_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_manager_fk') THEN
+    ALTER TABLE public.sales_manager_team_members
+      ADD CONSTRAINT smtm_manager_fk FOREIGN KEY (manager_id)
+      REFERENCES public.profiles(id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_member_fk') THEN
+    ALTER TABLE public.sales_manager_team_members
+      ADD CONSTRAINT smtm_member_fk FOREIGN KEY (member_id)
+      REFERENCES public.profiles(id) ON DELETE CASCADE;
+  END IF;
+END $$;
 
 GRANT SELECT ON public.sales_manager_team_members TO authenticated;
 GRANT ALL    ON public.sales_manager_team_members TO service_role;
@@ -88,9 +104,11 @@ CREATE POLICY smtm_admin_writes ON public.sales_manager_team_members
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
 
 -- ---------------------------------------------------------------------
--- 4. Modos de reparto de tareas
+-- 3. Modos de reparto
+--    Los grupos son el catálogo V5 canónico (T2_T3 único, T7 deshabilitada).
+--    Los textos de negocio NO están versionados: se guarda el código y la
+--    marca "pendiente validar". No se inventan etiquetas.
 -- ---------------------------------------------------------------------
--- Grupos estables. T-02 y T-03 forman un ÚNICO grupo. T-07 está deshabilitada.
 CREATE TABLE IF NOT EXISTS public.sales_task_groups (
   code       text PRIMARY KEY,
   label      text NOT NULL,
@@ -100,14 +118,14 @@ CREATE TABLE IF NOT EXISTS public.sales_task_groups (
 );
 
 INSERT INTO public.sales_task_groups (code, label, members, enabled, sort_order) VALUES
-  ('T1',    'T-01 Primer contacto',        ARRAY['T-01'],          true,  1),
-  ('T2_T3', 'T-02 + T-03 Seguimiento',     ARRAY['T-02','T-03'],   true,  2),
-  ('T4',    'T-04 Reactivación',           ARRAY['T-04'],          true,  3),
-  ('T5',    'T-05 Perfilado',              ARRAY['T-05'],          true,  4),
-  ('T6',    'T-06 Incidencia registral',   ARRAY['T-06'],          true,  5),
-  ('T7',    'T-07 (deshabilitada)',        ARRAY['T-07'],          false, 6),
-  ('T8',    'T-08 Oportunidad caliente',   ARRAY['T-08'],          true,  7),
-  ('T9',    'T-09 Edificio',               ARRAY['T-09'],          true,  8)
+  ('T1',    'T1 (pendiente validar)',                 ARRAY['T-01'],        true,  1),
+  ('T2_T3', 'T2_T3 (pendiente validar)',              ARRAY['T-02','T-03'], true,  2),
+  ('T4',    'T4 (pendiente validar)',                 ARRAY['T-04'],        true,  3),
+  ('T5',    'T5 (pendiente validar)',                 ARRAY['T-05'],        true,  4),
+  ('T6',    'T6 (pendiente validar)',                 ARRAY['T-06'],        true,  5),
+  ('T7',    'T7 (deshabilitada, pendiente validar)',  ARRAY['T-07'],        false, 6),
+  ('T8',    'T8 (pendiente validar)',                 ARRAY['T-08'],        true,  7),
+  ('T9',    'T9 (pendiente validar)',                 ARRAY['T-09'],        true,  8)
 ON CONFLICT (code) DO UPDATE
   SET label = EXCLUDED.label, members = EXCLUDED.members,
       enabled = EXCLUDED.enabled, sort_order = EXCLUDED.sort_order;
@@ -118,22 +136,20 @@ ALTER TABLE public.sales_task_groups ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS stg_read ON public.sales_task_groups;
 CREATE POLICY stg_read ON public.sales_task_groups FOR SELECT TO authenticated USING (true);
 
--- Catálogo de modos. `follows_engine_default` = no lleva pesos propios:
--- el reparto es el que ya produce el motor V5 hoy (no se inventan porcentajes).
 CREATE TABLE IF NOT EXISTS public.sales_task_modes (
-  code                  text PRIMARY KEY,
-  label                 text NOT NULL,
-  description           text,
+  code                   text PRIMARY KEY,
+  label                  text NOT NULL,
+  description            text,
   follows_engine_default boolean NOT NULL DEFAULT false,
-  requires_weights      boolean NOT NULL DEFAULT true,
-  sort_order            int NOT NULL DEFAULT 0
+  requires_weights       boolean NOT NULL DEFAULT true,
+  sort_order             int NOT NULL DEFAULT 0
 );
 
 INSERT INTO public.sales_task_modes (code, label, description, follows_engine_default, requires_weights, sort_order) VALUES
-  ('equilibrado',           'Equilibrado',            'Reparto actual del motor V5 (cobertura de catálogo + prioridad). No define porcentajes propios.', true,  false, 1),
-  ('iniciar_conversaciones','Iniciar conversaciones', 'Prioriza primer contacto. Requiere guardar pesos válidos antes de activarse.',                    false, true,  2),
-  ('seguimiento',           'Seguimiento',            'Prioriza seguimiento y reactivación. Requiere guardar pesos válidos antes de activarse.',         false, true,  3),
-  ('manual',                'Manual',                 'Pesos definidos a mano por el gestor. Requiere guardar pesos válidos antes de activarse.',        false, true,  4)
+  ('equilibrado',           'Equilibrado',            'Reparto actual del motor V5. No define porcentajes propios.', true,  false, 1),
+  ('iniciar_conversaciones','Iniciar conversaciones', 'Requiere pesos completos y válidos antes de activarse.',      false, true,  2),
+  ('seguimiento',           'Seguimiento',            'Requiere pesos completos y válidos antes de activarse.',      false, true,  3),
+  ('manual',                'Manual',                 'Pesos definidos a mano. Requiere configuración válida.',      false, true,  4)
 ON CONFLICT (code) DO UPDATE
   SET label = EXCLUDED.label, description = EXCLUDED.description,
       follows_engine_default = EXCLUDED.follows_engine_default,
@@ -145,8 +161,7 @@ ALTER TABLE public.sales_task_modes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS stm_read ON public.sales_task_modes;
 CREATE POLICY stm_read ON public.sales_task_modes FOR SELECT TO authenticated USING (true);
 
--- Pesos por modo y grupo. NO se siembran valores: hasta que el gestor guarde
--- una configuración válida (suma exacta 100) el modo no puede activarse.
+-- Pesos por modo y grupo. NO se siembran valores.
 CREATE TABLE IF NOT EXISTS public.sales_task_mode_weights (
   mode_code  text NOT NULL REFERENCES public.sales_task_modes(code) ON DELETE CASCADE,
   group_code text NOT NULL REFERENCES public.sales_task_groups(code) ON DELETE CASCADE,
@@ -160,13 +175,11 @@ CREATE TABLE IF NOT EXISTS public.sales_task_mode_weights (
 GRANT SELECT ON public.sales_task_mode_weights TO authenticated;
 GRANT ALL    ON public.sales_task_mode_weights TO service_role;
 ALTER TABLE public.sales_task_mode_weights ENABLE ROW LEVEL SECURITY;
--- Sin políticas de escritura: la configuración SÓLO se cambia por RPC.
 DROP POLICY IF EXISTS stmw_read ON public.sales_task_mode_weights;
 CREATE POLICY stmw_read ON public.sales_task_mode_weights
   FOR SELECT TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'sales_manager'));
 
--- T-07 siempre a 0 y nunca activable: trigger de validación (no CHECK inmutable).
 CREATE OR REPLACE FUNCTION public.sales_task_mode_weights_validate()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -188,7 +201,6 @@ CREATE TRIGGER sales_task_mode_weights_validate_trg
   BEFORE INSERT OR UPDATE ON public.sales_task_mode_weights
   FOR EACH ROW EXECUTE FUNCTION public.sales_task_mode_weights_validate();
 
--- Modo activo global (fila única) y override por comercial.
 CREATE TABLE IF NOT EXISTS public.sales_task_mode_active (
   singleton  boolean PRIMARY KEY DEFAULT true CHECK (singleton),
   mode_code  text NOT NULL REFERENCES public.sales_task_modes(code),
@@ -200,7 +212,7 @@ VALUES (true, 'equilibrado')
 ON CONFLICT (singleton) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS public.sales_task_mode_overrides (
-  user_id    uuid PRIMARY KEY,
+  user_id    uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
   mode_code  text NOT NULL REFERENCES public.sales_task_modes(code),
   updated_at timestamptz NOT NULL DEFAULT now(),
   updated_by uuid NULL
@@ -234,12 +246,12 @@ CREATE POLICY stmau_read ON public.sales_task_mode_audit FOR SELECT TO authentic
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'sales_manager'));
 
 -- ---------------------------------------------------------------------
--- 5. current_user_role() con prioridad explícita
---    admin > sales_manager > operativos > viewer.
---    No se asume que ningún trigger elimine 'viewer'.
+-- 4. current_user_role(): MANTIENE RETURNS public.app_role
+--    Prioridad admin > sales_manager > operativos > viewer.
+--    Fallback explícito 'viewer'::public.app_role. Sin SQL dinámico.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.current_user_role()
-RETURNS text
+RETURNS public.app_role
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
@@ -247,30 +259,34 @@ SET search_path = public
 AS $$
   SELECT COALESCE(
     (
-      SELECT ur.role::text
+      SELECT ur.role
       FROM public.user_roles ur
       WHERE ur.user_id = auth.uid()
-      ORDER BY CASE ur.role::text
-        WHEN 'admin'           THEN 0
-        WHEN 'sales_manager'   THEN 1
-        WHEN 'comercial_zona'  THEN 2
-        WHEN 'captacion'       THEN 3
-        WHEN 'prevalificacion' THEN 4
-        WHEN 'whatsapp'        THEN 5
-        WHEN 'viewer'          THEN 9
+      ORDER BY CASE ur.role
+        WHEN 'admin'::public.app_role           THEN 0
+        WHEN 'sales_manager'::public.app_role   THEN 1
+        WHEN 'manager'::public.app_role         THEN 2
+        WHEN 'agent'::public.app_role           THEN 3
+        WHEN 'comercial_zona'::public.app_role  THEN 4
+        WHEN 'captacion'::public.app_role       THEN 5
+        WHEN 'prevalificacion'::public.app_role THEN 6
+        WHEN 'whatsapp'::public.app_role        THEN 7
+        WHEN 'viewer'::public.app_role          THEN 9
         ELSE 8
       END
       LIMIT 1
     ),
-    'viewer'
+    'viewer'::public.app_role
   );
 $$;
 
-REVOKE ALL ON FUNCTION public.current_user_role() FROM anon;
+REVOKE ALL ON FUNCTION public.current_user_role() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.current_user_role() TO authenticated;
 
 -- ---------------------------------------------------------------------
--- 6. Helpers de autorización
+-- 5. Helpers INTERNOS: sólo los usan las RPC SECURITY DEFINER.
+--    Nadie más puede ejecutarlos (ni PUBLIC, ni anon, ni authenticated).
+--    Por eso las políticas RLS NO los invocan: usan EXISTS en línea.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.is_sales_manager_or_admin(_uid uuid)
 RETURNS boolean
@@ -290,12 +306,22 @@ AS $$
       );
 $$;
 
-REVOKE ALL ON FUNCTION public.is_sales_manager_or_admin(uuid) FROM anon;
-REVOKE ALL ON FUNCTION public.sales_manager_can_see(uuid, uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.is_sales_manager_or_admin(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.sales_manager_can_see(uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.sales_task_mode_weights_validate() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.is_sales_manager_or_admin(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.sales_manager_can_see(uuid, uuid) TO service_role;
 
 -- ---------------------------------------------------------------------
--- 6b. RPC del panel: SÓLO agregados. Nunca títulos, descripciones,
+-- 6a. Panel del gestor: SÓLO agregados. Nunca títulos, descripciones,
 --     edificios, propietarios ni transcripciones.
+--
+--     Separación estricta de ventanas:
+--       * created_in_period   -> created_at   en [from, to)
+--       * completed_in_period -> completed_at en [from, to)
+--       * plazos y duraciones -> SOLO cierres del periodo
+--       * estados actuales    -> SNAPSHOT de hoy, sin ventana temporal
+--     El intervalo máximo permitido es de 31 días.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.get_sales_manager_dashboard(p_from timestamptz, p_to timestamptz)
 RETURNS jsonb
@@ -305,14 +331,18 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_uid uuid := auth.uid();
+  v_uid  uuid := auth.uid();
   v_rows jsonb;
+  v_now  timestamptz := now();
 BEGIN
   IF v_uid IS NULL OR NOT public.is_sales_manager_or_admin(v_uid) THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
   END IF;
   IF p_from IS NULL OR p_to IS NULL OR p_to <= p_from THEN
     RAISE EXCEPTION 'intervalo inválido' USING ERRCODE = '22023';
+  END IF;
+  IF p_to - p_from > interval '31 days' THEN
+    RAISE EXCEPTION 'intervalo máximo 31 días' USING ERRCODE = '22023';
   END IF;
 
   WITH team AS (
@@ -323,106 +353,123 @@ BEGIN
     SELECT ur.user_id
     FROM public.user_roles ur
     WHERE public.has_role(v_uid, 'admin')
-      AND ur.role::text IN ('comercial_zona','captacion','prevalificacion')
+      AND ur.role IN ('comercial_zona'::public.app_role,
+                      'captacion'::public.app_role,
+                      'prevalificacion'::public.app_role)
   ),
-  -- Intervalo semiabierto [p_from, p_to)
-  base AS (
+  -- Universo de tareas del equipo, SIN ventana: cada métrica filtra la suya.
+  universo AS (
     SELECT
       bt.user_id,
       bt.status,
-      bt.task_key,
-      bt.task_type,
       bt.created_at,
       bt.started_at,
       bt.completed_at,
       bt.due_date,
-      CASE
-        WHEN bt.task_key LIKE 'v5:%' THEN split_part(bt.task_key, ':', 3)
-        ELSE NULL
-      END AS task_code
+      CASE WHEN bt.task_key LIKE 'v5:%' THEN split_part(bt.task_key, ':', 3) ELSE NULL END AS task_code
     FROM public.building_tasks bt
     JOIN team ON team.user_id = bt.user_id
-    WHERE bt.created_at >= p_from AND bt.created_at < p_to
-      AND (bt.task_type = 'manual' OR bt.task_key LIKE 'v5:%')
+    WHERE bt.task_type = 'manual' OR bt.task_key LIKE 'v5:%'
   ),
-  dur AS (
-    SELECT user_id,
-           EXTRACT(EPOCH FROM (completed_at - started_at)) / 3600.0 AS horas
-    FROM base
-    WHERE started_at IS NOT NULL AND completed_at IS NOT NULL AND completed_at >= started_at
+  creadas AS (
+    SELECT user_id, COUNT(*) AS n,
+           COUNT(*) FILTER (WHERE started_at IS NOT NULL) AS con_inicio
+    FROM universo
+    WHERE created_at >= p_from AND created_at < p_to
+    GROUP BY user_id
   ),
-  agg AS (
+  cerradas AS (   -- cierres DEL PERIODO, con independencia de cuándo se crearon
     SELECT
-      b.user_id,
-      COUNT(*)                                                        AS creadas,
-      COUNT(*) FILTER (WHERE b.status = 'completed')                  AS completadas,
-      COUNT(*) FILTER (WHERE b.status = 'pending')                    AS pending,
-      COUNT(*) FILTER (WHERE b.status = 'in_progress')                AS in_progress,
-      COUNT(*) FILTER (WHERE b.status = 'blocked')                    AS blocked,
-      COUNT(*) FILTER (WHERE b.status IN ('skipped','no_procede'))    AS skipped,
-      COUNT(*) FILTER (WHERE b.status NOT IN
-        ('completed','pending','in_progress','blocked','skipped','no_procede')) AS unknown,
+      user_id,
+      COUNT(*) AS n,
+      COUNT(*) FILTER (WHERE due_date IS NOT NULL) AS con_plazo,
+      COUNT(*) FILTER (WHERE due_date IS NOT NULL AND completed_at <= due_date) AS en_plazo,
+      COUNT(*) FILTER (WHERE started_at IS NOT NULL AND completed_at >= started_at) AS con_duracion,
+      ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 3600.0)
+            FILTER (WHERE started_at IS NOT NULL AND completed_at >= started_at)::numeric, 2) AS media_horas,
+      ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (
+               ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) / 3600.0
+             ) FILTER (WHERE started_at IS NOT NULL AND completed_at >= started_at))::numeric, 2) AS mediana_horas
+    FROM universo
+    WHERE completed_at IS NOT NULL AND completed_at >= p_from AND completed_at < p_to
+    GROUP BY user_id
+  ),
+  snapshot AS (   -- FOTO ACTUAL: no es histórico, no depende del periodo
+    SELECT
+      user_id,
+      COUNT(*) FILTER (WHERE status = 'pending')                     AS pending,
+      COUNT(*) FILTER (WHERE status = 'in_progress')                 AS in_progress,
+      COUNT(*) FILTER (WHERE status = 'blocked')                     AS blocked,
+      COUNT(*) FILTER (WHERE status IN ('skipped','no_procede'))     AS skipped,
+      COUNT(*) FILTER (WHERE status = 'completed')                   AS completed,
+      COUNT(*) FILTER (WHERE status NOT IN
+        ('completed','pending','in_progress','blocked','skipped','no_procede')
+        OR status IS NULL)                                           AS unknown,
       COUNT(*) FILTER (
-        WHERE b.status NOT IN ('completed','skipped','no_procede')
-          AND b.due_date IS NOT NULL AND b.due_date < now()
-      )                                                               AS vencidas,
-      COUNT(*) FILTER (WHERE b.completed_at IS NOT NULL AND b.due_date IS NOT NULL) AS con_plazo,
-      COUNT(*) FILTER (
-        WHERE b.completed_at IS NOT NULL AND b.due_date IS NOT NULL
-          AND b.completed_at <= b.due_date
-      )                                                               AS en_plazo,
-      COUNT(*) FILTER (WHERE b.started_at IS NOT NULL)                AS con_inicio
-    FROM base b
-    GROUP BY b.user_id
+        WHERE status NOT IN ('completed','skipped','no_procede')
+          AND due_date IS NOT NULL AND due_date < v_now
+      )                                                              AS vencidas_ahora
+    FROM universo
+    GROUP BY user_id
+  ),
+  -- T-02 y T-03 se SUMAN en su grupo ANTES de construir el json.
+  mezcla_grupo AS (
+    SELECT u.user_id,
+           COALESCE(g.code, 'sin_codigo') AS grupo,
+           COUNT(*) AS n
+    FROM universo u
+    LEFT JOIN public.sales_task_groups g
+      ON u.task_code = g.code OR u.task_code = ANY (g.members)
+    WHERE u.created_at >= p_from AND u.created_at < p_to
+    GROUP BY u.user_id, COALESCE(g.code, 'sin_codigo')
   ),
   mix AS (
-    SELECT b.user_id,
-           jsonb_object_agg(COALESCE(g.code, COALESCE(b.task_code, 'manual')), n ORDER BY COALESCE(g.code, 'zz')) AS mezcla
-    FROM (
-      SELECT user_id, task_code, COUNT(*) AS n
-      FROM base GROUP BY user_id, task_code
-    ) b
-    LEFT JOIN public.sales_task_groups g ON b.task_code = ANY (g.members)
-    GROUP BY b.user_id
-  ),
-  durstats AS (
-    SELECT user_id,
-           ROUND(AVG(horas)::numeric, 2) AS media_horas,
-           ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY horas))::numeric, 2) AS mediana_horas,
-           COUNT(*) AS muestra
-    FROM dur GROUP BY user_id
+    SELECT user_id, jsonb_object_agg(grupo, n) AS mezcla
+    FROM mezcla_grupo GROUP BY user_id
   )
-  SELECT COALESCE(jsonb_agg(jsonb_build_object(
-    'user_id',        a.user_id,
-    'full_name',      p.full_name,
-    'creadas',        a.creadas,
-    'completadas',    a.completadas,
-    'pending',        a.pending,
-    'in_progress',    a.in_progress,
-    'blocked',        a.blocked,
-    'skipped',        a.skipped,
-    'unknown',        a.unknown,
-    'vencidas',       a.vencidas,
-    'con_plazo',      a.con_plazo,
-    'en_plazo',       a.en_plazo,
-    'con_inicio',     a.con_inicio,
-    'cobertura_inicio_pct', CASE WHEN a.creadas > 0
-                                 THEN ROUND(100.0 * a.con_inicio / a.creadas)::int ELSE NULL END,
-    'media_horas',    d.media_horas,
-    'mediana_horas',  d.mediana_horas,
-    'muestra_duracion', COALESCE(d.muestra, 0),
-    'mezcla',         COALESCE(m.mezcla, '{}'::jsonb)
-  ) ORDER BY a.creadas DESC), '[]'::jsonb)
+  -- Se parte del EQUIPO: los miembros sin actividad aparecen con ceros.
+  SELECT COALESCE(jsonb_agg(x ORDER BY x->>'full_name' NULLS LAST), '[]'::jsonb)
   INTO v_rows
-  FROM agg a
-  LEFT JOIN durstats d ON d.user_id = a.user_id
-  LEFT JOIN mix m      ON m.user_id = a.user_id
-  LEFT JOIN public.profiles p ON p.id = a.user_id;
+  FROM (
+    SELECT jsonb_build_object(
+      'user_id',              t.user_id,
+      'full_name',            p.full_name,
+      'created_in_period',    COALESCE(c.n, 0),
+      'completed_in_period',  COALESCE(k.n, 0),
+      'con_plazo',            COALESCE(k.con_plazo, 0),
+      'en_plazo',             COALESCE(k.en_plazo, 0),
+      'con_duracion',         COALESCE(k.con_duracion, 0),
+      'media_horas',          k.media_horas,
+      'mediana_horas',        k.mediana_horas,
+      'cobertura_inicio_creadas', COALESCE(c.con_inicio, 0),
+      'cobertura_inicio_pct', CASE WHEN COALESCE(c.n, 0) > 0
+                                   THEN ROUND(100.0 * COALESCE(c.con_inicio, 0) / c.n)::int END,
+      'cobertura_duracion_pct', CASE WHEN COALESCE(k.n, 0) > 0
+                                   THEN ROUND(100.0 * COALESCE(k.con_duracion, 0) / k.n)::int END,
+      'snapshot', jsonb_build_object(
+        'pending',      COALESCE(s.pending, 0),
+        'in_progress',  COALESCE(s.in_progress, 0),
+        'blocked',      COALESCE(s.blocked, 0),
+        'skipped',      COALESCE(s.skipped, 0),
+        'completed',    COALESCE(s.completed, 0),
+        'unknown',      COALESCE(s.unknown, 0),
+        'vencidas_ahora', COALESCE(s.vencidas_ahora, 0),
+        'as_of',        v_now
+      ),
+      'mezcla_creadas', COALESCE(m.mezcla, '{}'::jsonb)
+    ) AS x
+    FROM team t
+    LEFT JOIN creadas  c ON c.user_id = t.user_id
+    LEFT JOIN cerradas k ON k.user_id = t.user_id
+    LEFT JOIN snapshot s ON s.user_id = t.user_id
+    LEFT JOIN mix      m ON m.user_id = t.user_id
+    LEFT JOIN public.profiles p ON p.id = t.user_id
+  ) q;
 
   RETURN jsonb_build_object(
     'from', p_from,
     'to',   p_to,
-    'generated_at', now(),
+    'generated_at', v_now,
     'rows', v_rows
   );
 END $$;
@@ -431,7 +478,7 @@ REVOKE ALL ON FUNCTION public.get_sales_manager_dashboard(timestamptz, timestamp
 GRANT EXECUTE ON FUNCTION public.get_sales_manager_dashboard(timestamptz, timestamptz) TO authenticated;
 
 -- ---------------------------------------------------------------------
--- 6c. Configuración de modos
+-- 6b. Configuración de modos
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.get_sales_task_mode_config()
 RETURNS jsonb
@@ -470,8 +517,9 @@ END $$;
 REVOKE ALL ON FUNCTION public.get_sales_task_mode_config() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_sales_task_mode_config() TO authenticated;
 
--- Guardado atómico: valida rango, grupos conocidos, T-07 = 0 y suma exacta 100.
--- Sólo afecta a tareas FUTURAS: no toca building_tasks.
+-- Guardado atómico. Exige la configuración COMPLETA: todos los grupos
+-- habilitados presentes, T7 presente con 0, sin extras, enteros estrictos y
+-- suma exacta 100. Al ACTIVAR se REVALIDA lo persistido.
 CREATE OR REPLACE FUNCTION public.set_sales_task_mode(
   p_mode_code   text,
   p_weights     jsonb DEFAULT NULL,
@@ -490,7 +538,9 @@ DECLARE
   v_val  jsonb;
   v_w    int;
   v_enabled boolean;
-  v_has_weights boolean;
+  v_missing text;
+  v_saved_sum int;
+  v_saved_missing text;
 BEGIN
   IF v_uid IS NULL OR NOT public.is_sales_manager_or_admin(v_uid) THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
@@ -505,6 +555,7 @@ BEGIN
     IF v_mode.follows_engine_default THEN
       RAISE EXCEPTION 'el modo % sigue el reparto del motor y no admite pesos', p_mode_code USING ERRCODE = '22023';
     END IF;
+
     FOR v_key, v_val IN SELECT * FROM jsonb_each(p_weights) LOOP
       SELECT enabled INTO v_enabled FROM public.sales_task_groups WHERE code = v_key;
       IF NOT FOUND THEN
@@ -512,6 +563,10 @@ BEGIN
       END IF;
       IF jsonb_typeof(v_val) <> 'number' THEN
         RAISE EXCEPTION 'peso no numérico en %', v_key USING ERRCODE = '22023';
+      END IF;
+      -- Entero ESTRICTO: 33.5 se rechaza, no se redondea.
+      IF (v_val#>>'{}')::numeric <> trunc((v_val#>>'{}')::numeric) THEN
+        RAISE EXCEPTION 'peso no entero en %: %', v_key, (v_val#>>'{}') USING ERRCODE = '22023';
       END IF;
       v_w := (v_val#>>'{}')::numeric::int;
       IF v_w < 0 OR v_w > 100 THEN
@@ -523,6 +578,14 @@ BEGIN
       v_sum := v_sum + v_w;
     END LOOP;
 
+    -- TODOS los grupos deben estar declarados (incluida T7 con 0).
+    SELECT string_agg(g.code, ', ' ORDER BY g.sort_order) INTO v_missing
+    FROM public.sales_task_groups g
+    WHERE NOT (p_weights ? g.code);
+    IF v_missing IS NOT NULL THEN
+      RAISE EXCEPTION 'faltan grupos en la configuración: %', v_missing USING ERRCODE = '22023';
+    END IF;
+
     IF v_sum <> 100 THEN
       RAISE EXCEPTION 'la suma de pesos debe ser exactamente 100 (recibido %)', v_sum USING ERRCODE = '22023';
     END IF;
@@ -533,10 +596,31 @@ BEGIN
   END IF;
 
   IF p_activate THEN
-    SELECT EXISTS (SELECT 1 FROM public.sales_task_mode_weights WHERE mode_code = p_mode_code)
-      INTO v_has_weights;
-    IF v_mode.requires_weights AND NOT v_has_weights THEN
-      RAISE EXCEPTION 'el modo % no puede activarse sin pesos válidos guardados', p_mode_code USING ERRCODE = '22023';
+    IF v_mode.requires_weights THEN
+      -- REVALIDACIÓN de lo persistido en el momento de activar.
+      SELECT COALESCE(SUM(w.weight), -1) INTO v_saved_sum
+      FROM public.sales_task_mode_weights w WHERE w.mode_code = p_mode_code;
+
+      SELECT string_agg(g.code, ', ' ORDER BY g.sort_order) INTO v_saved_missing
+      FROM public.sales_task_groups g
+      WHERE NOT EXISTS (
+        SELECT 1 FROM public.sales_task_mode_weights w
+        WHERE w.mode_code = p_mode_code AND w.group_code = g.code
+      );
+
+      IF v_saved_missing IS NOT NULL THEN
+        RAISE EXCEPTION 'el modo % no puede activarse: faltan grupos %', p_mode_code, v_saved_missing USING ERRCODE = '22023';
+      END IF;
+      IF v_saved_sum <> 100 THEN
+        RAISE EXCEPTION 'el modo % no puede activarse: la suma guardada es %', p_mode_code, v_saved_sum USING ERRCODE = '22023';
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM public.sales_task_mode_weights w
+        JOIN public.sales_task_groups g ON g.code = w.group_code
+        WHERE w.mode_code = p_mode_code AND NOT g.enabled AND w.weight <> 0
+      ) THEN
+        RAISE EXCEPTION 'el modo % no puede activarse: grupo deshabilitado con peso', p_mode_code USING ERRCODE = '22023';
+      END IF;
     END IF;
 
     IF p_target_user IS NULL THEN
@@ -561,6 +645,7 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'mode_code', p_mode_code,
                             'applies_to', 'tareas_futuras',
+                            'activated', p_activate,
                             'scope', CASE WHEN p_target_user IS NULL THEN 'global' ELSE 'user' END);
 END $$;
 
@@ -568,7 +653,11 @@ REVOKE ALL ON FUNCTION public.set_sales_task_mode(text, jsonb, uuid, boolean, te
 GRANT EXECUTE ON FUNCTION public.set_sales_task_mode(text, jsonb, uuid, boolean, text) TO authenticated;
 
 -- ---------------------------------------------------------------------
--- 6d. Arranque de tarea: idempotente y sólo para el comercial propietario.
+-- 6c. Arranque de tarea.
+--     - pending           -> in_progress + started_at = now()
+--     - in_progress con started_at -> ÉXITO IDEMPOTENTE (no cambia nada)
+--     - completed / skipped / no_procede / blocked -> RECHAZO
+--     - in_progress SIN started_at (histórico) -> se sella el inicio
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.start_building_task(p_task_id uuid)
 RETURNS jsonb
@@ -590,72 +679,195 @@ BEGIN
     RAISE EXCEPTION 'la tarea no te pertenece' USING ERRCODE = '42501';
   END IF;
 
-  -- Idempotente: started_at sólo se fija si es NULL.
+  IF v_row.status IN ('completed','skipped','no_procede','blocked') THEN
+    RAISE EXCEPTION 'la tarea en estado % no se puede empezar', v_row.status USING ERRCODE = '22023';
+  END IF;
+
+  IF v_row.status = 'in_progress' AND v_row.started_at IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status,
+                              'started_at', v_row.started_at, 'idempotent', true);
+  END IF;
+
+  IF v_row.status NOT IN ('pending','in_progress') THEN
+    RAISE EXCEPTION 'estado no admitido para empezar: %', COALESCE(v_row.status, 'null') USING ERRCODE = '22023';
+  END IF;
+
   UPDATE public.building_tasks
      SET started_at = COALESCE(started_at, now()),
-         status = CASE WHEN status = 'pending' THEN 'in_progress' ELSE status END
+         status = 'in_progress',
+         updated_at = now()
    WHERE id = p_task_id
   RETURNING * INTO v_row;
 
-  RETURN jsonb_build_object('ok', true, 'id', v_row.id,
-                            'status', v_row.status, 'started_at', v_row.started_at);
+  RETURN jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status,
+                            'started_at', v_row.started_at, 'idempotent', false);
 END $$;
 
 REVOKE ALL ON FUNCTION public.start_building_task(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.start_building_task(uuid) TO authenticated;
 
+-- Reapertura EXPLÍCITA: vuelve a pending y LIMPIA started_at/completed_at,
+-- de modo que el nuevo ciclo mide su propia duración.
+CREATE OR REPLACE FUNCTION public.reopen_building_task(p_task_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_row public.building_tasks%ROWTYPE;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
+  END IF;
+  SELECT * INTO v_row FROM public.building_tasks WHERE id = p_task_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'tarea inexistente' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_row.user_id IS DISTINCT FROM v_uid AND NOT public.has_role(v_uid, 'admin') THEN
+    RAISE EXCEPTION 'la tarea no te pertenece' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.building_tasks
+     SET status = 'pending', started_at = NULL, completed_at = NULL, updated_at = now()
+   WHERE id = p_task_id
+  RETURNING * INTO v_row;
+
+  RETURN jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status,
+                            'started_at', v_row.started_at);
+END $$;
+
+REVOKE ALL ON FUNCTION public.reopen_building_task(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.reopen_building_task(uuid) TO authenticated;
+
 -- ---------------------------------------------------------------------
--- 6e. Operación de servicio: finalizar alta de un gestor YA creado en Auth.
---     Transaccional: perfil + rol + equipo. No crea usuarios.
+-- 6d. Alta de gestor YA creado en Auth. NO crea usuarios.
+--     Verifica identidad (auth.users), email y nombre esperados; deja
+--     EXACTAMENTE el rol sales_manager y SUSTITUYE el equipo por el array.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.finalize_sales_manager_setup(
-  p_user_id   uuid,
-  p_full_name text,
-  p_members   uuid[] DEFAULT '{}'::uuid[]
+  p_user_id        uuid,
+  p_expected_email text,
+  p_full_name      text,
+  p_members        uuid[] DEFAULT '{}'::uuid[]
 )
 RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
 AS $$
-DECLARE v_uid uuid := auth.uid();
+DECLARE
+  v_uid           uuid := auth.uid();
+  v_email         text;
+  v_member        uuid;
+  v_roles_borrados int := 0;
+  v_altas          int := 0;
+  v_desactivados   int := 0;
+  v_solicitados    int := COALESCE(array_length(p_members, 1), 0);
 BEGIN
-  -- Sólo admin autenticado o service_role (auth.uid() NULL).
   IF v_uid IS NOT NULL AND NOT public.has_role(v_uid, 'admin') THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
   END IF;
-  IF p_user_id IS NULL THEN
-    RAISE EXCEPTION 'p_user_id requerido' USING ERRCODE = '22023';
+  IF p_user_id IS NULL OR p_expected_email IS NULL OR btrim(p_expected_email) = '' THEN
+    RAISE EXCEPTION 'p_user_id y p_expected_email son obligatorios' USING ERRCODE = '22023';
+  END IF;
+  IF p_full_name IS NULL OR btrim(p_full_name) = '' THEN
+    RAISE EXCEPTION 'p_full_name es obligatorio' USING ERRCODE = '22023';
   END IF;
 
-  INSERT INTO public.profiles (id, full_name, must_change_password)
-  VALUES (p_user_id, p_full_name, true)
+  -- 1. El usuario debe EXISTIR ya en Auth y coincidir el email esperado.
+  SELECT u.email INTO v_email FROM auth.users u WHERE u.id = p_user_id;
+  IF v_email IS NULL THEN
+    RAISE EXCEPTION 'el usuario % no existe en Auth: esta función no crea usuarios', p_user_id USING ERRCODE = 'P0002';
+  END IF;
+  IF lower(v_email) <> lower(btrim(p_expected_email)) THEN
+    RAISE EXCEPTION 'el email no coincide con el usuario indicado' USING ERRCODE = '22023';
+  END IF;
+
+  -- 2. Todos los miembros deben existir y ser comercial_zona (validación previa).
+  IF v_solicitados > 0 THEN
+    FOREACH v_member IN ARRAY p_members LOOP
+      IF v_member = p_user_id THEN
+        RAISE EXCEPTION 'el gestor no puede ser miembro de su propio equipo' USING ERRCODE = '22023';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_member) THEN
+        RAISE EXCEPTION 'el miembro % no existe', v_member USING ERRCODE = 'P0002';
+      END IF;
+      IF NOT public.has_role(v_member, 'comercial_zona') THEN
+        RAISE EXCEPTION 'el miembro % no es comercial_zona', v_member USING ERRCODE = '22023';
+      END IF;
+    END LOOP;
+  END IF;
+
+  -- 3. Perfil.
+  INSERT INTO public.profiles (id, email, full_name, must_change_password)
+  VALUES (p_user_id, lower(btrim(p_expected_email)), btrim(p_full_name), true)
   ON CONFLICT (id) DO UPDATE
-    SET full_name = COALESCE(EXCLUDED.full_name, public.profiles.full_name),
+    SET email = lower(btrim(p_expected_email)),
+        full_name = btrim(p_full_name),
         must_change_password = true;
 
-  INSERT INTO public.user_roles (user_id, role)
-  VALUES (p_user_id, 'sales_manager')
-  ON CONFLICT (user_id, role) DO NOTHING;
+  -- 4. Rol EXCLUSIVO: se eliminan TODOS los anteriores.
+  WITH borrados AS (
+    DELETE FROM public.user_roles WHERE user_id = p_user_id RETURNING 1
+  )
+  SELECT COUNT(*) INTO v_roles_borrados FROM borrados;
 
-  INSERT INTO public.sales_manager_team_members (manager_id, member_id)
-  SELECT p_user_id, m FROM unnest(COALESCE(p_members, '{}'::uuid[])) AS m
-  ON CONFLICT (manager_id, member_id) DO UPDATE SET active = true, updated_at = now();
+  INSERT INTO public.user_roles (user_id, role) VALUES (p_user_id, 'sales_manager'::public.app_role);
 
-  RETURN jsonb_build_object('ok', true, 'user_id', p_user_id,
-                            'members', COALESCE(array_length(p_members, 1), 0));
+  -- 5. El equipo se SUSTITUYE por el array recibido.
+  WITH bajas AS (
+    UPDATE public.sales_manager_team_members
+       SET active = false, updated_at = now()
+     WHERE manager_id = p_user_id
+       AND active
+       AND NOT (member_id = ANY (COALESCE(p_members, '{}'::uuid[])))
+    RETURNING 1
+  )
+  SELECT COUNT(*) INTO v_desactivados FROM bajas;
+
+  WITH altas AS (
+    INSERT INTO public.sales_manager_team_members (manager_id, member_id, active)
+    SELECT p_user_id, m, true FROM unnest(COALESCE(p_members, '{}'::uuid[])) AS m
+    ON CONFLICT (manager_id, member_id) DO UPDATE SET active = true, updated_at = now()
+    RETURNING 1
+  )
+  SELECT COUNT(*) INTO v_altas FROM altas;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'user_id', p_user_id,
+    'email', lower(btrim(p_expected_email)),
+    'roles_eliminados', v_roles_borrados,
+    'roles_finales', (SELECT COUNT(*) FROM public.user_roles WHERE user_id = p_user_id),
+    'miembros_solicitados', v_solicitados,
+    'miembros_activos', (SELECT COUNT(*) FROM public.sales_manager_team_members
+                          WHERE manager_id = p_user_id AND active),
+    'miembros_altas', v_altas,
+    'miembros_desactivados', v_desactivados
+  );
 END $$;
 
-REVOKE ALL ON FUNCTION public.finalize_sales_manager_setup(uuid, text, uuid[]) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.finalize_sales_manager_setup(uuid, text, uuid[]) TO service_role;
+REVOKE ALL ON FUNCTION public.finalize_sales_manager_setup(uuid, text, text, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.finalize_sales_manager_setup(uuid, text, text, uuid[]) TO service_role;
+
+-- Se retira la firma antigua (sin email esperado) si existiera.
+DROP FUNCTION IF EXISTS public.finalize_sales_manager_setup(uuid, text, uuid[]);
 
 -- ---------------------------------------------------------------------
--- 7. RLS mínima para el gestor
---    NO se concede SELECT global sobre building_tasks a sales_manager.
+-- 7. RLS EFECTIVA
+--    Las políticas históricas `USING (true)` se ELIMINAN: mientras existan,
+--    cualquier política nueva quedaría anulada por el OR entre permisivas.
+--    NO se concede SELECT sobre building_tasks a sales_manager: el panel
+--    sólo ve agregados por RPC.
 -- ---------------------------------------------------------------------
-DROP POLICY IF EXISTS profiles_sales_manager_min ON public.profiles;
-CREATE POLICY profiles_sales_manager_min ON public.profiles
+DROP POLICY IF EXISTS profiles_select_authenticated   ON public.profiles;
+DROP POLICY IF EXISTS user_roles_select_authenticated ON public.user_roles;
+
+-- profiles: propio perfil + admin + datos MÍNIMOS de miembros activos del equipo.
+DROP POLICY IF EXISTS profiles_select_scoped ON public.profiles;
+CREATE POLICY profiles_select_scoped ON public.profiles
   FOR SELECT TO authenticated
   USING (
     id = auth.uid()
+    OR public.has_role(auth.uid(), 'admin')
     OR (
       public.has_role(auth.uid(), 'sales_manager')
       AND EXISTS (
@@ -665,10 +877,22 @@ CREATE POLICY profiles_sales_manager_min ON public.profiles
     )
   );
 
-DROP POLICY IF EXISTS user_roles_self_read ON public.user_roles;
-CREATE POLICY user_roles_self_read ON public.user_roles
+-- user_roles: propio rol + admin + rol de los miembros activos del equipo.
+DROP POLICY IF EXISTS user_roles_self_read     ON public.user_roles;
+DROP POLICY IF EXISTS user_roles_select_scoped ON public.user_roles;
+CREATE POLICY user_roles_select_scoped ON public.user_roles
   FOR SELECT TO authenticated
-  USING (user_id = auth.uid());
+  USING (
+    user_id = auth.uid()
+    OR public.has_role(auth.uid(), 'admin')
+    OR (
+      public.has_role(auth.uid(), 'sales_manager')
+      AND EXISTS (
+        SELECT 1 FROM public.sales_manager_team_members t
+        WHERE t.manager_id = auth.uid() AND t.member_id = public.user_roles.user_id AND t.active
+      )
+    )
+  );
 
 -- El usuario normal NO puede quitarse must_change_password vía profiles.update.
 DROP POLICY IF EXISTS profiles_self_update_safe ON public.profiles;
@@ -689,6 +913,8 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+
+REVOKE ALL ON FUNCTION public.profiles_guard_must_change_password() FROM PUBLIC, anon, authenticated;
 
 DROP TRIGGER IF EXISTS profiles_guard_must_change_password_trg ON public.profiles;
 CREATE TRIGGER profiles_guard_must_change_password_trg
