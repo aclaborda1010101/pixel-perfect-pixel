@@ -423,9 +423,9 @@ BEGIN
     PERFORM pg_temp.assert(r.n1 = r.n2 AND r.ck1 = r.ck2,
       format('la tabla %s cambió durante el dry-run (%s->%s)', r.t, r.n1, r.n2));
   END LOOP;
-  -- buildings sí cambia: el test inserta 6 edificios sintéticos (se revierten con ROLLBACK)
+  -- buildings sí cambia: el test inserta 7 edificios sintéticos (se revierten con ROLLBACK)
   PERFORM pg_temp.assert(
-    (SELECT n FROM _before WHERE t = 'buildings') + 6 = (SELECT count(*) FROM public.buildings),
+    (SELECT n FROM _before WHERE t = 'buildings') + 7 = (SELECT count(*) FROM public.buildings),
     'buildings solo debe variar por los fixtures del test');
   RAISE NOTICE 'WAVE 1A.1 · TODAS LAS ASERCIONES OK (se revierte todo)';
 END $$;
