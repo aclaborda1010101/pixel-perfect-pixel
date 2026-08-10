@@ -5,11 +5,10 @@
 -- Todo ocurre dentro de una transacción que termina en ROLLBACK y todos
 -- los fixtures están aislados por nota/edificio sintético.
 --
--- Uso previsto (base de datos efímera, NUNCA producción):
---   psql -v ON_ERROR_STOP=1 \
---        -c "SET wave1a.ephemeral = 'yes'" \
---        -f supabase/tests/wave1a_property_rights_cases.sql
--- o bien:  PGOPTIONS="-c wave1a.ephemeral=yes" psql -v ON_ERROR_STOP=1 -f ...
+-- Uso previsto (SOLO base desechable creada por el runner 1A.3):
+--   bash supabase/tests/wave1a3_integration_runner.sh
+-- El runner crea wave1a_test_<sufijo> en un Postgres loopback, aplica la
+-- cadena de checkout y destruye la base al terminar.
 --
 -- El script ABORTA al inicio si no está marcado el entorno efímero.
 -- No hay checksums ni string_agg de tablas completas.
