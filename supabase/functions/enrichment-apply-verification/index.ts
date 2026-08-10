@@ -159,16 +159,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4) Tarea Tecnofind si falta teléfono
-    if (job.building_id && !payload.telefono) {
-      await supabase.from("building_tasks").insert({
-        building_id: job.building_id,
-        titulo: `Buscar teléfono en Tecnofind — ${ownerNombre}`,
-        tipo: "investigacion",
-        estado: "pendiente",
-        metadatos: { owner_id: ownerId, enrichment_job_id: job.id },
-      });
-    }
+    // 4) Incidencia "falta teléfono": el motor legacy de tareas está retirado,
+    //    NO se crea ninguna building_task. Se devuelve como incidencia.
+    const incidenciaTecnofind = tecnofindIncidenciaTrasVerificacion({
+      buildingId: job.building_id,
+      telefono: payload.telefono,
+      ownerId,
+      jobId: job.id,
+    });
 
     // 5) Registrar verificación
     await supabase.from("enrichment_verifications").insert({
@@ -194,6 +192,8 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       ok: true, action: "aprobada", owner_id: ownerId, co_domicilios: coCount,
+      task_created: false,
+      incidencias: incidenciaTecnofind ? [incidenciaTecnofind] : [],
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message }), {

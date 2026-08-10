@@ -1,6 +1,7 @@
 // Enrichment agent: drena enrichment_jobs por fases.
 // Llamado por pg_cron cada 15 min y por enrichment-pipeline-start manualmente.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { handleTecnofindCore } from "./tecnofind.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
