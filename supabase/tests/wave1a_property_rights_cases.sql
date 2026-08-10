@@ -131,7 +131,7 @@ VALUES ('55555555-0000-0000-0000-00000000000d', '44444444-0000-0000-0000-0000000
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal)
 VALUES ('55555555-0000-0000-0000-00000000000f', '44444444-0000-0000-0000-000000000003',
         'JUAN PEREZ LOPEZ', '87654321X', 100, NULL, 'con carácter ganancial'),
-       ('55555555-0000-0000-0000-00000000000g'::text::uuid, '44444444-0000-0000-0000-000000000003',
+       ('55555555-0000-0000-0000-000000000017', '44444444-0000-0000-0000-000000000003',
         'ANA GARCIA SOTO', '12345678Z', 100, NULL, 'titular');
 
 -- CASO H · evidencia con DERECHO EQUIVOCADO (dice usufructo, la fila es pleno)
@@ -214,7 +214,7 @@ BEGIN
   -- F · ganancial en capa separada · G · desconocido = otro
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-00000000000f';
   PERFORM pg_temp.assert(v.right_type = 'ganancial' AND v.coownership_regime IS NOT NULL, 'F: ganancial');
-  PERFORM pg_temp.assert((SELECT right_type FROM _s WHERE titular_id = '55555555-0000-0000-0000-00000000000g'::text::uuid)
+  PERFORM pg_temp.assert((SELECT right_type FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000017')
                          = 'otro', 'G: rol desconocido nunca es pleno dominio');
 
   -- H · evidencia con derecho equivocado
