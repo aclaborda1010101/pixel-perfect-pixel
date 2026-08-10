@@ -6,10 +6,24 @@ export type RolCanonico = (typeof ROLES_CANONICOS)[number];
 
 const CLAVES_PROHIBIDAS = new Set(["__proto__", "prototype", "constructor"]);
 
-/** Quita NUL/controles y sustituye surrogates huérfanos (conserva pares válidos y \t \n \r). */
+export const MAX_SANITIZE_DEPTH = 12;
+
+export class SanitizeDepthError extends Error {
+  constructor(public readonly depth: number) {
+    super(`sanitize_depth_exceeded:${depth}`);
+    this.name = "SanitizeDepthError";
+  }
+}
+
+export type Result<T> = { ok: true; value: T } | { ok: false; reason: string; detalle?: string };
+
+/**
+ * Quita NUL, controles C0 y C1 (U+0080–U+009F), sustituye surrogates huérfanos
+ * (conserva pares válidos y \t \n \r) y normaliza a NFC.
+ */
 export function sanitize(s: string): string {
   // deno-lint-ignore no-control-regex
-  const sinControl = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ");
+  const sinControl = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, " ");
   let out = "";
   for (let i = 0; i < sinControl.length; i++) {
     const c = sinControl.charCodeAt(i);
@@ -27,24 +41,40 @@ export function sanitize(s: string): string {
       out += sinControl[i];
     }
   }
-  return out;
+  return out.normalize("NFC");
 }
 
-/** Sanea recursivamente. Bloquea __proto__/prototype/constructor (sin contaminación de prototipo). */
-export function sanitizeDeep<T>(value: T): T {
+/**
+ * Sanea recursivamente con límite de profundidad. Bloquea __proto__/prototype/constructor.
+ * Si se excede la profundidad lanza SanitizeDepthError (fallo controlado, sin recursión ilimitada).
+ */
+export function sanitizeDeep<T>(value: T, depth = 0): T {
+  if (depth > MAX_SANITIZE_DEPTH) throw new SanitizeDepthError(depth);
   if (typeof value === "string") return sanitize(value) as unknown as T;
-  if (Array.isArray(value)) return value.map((v) => sanitizeDeep(v)) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => sanitizeDeep(v, depth + 1)) as unknown as T;
   if (value && typeof value === "object") {
     const safe: Record<string, unknown> = Object.create(null);
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       const key = sanitize(k);
       if (CLAVES_PROHIBIDAS.has(key)) continue;
-      safe[key] = sanitizeDeep(v);
+      safe[key] = sanitizeDeep(v, depth + 1);
     }
     // Copia a objeto plano (sin heredar nada peligroso): las claves prohibidas ya no existen.
     return { ...safe } as unknown as T;
   }
   return value;
+}
+
+/** Variante sin excepciones: devuelve un fallo controlado si se excede la profundidad. */
+export function trySanitizeDeep<T>(value: T): Result<T> {
+  try {
+    return { ok: true, value: sanitizeDeep(value) };
+  } catch (e) {
+    if (e instanceof SanitizeDepthError) {
+      return { ok: false, reason: "sanitize_depth_exceeded", detalle: String(e.depth) };
+    }
+    return { ok: false, reason: "sanitize_fail", detalle: String((e as Error)?.message ?? e) };
+  }
 }
 
 function foldAccents(s: string): string {
