@@ -654,6 +654,8 @@ WITH src AS (
     count(DISTINCT titular_id) AS titulares_unicos,
     count(*) FILTER (WHERE owner_id IS NULL AND company_id IS NULL) AS unmatched,
     count(*) FILTER (WHERE conflicto_ids) AS conflicto_owner_y_company,
+    -- Ninguna fila operativa puede salir con owner_id y company_id reales.
+    count(*) FILTER (WHERE owner_id IS NOT NULL AND company_id IS NOT NULL) AS mezcla_owner_company,
     count(*) FILTER (WHERE unit_block_reason = 'dh_sin_unidad_registral') AS dh_sin_unidad,
     count(*) FILTER (WHERE evidence_ok) AS evidence_ok,
     count(*) FILTER (WHERE NOT evidence_ok) AS evidence_missing,
@@ -700,6 +702,7 @@ SELECT jsonb_build_object(
   'paridad_1a1', (agg.staged_rows = src.n AND agg.titulares_unicos = agg.staged_rows),
   'unmatched', agg.unmatched,
   'conflicto_owner_y_company', agg.conflicto_owner_y_company,
+  'mezcla_owner_company', agg.mezcla_owner_company,
   'dh_sin_unidad', agg.dh_sin_unidad,
   'evidence_ok', agg.evidence_ok,
   'evidence_missing', agg.evidence_missing,
@@ -718,6 +721,7 @@ SELECT jsonb_build_object(
     'todas_con_building_id', agg.staged_con_building = agg.staged_rows,
     'titular_unico', agg.titulares_unicos = agg.staged_rows,
     'conflicto_no_alimenta_cuota', agg.bad_conflicto_feeds = 0,
+    'sin_mezcla_owner_company', agg.mezcla_owner_company = 0,
     'ningun_unmatched_alimenta_cuota', agg.bad_unmatched_feeds = 0,
     'solo_pleno_alimenta_cuota', agg.bad_no_pleno_feeds = 0,
     'solo_canonica_alimenta_cuota', agg.bad_no_canonica_feeds = 0,
@@ -730,6 +734,7 @@ SELECT jsonb_build_object(
     AND agg.staged_con_building = agg.staged_rows
     AND agg.titulares_unicos = agg.staged_rows
     AND agg.bad_conflicto_feeds = 0
+    AND agg.mezcla_owner_company = 0
     AND agg.bad_unmatched_feeds = 0
     AND agg.bad_no_pleno_feeds = 0
     AND agg.bad_no_canonica_feeds = 0
