@@ -37,7 +37,8 @@ export function ColaDemo() {
         .like("task_key", `v5:${hoy}:%`)
         .limit(60);
       if (e1) throw e1;
-      const list = (tasks ?? []) as Task[];
+      // Defensive client-side filter: only V5 / manual tasks are operational.
+      const list = filterVisibleOperationalTasks((tasks ?? []) as Task[]) as Task[];
 
       const ownerIds = [...new Set(list.map((t) => ownerIdFromKey(t.task_key)).filter(Boolean))] as string[];
       const buildingIds = [...new Set(list.map((t) => t.building_id).filter(Boolean))] as string[];
