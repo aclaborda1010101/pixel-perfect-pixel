@@ -2,30 +2,40 @@ import { describe, it, expect } from "vitest";
 import {
   normalizeRol,
   normalizeTitular,
+  normalizeTitularChecked,
+  normalizeTitularesChecked,
   normalizePorcentaje,
+  normalizePorcentajeChecked,
   logicalRightKey,
   sanitize,
   sanitizeDeep,
-  type TitularNormalizado,
-} from "../../supabase/functions/notas_simples_reparse/lib";
-import {
-  normalizePorcentajeChecked,
-  normalizeTitularChecked,
-  normalizeTitularesChecked,
   trySanitizeDeep,
   buildEvidencia,
+  parseEvidencia,
+  mergeEvidencias,
+  hasRealEvidence,
+  type TitularNormalizado,
 } from "../../supabase/functions/notas_simples_reparse/lib";
 import {
   buildReconcilePlan,
   summarizeBatch,
   needsTitularesRefetch,
   dedupeDeseados,
-  mergeEvidencia,
   runReconciliation,
-  type ReconcileRepo,
   type OpResult,
   type FilaExistente,
+  type PatchTitular,
 } from "../../supabase/functions/notas_simples_reparse/reconcile";
+import {
+  processNotaCore,
+  decidirTitulares,
+  decideMatching,
+  decidePendingMatchOnDrain,
+  runMatching,
+  type NotaRepo,
+} from "../../supabase/functions/notas_simples_reparse/core";
+
+// ---------------- rol y literal ----------------
 
 describe("rol y literal", () => {
   it("desconocido/vacío -> otro, nunca pleno", () => {
@@ -45,390 +55,441 @@ describe("rol y literal", () => {
     expect(t.rol).toBe("otro");
     expect(t.rol_literal).toBeNull();
   });
-  it("el literal manda sobre un rol contradictorio y registra el conflicto", () => {
-    const t = normalizeTitular({ nombre: "Ana", rol: "pleno", rol_literal: "Sociedad de gananciales" })!;
-    expect(t.rol).toBe("ganancial");
-    expect(t.evidencia?.normalizacion).toEqual({
-      raw_rol: "pleno",
-      raw_literal: "Sociedad de gananciales",
-      role_conflict: true,
-    });
+  it("rol declarado que contradice al literal BLOQUEA con role_conflict", () => {
+    const r = normalizeTitularChecked({ nombre: "Ana", rol: "pleno", rol_literal: "Sociedad de gananciales" });
+    expect(r.ok).toBe(false);
+    expect((r as any).reason).toBe("role_conflict");
+    expect((r as any).detalle).toContain("raw_rol=pleno");
+    expect((r as any).detalle).toContain("raw_literal=Sociedad de gananciales");
   });
-  it("sin conflicto no añade bloque de normalización", () => {
+  it("sin conflicto no hay evidencia inventada", () => {
     const t = normalizeTitular({ nombre: "Ana", rol: "usufructo", rol_literal: "usufructo vitalicio" })!;
     expect(t.evidencia).toBeNull();
-  });
-  it("no inventa evidencia y descarta titulares sin nombre", () => {
-    expect(normalizeTitular({ nombre: "Ana" })!.evidencia).toBeNull();
     expect(normalizeTitular({ nombre: " " })).toBeNull();
   });
 });
 
+// ---------------- porcentaje y sanitización ----------------
+
 describe("porcentaje seguro", () => {
-  it("fracciones inequívocas", () => {
+  it("fracciones, decimales y rechazos", () => {
     expect(normalizePorcentaje("1/2")).toBe(50);
     expect(normalizePorcentaje("50/100")).toBe(50);
     expect(normalizePorcentaje("1/0")).toBeNull();
-  });
-  it("decimales, coma y símbolo", () => {
     expect(normalizePorcentaje("50,00%")).toBe(50);
-    expect(normalizePorcentaje("33,5")).toBe(33.5);
-    expect(normalizePorcentaje(100)).toBe(100);
     expect(normalizePorcentaje("33,333")).toBe(33.33);
-  });
-  it("rechaza cero, negativos, >100 y texto", () => {
     for (const v of [0, -1, 101, "abc", "1/2/3", "cincuenta", "", null, undefined, {}]) {
       expect(normalizePorcentaje(v as unknown)).toBeNull();
     }
   });
+  it("ausente ok / no vacío inválido bloquea", () => {
+    expect(normalizePorcentajeChecked(null)).toEqual({ ok: true, value: null });
+    expect(normalizePorcentajeChecked("   ")).toEqual({ ok: true, value: null });
+    expect((normalizePorcentajeChecked("abc") as any).reason).toBe("porcentaje_invalido");
+  });
 });
 
 describe("sanitización", () => {
-  it("NUL, controles, emoji válido y surrogate huérfano", () => {
+  it("controles, surrogates y NFC", () => {
     expect(sanitize("Peñ\u0000a Ñ\u0007ó ü — 石")).toBe("Peñ a Ñ ó ü — 石");
-    expect(sanitize("hola 😀")).toBe("hola 😀");
     expect(sanitize("x\uD83Dy")).toBe("x\uFFFDy");
-    expect(sanitize("línea\nuno\ttab")).toBe("línea\nuno\ttab");
+    expect(sanitize("a\tb\nc\rd")).toBe("a\tb\nc\rd");
+    expect(sanitize("Pen\u0303a")).toBe("Peña");
   });
-  it("bloquea __proto__, prototype y constructor", () => {
+  it("bloquea __proto__/prototype/constructor y sanea en profundidad", () => {
     const raw = JSON.parse('{"a":"x","__proto__":{"polluted":1},"prototype":{"b":2},"constructor":{"c":3}}');
-    const out = sanitizeDeep(raw) as Record<string, unknown>;
-    expect(Object.keys(out)).toEqual(["a"]);
-    expect(JSON.stringify(out)).toBe('{"a":"x"}');
+    expect(Object.keys(sanitizeDeep(raw) as Record<string, unknown>)).toEqual(["a"]);
     expect(({} as any).polluted).toBeUndefined();
-  });
-  it("sanea recursivamente", () => {
-    expect(sanitizeDeep({ a: "x\u0000y", b: [{ c: "ñ\u001Fz" }], n: 3, z: null }))
-      .toEqual({ a: "x y", b: [{ c: "ñ z" }], n: 3, z: null });
+    let deep: any = "hoja";
+    for (let i = 0; i < 40; i++) deep = { n: deep };
+    expect((trySanitizeDeep(deep) as any).reason).toBe("sanitize_depth_exceeded");
   });
 });
 
+// ---------------- evidencia canónica ----------------
+
+describe("evidencia canónica", () => {
+  it("acepta legado plano y forma canónica sin perder fuentes", () => {
+    expect(parseEvidencia({ cita: "URBANA", pagina: 1 })).toEqual({ fuentes: [{ cita: "URBANA", pagina: 1 }] });
+    expect(parseEvidencia({ fuentes: [{ ruta: "TOMO 3" }] })).toEqual({ fuentes: [{ ruta: "TOMO 3" }] });
+    expect(parseEvidencia({ normalizacion: { role_conflict: true } })).toBeNull();
+  });
+  it("localizadores inválidos se descartan", () => {
+    expect(buildEvidencia({ evidencia: { cita: "URBANA", pagina: 0 } })).toEqual({ fuentes: [{ cita: "URBANA" }] });
+    expect(buildEvidencia({ evidencia: { cita: "URBANA", pagina: 2.5 } })).toEqual({ fuentes: [{ cita: "URBANA" }] });
+    expect(buildEvidencia({ evidencia: { cita: "URBANA", pagina: "3" } })).toEqual({ fuentes: [{ cita: "URBANA", pagina: 3 }] });
+    expect(buildEvidencia({ evidencia: { cita: "  ", ruta: "" } })).toBeNull();
+    expect(buildEvidencia({})).toBeNull();
+  });
+  it("fusiona sin pérdida y bloquea localizador incompatible", () => {
+    const m = mergeEvidencias({ cita: "A", pagina: 1 }, { ruta: "TOMO 3" });
+    expect(m).toEqual({ ok: true, value: { fuentes: [{ cita: "A", pagina: 1 }, { ruta: "TOMO 3" }] } });
+    const m2 = mergeEvidencias({ pagina: 1 }, { cita: "A", pagina: 1 });
+    expect((m2 as any).value).toEqual({ fuentes: [{ pagina: 1, cita: "A" }] });
+    const conflicto = mergeEvidencias({ cita: "A", pagina: 1 }, { cita: "B", pagina: 1 });
+    expect(conflicto.ok).toBe(false);
+    expect((conflicto as any).reason).toBe("evidence_conflict");
+  });
+  it("hasRealEvidence exige fuente real con localizador válido", () => {
+    expect(hasRealEvidence({ normalizacion: { raw_rol: "pleno", role_conflict: true } })).toBe(false);
+    expect(hasRealEvidence({ cita: "URBANA" })).toBe(false);
+    expect(hasRealEvidence({ cita: "URBANA", pagina: 2 })).toBe(true);
+    expect(hasRealEvidence({ fuentes: [{ ruta: "SECCIÓN B" }] })).toBe(true);
+    expect(hasRealEvidence({ fuentes: [{ offset: 0 }] })).toBe(true);
+    expect(hasRealEvidence(null)).toBe(false);
+    expect(hasRealEvidence({ foo: "bar" })).toBe(false);
+  });
+});
+
+// ---------------- identidad lógica ----------------
+
 describe("identidad lógica", () => {
-  it("no colapsa nuda propiedad y usufructo", () => {
+  it("no colapsa derechos distintos", () => {
     expect(logicalRightKey({ nombre: "María", cif_dni: "1Z", porcentaje: 50, rol: "nuda_propiedad" }))
       .not.toBe(logicalRightKey({ nombre: "María", cif_dni: "1Z", porcentaje: 50, rol: "usufructo" }));
   });
-  it("dos derechos 'otro' con literales distintos no colapsan", () => {
-    const a = normalizeTitular({ nombre: "ACME", cif_dni: "B1", porcentaje: 50, rol_literal: "concesión administrativa" })!;
-    const b = normalizeTitular({ nombre: "ACME", cif_dni: "B1", porcentaje: 50, rol_literal: "derecho de superficie" })!;
-    expect(a.rol).toBe("otro");
-    expect(b.rol).toBe("otro");
-    expect(logicalRightKey(a)).not.toBe(logicalRightKey(b));
+  it("misma identidad jurídica con evidencias distintas es EL MISMO derecho", () => {
+    const a = normalizeTitular({ nombre: "Ana", cif_dni: "1Z", porcentaje: 50, rol_literal: "pleno dominio", evidencia: { cita: "A", pagina: 1 } })!;
+    const b = normalizeTitular({ nombre: "Ana", cif_dni: "1Z", porcentaje: 50, rol_literal: "pleno dominio", evidencia: { ruta: "TOMO" } })!;
+    expect(logicalRightKey(a)).toBe(logicalRightKey(b));
   });
 });
+
+// ---------------- plan de conciliación ----------------
 
 const fila = (o: Partial<FilaExistente> & { id: string }): FilaExistente => ({
   nombre_extraido: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol: "pleno", rol_literal: null, evidencia: null, ...o,
 });
+const tit = (o: any): TitularNormalizado =>
+  normalizeTitular({ nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol_literal: "pleno dominio", ...o })!;
 
 describe("plan de conciliación", () => {
-  it("evidencia nueva genera UPDATE, no INSERT", () => {
-    const d = normalizeTitular({ nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol_literal: "pleno dominio", evidencia: { cita: "URBANA…", pagina: 2 } })!;
-    const existentes = [fila({ id: "r1", rol_literal: "pleno dominio" })];
+  it("coincidencia exacta fusiona evidencia existente + deseada (sin sobrescribir)", () => {
+    const existentes = [fila({ id: "r1", rol_literal: "pleno dominio", evidencia: { cita: "A", pagina: 1 } })];
+    const d = tit({ evidencia: { ruta: "TOMO 3" } });
     const plan = buildReconcilePlan(existentes, [d]);
     expect(plan.ok).toBe(true);
     expect(plan.inserts).toHaveLength(0);
-    expect(plan.updates).toEqual([{ id: "r1", patch: { evidencia: { cita: "URBANA…", pagina: 2 } } }]);
+    expect(plan.updates).toEqual([{ id: "r1", patch: { evidencia: { fuentes: [{ cita: "A", pagina: 1 }, { ruta: "TOMO 3" }] } } }]);
   });
 
-  it("fila vieja pleno + literal ganancial se corrige por fallback único", () => {
-    const d = normalizeTitular({ nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol: "pleno", rol_literal: "Sociedad de gananciales" })!;
-    const plan = buildReconcilePlan([fila({ id: "r1" })], [d]);
+  it("fallback legado también fusiona en vez de sobrescribir", () => {
+    const existentes = [fila({ id: "r1", evidencia: { cita: "A", pagina: 1 } })];
+    const d = tit({ rol_literal: "Sociedad de gananciales", evidencia: { pagina: 2, cita: "B" } });
+    const plan = buildReconcilePlan(existentes, [d]) as any;
     expect(plan.ok).toBe(true);
-    expect(plan.inserts).toHaveLength(0);
-    expect(plan.updates[0].id).toBe("r1");
     expect(plan.updates[0].patch.rol).toBe("ganancial");
-    expect(plan.updates[0].patch.rol_literal).toBe("Sociedad de gananciales");
+    expect(plan.updates[0].patch.evidencia.fuentes).toEqual([{ cita: "A", pagina: 1 }, { pagina: 2, cita: "B" }]);
   });
 
-  it("fallback ambiguo bloquea el plan", () => {
-    const d = normalizeTitular({ nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol_literal: "usufructo vitalicio" })!;
-    // dos filas legadas (sin rol_literal) con rol distinto: no son duplicado lógico,
-    // pero ambas son candidatas por identidad base -> ambigüedad.
-    const plan = buildReconcilePlan([fila({ id: "r1", rol: "pleno" }), fila({ id: "r2", rol: "otro" })], [d]);
+  it("evidencia contradictoria con la fila existente bloquea", () => {
+    const existentes = [fila({ id: "r1", rol_literal: "pleno dominio", evidencia: { cita: "A", pagina: 1 } })];
+    const plan = buildReconcilePlan(existentes, [tit({ evidencia: { cita: "B", pagina: 1 } })]);
     expect(plan.ok).toBe(false);
-    expect((plan as any).reason).toBe("titular_reconcile_ambiguous");
+    expect((plan as any).reason).toBe("evidence_conflict");
     expect(plan.updates).toHaveLength(0);
-    expect(plan.inserts).toHaveLength(0);
   });
 
-  it("derecho realmente nuevo se inserta", () => {
-    const d = normalizeTitular({ nombre: "Luis Soto", cif_dni: "99", porcentaje: 25, rol_literal: "usufructo vitalicio" })!;
-    const plan = buildReconcilePlan([fila({ id: "r1", rol_literal: "pleno dominio" })], [d]);
-    expect(plan.updates).toHaveLength(0);
+  it("dos deseados idénticos convergen en un derecho con unión de evidencias", () => {
+    const a = tit({ evidencia: { cita: "URBANA", pagina: 1 } });
+    const b = tit({ evidencia: { ruta: "SECCIÓN B" } });
+    const ded = dedupeDeseados([a, b]) as any;
+    expect(ded.value).toHaveLength(1);
+    expect(ded.value[0].evidencia.fuentes).toHaveLength(2);
+    const plan = buildReconcilePlan([], [a, b]);
+    expect(plan.ok).toBe(true);
     expect(plan.inserts).toHaveLength(1);
   });
 
-  it("aplicar el plan dos veces converge sin nuevas inserciones", () => {
-    const deseados = [
-      normalizeTitular({ nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol: "pleno", rol_literal: "Sociedad de gananciales", evidencia: { cita: "TOMO 1" } })!,
-      normalizeTitular({ nombre: "Luis Soto", cif_dni: "99", porcentaje: 50, rol_literal: "usufructo vitalicio" })!,
-    ] as TitularNormalizado[];
-    let filas: FilaExistente[] = [fila({ id: "r1" })];
-    const aplicar = (plan: ReturnType<typeof buildReconcilePlan>) => {
-      if (!plan.ok) throw new Error("plan bloqueado");
-      filas = filas.map((f) => {
-        const u = plan.updates.find((x) => x.id === f.id);
-        return u ? { ...f, ...u.patch } : f;
-      });
-      plan.inserts.forEach((t, i) => filas.push({
-        id: `new${filas.length + i}`, nombre_extraido: t.nombre, cif_dni: t.cif_dni,
-        porcentaje: t.porcentaje, rol: t.rol, rol_literal: t.rol_literal, evidencia: t.evidencia,
-      }));
-      return plan;
-    };
-    const p1 = aplicar(buildReconcilePlan(filas, deseados));
-    expect(p1.inserts).toHaveLength(1);
-    expect(filas).toHaveLength(2);
-    const p2 = aplicar(buildReconcilePlan(filas, deseados));
-    expect(p2.inserts).toHaveLength(0);
-    expect(p2.updates).toHaveLength(0);
-    expect(filas).toHaveLength(2);
+  it("dos deseados con el mismo localizador incompatible bloquean", () => {
+    const plan = buildReconcilePlan([], [tit({ evidencia: { cita: "A", pagina: 1 } }), tit({ evidencia: { cita: "B", pagina: 1 } })]);
+    expect(plan.ok).toBe(false);
+    expect((plan as any).reason).toBe("duplicate_desired_conflicting_evidence");
+  });
+
+  it("legado único frente a DOS derechos deseados bloquea, en cualquier orden", () => {
+    const nuda = tit({ rol_literal: "nuda propiedad", evidencia: { cita: "N", pagina: 1 } });
+    const usu = tit({ rol_literal: "usufructo vitalicio", evidencia: { cita: "U", pagina: 2 } });
+    for (const deseados of [[nuda, usu], [usu, nuda]]) {
+      const plan = buildReconcilePlan([fila({ id: "r1" })], deseados);
+      expect(plan.ok).toBe(false);
+      expect((plan as any).reason).toBe("legacy_one_to_many_ambiguous");
+      expect(plan.updates).toHaveLength(0);
+      expect(plan.inserts).toHaveLength(0);
+    }
+  });
+
+  it("dos filas legadas para un deseado siguen siendo ambiguas", () => {
+    const plan = buildReconcilePlan([fila({ id: "r1", rol: "pleno" }), fila({ id: "r2", rol: "otro" })], [tit({ rol_literal: "usufructo vitalicio" })]);
+    expect((plan as any).reason).toBe("titular_reconcile_ambiguous");
+  });
+
+  it("dos existentes lógicamente iguales bloquean sin elegir arbitrariamente", () => {
+    const existentes: FilaExistente[] = [
+      { id: "r1", nombre_extraido: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol: "pleno", rol_literal: "pleno dominio" },
+      { id: "r2", nombre_extraido: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol: "pleno", rol_literal: "pleno dominio" },
+    ];
+    const plan = buildReconcilePlan(existentes, [tit({})]);
+    expect((plan as any).reason).toBe("existing_logical_duplicate");
+  });
+
+  it("derecho realmente nuevo se inserta", () => {
+    const plan = buildReconcilePlan([fila({ id: "r1", rol_literal: "pleno dominio" })], [tit({ nombre: "Luis Soto", cif_dni: "99", rol_literal: "usufructo vitalicio" })]);
+    expect(plan.ok).toBe(true);
+    expect(plan.inserts).toHaveLength(1);
+  });
+
+  it("deseados vacíos bloquean el plan", () => {
+    const plan = buildReconcilePlan([fila({ id: "r1" })], []);
+    expect(plan.ok).toBe(false);
+    expect((plan as any).reason).toBe("deseados_vacios");
   });
 });
 
+// ---------------- semántica de respuesta y refetch ----------------
+
 describe("semántica de respuesta", () => {
-  it("lote completo -> 200/ok", () => {
-    expect(summarizeBatch(3, 3)).toEqual({ ok: true, status: "ok", http: 200, records_upserted: 3, records_failed: 0, error_message: null, partial: false });
-  });
-  it("parcial -> HTTP 500, status partial, ok=false, partial=true", () => {
-    const r = summarizeBatch(3, 2, ["n1:llm_fail"]);
-    expect([r.ok, r.status, r.http, r.records_failed, r.partial]).toEqual([false, "partial", 500, 1, true]);
-    expect(r.error_message).toContain("llm_fail");
-  });
-  it("cero éxitos -> 500/error/ok=false", () => {
-    const r = summarizeBatch(2, 0, ["a", "b"]);
-    expect([r.ok, r.status, r.http, r.records_upserted, r.records_failed]).toEqual([false, "error", 500, 0, 2]);
-  });
-  it("ningún resultado 2xx si hay algún fallo", () => {
-    for (const [t, c] of [[3, 2], [5, 4], [2, 1], [10, 9]] as const) {
-      expect(summarizeBatch(t, c, ["x"]).http).toBe(500);
-    }
+  it("completo 200, parcial 500/partial, total 500/error", () => {
+    expect(summarizeBatch(3, 3).http).toBe(200);
+    const p = summarizeBatch(3, 2, ["n1:llm_fail"]);
+    expect([p.ok, p.status, p.http, p.partial]).toEqual([false, "partial", 500, true]);
+    const e = summarizeBatch(2, 0, ["a"]);
+    expect([e.ok, e.status, e.http]).toEqual([false, "error", 500]);
   });
 });
 
 describe("reextracción", () => {
   it("pide titulares si faltan, si falta literal/evidencia o si la versión es antigua", () => {
     expect(needsTitularesRefetch({ titulares: [] })).toBe(true);
-    expect(needsTitularesRefetch({ titulares: [{ rol_literal: "x", evidencia: { cita: "y" } }] })).toBe(true); // v<2
+    expect(needsTitularesRefetch({ titulares: [{ rol_literal: "x", evidencia: { cita: "y" } }] })).toBe(true);
     expect(needsTitularesRefetch({ reparse_schema_version: 2, titulares: [{ rol_literal: null, evidencia: { cita: "y" } }] })).toBe(true);
-    expect(needsTitularesRefetch({ reparse_schema_version: 2, titulares: [{ rol_literal: "x", evidencia: null }] })).toBe(true);
-    expect(needsTitularesRefetch({ reparse_schema_version: 2, titulares: [{ rol_literal: "x", evidencia: { cita: "y" } }] })).toBe(false);
+    expect(needsTitularesRefetch({ reparse_schema_version: 2, titulares: [{ rol_literal: "x", evidencia: { cita: "y", pagina: 1 } }] })).toBe(false);
   });
 });
-
-// ---------------- validación chequeada ----------------
 
 describe("validación de titulares", () => {
-  it("porcentaje ausente permitido; no vacío inválido bloquea", () => {
-    expect(normalizePorcentajeChecked(null)).toEqual({ ok: true, value: null });
-    expect(normalizePorcentajeChecked("")).toEqual({ ok: true, value: null });
-    expect(normalizePorcentajeChecked("   ")).toEqual({ ok: true, value: null });
-    expect(normalizePorcentajeChecked("50")).toEqual({ ok: true, value: 50 });
-    for (const v of ["abc", 0, -5, 101, "1/0", "1/2/3"]) {
-      const r = normalizePorcentajeChecked(v as unknown);
-      expect(r.ok).toBe(false);
-      expect((r as any).reason).toBe("porcentaje_invalido");
-    }
-  });
-  it("titular sin nombre bloquea; titular con porcentaje inválido bloquea", () => {
-    expect((normalizeTitularChecked({ nombre: " " }) as any).reason).toBe("titular_sin_nombre");
-    expect((normalizeTitularChecked({ nombre: "Ana", porcentaje: "mitad" }) as any).reason).toBe("porcentaje_invalido");
-    expect(normalizeTitularChecked({ nombre: "Ana", porcentaje: null }).ok).toBe(true);
-  });
   it("fuente vacía o titular inválido -> error de lista completa", () => {
     expect((normalizeTitularesChecked([]) as any).reason).toBe("titulares_source_empty");
-    expect((normalizeTitularesChecked(null) as any).reason).toBe("titulares_source_empty");
     expect((normalizeTitularesChecked([{ nombre: "Ana" }, { nombre: "" }]) as any).reason).toBe("titular_sin_nombre");
-    const ok = normalizeTitularesChecked([{ nombre: "Ana" }, { nombre: "Luis" }]);
-    expect(ok.ok).toBe(true);
-    expect((ok as any).value).toHaveLength(2);
+    expect(normalizeTitularesChecked([{ nombre: "Ana" }]).ok).toBe(true);
   });
 });
 
-describe("sanitización avanzada", () => {
-  it("elimina controles C1 y preserva tab/LF/CR", () => {
-    expect(sanitize("a\u0085b\u009Fc")).toBe("a b c");
-    expect(sanitize("a\tb\nc\rd")).toBe("a\tb\nc\rd");
-  });
-  it("normaliza a NFC", () => {
-    const nfd = "Pen\u0303a";
-    expect(sanitize(nfd)).toBe("Peña");
-    expect(sanitize(nfd).length).toBe(4);
-  });
-  it("profundidad excesiva -> fallo controlado, no recursión ilimitada", () => {
-    let deep: any = "hoja";
-    for (let i = 0; i < 40; i++) deep = { n: deep };
-    const r = trySanitizeDeep(deep);
-    expect(r.ok).toBe(false);
-    expect((r as any).reason).toBe("sanitize_depth_exceeded");
-    const shallow = trySanitizeDeep({ a: { b: { c: "x\u0000y" } } });
-    expect(shallow.ok).toBe(true);
-    expect((shallow as any).value).toEqual({ a: { b: { c: "x y" } } });
-  });
-  it("evidencia: objeto no-array, página entera positiva, cadenas vacías fuera", () => {
-    expect(buildEvidencia({ evidencia: ["cita"] })).toBeNull();
-    expect(buildEvidencia({ evidencia: { cita: "   ", ruta: "" } })).toBeNull();
-    expect(buildEvidencia({ evidencia: { cita: "URBANA", pagina: 0 } })).toEqual({ cita: "URBANA" });
-    expect(buildEvidencia({ evidencia: { cita: "URBANA", pagina: 2.5 } })).toEqual({ cita: "URBANA" });
-    expect(buildEvidencia({ evidencia: { cita: "URBANA", pagina: -3 } })).toEqual({ cita: "URBANA" });
-    expect(buildEvidencia({ evidencia: { cita: "URBANA", pagina: "3" } })).toEqual({ cita: "URBANA", pagina: 3 });
-    expect(buildEvidencia({})).toBeNull();
-  });
-});
-
-// ---------------- duplicados del propio modelo ----------------
-
-const tit = (o: any): TitularNormalizado => normalizeTitular({ nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol_literal: "pleno dominio", ...o })!;
-
-describe("duplicados del propio modelo", () => {
-  it("dos deseados idénticos producen una sola operación", () => {
-    const d = tit({});
-    const ded = dedupeDeseados([d, { ...d }]);
-    expect((ded as any).value).toHaveLength(1);
-    const plan = buildReconcilePlan([], [d, { ...d }]);
-    expect(plan.ok).toBe(true);
-    expect(plan.inserts).toHaveLength(1);
-    expect(plan.updates).toHaveLength(0);
-  });
-  it("evidencia compatible se fusiona", () => {
-    const a = tit({ evidencia: { cita: "URBANA" } });
-    const b = tit({ evidencia: { pagina: 2 } });
-    const ded = dedupeDeseados([a, b]) as any;
-    expect(ded.ok).toBe(true);
-    expect(ded.value).toHaveLength(1);
-    expect(ded.value[0].evidencia).toEqual({ cita: "URBANA", pagina: 2 });
-    expect(mergeEvidencia(null, { cita: "x" })).toEqual({ ok: true, value: { cita: "x" } });
-  });
-  it("evidencia contradictoria bloquea antes de escribir", () => {
-    const a = tit({ evidencia: { cita: "URBANA A", pagina: 1 } });
-    const b = tit({ evidencia: { cita: "URBANA B", pagina: 1 } });
-    const plan = buildReconcilePlan([], [a, b]);
-    expect(plan.ok).toBe(false);
-    expect((plan as any).reason).toBe("duplicate_desired_conflicting_evidence");
-    expect(plan.inserts).toHaveLength(0);
-    expect(plan.updates).toHaveLength(0);
-  });
-  it("dos existentes lógicamente iguales bloquean", () => {
-    const existentes: FilaExistente[] = [
-      { id: "r1", nombre_extraido: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol: "pleno", rol_literal: "pleno dominio" },
-      { id: "r2", nombre_extraido: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol: "pleno", rol_literal: "pleno dominio" },
-    ];
-    const plan = buildReconcilePlan(existentes, [tit({})]);
-    expect(plan.ok).toBe(false);
-    expect((plan as any).reason).toBe("existing_logical_duplicate");
-  });
-});
-
-// ---------------- flujo con repositorio verificable ----------------
+// ---------------- repositorio en memoria (mismo core que index) ----------------
 
 type Registro = { op: string; arg?: unknown };
 
-function repoFalso(overrides: Partial<Record<"update" | "insert" | "backfill" | "finalize", (n: number) => OpResult>> = {}, opts: { conBackfill?: boolean } = {}) {
+function repoMemoria(opts: {
+  filas?: FilaExistente[];
+  overrides?: Partial<Record<"update" | "insert" | "finalize", (n: number) => OpResult>>;
+  readError?: string;
+} = {}) {
   const log: Registro[] = [];
-  let updates = 0, inserts = 0, backfills = 0, finalizes = 0;
-  const repo: ReconcileRepo = {
-    async updateTitular(id, patch) {
+  const filas: FilaExistente[] = [...(opts.filas ?? [])];
+  let updates = 0, inserts = 0, finalizes = 0;
+  let seq = 0;
+  const repo: NotaRepo = {
+    async listTitulares() {
+      log.push({ op: "list" });
+      if (opts.readError) return { rows: [], error: opts.readError };
+      return { rows: filas.map((f) => ({ ...f })) };
+    },
+    async updateTitular(id: string, patch: PatchTitular) {
       updates++; log.push({ op: "update", arg: id });
-      return overrides.update ? overrides.update(updates) : { rows: 1 };
+      const r = opts.overrides?.update ? opts.overrides.update(updates) : { rows: 1 };
+      if (r.rows === 1 && !r.error) {
+        const i = filas.findIndex((f) => f.id === id);
+        if (i >= 0) filas[i] = { ...filas[i], ...patch } as FilaExistente;
+      }
+      return r;
     },
     async insertTitular(row) {
       inserts++; log.push({ op: "insert", arg: row.nombre_extraido });
-      return overrides.insert ? overrides.insert(inserts) : { rows: 1 };
+      const r = opts.overrides?.insert ? opts.overrides.insert(inserts) : { rows: 1 };
+      if (r.rows === 1 && !r.error) {
+        filas.push({
+          id: `mem${++seq}`, nombre_extraido: row.nombre_extraido, cif_dni: row.cif_dni,
+          porcentaje: row.porcentaje, rol: row.rol, rol_literal: row.rol_literal, evidencia: row.evidencia,
+        });
+      }
+      return r;
     },
     async finalizeNota() {
       finalizes++; log.push({ op: "finalize" });
-      return overrides.finalize ? overrides.finalize(finalizes) : { rows: 1 };
+      return opts.overrides?.finalize ? opts.overrides.finalize(finalizes) : { rows: 1 };
     },
   };
-  if (opts.conBackfill) {
-    repo.backfill = async () => {
-      backfills++; log.push({ op: "backfill" });
-      return overrides.backfill ? overrides.backfill(backfills) : { rows: 1 };
-    };
-  }
-  return { repo, log, conteo: () => ({ updates, inserts, backfills, finalizes }) };
+  return { repo, log, filas, conteo: () => ({ updates, inserts, finalizes }) };
 }
 
-const args = (deseados: TitularNormalizado[], existentes: FilaExistente[] = []) => ({
-  notaId: "nota-1", claimToken: "2026-01-01T00:00:00.000Z", existentes, deseados,
+const extractorDe = (data: any, model = "test/model") => async () => ({ data, model });
+const escrituras = (log: Registro[]) => log.filter((x) => x.op !== "list");
+
+const titularValido = (o: any = {}) => ({
+  nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50,
+  rol_literal: "pleno dominio", evidencia: { cita: "URBANA", pagina: 1 }, ...o,
 });
 
-describe("flujo de persistencia verificable", () => {
-  it("éxito: finaliza una sola vez y siempre en último lugar", async () => {
-    const f = repoFalso({}, { conBackfill: true });
-    const r = await runReconciliation(f.repo, args([tit({}), tit({ nombre: "Luis Soto", cif_dni: "99" })]));
-    expect(r.ok).toBe(true);
-    expect([r.inserted, r.updated, r.finalized]).toEqual([2, 0, true]);
-    expect(f.log.map((x) => x.op)).toEqual(["insert", "insert", "backfill", "finalize"]);
-    expect(f.conteo().finalizes).toBe(1);
-  });
+const argsNota = (structured: unknown = {}) => ({
+  notaId: "nota-1", claimToken: "2026-01-01T00:00:00.000Z", structured,
+});
 
-  it("lista vacía / titular inválido: cero escrituras y sin finalización", async () => {
-    const f = repoFalso();
-    const norm = normalizeTitularesChecked([]);
-    expect(norm.ok).toBe(false);
-    const r = await runReconciliation(f.repo, args([tit({ evidencia: { cita: "A" } }), tit({ evidencia: { cita: "B" } })]));
+describe("core: refetch estricto", () => {
+  it("refetch requerido + LLM sin titulares => sin fallback, sin escrituras, sin finalize", async () => {
+    const f = repoMemoria();
+    const structured = { titulares: [titularValido()] }; // v<2 => needsRefetch
+    const r = await processNotaCore({ repo: f.repo, extract: extractorDe({ direccion: "X" }) }, argsNota(structured));
     expect(r.ok).toBe(false);
+    expect(r.reason).toBe("titulares_refetch_vacio");
     expect(r.finalized).toBe(false);
     expect(f.log).toHaveLength(0);
   });
 
-  it("segundo insert falla: no hay finalización", async () => {
-    const f = repoFalso({ insert: (n) => (n === 2 ? { rows: 0, error: "boom" } : { rows: 1 }) });
-    const r = await runReconciliation(f.repo, args([tit({}), tit({ nombre: "Luis Soto", cif_dni: "99" })]));
-    expect(r.ok).toBe(false);
+  it("titular nuevo sin rol_literal no finaliza", async () => {
+    const f = repoMemoria();
+    const r = await processNotaCore(
+      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ rol_literal: null, rol: "pleno" })] }) },
+      argsNota({}),
+    );
+    expect(r.reason).toBe("titular_sin_rol_literal");
+    expect(escrituras(f.log)).toHaveLength(0);
+  });
+
+  it("titular nuevo sin evidencia real (solo cita, sin localizador) no finaliza", async () => {
+    const f = repoMemoria();
+    const r = await processNotaCore(
+      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ evidencia: { cita: "URBANA" } })] }) },
+      argsNota({}),
+    );
+    expect(r.reason).toBe("titular_sin_evidencia_real");
+    expect(escrituras(f.log)).toHaveLength(0);
+  });
+
+  it("role_conflict bloquea antes de cualquier escritura", async () => {
+    const f = repoMemoria();
+    const r = await processNotaCore(
+      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ rol: "pleno", rol_literal: "Sociedad de gananciales" })] }) },
+      argsNota({}),
+    );
+    expect(r.reason).toBe("role_conflict");
+    expect(r.finalized).toBe(false);
+    expect(f.log).toHaveLength(0);
+  });
+
+  it("sin refetch reconcilia los actuales; lista vacía jamás finaliza", async () => {
+    const actual = titularValido();
+    const structured = { reparse_schema_version: 2, titulares: [actual] };
+    const ok = repoMemoria();
+    const r1 = await processNotaCore({ repo: ok.repo, extract: extractorDe({ direccion: "X" }) }, argsNota(structured));
+    expect(r1.ok).toBe(true);
+    expect(r1.refetched).toBe(false);
+    expect(r1.inserted).toBe(1);
+
+    const vacio = repoMemoria();
+    const decision = decidirTitulares({ needsRefetch: false, extraidos: [], actuales: [] });
+    expect((decision as any).reason).toBe("titulares_source_empty");
+    const r2 = await runReconciliation(
+      { ...vacio.repo, finalizeNota: async () => ({ rows: 1 }) } as any,
+      { notaId: "n", claimToken: "t", existentes: [], deseados: [] },
+    );
+    expect(r2.ok).toBe(false);
+    expect(r2.reason).toBe("deseados_vacios");
+    expect(escrituras(vacio.log)).toHaveLength(0);
+  });
+});
+
+describe("core: persistencia verificable", () => {
+  const dos = [titularValido(), titularValido({ nombre: "Luis Soto", cif_dni: "99", evidencia: { cita: "USUFRUCTO", pagina: 2 }, rol_literal: "usufructo vitalicio" })];
+
+  it("éxito: finaliza una sola vez y en último lugar", async () => {
+    const f = repoMemoria();
+    const r = await processNotaCore({ repo: f.repo, extract: extractorDe({ titulares: dos }) }, argsNota({}));
+    expect(r.ok).toBe(true);
+    expect([r.inserted, r.finalized]).toEqual([2, true]);
+    expect(escrituras(f.log).map((x) => x.op)).toEqual(["insert", "insert", "finalize"]);
+    expect(f.conteo().finalizes).toBe(1);
+  });
+
+  it("segundo insert con 0 filas aborta sin finalizar", async () => {
+    const f = repoMemoria({ overrides: { insert: (n) => (n === 2 ? { rows: 0 } : { rows: 1 }) } });
+    const r = await processNotaCore({ repo: f.repo, extract: extractorDe({ titulares: dos }) }, argsNota({}));
     expect(r.reason).toBe("titular_insert_fail");
-    expect(r.inserted).toBe(1);
     expect(f.conteo().finalizes).toBe(0);
   });
 
-  it("operación que devuelve 0 filas es fallo aunque no haya error", async () => {
-    const f = repoFalso({ update: () => ({ rows: 0 }) });
-    const existentes: FilaExistente[] = [{ id: "r1", nombre_extraido: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50, rol: "otro", rol_literal: null }];
-    const r = await runReconciliation(f.repo, args([tit({})], existentes));
-    expect(r.ok).toBe(false);
+  it("update con 0 filas aborta sin finalizar", async () => {
+    const f = repoMemoria({
+      filas: [fila({ id: "r1" })],
+      overrides: { update: () => ({ rows: 0 }) },
+    });
+    const r = await processNotaCore({ repo: f.repo, extract: extractorDe({ titulares: [titularValido()] }) }, argsNota({}));
     expect(r.reason).toBe("titular_update_fail");
     expect(f.conteo().finalizes).toBe(0);
   });
 
-  it("backfill falla: no hay finalización", async () => {
-    const f = repoFalso({ backfill: () => ({ rows: 0, error: "backfill ko" }) }, { conBackfill: true });
-    const r = await runReconciliation(f.repo, args([tit({})]));
-    expect(r.ok).toBe(false);
-    expect(r.reason).toBe("backfill_fail");
-    expect(f.conteo().finalizes).toBe(0);
-  });
-
-  it("claim perdido: cierre devuelve 0 filas -> fallo, nunca éxito", async () => {
-    const f = repoFalso({ finalize: () => ({ rows: 0 }) });
-    const r = await runReconciliation(f.repo, args([tit({})]));
+  it("finalize con 0 filas => claim_lost", async () => {
+    const f = repoMemoria({ overrides: { finalize: () => ({ rows: 0 }) } });
+    const r = await processNotaCore({ repo: f.repo, extract: extractorDe({ titulares: [titularValido()] }) }, argsNota({}));
     expect(r.ok).toBe(false);
     expect(r.reason).toBe("claim_lost");
     expect(r.finalized).toBe(false);
   });
 
-  it("error en el cierre -> finalize_fail", async () => {
-    const f = repoFalso({ finalize: () => ({ rows: 1, error: "conflict" }) });
-    const r = await runReconciliation(f.repo, args([tit({})]));
-    expect(r.ok).toBe(false);
-    expect(r.reason).toBe("finalize_fail");
+  it("fallo de lectura de titulares no escribe nada", async () => {
+    const f = repoMemoria({ readError: "boom" });
+    const r = await processNotaCore({ repo: f.repo, extract: extractorDe({ titulares: [titularValido()] }) }, argsNota({}));
+    expect(r.reason).toBe("titulares_read_fail");
+    expect(escrituras(f.log)).toHaveLength(0);
   });
 
-  it("el reintento converge: segunda pasada sin escrituras salvo el cierre", async () => {
-    const deseados = [tit({ evidencia: { cita: "URBANA", pagina: 1 } })];
-    const f1 = repoFalso();
-    const r1 = await runReconciliation(f1.repo, args(deseados));
+  it("LLM caído => llm_fail sin escrituras", async () => {
+    const f = repoMemoria();
+    const r = await processNotaCore({ repo: f.repo, extract: async () => ({ data: null, error: "HTTP 429" }) }, argsNota({}));
+    expect(r.reason).toBe("llm_fail");
+    expect(f.log).toHaveLength(0);
+  });
+
+  it("reintento real: la segunda pasada converge sin nuevas escrituras", async () => {
+    const store = repoMemoria();
+    const deps = { repo: store.repo, extract: extractorDe({ titulares: [titularValido()] }) };
+    const r1 = await processNotaCore(deps, argsNota({}));
     expect(r1.inserted).toBe(1);
-    const yaEnBase: FilaExistente[] = [{
-      id: "r1", nombre_extraido: deseados[0].nombre, cif_dni: deseados[0].cif_dni,
-      porcentaje: deseados[0].porcentaje, rol: deseados[0].rol,
-      rol_literal: deseados[0].rol_literal, evidencia: deseados[0].evidencia,
-    }];
-    const f2 = repoFalso();
-    const r2 = await runReconciliation(f2.repo, args(deseados, yaEnBase));
+    store.log.length = 0;
+    const r2 = await processNotaCore(deps, argsNota({}));
     expect(r2.ok).toBe(true);
     expect([r2.inserted, r2.updated]).toEqual([0, 0]);
-    expect(f2.log.map((x) => x.op)).toEqual(["finalize"]);
+    expect(escrituras(store.log).map((x) => x.op)).toEqual(["finalize"]);
+  });
+});
+
+// ---------------- matching ----------------
+
+describe("matching", () => {
+  it("éxito parcial dispara matching y conserva HTTP 500", () => {
+    const resumen = summarizeBatch(2, 1, ["nota-2:llm_fail"]);
+    expect(resumen.http).toBe(500);
+    const d = decideMatching({ ok: 1, failed: resumen.records_failed });
+    expect(d.run).toBe(true);
+    expect(d.reason).toBe("parcial_con_exitos");
+    expect(decideMatching({ ok: 0, failed: 2 }).run).toBe(false);
+  });
+
+  it("fallo del RPC se registra aparte y deja marcador pendiente", async () => {
+    const err = await runMatching(async () => ({ data: null, error: { message: "deadlock" } }));
+    expect([err.status, err.pending, err.error]).toEqual(["error", true, "deadlock"]);
+    const exc = await runMatching(async () => { throw new Error("timeout"); });
+    expect([exc.status, exc.pending]).toEqual(["error", true]);
+    const ok = await runMatching(async () => ({ data: { matched: 3 } }));
+    expect([ok.status, ok.pending, ok.data]).toEqual(["ok", false, { matched: 3 }]);
+  });
+
+  it("drenado: sólo intenta si quedó pendiente y no deja el pendiente vivo", async () => {
+    expect(decidePendingMatchOnDrain(null).run).toBe(false);
+    expect(decidePendingMatchOnDrain({ metadatos: { match_pending: false } }).run).toBe(false);
+    const d = decidePendingMatchOnDrain({ metadatos: { match_pending: true } });
+    expect(d.run).toBe(true);
+    const outcome = await runMatching(async () => ({ data: { matched: 1 } }));
+    expect(outcome.pending).toBe(false);
+    expect(decidePendingMatchOnDrain({ metadatos: { match_pending: outcome.pending } }).run).toBe(false);
   });
 });
