@@ -68,12 +68,14 @@ export default function GestorComerciales() {
     queryFn: async (): Promise<Task[]> => {
       const { data, error } = await supabase
         .from("building_tasks")
-        .select("id,user_id,status,task_type,title,created_at,completed_at,due_date")
+        .select("id,user_id,status,task_type,task_key,title,created_at,completed_at,due_date")
         .gte("created_at", since)
+        .or(VISIBLE_OPERATIONAL_TASK_OR_FILTER)
         .order("created_at", { ascending: false })
         .limit(5000);
       if (error) throw new Error(`No se pudo leer building_tasks: ${error.message}`);
-      return (data ?? []) as Task[];
+      // Defensive client-side filter on top of the server-side filter.
+      return filterVisibleOperationalTasks((data ?? []) as Task[]);
     },
   });
 
