@@ -2,6 +2,7 @@
 // Aprobar: upsert owners + building_owners + co-domicilios T8, avanza fase a hubspot.
 // Rechazar: marca verificación rechazada, no escribe nada.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { tecnofindIncidenciaTrasVerificacion } from "./tasks.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
