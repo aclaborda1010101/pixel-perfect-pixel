@@ -9,9 +9,21 @@ import {
   type TitularNormalizado,
 } from "../../supabase/functions/notas_simples_reparse/lib";
 import {
+  normalizePorcentajeChecked,
+  normalizeTitularChecked,
+  normalizeTitularesChecked,
+  trySanitizeDeep,
+  buildEvidencia,
+} from "../../supabase/functions/notas_simples_reparse/lib";
+import {
   buildReconcilePlan,
   summarizeBatch,
   needsTitularesRefetch,
+  dedupeDeseados,
+  mergeEvidencia,
+  runReconciliation,
+  type ReconcileRepo,
+  type OpResult,
   type FilaExistente,
 } from "../../supabase/functions/notas_simples_reparse/reconcile";
 
