@@ -220,7 +220,7 @@ async function callLLM(messages: any[]): Promise<{ data: ExtractedFields | null;
 
 // ---------- procesamiento por nota ----------
 
-async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean; reason?: string; ref_catastral?: string | null; direccion?: string | null; titulares_insertados?: number; titulares_actualizados?: number }> {
+async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id: string; ok: boolean; reason?: string; ref_catastral?: string | null; direccion?: string | null; titulares_insertados?: number; titulares_actualizados?: number; attempt_count?: number; dead_letter?: boolean }> {
   const id = nota.id as string;
   try {
     // 1) Descargar PDF
@@ -274,72 +274,64 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
     if (Object.keys(finca).length) merged.finca = finca;
 
     // Titulares: usa los extraídos si llegan; si no, normaliza los actuales.
+    // Fuente vacía, titular sin nombre o porcentaje no vacío inválido => la nota NO se cierra.
     const fuenteTitulares = (Array.isArray(extracted.titulares) && extracted.titulares.length)
       ? extracted.titulares
       : currentTitulares;
-    const titulares: TitularNormalizado[] = (fuenteTitulares as any[])
-      .map((t) => normalizeTitular(t))
-      .filter((t): t is TitularNormalizado => !!t);
-    if (titulares.length) merged.titulares = titulares;
+    const norm = normalizeTitularesChecked(fuenteTitulares);
+    if (!norm.ok) {
+      return { id, ok: false, reason: `${norm.reason}:${norm.detalle ?? ""}`.slice(0, 400) };
+    }
+    const titulares: TitularNormalizado[] = norm.value;
+    merged.titulares = titulares;
 
     merged.reparse_model = llm.model ?? null;
-
-    // 3.bis) Conciliar titulares ANTES de marcar reparse_done: si falla algo,
-    // la nota NO se marca como hecha y entra en retry/backoff/dead-letter.
-    let titInserted = 0;
-    let titUpdated = 0;
-    if (titulares.length) {
-      const { data: existing, error: exErr } = await sb.from("nota_simple_titulares")
-        .select("id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, evidencia")
-        .eq("nota_simple_id", id);
-      if (exErr) return { id, ok: false, reason: `titulares_read_fail:${exErr.message}`.slice(0, 400) };
-
-      const plan = buildReconcilePlan(existing ?? [], titulares);
-      if (!plan.ok) {
-        return { id, ok: false, reason: `${plan.reason}:${plan.detalle}`.slice(0, 400) };
-      }
-      for (const u of plan.updates) {
-        const { error } = await sb.from("nota_simple_titulares").update(u.patch).eq("id", u.id);
-        if (error) return { id, ok: false, reason: `titular_update_fail:${error.message}`.slice(0, 400) };
-        titUpdated++;
-      }
-      for (const t of plan.inserts) {
-        const { error } = await sb.from("nota_simple_titulares").insert({
-          nota_simple_id: id,
-          nombre_extraido: t.nombre,
-          cif_dni: t.cif_dni,
-          porcentaje: t.porcentaje,
-          rol: t.rol,
-          rol_literal: t.rol_literal,
-          evidencia: t.evidencia,
-        });
-        if (error) {
-          console.warn(`[notas_reparse] tit insert ${id}:`, error.message);
-          return { id, ok: false, reason: `titular_insert_fail:${error.message}`.slice(0, 400) };
-        }
-        titInserted++;
-      }
-    }
-
     merged.reparse_schema_version = 2;
 
-    // 4) Marcar la nota como reparseada
-    const { error: updErr } = await sb.from("notas_simples").update({
-      raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
-      structured_json: merged,
-      attempt_count: (nota.attempt_count ?? 0) + 1,
-      last_error: null,
-      next_retry_at: null,
-      claimed_at: null,
-    }).eq("id", id);
-    if (updErr) return { id, ok: false, reason: `update_fail:${updErr.message}` };
+    // 3.bis) Conciliar titulares ANTES de cerrar la nota. Cada escritura debe
+    // devolver exactamente una fila; el cierre va SIEMPRE al final y condicionado al claim.
+    const { data: existing, error: exErr } = await sb.from("nota_simple_titulares")
+      .select("id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, evidencia")
+      .eq("nota_simple_id", id);
+    if (exErr) return { id, ok: false, reason: `titulares_read_fail:${exErr.message}`.slice(0, 400) };
+
+    const repo: ReconcileRepo = {
+      async updateTitular(rowId, patch): Promise<OpResult> {
+        const { data, error } = await sb.from("nota_simple_titulares")
+          .update(patch).eq("id", rowId).select("id").maybeSingle();
+        return { rows: data ? 1 : 0, error: error?.message ?? null };
+      },
+      async insertTitular(row): Promise<OpResult> {
+        const { data, error } = await sb.from("nota_simple_titulares")
+          .insert(row).select("id").maybeSingle();
+        return { rows: data ? 1 : 0, error: error?.message ?? null };
+      },
+      async finalizeNota({ id: notaId, claimToken: token }): Promise<OpResult> {
+        const { data, error } = await sb.from("notas_simples").update({
+          raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
+          structured_json: merged,
+          attempt_count: (nota.attempt_count ?? 0) + 1,
+          last_error: null,
+          next_retry_at: null,
+          claimed_at: null,
+        }).eq("id", notaId).eq("claimed_at", token).select("id").maybeSingle();
+        return { rows: data ? 1 : 0, error: error?.message ?? null };
+      },
+    };
+
+    const res = await runReconciliation(repo, {
+      notaId: id, claimToken, existentes: existing ?? [], deseados: titulares,
+    });
+    if (!res.ok) {
+      return { id, ok: false, reason: `${res.reason}:${res.detalle ?? ""}`.slice(0, 400) };
+    }
 
     return {
       id, ok: true,
       ref_catastral: merged.ref_catastral ?? null,
       direccion: merged.direccion ?? null,
-      titulares_insertados: titInserted,
-      titulares_actualizados: titUpdated,
+      titulares_insertados: res.inserted,
+      titulares_actualizados: res.updated,
     };
   } catch (e) {
     return { id, ok: false, reason: `exception:${(e as Error).message ?? String(e)}`.slice(0, 300) };
