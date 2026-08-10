@@ -156,13 +156,13 @@ ${rawText.slice(0, 60000)}
 
 function buildVisionMessages(pdfDataUrl: string, needTitulares: boolean) {
   const schemaHint = needTitulares
-    ? `{ "direccion": "...", "ref_catastral": "...", "finca_numero": "...", "registro": "...", "titulares": [{ "nombre": "...", "cif_dni": "...", "porcentaje": 0-100, "rol": "pleno|usufructo|nuda_propiedad|otro" }] }`
+    ? `{ "direccion": "...", "ref_catastral": "...", "finca_numero": "...", "registro": "...", "titulares": [{ "nombre": "...", "cif_dni": "...", "porcentaje": 0-100, "rol": "pleno|usufructo|nuda_propiedad|ganancial|otro", "rol_literal": "...", "evidencia": { "cita": "...", "pagina": 1, "ruta": "..." } }] }`
     : `{ "direccion": "...", "ref_catastral": "...", "finca_numero": "...", "registro": "..." }`;
   return [
     {
       role: "user",
       content: [
-        { type: "text", text: `Extrae de esta NOTA SIMPLE los datos y devuelve SOLO JSON:\n${schemaHint}\n\nReglas: dirección de la FINCA (no del titular); convierte números escritos en letra a cifra; porcentajes 0-100; omite lo que no aparezca.` },
+        { type: "text", text: `Extrae de esta NOTA SIMPLE los datos y devuelve SOLO JSON:\n${schemaHint}\n\nReglas: dirección de la FINCA (no del titular); convierte números escritos en letra a cifra; porcentajes 0-100; "rol" sólo puede ser pleno, usufructo, nuda_propiedad, ganancial u otro (usa "otro" si no está claro, NUNCA "pleno" por defecto); un mismo titular con derechos distintos va en filas separadas; "rol_literal" y "evidencia" sólo si constan realmente; omite lo que no aparezca.` },
         { type: "image_url", image_url: { url: pdfDataUrl } },
       ],
     },
