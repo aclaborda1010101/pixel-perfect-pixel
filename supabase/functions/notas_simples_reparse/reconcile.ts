@@ -19,9 +19,14 @@ export type PatchTitular = {
   evidencia?: unknown;
 };
 
+export type MotivoBloqueo =
+  | "titular_reconcile_ambiguous"
+  | "duplicate_desired_conflicting_evidence"
+  | "existing_logical_duplicate";
+
 export type PlanConciliacion =
   | { ok: true; updates: Array<{ id: string; patch: PatchTitular }>; inserts: TitularNormalizado[] }
-  | { ok: false; reason: "titular_reconcile_ambiguous"; detalle: string; updates: []; inserts: [] };
+  | { ok: false; reason: MotivoBloqueo; detalle: string; updates: []; inserts: [] };
 
 function stable(v: unknown): string {
   if (v == null) return "null";
@@ -37,6 +42,52 @@ function esLegado(f: FilaExistente): boolean {
   return !f.rol_literal || !String(f.rol_literal).trim();
 }
 
+type Ev = Record<string, unknown> | null;
+
+/**
+ * Fusiona dos evidencias: null + X = X; claves compartidas con valores distintos = conflicto.
+ */
+export function mergeEvidencia(a: unknown, b: unknown): { ok: true; value: Ev } | { ok: false } {
+  const oa = (a && typeof a === "object" && !Array.isArray(a)) ? a as Record<string, unknown> : null;
+  const ob = (b && typeof b === "object" && !Array.isArray(b)) ? b as Record<string, unknown> : null;
+  if (a != null && oa == null) return { ok: false };
+  if (b != null && ob == null) return { ok: false };
+  if (oa == null) return { ok: true, value: ob };
+  if (ob == null) return { ok: true, value: oa };
+  const out: Record<string, unknown> = { ...oa };
+  for (const [k, v] of Object.entries(ob)) {
+    if (k in out && stable(out[k]) !== stable(v)) return { ok: false };
+    out[k] = v;
+  }
+  return { ok: true, value: out };
+}
+
+/**
+ * Deduplica los DESEADOS entre sí antes de mirar la base: dos deseados con la misma
+ * identidad lógica se fusionan si su evidencia es compatible; si no, se bloquea.
+ */
+export function dedupeDeseados(
+  deseados: TitularNormalizado[],
+): { ok: true; value: TitularNormalizado[] } | { ok: false; reason: MotivoBloqueo; detalle: string } {
+  const porClave = new Map<string, TitularNormalizado>();
+  const orden: string[] = [];
+  for (const d of deseados) {
+    const k = logicalRightKey(d);
+    const prev = porClave.get(k);
+    if (!prev) {
+      porClave.set(k, d);
+      orden.push(k);
+      continue;
+    }
+    const merged = mergeEvidencia(prev.evidencia ?? null, d.evidencia ?? null);
+    if (!merged.ok) {
+      return { ok: false, reason: "duplicate_desired_conflicting_evidence", detalle: k };
+    }
+    porClave.set(k, { ...prev, evidencia: (merged.value ?? null) as TitularNormalizado["evidencia"] });
+  }
+  return { ok: true, value: orden.map((k) => porClave.get(k)!) };
+}
+
 /**
  * Devuelve el plan mínimo para que las filas existentes reflejen exactamente `deseados`.
  * - Coincidencia por identidad lógica -> UPDATE solo si cambia rol/rol_literal/evidencia.
@@ -46,8 +97,12 @@ function esLegado(f: FilaExistente): boolean {
  */
 export function buildReconcilePlan(
   existentes: FilaExistente[],
-  deseados: TitularNormalizado[],
+  deseadosRaw: TitularNormalizado[],
 ): PlanConciliacion {
+  const ded = dedupeDeseados(deseadosRaw ?? []);
+  if (!ded.ok) return { ok: false, reason: ded.reason, detalle: ded.detalle, updates: [], inserts: [] };
+  const deseados = ded.value;
+
   const updates: Array<{ id: string; patch: PatchTitular }> = [];
   const inserts: TitularNormalizado[] = [];
   const consumidas = new Set<string>();
@@ -59,6 +114,13 @@ export function buildReconcilePlan(
     const bk = baseIdentityKey(f);
     (porLogica.get(lk) ?? porLogica.set(lk, []).get(lk)!).push(f);
     (porBase.get(bk) ?? porBase.set(bk, []).get(bk)!).push(f);
+  }
+
+  // Dos filas ya existentes con la misma identidad lógica: no se elige una al azar.
+  for (const [k, filas] of porLogica) {
+    if (filas.length > 1) {
+      return { ok: false, reason: "existing_logical_duplicate", detalle: `${filas.length} filas para ${k}`, updates: [], inserts: [] };
+    }
   }
 
   for (const d of deseados) {
