@@ -110,11 +110,13 @@ export default function ComercialDashboard() {
 
       // 7. Tareas pendientes del usuario
       const { data: tasksData } = await (supabase.from("building_tasks" as any) as any)
-        .select("id,title,priority,task_type,building_id,status,created_at")
+        .select("id,title,priority,task_type,task_key,building_id,status,created_at")
         .eq("user_id", userId)
         .in("status", ["pending", "in_progress"])
+        .or(VISIBLE_OPERATIONAL_TASK_OR_FILTER)
         .order("created_at", { ascending: false });
-      const tasks = (tasksData ?? []) as any[];
+      // Defensive client-side filter on top of the server-side filter.
+      const tasks = filterVisibleOperationalTasks((tasksData ?? []) as any[]);
 
       // 7b. Feedback que requiere código (solo admin)
       const { count: requiereCodigoCount } = await (supabase.from("building_feedback" as any) as any)
@@ -263,7 +265,7 @@ export default function ComercialDashboard() {
           <CardContent className="p-0">
             {topTasks.length === 0 ? (
               <div className="px-5 py-4 text-sm text-muted-foreground">
-                Sin tareas pendientes. Entra a un edificio y pulsa <em>Re-evaluar</em> para detectar nuevas.
+                Sin tareas pendientes.
               </div>
             ) : (
               <ul className="divide-y divide-border-faint">
