@@ -5,6 +5,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { useMustChangePassword } from "@/hooks/useMustChangePassword";
 import { decideAccess } from "@/lib/access";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ProtectedRouteProps {
   children?: ReactNode;
@@ -20,7 +22,7 @@ export function ProtectedRoute({ children, redirectTo = "/login" }: ProtectedRou
   const { session, loading } = useAuth();
   const location = useLocation();
   const { role, loading: roleLoading } = useCurrentRole();
-  const { mustChange, loading: pwdLoading } = useMustChangePassword();
+  const { mustChange, loading: pwdLoading, error: pwdError, refetch: refetchPwd } = useMustChangePassword();
 
   if (DEMO_MODE) return <>{children ?? <Outlet />}</>;
   if (loading || (session && (roleLoading || pwdLoading))) {
@@ -34,6 +36,24 @@ export function ProtectedRoute({ children, redirectTo = "/login" }: ProtectedRou
   }
   if (!session) {
     return <Navigate to={redirectTo} state={{ from: location.pathname }} replace />;
+  }
+  // Falla cerrado: sin poder verificar el estado de la contraseña no se entra.
+  if (pwdError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+        <div>
+          <h1 className="text-lg font-semibold">No se puede verificar tu cuenta</h1>
+          <p className="mt-1 max-w-md text-sm text-muted-foreground">
+            No hemos podido comprobar si debes cambiar la contraseña, así que el acceso queda bloqueado por seguridad.
+          </p>
+          <p className="mt-2 font-mono text-[11px] text-muted-foreground">{pwdError.message}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetchPwd()}>Reintentar</Button>
+          <Button onClick={() => supabase.auth.signOut()}>Cerrar sesión</Button>
+        </div>
+      </div>
+    );
   }
   const decision = decideAccess({ role, pathname: location.pathname, mustChangePassword: mustChange });
   if (decision.type === "redirect") {

@@ -49,6 +49,7 @@ export function AppSidebar() {
   const { user } = useAuth();
   const isComercial = role === "comercial_zona";
   const isWhatsapp = role === "whatsapp";
+  const isSalesManager = role === "sales_manager";
 
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
@@ -57,7 +58,9 @@ export function AppSidebar() {
   // Hover/focus → precarga el chunk de la ruta y los datos de su primera página.
   const handlePrefetch = (path: string) => prefetchRoute(path, queryClient);
 
-  const operativa: Item[] = isWhatsapp ? [
+  const operativa: Item[] = isSalesManager ? [
+    { url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 },
+  ] : isWhatsapp ? [
     { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
   ] : isComercial ? [
     { url: "/comercial", label: "Inicio", icon: LayoutDashboard },
@@ -69,7 +72,7 @@ export function AppSidebar() {
     { url: "/propietarios", label: t.nav.owners, icon: Users },
     { url: "/inversores", label: t.nav.investors, icon: TrendingUp },
   ];
-  const captacion: Item[] = isComercial || isWhatsapp ? [] : [
+  const captacion: Item[] = isComercial || isWhatsapp || isSalesManager ? [] : [
     { url: "/leads", label: t.nav.leads, icon: Inbox },
     { url: "/notas-simples", label: t.nav.notasSimples, icon: FileText },
     { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
@@ -78,7 +81,7 @@ export function AppSidebar() {
     { url: "/llamadas", label: t.nav.calls, icon: PhoneCall },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
   ] : [];
-  const ia: Item[] = isWhatsapp ? [] : isComercial ? [
+  const ia: Item[] = isWhatsapp || isSalesManager ? [] : isComercial ? [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
   ] : [
     { url: "/asistente", label: t.nav.assistant, icon: MessageSquare },
@@ -90,7 +93,7 @@ export function AppSidebar() {
   const gestion: Item[] = (role === "admin" || role === "sales_manager")
     ? [{ url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 } as Item]
     : [];
-  const cuenta: Item[] = isWhatsapp ? [] : isComercial ? [
+  const cuenta: Item[] = isWhatsapp || isSalesManager ? [] : isComercial ? [
     { url: "/comercial/cuenta", label: "Mi cuenta", icon: UserCircle },
   ] : [
     ...gestion,
@@ -205,12 +208,12 @@ export function AppSidebar() {
         )}
       </SidebarHeader>
       <SidebarContent className="bg-sidebar">
-        {renderGroup(isWhatsapp ? "WhatsApp" : isComercial ? "Operativa" : t.nav.groupOperativa, operativa)}
-        {isWhatsapp ? null : isComercial
+        {renderGroup(isSalesManager ? "Gestión" : isWhatsapp ? "WhatsApp" : isComercial ? "Operativa" : t.nav.groupOperativa, operativa)}
+        {isWhatsapp || isSalesManager ? null : isComercial
           ? renderGroup("Mi trabajo", miTrabajo)
           : renderGroup(t.nav.groupCaptacion, captacion)}
-        {isWhatsapp ? null : renderGroup(isComercial ? "Herramientas" : t.nav.groupIA, ia)}
-        {isWhatsapp ? null : renderGroup(isComercial ? "Cuenta" : t.nav.groupCuenta, cuenta)}
+        {isWhatsapp || isSalesManager ? null : renderGroup(isComercial ? "Herramientas" : t.nav.groupIA, ia)}
+        {isWhatsapp || isSalesManager ? null : renderGroup(isComercial ? "Cuenta" : t.nav.groupCuenta, cuenta)}
       </SidebarContent>
     </Sidebar>
   );
