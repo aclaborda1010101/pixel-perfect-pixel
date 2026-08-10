@@ -268,11 +268,35 @@ BEGIN
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000010';
   PERFORM pg_temp.assert(NOT v.evidence_ok, 'H: derecho equivocado invalida la evidencia');
   PERFORM pg_temp.assert((v.evidence_ref ->> 'derecho_ok')::boolean IS FALSE, 'H: derecho_ok=false');
+  -- el raw_pdf_text de la nota SÍ contiene el dato correcto: no debe rescatar
+  PERFORM pg_temp.assert(v.evidence_ref ->> 'fuente' = 'titular.evidencia',
+                         'H: la evidencia principal contradictoria no se rescata con raw_pdf_text');
 
   -- I · evidencia con porcentaje equivocado
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000011';
   PERFORM pg_temp.assert(NOT v.evidence_ok, 'I: porcentaje equivocado invalida la evidencia');
   PERFORM pg_temp.assert((v.evidence_ref ->> 'porcentaje_ok')::boolean IS FALSE, 'I: porcentaje_ok=false');
+  PERFORM pg_temp.assert(v.evidence_ref ->> 'fuente' = 'titular.evidencia',
+                         'I: la evidencia principal contradictoria no se rescata con raw_pdf_text');
+
+  -- M · negativos de structured_json (fallback legítimo, pero no debe aprobar)
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000019';
+  PERFORM pg_temp.assert(NOT v.evidence_ok, 'M1: derecho distinto en structured_json no vale');
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-00000000001a';
+  PERFORM pg_temp.assert(NOT v.evidence_ok, 'M2: porcentaje distinto en structured_json no vale');
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-00000000001b';
+  PERFORM pg_temp.assert(NOT v.evidence_ok, 'M3: localizador vacío no es trazabilidad');
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-00000000001c';
+  PERFORM pg_temp.assert(NOT v.evidence_ok, 'M4: porcentaje textual no numérico no vale');
+  PERFORM pg_temp.assert((SELECT bool_or(feeds_cuota) FROM _s
+                          WHERE building_id = (SELECT b7 FROM _ids)) IS NOT TRUE,
+                         'M: ninguna fila de B7 alimenta cuota');
+
+  -- p0_parse_pct: seguro y tolerante, nunca lanza cast
+  PERFORM pg_temp.assert(public.p0_parse_pct('50,00 %') = 50, 'parse_pct: coma y %');
+  PERFORM pg_temp.assert(public.p0_parse_pct(' 45.5 ') = 45.5, 'parse_pct: punto y espacios');
+  PERFORM pg_temp.assert(public.p0_parse_pct('cincuenta por ciento') IS NULL, 'parse_pct: texto no numérico → NULL');
+  PERFORM pg_temp.assert(public.p0_parse_pct(NULL) IS NULL, 'parse_pct: NULL → NULL');
 
   -- 100 con coma y con punto deben reconocerse igual
   PERFORM pg_temp.assert('El pleno dominio del 100,00 % de ANA' ~ public.p0_pct_regex(100), 'pct: coma');
@@ -331,10 +355,15 @@ BEGIN
   -- K · conflicto owner_id + company_id: se conservan ambos en auditoría, bloqueado
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000016';
   PERFORM pg_temp.assert(v.conflicto_ids, 'K: conflicto detectado');
+  PERFORM pg_temp.assert(v.owner_id IS NULL AND v.company_id IS NULL,
+                         'K: la salida operativa deja owner_id y company_id en NULL');
   PERFORM pg_temp.assert(NOT v.feeds_cuota AND v.review_flag, 'K: bloqueado sin cuota');
   PERFORM pg_temp.assert((v.audit_ids ->> 'pre_owner_id') IS NOT NULL
                          AND (v.audit_ids ->> 'pre_company_id') IS NOT NULL,
                          'K: ambos IDs originales conservados en auditoría');
+  -- ninguna fila puede salir con ambos IDs reales
+  PERFORM pg_temp.assert((SELECT count(*) FROM _s WHERE owner_id IS NOT NULL AND company_id IS NOT NULL) = 0,
+                         'ninguna fila operativa con owner_id y company_id a la vez');
 
   -- L · company_id preexistente fuerza es_sociedad y conserva el vínculo
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000018';
@@ -359,6 +388,9 @@ BEGIN
   PERFORM pg_temp.assert((v_dry ->> 'capas_completas')::int >= 1, 'debe detectar al menos una capa completa');
   PERFORM pg_temp.assert((v_dry ->> 'contradicciones')::int >= 1, 'debe detectar la contradicción 60/40 vs 50/50');
   PERFORM pg_temp.assert((v_dry ->> 'duplicados_identicos')::int >= 1, 'debe detectar el duplicado idéntico');
+  PERFORM pg_temp.assert((v_dry ->> 'mezcla_owner_company')::int = 0, 'mezcla_owner_company debe ser 0');
+  PERFORM pg_temp.assert((v_dry -> 'invariants' ->> 'sin_mezcla_owner_company')::boolean,
+                         'invariante sin_mezcla_owner_company debe ser true');
   PERFORM pg_temp.assert((v_dry ->> 'invariants_ok')::boolean, 'invariants_ok debe ser true');
 
   -- Rebuild real deshabilitado
