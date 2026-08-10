@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { postPasswordChangePath } from "@/lib/access";
+import { FEATURE_FORCE_PASSWORD_EDGE_FN } from "@/lib/featureFlags";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,16 +28,34 @@ export default function CambiarPasswordObligatorio() {
     if (pwd.length < 10) return setError("La contraseña debe tener al menos 10 caracteres.");
     if (pwd !== pwd2) return setError("Las contraseñas no coinciden.");
     setSaving(true);
-    const { error: upErr } = await supabase.auth.updateUser({ password: pwd });
-    if (upErr) {
+
+    if (FEATURE_FORCE_PASSWORD_EDGE_FN) {
+      // Ruta definitiva (edge function aún NO desplegada): cambia la contraseña
+      // y baja el flag con service role. Si sólo se completa la primera parte,
+      // el acceso sigue bloqueado y se informa del estado parcial.
+      const { data, error: fnErr } = await supabase.functions.invoke("force_password_change", {
+        body: { password: pwd },
+      });
       setSaving(false);
-      return setError(upErr.message);
+      if (fnErr) return setError(fnErr.message);
+      if (!data?.ok) {
+        return setError(
+          data?.error ?? "No se pudo completar el cambio de contraseña. El acceso sigue bloqueado.",
+        );
+      }
+    } else {
+      const { error: upErr } = await supabase.auth.updateUser({ password: pwd });
+      if (upErr) {
+        setSaving(false);
+        return setError(upErr.message);
+      }
+      const { error: profErr } = await (supabase.from("profiles") as any)
+        .update({ must_change_password: false })
+        .eq("id", user?.id ?? "");
+      setSaving(false);
+      if (profErr) return setError(`Contraseña actualizada, pero no se pudo marcar el perfil: ${profErr.message}`);
     }
-    const { error: profErr } = await (supabase.from("profiles") as any)
-      .update({ must_change_password: false })
-      .eq("id", user?.id ?? "");
-    setSaving(false);
-    if (profErr) return setError(`Contraseña actualizada, pero no se pudo marcar el perfil: ${profErr.message}`);
+
     await queryClient.invalidateQueries({ queryKey: ["mustChangePassword"] });
     toast.success("Contraseña actualizada");
     navigate(postPasswordChangePath(role), { replace: true });
