@@ -5,11 +5,10 @@
 -- Todo ocurre dentro de una transacción que termina en ROLLBACK y todos
 -- los fixtures están aislados por nota/edificio sintético.
 --
--- Uso previsto (base de datos efímera, NUNCA producción):
---   psql -v ON_ERROR_STOP=1 \
---        -c "SET wave1a.ephemeral = 'yes'" \
---        -f supabase/tests/wave1a_property_rights_cases.sql
--- o bien:  PGOPTIONS="-c wave1a.ephemeral=yes" psql -v ON_ERROR_STOP=1 -f ...
+-- Uso previsto (SOLO base desechable creada por el runner 1A.3):
+--   bash supabase/tests/wave1a3_integration_runner.sh
+-- El runner crea wave1a_test_<sufijo> en un Postgres loopback, aplica la
+-- cadena de checkout y destruye la base al terminar.
 --
 -- El script ABORTA al inicio si no está marcado el entorno efímero.
 -- No hay checksums ni string_agg de tablas completas.
@@ -21,13 +20,12 @@ BEGIN;
 -- ---------------------------------------------------------------------
 DO $$
 BEGIN
-  IF coalesce(current_setting('wave1a.ephemeral', true), '') <> 'yes' THEN
+  -- Wave 1A.3: la guarda ya NO depende de un GUC falsificable. La única
+  -- condición admitida es estar en la base desechable que crea
+  -- supabase/tests/wave1a3_integration_runner.sh.
+  IF current_database() NOT LIKE 'wave1a\_test\_%' THEN
     RAISE EXCEPTION
-      'ABORT: falta la marca de entorno efímero (SET wave1a.ephemeral = ''yes''). Este script NO puede ejecutarse en producción.';
-  END IF;
-  IF current_database() !~* '(test|tmp|temp|ephemeral|local|shadow|ci)' THEN
-    RAISE EXCEPTION
-      'ABORT: la base de datos "%" no parece efímera/de test. Este script NO puede ejecutarse en producción.',
+      'ABORT: este script con fixtures solo puede ejecutarse en la base desechable wave1a_test_* creada por wave1a3_integration_runner.sh. Base actual: %.',
       current_database();
   END IF;
 END $$;
