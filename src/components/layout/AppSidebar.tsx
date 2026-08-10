@@ -87,9 +87,13 @@ export function AppSidebar() {
     { url: "/next-actions", label: t.nav.nextActions, icon: ListChecks },
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
   ];
+  const gestion: Item[] = (role === "admin" || role === "sales_manager")
+    ? [{ url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 } as Item]
+    : [];
   const cuenta: Item[] = isWhatsapp ? [] : isComercial ? [
     { url: "/comercial/cuenta", label: "Mi cuenta", icon: UserCircle },
   ] : [
+    ...gestion,
     { url: "/revision-escaleras", label: "Revisión escaleras", icon: Footprints },
     { url: "/admin/proteccion-pgoum", label: "Validación PGOUM", icon: CheckSquare },
     ...(role === "admin" ? [{ url: "/admin/integridad", label: "Integridad de datos", icon: CheckSquare } as Item] : []),

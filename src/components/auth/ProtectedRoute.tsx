@@ -3,6 +3,8 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { DEMO_MODE } from "@/lib/config";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { useMustChangePassword } from "@/hooks/useMustChangePassword";
+import { decideAccess } from "@/lib/access";
 
 interface ProtectedRouteProps {
   children?: ReactNode;
@@ -18,9 +20,10 @@ export function ProtectedRoute({ children, redirectTo = "/login" }: ProtectedRou
   const { session, loading } = useAuth();
   const location = useLocation();
   const { role, loading: roleLoading } = useCurrentRole();
+  const { mustChange, loading: pwdLoading } = useMustChangePassword();
 
   if (DEMO_MODE) return <>{children ?? <Outlet />}</>;
-  if (loading || (session && roleLoading)) {
+  if (loading || (session && (roleLoading || pwdLoading))) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="font-mono text-[11px] uppercase tracking-eyebrow text-muted-foreground">
@@ -32,9 +35,9 @@ export function ProtectedRoute({ children, redirectTo = "/login" }: ProtectedRou
   if (!session) {
     return <Navigate to={redirectTo} state={{ from: location.pathname }} replace />;
   }
-  // Rol whatsapp: solo puede acceder a /whatsapp
-  if (role === "whatsapp" && !location.pathname.startsWith("/whatsapp")) {
-    return <Navigate to="/whatsapp" replace />;
+  const decision = decideAccess({ role, pathname: location.pathname, mustChangePassword: mustChange });
+  if (decision.type === "redirect") {
+    return <Navigate to={decision.to} replace />;
   }
   return <>{children ?? <Outlet />}</>;
 }
