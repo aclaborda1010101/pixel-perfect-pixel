@@ -1719,6 +1719,79 @@ export type Database = {
           },
         ]
       }
+      building_hs_deal_link_audit: {
+        Row: {
+          building_id: string
+          changed_at: string
+          criterio: string
+          id: string
+          new_hs_deal_id: string | null
+          old_hs_deal_id: string | null
+          snapshot: Json
+        }
+        Insert: {
+          building_id: string
+          changed_at?: string
+          criterio: string
+          id?: string
+          new_hs_deal_id?: string | null
+          old_hs_deal_id?: string | null
+          snapshot?: Json
+        }
+        Update: {
+          building_id?: string
+          changed_at?: string
+          criterio?: string
+          id?: string
+          new_hs_deal_id?: string | null
+          old_hs_deal_id?: string | null
+          snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_hs_deal_link_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_hs_deal_link_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hs_deal_link_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_hs_deal_link_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hs_deal_link_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hs_deal_link_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
       building_imagery: {
         Row: {
           building_id: string
@@ -2022,6 +2095,328 @@ export type Database = {
           },
           {
             foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
+      building_property_rights: {
+        Row: {
+          building_id: string
+          company_id: string | null
+          confidence: number | null
+          coownership_regime: string | null
+          created_at: string
+          evidence: string | null
+          id: string
+          note_simple_id: string | null
+          owner_id: string | null
+          percentage: number | null
+          right_type: string
+          source_ref: string | null
+          source_type: string
+          status: string
+          updated_at: string
+          valid_from: string | null
+          valid_to: string | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          building_id: string
+          company_id?: string | null
+          confidence?: number | null
+          coownership_regime?: string | null
+          created_at?: string
+          evidence?: string | null
+          id?: string
+          note_simple_id?: string | null
+          owner_id?: string | null
+          percentage?: number | null
+          right_type?: string
+          source_ref?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
+          valid_from?: string | null
+          valid_to?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          building_id?: string
+          company_id?: string | null
+          confidence?: number | null
+          coownership_regime?: string | null
+          created_at?: string
+          evidence?: string | null
+          id?: string
+          note_simple_id?: string | null
+          owner_id?: string | null
+          percentage?: number | null
+          right_type?: string
+          source_ref?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
+          valid_from?: string | null
+          valid_to?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "v_company_graph"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_note_simple_id_fkey"
+            columns: ["note_simple_id"]
+            isOneToOne: false
+            referencedRelation: "notas_simples"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_note_simple_id_fkey"
+            columns: ["note_simple_id"]
+            isOneToOne: false
+            referencedRelation: "v_titularidad_registral"
+            referencedColumns: ["nota_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
+      building_property_rights_history: {
+        Row: {
+          accion: string
+          antes: Json | null
+          building_id: string | null
+          changed_at: string
+          changed_by: string | null
+          despues: Json | null
+          id: string
+          right_id: string | null
+        }
+        Insert: {
+          accion: string
+          antes?: Json | null
+          building_id?: string | null
+          changed_at?: string
+          changed_by?: string | null
+          despues?: Json | null
+          id?: string
+          right_id?: string | null
+        }
+        Update: {
+          accion?: string
+          antes?: Json | null
+          building_id?: string | null
+          changed_at?: string
+          changed_by?: string | null
+          despues?: Json | null
+          id?: string
+          right_id?: string | null
+        }
+        Relationships: []
+      }
+      building_sanitation_history: {
+        Row: {
+          accion: string
+          antes: Json | null
+          building_id: string
+          changed_at: string
+          changed_by: string | null
+          despues: Json | null
+          id: string
+          source: string | null
+        }
+        Insert: {
+          accion: string
+          antes?: Json | null
+          building_id: string
+          changed_at?: string
+          changed_by?: string | null
+          despues?: Json | null
+          id?: string
+          source?: string | null
+        }
+        Update: {
+          accion?: string
+          antes?: Json | null
+          building_id?: string
+          changed_at?: string
+          changed_by?: string | null
+          despues?: Json | null
+          id?: string
+          source?: string | null
+        }
+        Relationships: []
+      }
+      building_sanitation_reviews: {
+        Row: {
+          building_id: string
+          created_at: string
+          exclusion_reason: string | null
+          feedback_row: number | null
+          feedback_text: string | null
+          interest_status: string
+          note_requested_at: string | null
+          note_status: string
+          ownership_kind: string
+          requires_human_review: boolean
+          reviewed_at: string | null
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          building_id: string
+          created_at?: string
+          exclusion_reason?: string | null
+          feedback_row?: number | null
+          feedback_text?: string | null
+          interest_status?: string
+          note_requested_at?: string | null
+          note_status?: string
+          ownership_kind?: string
+          requires_human_review?: boolean
+          reviewed_at?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          building_id?: string
+          created_at?: string
+          exclusion_reason?: string | null
+          feedback_row?: number | null
+          feedback_text?: string | null
+          interest_status?: string
+          note_requested_at?: string | null
+          note_status?: string
+          ownership_kind?: string
+          requires_human_review?: boolean
+          reviewed_at?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_sanitation_reviews_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_sanitation_reviews_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_sanitation_reviews_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_sanitation_reviews_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_sanitation_reviews_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_sanitation_reviews_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
             referencedRelation: "v_staircase_review_queue"
@@ -5340,11 +5735,16 @@ export type Database = {
       }
       notas_simples: {
         Row: {
+          attempt_count: number
           building_id: string | null
+          claimed_at: string | null
           created_at: string
+          dead_letter: boolean
           error_message: string | null
           file_url: string | null
           id: string
+          last_error: string | null
+          next_retry_at: string | null
           owner_id: string | null
           processed_at: string | null
           raw_pdf_text: string | null
@@ -5353,11 +5753,16 @@ export type Database = {
           structured_json: Json | null
         }
         Insert: {
+          attempt_count?: number
           building_id?: string | null
+          claimed_at?: string | null
           created_at?: string
+          dead_letter?: boolean
           error_message?: string | null
           file_url?: string | null
           id?: string
+          last_error?: string | null
+          next_retry_at?: string | null
           owner_id?: string | null
           processed_at?: string | null
           raw_pdf_text?: string | null
@@ -5366,11 +5771,16 @@ export type Database = {
           structured_json?: Json | null
         }
         Update: {
+          attempt_count?: number
           building_id?: string | null
+          claimed_at?: string | null
           created_at?: string
+          dead_letter?: boolean
           error_message?: string | null
           file_url?: string | null
           id?: string
+          last_error?: string | null
+          next_retry_at?: string | null
           owner_id?: string | null
           processed_at?: string | null
           raw_pdf_text?: string | null
@@ -6516,6 +6926,106 @@ export type Database = {
           },
         ]
       }
+      reconciliation_queue: {
+        Row: {
+          building_id: string
+          candidatos: Json
+          created_at: string
+          estado: string
+          id: string
+          match_company_id: string | null
+          match_kind: string
+          match_owner_id: string | null
+          motivo: string | null
+          nota_simple_id: string | null
+          source: string
+          titular_cif_dni: string | null
+          titular_id: string | null
+          titular_nombre: string | null
+          titular_pct: number | null
+          updated_at: string
+        }
+        Insert: {
+          building_id: string
+          candidatos?: Json
+          created_at?: string
+          estado?: string
+          id?: string
+          match_company_id?: string | null
+          match_kind?: string
+          match_owner_id?: string | null
+          motivo?: string | null
+          nota_simple_id?: string | null
+          source?: string
+          titular_cif_dni?: string | null
+          titular_id?: string | null
+          titular_nombre?: string | null
+          titular_pct?: number | null
+          updated_at?: string
+        }
+        Update: {
+          building_id?: string
+          candidatos?: Json
+          created_at?: string
+          estado?: string
+          id?: string
+          match_company_id?: string | null
+          match_kind?: string
+          match_owner_id?: string | null
+          motivo?: string | null
+          nota_simple_id?: string | null
+          source?: string
+          titular_cif_dni?: string | null
+          titular_id?: string | null
+          titular_nombre?: string | null
+          titular_pct?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reconciliation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
       scoring_v2_feedback: {
         Row: {
           aviso_key: string
@@ -7514,6 +8024,60 @@ export type Database = {
           owners_count: number | null
         }
         Relationships: []
+      }
+      v_building_rights_summary: {
+        Row: {
+          building_id: string | null
+          capa_completa: boolean | null
+          n_sin_pct: number | null
+          n_titulares: number | null
+          right_type: string | null
+          suma_pct: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
       }
       v_building_score: {
         Row: {
@@ -8528,6 +9092,7 @@ export type Database = {
         Returns: {
           detalle: string
           issue_key: string
+          severidad: string
         }[]
       }
       madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
@@ -8581,6 +9146,7 @@ export type Database = {
         }[]
       }
       merge_duplicate_owners: { Args: { p_dry_run?: boolean }; Returns: Json }
+      norm_addr: { Args: { p: string }; Returns: string }
       norm_phone: { Args: { t: string }; Returns: string }
       normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
@@ -8650,6 +9216,33 @@ export type Database = {
       recompute_building_owner_metrics: {
         Args: { p_building_ids?: string[] }
         Returns: Json
+      }
+      reparse_claim_batch: {
+        Args: { p_limit?: number; p_lock_minutes?: number }
+        Returns: {
+          attempt_count: number
+          building_id: string | null
+          claimed_at: string | null
+          created_at: string
+          dead_letter: boolean
+          error_message: string | null
+          file_url: string | null
+          id: string
+          last_error: string | null
+          next_retry_at: string | null
+          owner_id: string | null
+          processed_at: string | null
+          raw_pdf_text: string | null
+          riesgo: string | null
+          status: string
+          structured_json: Json | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "notas_simples"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       rpc_inversores_paginated:
         | {
