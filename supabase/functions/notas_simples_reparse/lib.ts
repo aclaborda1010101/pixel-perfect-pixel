@@ -137,6 +137,20 @@ export function normalizePorcentaje(raw: unknown): number | null {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Distingue porcentaje AUSENTE (ok, value null) de porcentaje NO VACÍO INVÁLIDO (fallo).
+ * La regla de rango sigue siendo (0,100].
+ */
+export function normalizePorcentajeChecked(raw: unknown): Result<number | null> {
+  if (raw == null) return { ok: true, value: null };
+  if (typeof raw === "string" && raw.trim() === "") return { ok: true, value: null };
+  const v = normalizePorcentaje(raw);
+  if (v == null) {
+    return { ok: false, reason: "porcentaje_invalido", detalle: String(typeof raw === "object" ? "[objeto]" : raw).slice(0, 60) };
+  }
+  return { ok: true, value: v };
+}
+
 export type Evidencia = {
   cita?: string;
   pagina?: number;
