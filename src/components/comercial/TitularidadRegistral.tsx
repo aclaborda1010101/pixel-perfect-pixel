@@ -5,26 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-
-type Titular = {
-  building_id: string;
-  nota_id: string;
-  fecha_emision_nota: string | null;
-  titular_id: string;
-  nombre_extraido: string | null;
-  cif_dni: string | null;
-  porcentaje: number | null;
-  rol: string | null;
-  es_sociedad: boolean | null;
-  tiene_contacto_crm: boolean | null;
-};
-
-const ROL_LABEL: Record<string, string> = {
-  pleno: "Pleno dominio",
-  usufructo: "Usufructo",
-  nuda_propiedad: "Nuda propiedad",
-  otro: "Otro",
-};
+import { agruparPorCapa, type TitularCapa as Titular } from "./titularidadCapas";
 
 function fmtPct(v: number | null) {
   if (v == null || !Number.isFinite(Number(v))) return null;
@@ -53,9 +34,7 @@ export function TitularidadRegistral({ buildingId }: { buildingId: string }) {
   if (isLoading || !data || data.length === 0) return null;
 
   const fecha = fmtFecha(data.find((t) => t.fecha_emision_nota)?.fecha_emision_nota ?? null);
-  const conPct = data.filter((t) => t.porcentaje != null);
-  const suma = conPct.reduce((s, t) => s + Number(t.porcentaje), 0);
-  const sumaRara = conPct.length > 0 && (suma < 95 || suma > 105);
+  const capas = agruparPorCapa(data);
   const sinContacto = data.filter((t) => t.tiene_contacto_crm === false).length;
 
   return (
@@ -68,26 +47,51 @@ export function TitularidadRegistral({ buildingId }: { buildingId: string }) {
             <FileText className="h-3 w-3" />
             {fecha ? `Nota de ${fecha}` : "Sin fecha de emisión"}
           </span>
-          {conPct.length > 0 && (
-            <span
-              className={cn(
-                "rounded-[4px] border px-1.5 py-0.5 tabular-nums",
-                sumaRara
-                  ? "border-warning/50 bg-warning-soft/40 text-warning"
-                  : "border-border-faint text-muted-foreground",
-              )}
-              title={sumaRara ? "La suma de porcentajes no cuadra al 100 %" : undefined}
-            >
-              Suma {suma.toLocaleString("es-ES", { maximumFractionDigits: 2 })} %
-            </span>
-          )}
+          {capas
+            .filter((c) => c.suma != null)
+            .map((c) => (
+              <span
+                key={`sum-${c.rol}`}
+                className={cn(
+                  "rounded-[4px] border px-1.5 py-0.5 tabular-nums",
+                  c.completa
+                    ? "border-border-faint text-muted-foreground"
+                    : "border-warning/50 bg-warning-soft/40 text-warning",
+                )}
+                title={
+                  c.completa
+                    ? undefined
+                    : `La capa de ${c.label.toLowerCase()} no suma 100 %`
+                }
+              >
+                {c.label} {Number(c.suma).toLocaleString("es-ES", { maximumFractionDigits: 2 })} %
+              </span>
+            ))}
           {sinContacto > 0 && <span>{sinContacto} sin contacto en el CRM</span>}
         </div>
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          {capas.map((capa) => (
+          <table key={capa.rol} className="w-full text-sm">
             <thead>
+              <tr className="border-b border-border-faint bg-muted/20 text-left font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                <th className="px-5 py-2 font-normal" colSpan={2}>
+                  Capa · {capa.label}
+                </th>
+                <th className="px-3 py-2 text-right font-normal tabular-nums">
+                  {capa.suma != null ? (
+                    <span className={cn(!capa.completa && "text-warning")}>
+                      {Number(capa.suma).toLocaleString("es-ES", { maximumFractionDigits: 2 })} %
+                    </span>
+                  ) : (
+                    "sin %"
+                  )}
+                </th>
+                <th className="px-5 py-2 font-normal">
+                  {capa.suma == null ? "" : capa.completa ? "capa completa" : "capa incompleta"}
+                </th>
+              </tr>
               <tr className="border-b border-border-faint text-left font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                 <th className="px-5 py-2 font-normal">Titular</th>
                 <th className="px-3 py-2 font-normal">DNI / CIF</th>
@@ -96,7 +100,7 @@ export function TitularidadRegistral({ buildingId }: { buildingId: string }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border-faint">
-              {data.map((t) => (
+              {capa.titulares.map((t) => (
                 <tr key={t.titular_id}>
                   <td className="px-5 py-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -127,12 +131,13 @@ export function TitularidadRegistral({ buildingId }: { buildingId: string }) {
                     {fmtPct(t.porcentaje) ?? <span className="text-muted-foreground/50">—</span>}
                   </td>
                   <td className="px-5 py-3 text-xs text-muted-foreground">
-                    {t.rol ? ROL_LABEL[t.rol] ?? t.rol.replace(/_/g, " ") : "—"}
+                    {capa.label}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          ))}
         </div>
       </CardContent>
     </Card>
