@@ -377,23 +377,38 @@ Deno.serve(async (req) => {
   const errores: string[] = [];
   let retryStateFailed = 0;
   for (const n of notas) {
-    // refrescar el claim al empezar cada nota
-    await sb.from("notas_simples").update({ claimed_at: new Date().toISOString() }).eq("id", n.id);
-    const r = await processOne(sb, n);
+    // refrescar el claim (compare-and-set sobre claimed_at) y obtener el nuevo token
+    const claimToken = new Date().toISOString();
+    const { data: claimRow, error: claimErr } = await sb.from("notas_simples")
+      .update({ claimed_at: claimToken })
+      .eq("id", n.id)
+      .eq("claimed_at", n.claimed_at)
+      .select("id")
+      .maybeSingle();
+    if (claimErr || !claimRow) {
+      const reason = `claim_refresh_fail:${claimErr?.message ?? "rows=0"}`;
+      errores.push(`${n.id}:${reason}`.slice(0, 200));
+      results.push({ id: n.id, ok: false, reason });
+      continue;
+    }
+    const r = await processOne(sb, n, claimToken);
     if (!r.ok) {
       errores.push(`${n.id}:${String(r.reason ?? "desconocido").slice(0, 160)}`);
       const attempts = (n.attempt_count ?? 0) + 1;
       const dead = attempts >= MAX_ATTEMPTS;
-      const { error: retryErr } = await sb.from("notas_simples").update({
+      const { data: retryRow, error: retryErr } = await sb.from("notas_simples").update({
         attempt_count: attempts,
         last_error: String(r.reason ?? "desconocido").slice(0, 500),
         next_retry_at: dead ? null : new Date(Date.now() + backoffMinutes(attempts) * 60_000).toISOString(),
         dead_letter: dead,
         claimed_at: null,
-      }).eq("id", n.id);
-      if (retryErr) {
+      }).eq("id", n.id).eq("claimed_at", claimToken).select("id").maybeSingle();
+      if (retryErr || !retryRow) {
         retryStateFailed++;
-        errores.push(`${n.id}:retry_state_fail:${retryErr.message}`.slice(0, 200));
+        const detalle = retryErr?.message ?? "rows=0";
+        console.warn(`[notas_reparse] retry_state_fail ${n.id}: ${detalle}`);
+        errores.push(`${n.id}:retry_state_fail:${detalle}`.slice(0, 200));
+        r.retry_state_fail = detalle;
       }
       r.attempt_count = attempts;
       r.dead_letter = dead;
