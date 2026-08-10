@@ -23,6 +23,13 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { extractText } from "npm:unpdf@0.12.1";
+import {
+  sanitize,
+  sanitizeDeep,
+  normalizeTitular,
+  titularKey,
+  type TitularNormalizado,
+} from "./lib.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,17 +44,9 @@ const MAX_ATTEMPTS = 5;
 const PRIMARY = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3.1-flash-lite-preview" };
 const FALLBACK = { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5.6-luna" };
 
-// Quita NUL y caracteres de control que Postgres rechaza en columnas text/jsonb.
-function sanitize(s: string): string {
-  // deno-lint-ignore no-control-regex
-  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ");
-}
-
 function backoffMinutes(attempt: number): number {
   return Math.min(360, 15 * Math.pow(2, Math.max(0, attempt - 1)));
 }
-
-const ROLES_VALIDOS = new Set(["pleno", "usufructo", "nuda_propiedad", "otro"]);
 
 // ---------- utilidades de texto ----------
 
