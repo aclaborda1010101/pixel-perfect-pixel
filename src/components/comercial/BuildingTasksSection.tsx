@@ -22,6 +22,7 @@ import { TASK_DEFS, type Priority } from "@/lib/buildingTasks";
 import {
   filterVisibleOperationalTasks,
   VISIBLE_OPERATIONAL_TASK_OR_FILTER,
+  operationalTaskBadge,
 } from "@/lib/operationalTasks";
 import { sortByDueThenPriority } from "@/lib/taskSchedule";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
@@ -242,12 +243,14 @@ function TaskRow({
             <Badge variant={priorityBadge[task.priority as Priority]} className="text-[9px]">
               {priorityLabel[task.priority as Priority]}
             </Badge>
-            <Badge
-              variant={task.task_type === "auto" ? "info" : "outline"}
-              className="text-[9px]"
-            >
-              {task.task_type === "auto" ? "Auto" : "Manual"}
-            </Badge>
+            {(() => {
+              const origin = operationalTaskBadge(task);
+              return (
+                <Badge variant={origin.variant} className="text-[9px]">
+                  {origin.label}
+                </Badge>
+              );
+            })()}
           </div>
           {onDelete && (
             <button

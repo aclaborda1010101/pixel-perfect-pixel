@@ -1,6 +1,7 @@
 // Enrichment agent: drena enrichment_jobs por fases.
 // Llamado por pg_cron cada 15 min y por enrichment-pipeline-start manualmente.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { handleTecnofindCore } from "./tecnofind.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -748,18 +749,11 @@ async function handleInglobaly(supabase: any, job: Job) {
 
 // ============ Fase tecnofind (no automatizada) ============
 async function handleTecnofind(supabase: any, job: Job) {
-  const tienePhone = !!job.datos?.telefono;
-  if (!tienePhone && job.building_id) {
-    await supabase.from("building_tasks").insert({
-      building_id: job.building_id,
-      titulo: `Buscar teléfono en Tecnofind — ${job.titular_nombre}`,
-      tipo: "investigacion",
-      estado: "pendiente",
-      metadatos: { enrichment_job_id: job.id, titular: job.titular_nombre },
-    });
-    pushTimeline(job, { fase: "tecnofind", nota: "tarea creada" });
-  }
-  await finishJob(supabase, job, { estado: "ok", fase: "verificacion", datos: job.datos });
+  // El motor legacy de tareas está retirado: esta fase ya NO crea building_tasks.
+  return await handleTecnofindCore(job as any, {
+    pushTimeline: (j, entry) => pushTimeline(j as any, entry as any),
+    finishJob: (j, patch) => finishJob(supabase, j as any, patch as any),
+  });
 }
 
 // ============ Loop ============

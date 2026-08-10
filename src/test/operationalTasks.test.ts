@@ -79,10 +79,17 @@ describe("legacy building task engine is retired", () => {
   });
 
   it("buildingTasks module does not import the supabase client at all", async () => {
-    const src = await import("@/lib/buildingTasks?raw" as any).catch(() => null);
-    // Fallback: assert no write helpers are exported beyond the no-ops.
+    // Comprobación ESTRICTA: se lee el fichero real del disco. Si no se puede
+    // leer, el test FALLA (antes era tolerante y podía pasar en vacío).
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(resolve(process.cwd(), "src/lib/buildingTasks.ts"), "utf8");
+    expect(src.length).toBeGreaterThan(0);
+    expect(src).not.toMatch(/from\s+["']@\/integrations\/supabase\/client["']/);
+    expect(src).not.toMatch(/from\s*\(\s*["']building_tasks["']/);
+    expect(src).not.toMatch(/\bsupabase\s*\./);
+
     const mod = await import("@/lib/buildingTasks");
     expect(typeof mod.syncBuildingTasks).toBe("function");
-    expect(src === null || !String((src as any).default).includes("supabase")).toBe(true);
   });
 });
