@@ -16,6 +16,7 @@ type Task = {
   user_id: string;
   status: string;
   task_type: string;
+  task_key: string | null;
   title: string | null;
   created_at: string;
   completed_at: string | null;
