@@ -308,6 +308,14 @@ export function evaluateBuildingT9(
   const contactables = building.owners.filter((o) => o.canonical !== false && o.contactable !== false);
   if (contactables.length === 0) return { candidate: null, reason: "Sin titulares canónicos contactables" };
 
+  const blocked = building.owners.filter((o) => identityBlockers(o).length > 0).map((o) => o.ownerId);
+  if (blocked.length > 0) {
+    return { candidate: null, reason: `T9 no procede: identidad/derechos bloqueados (${blocked.join(", ")})` };
+  }
+  if (actionableIncidents(building.incidents).length > 0 || building.owners.some((o) => actionableIncidents(o.incidents).length > 0)) {
+    return { candidate: null, reason: "T9 no procede: hay incidencias abiertas (T6)" };
+  }
+
   const noContactados = contactables.filter((o) => !o.contactedEver).map((o) => o.ownerId);
   if (noContactados.length > 0) {
     return {
