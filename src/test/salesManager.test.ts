@@ -101,11 +101,14 @@ describe("RLS efectiva con identidades", () => {
   });
 
   it("los helpers internos son inaccesibles y sólo las RPC públicas se conceden", () => {
-    expect(canExecute("_sm_is_manager_of", "authenticated")).toBe(false);
-    expect(canExecute("_sm_is_manager_of", "anon")).toBe(false);
+    expect(canExecute("is_sales_manager_or_admin", "authenticated")).toBe(false);
+    expect(canExecute("sales_manager_can_see", "anon")).toBe(false);
     expect(canExecute("get_sales_manager_dashboard", "authenticated")).toBe(true);
     expect(canExecute("get_sales_manager_dashboard", "anon")).toBe(false);
-    expect(SQL).toMatch(/REVOKE ALL ON FUNCTION public\._sm_[a-z_]+\([^)]*\) FROM PUBLIC, anon, authenticated/);
+    for (const h of ["is_sales_manager_or_admin", "sales_manager_can_see"]) {
+      expect(SQL).toContain(`REVOKE ALL ON FUNCTION public.${h}`);
+      expect(SQL).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${h}\\([^)]*\\) FROM PUBLIC, anon, authenticated`));
+    }
   });
 });
 
@@ -166,8 +169,9 @@ describe("alta de gestor y equipo", () => {
   });
 
   it("las FK del equipo son ON DELETE CASCADE y prohíben manager = member", () => {
-    expect(SQL).toMatch(/manager_id[^,]*REFERENCES auth\.users\(id\) ON DELETE CASCADE/);
-    expect(SQL).toMatch(/member_id[^,]*REFERENCES auth\.users\(id\) ON DELETE CASCADE/);
+    // profiles.id cuelga de auth.users con CASCADE, así que el borrado propaga.
+    expect(SQL).toMatch(/manager_id[^,]*REFERENCES public\.profiles\(id\) ON DELETE CASCADE/);
+    expect(SQL).toMatch(/member_id[^,]*REFERENCES public\.profiles\(id\) ON DELETE CASCADE/);
     expect(SQL).toMatch(/CHECK \(manager_id <> member_id\)/);
   });
 });
@@ -265,7 +269,13 @@ describe("dashboard: ventanas separadas", () => {
 
   it("la RPC no finge histórico con now() ni expone datos sensibles", () => {
     expect(SQL).not.toMatch(/completed_at\s*=\s*now\(\)/i);
-    expect(SQL).not.toMatch(/'email'\s*,/);
+    const body = SQL.slice(
+      SQL.indexOf("FUNCTION public.get_sales_manager_dashboard"),
+      SQL.indexOf("REVOKE ALL ON FUNCTION public.get_sales_manager_dashboard"),
+    );
+    expect(body).not.toMatch(/email|phone|password/i);
+    expect(body).toContain("'created_in_period'");
+    expect(body).toContain("'completed_in_period'");
   });
 });
 
@@ -355,7 +365,7 @@ describe("modos de reparto", () => {
   it("el motor productivo sigue detrás de flags apagadas", () => {
     expect(FEATURE_SALES_TASK_MODE_ALLOCATOR).toBe(false);
     expect(FEATURE_FORCE_PASSWORD_EDGE_FN).toBe(false);
-    expect(SQL).toContain("revalida");
+    expect(SQL).toContain("REVALIDACIÓN de lo persistido en el momento de activar");
   });
 });
 

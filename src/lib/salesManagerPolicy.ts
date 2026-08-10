@@ -54,7 +54,12 @@ export function canSelectBuildingTaskDirectly(): boolean {
 }
 
 /** Helpers internos: sin EXECUTE para PUBLIC/anon/authenticated. */
-export const INTERNAL_HELPERS = ["_sm_is_manager_of", "_sm_task_group"] as const;
+export const INTERNAL_HELPERS = [
+  "is_sales_manager_or_admin",
+  "sales_manager_can_see",
+  "sales_task_mode_weights_validate",
+  "profiles_guard_must_change_password",
+] as const;
 export const PUBLIC_RPCS = [
   "get_sales_manager_dashboard",
   "get_sales_task_mode_config",
