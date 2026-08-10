@@ -104,6 +104,20 @@ INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structu
 VALUES ('44444444-0000-0000-0000-000000000005', (SELECT b5 FROM _ids), 'listo',
         'Pleno dominio: ANA GARCIA SOTO 90 %.', '{}'::jsonb);
 
+-- Notas auxiliares para p0_nota_unit_key (sin titulares: no entran en staging)
+-- Ne: idufir vacío/espacios + referencia catastral válida posterior (B2, DH)
+INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
+VALUES ('44444444-0000-0000-0000-00000000000e', (SELECT b2 FROM _ids), 'listo', '',
+        '{"idufir":"   ","finca_registral":"","referencia_catastral":"9872023 VH5797S 0001 WX"}'::jsonb);
+-- Nf: clave que normaliza a cadena vacía
+INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
+VALUES ('44444444-0000-0000-0000-00000000000f', (SELECT b2 FROM _ids), 'listo', '',
+        '{"finca_registral":"--/--"}'::jsonb);
+-- N10: mismo valor 12345 pero como IDUFIR (no debe colisionar con finca 12.345)
+INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
+VALUES ('44444444-0000-0000-0000-000000000010', (SELECT b2 FROM _ids), 'listo', '',
+        '{"idufir":"12345"}'::jsonb);
+
 -- Titulares --------------------------------------------------------------
 -- CASO A · pleno 100 con DNI exacto, evidencia en rol_literal + raw (apta) → feeds_cuota
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal)
@@ -164,6 +178,11 @@ VALUES ('55555555-0000-0000-0000-000000000014', '44444444-0000-0000-0000-0000000
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, owner_id, company_id)
 SELECT '55555555-0000-0000-0000-000000000016', '44444444-0000-0000-0000-000000000002',
        'PATRIMONIAL TEST SL', 'B12345678', 100, 'pleno', 'pleno dominio', o_ana, c_soc FROM _ids;
+
+-- CASO L · nombre "de persona" pero con company_id ya informado → es_sociedad
+INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, company_id)
+SELECT '55555555-0000-0000-0000-000000000018', '44444444-0000-0000-0000-000000000005',
+       'HERMANOS MARTINEZ', NULL, 5, 'pleno', 'pleno dominio', c_soc FROM _ids;
 
 -- ---------------------------------------------------------------------
 -- 2) Aserciones
@@ -260,9 +279,22 @@ BEGIN
   -- DH con clave fiable / sin clave fiable
   PERFORM pg_temp.assert(
     public.p0_nota_unit_key('44444444-0000-0000-0000-000000000002')
-    = 'dh:' || (SELECT b2 FROM _ids)::text || ':12345', 'DH con clave fiable');
+    = 'dh:' || (SELECT b2 FROM _ids)::text || ':finca:12345', 'DH con clave fiable y namespace de fuente');
   PERFORM pg_temp.assert(public.p0_nota_unit_key('44444444-0000-0000-0000-000000000003') IS NULL,
                          'DH sin clave fiable devuelve NULL');
+  -- candidato vacío anterior no puede ocultar una clave válida posterior
+  PERFORM pg_temp.assert(
+    public.p0_nota_unit_key('44444444-0000-0000-0000-00000000000e')
+    = 'dh:' || (SELECT b2 FROM _ids)::text || ':refcat:9872023VH5797S0001WX',
+    'idufir vacío no oculta la referencia catastral posterior');
+  -- normalización que queda vacía = sin clave fiable
+  PERFORM pg_temp.assert(public.p0_nota_unit_key('44444444-0000-0000-0000-00000000000f') IS NULL,
+                         'clave con solo signos normaliza a vacío: sin unidad fiable');
+  -- mismo valor con fuentes distintas NO colisiona
+  PERFORM pg_temp.assert(
+    public.p0_nota_unit_key('44444444-0000-0000-0000-000000000002')
+    <> public.p0_nota_unit_key('44444444-0000-0000-0000-000000000010'),
+    'idufir 12345 y finca 12345 no pueden colisionar');
   PERFORM pg_temp.assert(
     (SELECT bool_and(unit_block_reason = 'dh_sin_unidad_registral' AND NOT feeds_cuota)
      FROM _s WHERE building_id = (SELECT b3 FROM _ids)),
@@ -275,6 +307,13 @@ BEGIN
   PERFORM pg_temp.assert((v.audit_ids ->> 'pre_owner_id') IS NOT NULL
                          AND (v.audit_ids ->> 'pre_company_id') IS NOT NULL,
                          'K: ambos IDs originales conservados en auditoría');
+
+  -- L · company_id preexistente fuerza es_sociedad y conserva el vínculo
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000018';
+  PERFORM pg_temp.assert(v.es_sociedad, 'L: company_id informado implica es_sociedad');
+  PERFORM pg_temp.assert(v.company_id = (SELECT c_soc FROM _ids) AND v.owner_id IS NULL,
+                         'L: se conserva el company_id preexistente');
+  PERFORM pg_temp.assert(NOT v.feeds_cuota, 'L: sociedad nunca alimenta cuota personal');
 
   -- Vínculo preexistente sin DNI inequívoco: se conserva pero no alimenta cuota
   PERFORM pg_temp.assert(
