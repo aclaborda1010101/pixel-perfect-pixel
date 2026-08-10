@@ -205,3 +205,103 @@ export function needsTitularesRefetch(structured: any): boolean {
   if (!Number.isFinite(version) || version < 2) return true;
   return arr.some((t: any) => !t?.rol_literal || t?.evidencia == null);
 }
+
+// ---------- ejecución verificable (adaptador puro y testeable) ----------
+
+export type OpResult = { rows: number; error?: string | null };
+
+export type FilaInsert = {
+  nota_simple_id: string;
+  nombre_extraido: string;
+  cif_dni: string | null;
+  porcentaje: number | null;
+  rol: string;
+  rol_literal: string | null;
+  evidencia: unknown;
+};
+
+export type ReconcileRepo = {
+  /** UPDATE ... RETURNING id -> debe devolver exactamente 1 fila. */
+  updateTitular(id: string, patch: PatchTitular): Promise<OpResult>;
+  /** INSERT ... RETURNING id -> debe devolver exactamente 1 fila. */
+  insertTitular(row: FilaInsert): Promise<OpResult>;
+  /** Paso de backfill previo al cierre (opcional). Si falla, NO se finaliza. */
+  backfill?(): Promise<OpResult>;
+  /** UPDATE notas_simples ... WHERE id=$1 AND claimed_at=$claimToken RETURNING id. */
+  finalizeNota(args: { id: string; claimToken: string }): Promise<OpResult>;
+};
+
+export type ResultadoNota = {
+  ok: boolean;
+  reason?: string;
+  detalle?: string;
+  updated: number;
+  inserted: number;
+  finalized: boolean;
+  ops: string[];
+};
+
+function exactlyOne(r: OpResult | undefined | null): boolean {
+  return !!r && !r.error && r.rows === 1;
+}
+
+/**
+ * Ejecuta el plan y SOLO al final finaliza la nota (una vez, y siempre en último lugar).
+ * Cualquier operación que devuelva error o != 1 fila aborta sin finalizar.
+ */
+export async function runReconciliation(
+  repo: ReconcileRepo,
+  args: { notaId: string; claimToken: string; existentes: FilaExistente[]; deseados: TitularNormalizado[] },
+): Promise<ResultadoNota> {
+  const ops: string[] = [];
+  const base: ResultadoNota = { ok: false, updated: 0, inserted: 0, finalized: false, ops };
+
+  const plan = buildReconcilePlan(args.existentes ?? [], args.deseados ?? []);
+  if (!plan.ok) return { ...base, reason: plan.reason, detalle: plan.detalle };
+
+  let updated = 0;
+  for (const u of plan.updates) {
+    const r = await repo.updateTitular(u.id, u.patch);
+    ops.push(`update:${u.id}`);
+    if (!exactlyOne(r)) {
+      return { ...base, updated, reason: "titular_update_fail", detalle: r?.error ?? `rows=${r?.rows ?? 0}` };
+    }
+    updated++;
+  }
+
+  let inserted = 0;
+  for (const t of plan.inserts) {
+    const r = await repo.insertTitular({
+      nota_simple_id: args.notaId,
+      nombre_extraido: t.nombre,
+      cif_dni: t.cif_dni,
+      porcentaje: t.porcentaje,
+      rol: t.rol,
+      rol_literal: t.rol_literal,
+      evidencia: t.evidencia,
+    });
+    ops.push(`insert:${t.nombre}`);
+    if (!exactlyOne(r)) {
+      return { ...base, updated, inserted, reason: "titular_insert_fail", detalle: r?.error ?? `rows=${r?.rows ?? 0}` };
+    }
+    inserted++;
+  }
+
+  if (repo.backfill) {
+    const r = await repo.backfill();
+    ops.push("backfill");
+    if (!exactlyOne(r)) {
+      return { ...base, updated, inserted, reason: "backfill_fail", detalle: r?.error ?? `rows=${r?.rows ?? 0}` };
+    }
+  }
+
+  const fin = await repo.finalizeNota({ id: args.notaId, claimToken: args.claimToken });
+  ops.push("finalize");
+  if (fin?.error) {
+    return { ...base, updated, inserted, reason: "finalize_fail", detalle: fin.error };
+  }
+  if (fin?.rows !== 1) {
+    return { ...base, updated, inserted, reason: "claim_lost", detalle: `rows=${fin?.rows ?? 0}` };
+  }
+  return { ok: true, updated, inserted, finalized: true, ops };
+}
