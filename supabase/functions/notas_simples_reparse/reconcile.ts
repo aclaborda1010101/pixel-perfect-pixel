@@ -1,7 +1,15 @@
 // Conciliación idempotente de derechos (titulares) de una nota simple.
 // Puro: sin Deno, sin red, sin base de datos. Testeable con vitest.
 
-import { baseIdentityKey, logicalRightKey, type TitularNormalizado } from "./lib.ts";
+import {
+  baseIdentityKey,
+  logicalRightKey,
+  mergeEvidencias,
+  evidenciaStable,
+  parseEvidencia,
+  type Evidencia,
+  type TitularNormalizado,
+} from "./lib.ts";
 
 export type FilaExistente = {
   id: string;
@@ -22,44 +30,23 @@ export type PatchTitular = {
 export type MotivoBloqueo =
   | "titular_reconcile_ambiguous"
   | "duplicate_desired_conflicting_evidence"
+  | "evidence_conflict"
+  | "legacy_one_to_many_ambiguous"
+  | "deseados_vacios"
   | "existing_logical_duplicate";
 
 export type PlanConciliacion =
   | { ok: true; updates: Array<{ id: string; patch: PatchTitular }>; inserts: TitularNormalizado[] }
   | { ok: false; reason: MotivoBloqueo; detalle: string; updates: []; inserts: [] };
 
-function stable(v: unknown): string {
-  if (v == null) return "null";
-  if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
-  if (typeof v === "object") {
-    const keys = Object.keys(v as Record<string, unknown>).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${stable((v as any)[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(v);
-}
-
 function esLegado(f: FilaExistente): boolean {
   return !f.rol_literal || !String(f.rol_literal).trim();
 }
 
-type Ev = Record<string, unknown> | null;
-
-/**
- * Fusiona dos evidencias: null + X = X; claves compartidas con valores distintos = conflicto.
- */
-export function mergeEvidencia(a: unknown, b: unknown): { ok: true; value: Ev } | { ok: false } {
-  const oa = (a && typeof a === "object" && !Array.isArray(a)) ? a as Record<string, unknown> : null;
-  const ob = (b && typeof b === "object" && !Array.isArray(b)) ? b as Record<string, unknown> : null;
-  if (a != null && oa == null) return { ok: false };
-  if (b != null && ob == null) return { ok: false };
-  if (oa == null) return { ok: true, value: ob };
-  if (ob == null) return { ok: true, value: oa };
-  const out: Record<string, unknown> = { ...oa };
-  for (const [k, v] of Object.entries(ob)) {
-    if (k in out && stable(out[k]) !== stable(v)) return { ok: false };
-    out[k] = v;
-  }
-  return { ok: true, value: out };
+/** Fusión de evidencias sin pérdida (unión de fuentes). Reexporta la de lib. */
+export function mergeEvidencia(a: unknown, b: unknown): { ok: true; value: Evidencia } | { ok: false } {
+  const r = mergeEvidencias(a, b);
+  return r.ok ? { ok: true, value: r.value } : { ok: false };
 }
 
 /**
@@ -99,6 +86,9 @@ export function buildReconcilePlan(
   existentes: FilaExistente[],
   deseadosRaw: TitularNormalizado[],
 ): PlanConciliacion {
+  if (!Array.isArray(deseadosRaw) || deseadosRaw.length === 0) {
+    return { ok: false, reason: "deseados_vacios", detalle: "sin titulares deseados", updates: [], inserts: [] };
+  }
   const ded = dedupeDeseados(deseadosRaw ?? []);
   if (!ded.ok) {
     const f = ded as { ok: false; reason: MotivoBloqueo; detalle: string };
@@ -126,16 +116,37 @@ export function buildReconcilePlan(
     }
   }
 
+  // LEGADO 1:N — antes de cualquier escritura y con independencia del orden de entrada:
+  // si una fila legada (sin rol_literal) puede emparejar con más de un derecho deseado
+  // que no tiene coincidencia lógica exacta, se bloquea.
+  const sinExacta = deseados.filter((d) => !(porLogica.get(logicalRightKey(d)) ?? []).length);
+  const porBaseDeseados = new Map<string, number>();
+  for (const d of sinExacta) {
+    const bk = baseIdentityKey(d);
+    porBaseDeseados.set(bk, (porBaseDeseados.get(bk) ?? 0) + 1);
+  }
+  for (const [bk, n] of porBaseDeseados) {
+    if (n < 2) continue;
+    const legadas = (porBase.get(bk) ?? []).filter(esLegado);
+    if (legadas.length >= 1) {
+      return {
+        ok: false,
+        reason: "legacy_one_to_many_ambiguous",
+        detalle: `${legadas.length} fila(s) legada(s) y ${n} derechos deseados para ${bk}`,
+        updates: [],
+        inserts: [],
+      };
+    }
+  }
+
   for (const d of deseados) {
     const lk = logicalRightKey(d);
     const exacta = (porLogica.get(lk) ?? []).find((f) => !consumidas.has(f.id));
     if (exacta) {
       consumidas.add(exacta.id);
-      const patch: PatchTitular = {};
-      if ((exacta.rol ?? null) !== d.rol) patch.rol = d.rol;
-      if ((exacta.rol_literal ?? null) !== (d.rol_literal ?? null)) patch.rol_literal = d.rol_literal;
-      if (d.evidencia != null && stable(exacta.evidencia ?? null) !== stable(d.evidencia)) patch.evidencia = d.evidencia;
-      if (Object.keys(patch).length) updates.push({ id: exacta.id, patch });
+      const patch = construirPatch(exacta, d);
+      if (!patch.ok) return { ok: false, reason: patch.reason, detalle: patch.detalle, updates: [], inserts: [] };
+      if (Object.keys(patch.value).length) updates.push({ id: exacta.id, patch: patch.value });
       continue;
     }
 
@@ -152,18 +163,37 @@ export function buildReconcilePlan(
     if (candidatos.length === 1) {
       const f = candidatos[0];
       consumidas.add(f.id);
-      const patch: PatchTitular = {};
-      if ((f.rol ?? null) !== d.rol) patch.rol = d.rol;
-      if ((f.rol_literal ?? null) !== (d.rol_literal ?? null)) patch.rol_literal = d.rol_literal;
-      if (d.evidencia != null && stable(f.evidencia ?? null) !== stable(d.evidencia)) patch.evidencia = d.evidencia;
-      if (Object.keys(patch).length) updates.push({ id: f.id, patch });
+      const patch = construirPatch(f, d);
+      if (!patch.ok) return { ok: false, reason: patch.reason, detalle: patch.detalle, updates: [], inserts: [] };
+      if (Object.keys(patch.value).length) updates.push({ id: f.id, patch: patch.value });
       continue;
     }
 
-    inserts.push(d);
+    inserts.push({ ...d, evidencia: parseEvidencia(d.evidencia) });
   }
 
   return { ok: true, updates, inserts };
+}
+
+/**
+ * Patch mínimo: la evidencia SIEMPRE es la fusión existente+deseada (nunca
+ * sobrescritura), y un conflicto de localizador bloquea antes de escribir.
+ */
+function construirPatch(
+  f: FilaExistente,
+  d: TitularNormalizado,
+): { ok: true; value: PatchTitular } | { ok: false; reason: MotivoBloqueo; detalle: string } {
+  const patch: PatchTitular = {};
+  if ((f.rol ?? null) !== d.rol) patch.rol = d.rol;
+  if ((f.rol_literal ?? null) !== (d.rol_literal ?? null)) patch.rol_literal = d.rol_literal;
+  const merged = mergeEvidencias(f.evidencia ?? null, d.evidencia ?? null);
+  if (!merged.ok) {
+    return { ok: false, reason: "evidence_conflict", detalle: `${f.id}:${merged.detalle}` };
+  }
+  if (evidenciaStable(f.evidencia ?? null) !== evidenciaStable(merged.value)) {
+    patch.evidencia = merged.value;
+  }
+  return { ok: true, value: patch };
 }
 
 // ---------- semántica de respuesta ----------
