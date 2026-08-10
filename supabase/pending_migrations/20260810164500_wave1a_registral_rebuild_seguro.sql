@@ -784,6 +784,7 @@ REVOKE ALL ON FUNCTION public.p0_nota_signature(uuid)       FROM PUBLIC, anon, a
 REVOKE ALL ON FUNCTION public.p0_evidence_check(uuid)       FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_nota_vigencia(jsonb)       FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_pct_regex(numeric)         FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_parse_pct(text)            FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_right_regex(text)          FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_right_type_from_rol(text, text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.p0_nota_unit_key(uuid)      TO service_role;
@@ -791,5 +792,6 @@ GRANT EXECUTE ON FUNCTION public.p0_nota_signature(uuid)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_evidence_check(uuid)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_vigencia(jsonb)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_pct_regex(numeric)       TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_parse_pct(text)          TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_right_regex(text)        TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_right_type_from_rol(text, text, text) TO service_role;
