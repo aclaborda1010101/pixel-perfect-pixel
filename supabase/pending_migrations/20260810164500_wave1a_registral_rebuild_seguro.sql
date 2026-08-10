@@ -113,16 +113,38 @@ $$;
 CREATE OR REPLACE FUNCTION public.p0_nota_vigencia(p_sj jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT coalesce(
-    nullif(btrim(coalesce(
-      p_sj ->> 'fecha_emision_nota',
-      p_sj ->> 'fecha_nota',
-      p_sj ->> 'fecha_registral',
-      p_sj ->> 'valid_from',
-      p_sj #>> '{vigencia,desde}'
-    )), '')
-    || coalesce('/' || nullif(btrim(coalesce(p_sj ->> 'valid_to', p_sj #>> '{vigencia,hasta}')), ''), ''),
+    -- NULLIF por CADA candidato antes del COALESCE: una fecha vacía o de solo
+    -- espacios no puede ocultar otra fecha explícita válida posterior.
+    coalesce(
+      nullif(btrim(coalesce(p_sj ->> 'fecha_emision_nota','')), ''),
+      nullif(btrim(coalesce(p_sj ->> 'fecha_nota','')), ''),
+      nullif(btrim(coalesce(p_sj ->> 'fecha_registral','')), ''),
+      nullif(btrim(coalesce(p_sj ->> 'valid_from','')), ''),
+      nullif(btrim(coalesce(p_sj #>> '{vigencia,desde}','')), '')
+    )
+    || coalesce('/' || coalesce(
+         nullif(btrim(coalesce(p_sj ->> 'valid_to','')), ''),
+         nullif(btrim(coalesce(p_sj #>> '{vigencia,hasta}','')), '')
+       ), ''),
     'sin vigencia');
 $$;
+
+-- Parseo seguro de porcentajes textuales: acepta coma o punto decimal, símbolo
+-- % y espacios. Ante cualquier valor no numérico devuelve NULL y NUNCA lanza
+-- un error de cast (no puede abortar el dry-run).
+CREATE OR REPLACE FUNCTION public.p0_parse_pct(p_txt text)
+RETURNS numeric LANGUAGE sql IMMUTABLE AS $$
+  WITH v AS (
+    SELECT btrim(regexp_replace(coalesce(p_txt,''), '(%|por\s*cien(to)?|\s)', '', 'gi')) AS s
+  ), n AS (
+    SELECT replace(v.s, ',', '.') AS s FROM v
+  )
+  SELECT CASE WHEN n.s ~ '^[+-]?[0-9]+(\.[0-9]+)?$' THEN n.s::numeric ELSE NULL END
+  FROM n;
+$$;
+
+COMMENT ON FUNCTION public.p0_parse_pct(text) IS
+  'Parseo tolerante y seguro de porcentajes textuales (coma/punto/%/espacios). Devuelve NULL ante valor no numérico; nunca lanza excepción de cast.';
 
 -- Clave de unidad registral fiable a partir de la propia nota.
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key(p_nota_id uuid)
