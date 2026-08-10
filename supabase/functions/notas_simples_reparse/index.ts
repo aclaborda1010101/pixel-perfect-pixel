@@ -379,12 +379,9 @@ Deno.serve(async (req) => {
   for (const n of notas) {
     // refrescar el claim (compare-and-set sobre claimed_at) y obtener el nuevo token
     const claimToken = new Date().toISOString();
-    const { data: claimRow, error: claimErr } = await sb.from("notas_simples")
-      .update({ claimed_at: claimToken })
-      .eq("id", n.id)
-      .eq("claimed_at", n.claimed_at)
-      .select("id")
-      .maybeSingle();
+    let q = sb.from("notas_simples").update({ claimed_at: claimToken }).eq("id", n.id);
+    q = n.claimed_at ? q.eq("claimed_at", n.claimed_at) : q.is("claimed_at", null);
+    const { data: claimRow, error: claimErr } = await q.select("id").maybeSingle();
     if (claimErr || !claimRow) {
       const reason = `claim_refresh_fail:${claimErr?.message ?? "rows=0"}`;
       errores.push(`${n.id}:${reason}`.slice(0, 200));
@@ -408,7 +405,7 @@ Deno.serve(async (req) => {
         const detalle = retryErr?.message ?? "rows=0";
         console.warn(`[notas_reparse] retry_state_fail ${n.id}: ${detalle}`);
         errores.push(`${n.id}:retry_state_fail:${detalle}`.slice(0, 200));
-        r.retry_state_fail = detalle;
+        (r as any).retry_state_fail = detalle;
       }
       r.attempt_count = attempts;
       r.dead_letter = dead;
