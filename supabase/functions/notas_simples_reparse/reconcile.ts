@@ -100,8 +100,11 @@ export function buildReconcilePlan(
   deseadosRaw: TitularNormalizado[],
 ): PlanConciliacion {
   const ded = dedupeDeseados(deseadosRaw ?? []);
-  if (!ded.ok) return { ok: false, reason: ded.reason, detalle: ded.detalle, updates: [], inserts: [] };
-  const deseados = ded.value;
+  if (!ded.ok) {
+    const f = ded as { ok: false; reason: MotivoBloqueo; detalle: string };
+    return { ok: false, reason: f.reason, detalle: f.detalle, updates: [], inserts: [] };
+  }
+  const deseados = (ded as { ok: true; value: TitularNormalizado[] }).value;
 
   const updates: Array<{ id: string; patch: PatchTitular }> = [];
   const inserts: TitularNormalizado[] = [];
@@ -257,7 +260,10 @@ export async function runReconciliation(
   const base: ResultadoNota = { ok: false, updated: 0, inserted: 0, finalized: false, ops };
 
   const plan = buildReconcilePlan(args.existentes ?? [], args.deseados ?? []);
-  if (!plan.ok) return { ...base, reason: plan.reason, detalle: plan.detalle };
+  if (!plan.ok) {
+    const f = plan as { ok: false; reason: MotivoBloqueo; detalle: string };
+    return { ...base, reason: f.reason, detalle: f.detalle };
+  }
 
   let updated = 0;
   for (const u of plan.updates) {
