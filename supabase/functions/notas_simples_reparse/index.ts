@@ -242,63 +242,17 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
     }
     if (rawText) rawText = sanitize(letrasANumerosEnTexto(rawText));
 
-    const currentTitulares = Array.isArray(nota.structured_json?.titulares) ? nota.structured_json.titulares : [];
-    const needTitulares = needsTitularesRefetch(nota.structured_json);
+    // 3) Repositorio Supabase (CAS id+claimToken, RETURNING exactamente 1 fila)
+    let refCatastralFinal: string | null = null;
+    let direccionFinal: string | null = null;
 
-    let llm: { data: ExtractedFields | null; error?: string; model?: string };
-    if (rawText.length >= 200) {
-      llm = await callLLM([
-        { role: "system", content: "Eres un experto en notas simples del Registro de la Propiedad español. Devuelves SIEMPRE JSON válido." },
-        { role: "user", content: buildTextPrompt(rawText, needTitulares) },
-      ]);
-    } else {
-      // Fallback visión: PDF inline (base64)
-      let bin = "";
-      const chunk = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-      const b64 = btoa(bin);
-      const dataUrl = `data:application/pdf;base64,${b64}`;
-      llm = await callLLM(buildVisionMessages(dataUrl, needTitulares));
-    }
-    const extracted = llm.data;
-    if (!extracted) return { id, ok: false, reason: `llm_fail: ${llm.error ?? "sin detalle"}`.slice(0, 400) };
-
-    // 3) Merge structured_json
-    const prev = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
-    const merged: any = { ...prev, reparse_done: "1" };
-    // Al completar el reparse, quita la marca de "necesita extracción"
-    if ("needs_extract" in merged) delete merged.needs_extract;
-    if (extracted.direccion) merged.direccion = String(extracted.direccion).trim();
-    if (extracted.ref_catastral && !prev.ref_catastral) merged.ref_catastral = String(extracted.ref_catastral).replace(/\s+/g, "").toUpperCase();
-    const finca = { ...(prev.finca ?? {}) };
-    if (extracted.finca_numero && !finca.numero) finca.numero = String(extracted.finca_numero).trim();
-    if (extracted.registro && !finca.registro) finca.registro = String(extracted.registro).trim();
-    if (extracted.ref_catastral && !finca.ref_catastral) finca.ref_catastral = merged.ref_catastral;
-    if (Object.keys(finca).length) merged.finca = finca;
-
-    // Titulares: usa los extraídos si llegan; si no, normaliza los actuales.
-    // Fuente vacía, titular sin nombre o porcentaje no vacío inválido => la nota NO se cierra.
-    const fuenteTitulares = (Array.isArray(extracted.titulares) && extracted.titulares.length)
-      ? extracted.titulares
-      : currentTitulares;
-    const norm = normalizeTitularesChecked(fuenteTitulares);
-    if (!norm.ok) {
-      return { id, ok: false, reason: `${norm.reason}:${norm.detalle ?? ""}`.slice(0, 400) };
-    }
-    const titulares: TitularNormalizado[] = norm.value;
-    merged.titulares = titulares;
-
-    merged.reparse_model = llm.model ?? null;
-    merged.reparse_schema_version = 2;
-
-    // 3.bis) Conciliar titulares ANTES de cerrar la nota. Cada escritura debe
-    // devolver exactamente una fila; el cierre va SIEMPRE al final y condicionado al claim.
-    const { data: existing, error: exErr } = await sb.from("nota_simple_titulares")
-      .select("id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, evidencia")
-      .eq("nota_simple_id", id);
-    if (exErr) return { id, ok: false, reason: `titulares_read_fail:${exErr.message}`.slice(0, 400) };
-
-    const repo: ReconcileRepo = {
+    const repo: NotaRepo = {
+      async listTitulares(notaId) {
+        const { data, error } = await sb.from("nota_simple_titulares")
+          .select("id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, evidencia")
+          .eq("nota_simple_id", notaId);
+        return { rows: (data ?? []) as any[], error: error?.message ?? null };
+      },
       async updateTitular(rowId, patch): Promise<OpResult> {
         const { data, error } = await sb.from("nota_simple_titulares")
           .update(patch).eq("id", rowId).select("id").maybeSingle();
@@ -309,7 +263,23 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
           .insert(row).select("id").maybeSingle();
         return { rows: data ? 1 : 0, error: error?.message ?? null };
       },
-      async finalizeNota({ id: notaId, claimToken: token }): Promise<OpResult> {
+      async finalizeNota({ id: notaId, claimToken: token, titulares, extracted, model }): Promise<OpResult> {
+        const ex = extracted as ExtractedFields;
+        const prev = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
+        const merged: any = { ...prev, reparse_done: "1" };
+        if ("needs_extract" in merged) delete merged.needs_extract;
+        if (ex.direccion) merged.direccion = String(ex.direccion).trim();
+        if (ex.ref_catastral && !prev.ref_catastral) merged.ref_catastral = String(ex.ref_catastral).replace(/\s+/g, "").toUpperCase();
+        const finca = { ...(prev.finca ?? {}) };
+        if (ex.finca_numero && !finca.numero) finca.numero = String(ex.finca_numero).trim();
+        if (ex.registro && !finca.registro) finca.registro = String(ex.registro).trim();
+        if (ex.ref_catastral && !finca.ref_catastral) finca.ref_catastral = merged.ref_catastral;
+        if (Object.keys(finca).length) merged.finca = finca;
+        merged.titulares = titulares as TitularNormalizado[];
+        merged.reparse_model = model;
+        merged.reparse_schema_version = 2;
+        refCatastralFinal = merged.ref_catastral ?? null;
+        direccionFinal = merged.direccion ?? null;
         const { data, error } = await sb.from("notas_simples").update({
           raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
           structured_json: merged,
@@ -322,8 +292,22 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
       },
     };
 
-    const res = await runReconciliation(repo, {
-      notaId: id, claimToken, existentes: existing ?? [], deseados: titulares,
+    const extract = async (needTitulares: boolean) => {
+      if (rawText.length >= 200) {
+        return await callLLM([
+          { role: "system", content: "Eres un experto en notas simples del Registro de la Propiedad español. Devuelves SIEMPRE JSON válido." },
+          { role: "user", content: buildTextPrompt(rawText, needTitulares) },
+        ]) as any;
+      }
+      let bin = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      const dataUrl = `data:application/pdf;base64,${btoa(bin)}`;
+      return await callLLM(buildVisionMessages(dataUrl, needTitulares)) as any;
+    };
+
+    const res = await processNotaCore({ repo, extract }, {
+      notaId: id, claimToken, structured: nota.structured_json,
     });
     if (!res.ok) {
       return { id, ok: false, reason: `${res.reason}:${res.detalle ?? ""}`.slice(0, 400) };
@@ -331,8 +315,8 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
 
     return {
       id, ok: true,
-      ref_catastral: merged.ref_catastral ?? null,
-      direccion: merged.direccion ?? null,
+      ref_catastral: refCatastralFinal,
+      direccion: direccionFinal,
       titulares_insertados: res.inserted,
       titulares_actualizados: res.updated,
     };
