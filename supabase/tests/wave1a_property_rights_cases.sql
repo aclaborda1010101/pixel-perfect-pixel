@@ -40,17 +40,19 @@ SELECT
   '11111111-1111-1111-1111-000000000004'::uuid AS b4,  -- 60/40 vs 50/50
   '11111111-1111-1111-1111-000000000005'::uuid AS b5,  -- capa 90 (bloqueada)
   '11111111-1111-1111-1111-000000000006'::uuid AS b6,  -- duplicado idéntico
+  '11111111-1111-1111-1111-000000000007'::uuid AS b7,  -- negativos structured_json
   '22222222-2222-2222-2222-000000000001'::uuid AS o_ana,
   '22222222-2222-2222-2222-000000000002'::uuid AS o_juan,
   '33333333-3333-3333-3333-000000000001'::uuid AS c_soc;
 
-INSERT INTO public.buildings (id, direccion, division_horizontal)
-SELECT b1, 'TEST W1A1 B1', false FROM _ids
-UNION ALL SELECT b2, 'TEST W1A1 B2', true  FROM _ids
-UNION ALL SELECT b3, 'TEST W1A1 B3', true  FROM _ids
-UNION ALL SELECT b4, 'TEST W1A1 B4', false FROM _ids
-UNION ALL SELECT b5, 'TEST W1A1 B5', false FROM _ids
-UNION ALL SELECT b6, 'TEST W1A1 B6', false FROM _ids;
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal)
+SELECT b1, 'TEST W1A1 B1', 'Madrid', false FROM _ids
+UNION ALL SELECT b2, 'TEST W1A1 B2', 'Madrid', true  FROM _ids
+UNION ALL SELECT b3, 'TEST W1A1 B3', 'Madrid', true  FROM _ids
+UNION ALL SELECT b4, 'TEST W1A1 B4', 'Madrid', false FROM _ids
+UNION ALL SELECT b5, 'TEST W1A1 B5', 'Madrid', false FROM _ids
+UNION ALL SELECT b6, 'TEST W1A1 B6', 'Madrid', false FROM _ids
+UNION ALL SELECT b7, 'TEST W1A1 B7', 'Madrid', false FROM _ids;
 
 INSERT INTO public.owners (id, nombre, metadatos)
 SELECT o_ana,  'ANA GARCIA SOTO', '{"dni__nif__cif":"12345678Z"}'::jsonb FROM _ids
