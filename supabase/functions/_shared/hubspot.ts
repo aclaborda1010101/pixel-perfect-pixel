@@ -22,28 +22,54 @@ export const corsHeaders = {
 export async function hubspotFetch(path: string, init?: RequestInit) {
   const url = `${HUBSPOT_GATEWAY}${path}`;
   const HS_TIMEOUT_MS = 20000;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), HS_TIMEOUT_MS);
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      ...init,
-      headers: { ...hubspotHeaders(), ...(init?.headers || {}) },
-      signal: ctrl.signal,
-    });
-  } catch (e: any) {
+  const MAX_ATTEMPTS = 3;              // 1 intento + 2 reintentos
+  const RETRIABLE = new Set([429, 502, 503, 504]);
+  let lastErr: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), HS_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...init,
+        headers: { ...hubspotHeaders(), ...(init?.headers || {}) },
+        signal: ctrl.signal,
+      });
+    } catch (e: any) {
+      clearTimeout(t);
+      const msg = String(e?.message ?? e);
+      const transient = e?.name === "AbortError" || /reset|ECONNRESET|network|closed|eof/i.test(msg);
+      lastErr = new Error(
+        e?.name === "AbortError" ? `HubSpot ${path} timeout (${HS_TIMEOUT_MS}ms)` : `HubSpot ${path}: ${msg}`,
+      );
+      if (transient && attempt < MAX_ATTEMPTS) { await backoff(attempt); continue; }
+      throw lastErr;
+    }
     clearTimeout(t);
-    if (e?.name === "AbortError") throw new Error(`HubSpot ${path} timeout (${HS_TIMEOUT_MS}ms)`);
-    throw e;
-  }
-  clearTimeout(t);
-  const text = await res.text();
-  let body: any = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
-  if (!res.ok) {
+
+    const text = await res.text();
+    let body: any = null;
+    try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+
+    if (res.ok) return body;
+
+    if (RETRIABLE.has(res.status) && attempt < MAX_ATTEMPTS) {
+      const ra = Number(res.headers.get("retry-after"));
+      console.warn(`[hubspot] ${path} ${res.status} · reintento ${attempt}/${MAX_ATTEMPTS - 1}`);
+      await backoff(attempt, Number.isFinite(ra) && ra > 0 ? ra * 1000 : undefined);
+      continue;
+    }
     throw new Error(`HubSpot ${path} ${res.status}: ${JSON.stringify(body)}`);
   }
-  return body;
+  throw lastErr ?? new Error(`HubSpot ${path}: fallo desconocido`);
+}
+
+// Backoff exponencial con jitter (respeta Retry-After si viene)
+async function backoff(attempt: number, retryAfterMs?: number) {
+  const base = retryAfterMs ?? Math.min(8000, 500 * Math.pow(2, attempt - 1));
+  const jitter = base * 0.2 * Math.random();
+  await new Promise((r) => setTimeout(r, Math.min(15000, base + jitter)));
 }
 
 // Properties que queremos pedir a HubSpot para Deals (edificios)
