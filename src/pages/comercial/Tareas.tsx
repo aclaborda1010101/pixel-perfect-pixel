@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
 import {
   Phone, PhoneCall, Mail, ClipboardList, FileSearch, AlertTriangle,
-  Brain, MapPin, CheckSquare, ArrowRight, RefreshCw, Flame, CheckCircle2, Building2,
+  Brain, MapPin, CheckSquare, ArrowRight, Flame, CheckCircle2, Building2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
