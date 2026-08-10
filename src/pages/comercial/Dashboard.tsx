@@ -9,6 +9,8 @@ import { MetricValue } from "@/components/common/MetricValue";
 import { EmptyState } from "@/components/common/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
 import { startBuildingTask, canStartTask } from "@/lib/taskStart";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { fetchVisibleUserTasks } from "@/lib/dashboardTasks";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
@@ -30,6 +32,7 @@ function greet() {
 }
 
 export default function ComercialDashboard() {
+  const qc = useQueryClient();
   const { user, loading: authLoading } = useAuth();
   const { role, loading: roleLoading } = useCurrentRole();
 
