@@ -113,16 +113,38 @@ $$;
 CREATE OR REPLACE FUNCTION public.p0_nota_vigencia(p_sj jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT coalesce(
-    nullif(btrim(coalesce(
-      p_sj ->> 'fecha_emision_nota',
-      p_sj ->> 'fecha_nota',
-      p_sj ->> 'fecha_registral',
-      p_sj ->> 'valid_from',
-      p_sj #>> '{vigencia,desde}'
-    )), '')
-    || coalesce('/' || nullif(btrim(coalesce(p_sj ->> 'valid_to', p_sj #>> '{vigencia,hasta}')), ''), ''),
+    -- NULLIF por CADA candidato antes del COALESCE: una fecha vacía o de solo
+    -- espacios no puede ocultar otra fecha explícita válida posterior.
+    coalesce(
+      nullif(btrim(coalesce(p_sj ->> 'fecha_emision_nota','')), ''),
+      nullif(btrim(coalesce(p_sj ->> 'fecha_nota','')), ''),
+      nullif(btrim(coalesce(p_sj ->> 'fecha_registral','')), ''),
+      nullif(btrim(coalesce(p_sj ->> 'valid_from','')), ''),
+      nullif(btrim(coalesce(p_sj #>> '{vigencia,desde}','')), '')
+    )
+    || coalesce('/' || coalesce(
+         nullif(btrim(coalesce(p_sj ->> 'valid_to','')), ''),
+         nullif(btrim(coalesce(p_sj #>> '{vigencia,hasta}','')), '')
+       ), ''),
     'sin vigencia');
 $$;
+
+-- Parseo seguro de porcentajes textuales: acepta coma o punto decimal, símbolo
+-- % y espacios. Ante cualquier valor no numérico devuelve NULL y NUNCA lanza
+-- un error de cast (no puede abortar el dry-run).
+CREATE OR REPLACE FUNCTION public.p0_parse_pct(p_txt text)
+RETURNS numeric LANGUAGE sql IMMUTABLE AS $$
+  WITH v AS (
+    SELECT btrim(regexp_replace(coalesce(p_txt,''), '(%|por\s*cien(to)?|\s)', '', 'gi')) AS s
+  ), n AS (
+    SELECT replace(v.s, ',', '.') AS s FROM v
+  )
+  SELECT CASE WHEN n.s ~ '^[+-]?[0-9]+(\.[0-9]+)?$' THEN n.s::numeric ELSE NULL END
+  FROM n;
+$$;
+
+COMMENT ON FUNCTION public.p0_parse_pct(text) IS
+  'Parseo tolerante y seguro de porcentajes textuales (coma/punto/%/espacios). Devuelve NULL ante valor no numérico; nunca lanza excepción de cast.';
 
 -- Clave de unidad registral fiable a partir de la propia nota.
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key(p_nota_id uuid)
@@ -239,6 +261,7 @@ DECLARE
   v_ok_der   boolean := false;
   v_ok_pct   boolean := false;
   v_traz     boolean := false;
+  v_evid_presente boolean := false;
   v_fuente   text := 'ninguna';
   v_ref      text := NULL;
   r          jsonb;
@@ -273,7 +296,18 @@ BEGIN
 
   IF v_evid IS NOT NULL THEN
     v_cita := nullif(btrim(coalesce(v_evid ->> 'cita', v_evid ->> 'texto', v_evid ->> 'snippet','')), '');
-    v_ref  := coalesce(v_evid ->> 'pagina', v_evid ->> 'page', v_evid ->> 'ruta', v_evid ->> 'path', v_evid ->> 'offset');
+    v_ref  := coalesce(
+                nullif(btrim(coalesce(v_evid ->> 'pagina','')), ''),
+                nullif(btrim(coalesce(v_evid ->> 'page','')), ''),
+                nullif(btrim(coalesce(v_evid ->> 'ruta','')), ''),
+                nullif(btrim(coalesce(v_evid ->> 'path','')), ''),
+                nullif(btrim(coalesce(v_evid ->> 'offset','')), ''));
+    -- La fuente principal se considera PRESENTE si trae cita o cualquier dato
+    -- declarado (derecho / porcentaje). Si está presente y contradice, NO se
+    -- rescata con raw_pdf_text ni structured_json.
+    v_evid_presente := v_cita IS NOT NULL
+                       OR nullif(btrim(coalesce(v_evid ->> 'derecho','')), '') IS NOT NULL
+                       OR nullif(btrim(coalesce(v_evid ->> 'porcentaje','')), '') IS NOT NULL;
     IF v_cita IS NOT NULL THEN
       v_fuente := 'titular.evidencia';
       v_ok_tit := v_nn IS NOT NULL AND public.norm_person_name(v_cita) LIKE '%' || v_nn || '%';
@@ -286,13 +320,21 @@ BEGIN
       END IF;
       IF (v_evid ->> 'porcentaje') IS NOT NULL THEN
         v_ok_pct := v_ok_pct AND v_pct IS NOT NULL
-                    AND abs((v_evid ->> 'porcentaje')::numeric - v_pct) <= 0.01;
+                    AND public.p0_parse_pct(v_evid ->> 'porcentaje') IS NOT NULL
+                    AND abs(public.p0_parse_pct(v_evid ->> 'porcentaje') - v_pct) <= 0.01;
+      END IF;
+    ELSE
+      -- Hay evidencia declarada pero sin cita: no es trazable y no se rescata.
+      IF v_evid_presente THEN
+        v_fuente := 'titular.evidencia';
       END IF;
     END IF;
   END IF;
 
-  -- (b) FALLBACK 1: texto bruto. La MISMA cita debe traer titular + SU derecho + SU porcentaje.
-  IF NOT (v_ok_tit AND v_ok_der AND v_ok_pct) AND v_raw IS NOT NULL AND v_nn IS NOT NULL
+  -- (b) FALLBACK 1: texto bruto. Solo si la fuente principal está REALMENTE
+  -- ausente. La MISMA cita debe traer titular + SU derecho + SU porcentaje.
+  IF NOT v_evid_presente
+     AND NOT (v_ok_tit AND v_ok_der AND v_ok_pct) AND v_raw IS NOT NULL AND v_nn IS NOT NULL
      AND v_rx_right IS NOT NULL AND v_rx_pct IS NOT NULL THEN
     SELECT frag INTO v_cita
     FROM (
@@ -313,20 +355,30 @@ BEGIN
 
   -- (c) FALLBACK 2: structured_json. El MISMO elemento del MISMO titular debe
   -- mapear al mismo right_type, al mismo porcentaje (<=0,01) y traer cita o ruta.
-  IF NOT (v_ok_tit AND v_ok_der AND v_ok_pct) AND jsonb_typeof(v_sj -> 'titulares') = 'array' THEN
+  IF NOT v_evid_presente
+     AND NOT (v_ok_tit AND v_ok_der AND v_ok_pct) AND jsonb_typeof(v_sj -> 'titulares') = 'array' THEN
     SELECT jsonb_build_object(
-             'cita', nullif(btrim(coalesce(tj ->> 'cita', tj ->> 'texto','')), ''),
-             'ruta', coalesce(tj ->> 'pagina', tj ->> 'page', tj ->> 'ruta', tj ->> 'path'))
+             'cita', coalesce(nullif(btrim(coalesce(tj ->> 'cita','')), ''),
+                              nullif(btrim(coalesce(tj ->> 'texto','')), '')),
+             'ruta', coalesce(nullif(btrim(coalesce(tj ->> 'pagina','')), ''),
+                              nullif(btrim(coalesce(tj ->> 'page','')), ''),
+                              nullif(btrim(coalesce(tj ->> 'ruta','')), ''),
+                              nullif(btrim(coalesce(tj ->> 'path','')), '')))
       INTO r
     FROM jsonb_array_elements(v_sj -> 'titulares') tj
     WHERE public.norm_person_name(tj ->> 'nombre') = v_nn
       AND v_right <> 'otro'
       AND public.p0_right_type_from_rol(NULL, coalesce(tj ->> 'derecho', tj ->> 'rol'), NULL) = v_right
       AND v_pct IS NOT NULL
-      AND (tj ->> 'porcentaje') IS NOT NULL
-      AND abs((tj ->> 'porcentaje')::numeric - v_pct) <= 0.01
-      AND coalesce(nullif(btrim(coalesce(tj ->> 'cita', tj ->> 'texto','')), ''),
-                   tj ->> 'pagina', tj ->> 'page', tj ->> 'ruta', tj ->> 'path') IS NOT NULL
+      AND public.p0_parse_pct(tj ->> 'porcentaje') IS NOT NULL
+      AND abs(public.p0_parse_pct(tj ->> 'porcentaje') - v_pct) <= 0.01
+      -- localizador vacío no es trazabilidad
+      AND coalesce(nullif(btrim(coalesce(tj ->> 'cita','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'texto','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'pagina','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'page','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'ruta','')), ''),
+                   nullif(btrim(coalesce(tj ->> 'path','')), '')) IS NOT NULL
     LIMIT 1;
 
     IF r IS NOT NULL THEN
@@ -352,7 +404,7 @@ BEGIN
 END $$;
 
 COMMENT ON FUNCTION public.p0_evidence_check(uuid) IS
-  'Evidencia triple: titular_ok + derecho_ok (el derecho de ESA fila) + porcentaje_ok (tolerando coma/punto y %) + trazable. Fuente: titular.evidencia > raw_pdf_text > structured_json. No inventa página ni offset.';
+  'Evidencia triple: titular_ok + derecho_ok (el derecho de ESA fila) + porcentaje_ok (tolerando coma/punto y %) + trazable. Fuente principal: titular.evidencia; si existe y contradice, NO se rescata con raw_pdf_text ni structured_json. Los fallbacks solo operan cuando la evidencia del titular está realmente ausente. No inventa página ni offset.';
 
 -- ---------------------------------------------------------------------
 -- 5) Staging read-only, 1:1 con nota_simple_titulares
@@ -440,17 +492,28 @@ WITH tit AS (
     (coalesce(us.n_firmas, 0) > 1) AS unidad_contradictoria,
     (s.porcentaje IS NULL) AS percentage_null,
     (s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL) AS conflicto_ids,
-    -- Vínculos: se CONSERVAN los preexistentes; nunca se elige entre ambos.
-    coalesce(s.pre_owner_id,
-             CASE WHEN NOT s.es_sociedad THEN
-               CASE WHEN md.n = 1 THEN md.owner_id WHEN mn.n = 1 THEN mn.owner_id END
-             END) AS f_owner_id,
-    coalesce(s.pre_company_id,
-             CASE WHEN s.es_sociedad THEN
-               CASE WHEN mf.n = 1 THEN mf.company_id WHEN mc.n = 1 THEN mc.company_id END
-             END) AS f_company_id,
+    -- Vínculos operativos: nunca se elige entre ambos.
+    --  · Si la fuente trae owner_id Y company_id: AMBOS quedan NULL en la salida
+    --    operativa (los originales se conservan solo en audit_ids).
+    --  · Si solo hay pre_owner_id: prevalece owner y NO se infiere company aunque
+    --    el nombre parezca sociedad. Simétrico para pre_company_id.
+    CASE
+      WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN NULL
+      WHEN s.pre_owner_id IS NOT NULL THEN s.pre_owner_id
+      WHEN s.pre_company_id IS NOT NULL THEN NULL
+      WHEN NOT s.es_sociedad THEN
+        CASE WHEN md.n = 1 THEN md.owner_id WHEN mn.n = 1 THEN mn.owner_id END
+    END AS f_owner_id,
+    CASE
+      WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN NULL
+      WHEN s.pre_company_id IS NOT NULL THEN s.pre_company_id
+      WHEN s.pre_owner_id IS NOT NULL THEN NULL
+      WHEN s.es_sociedad THEN
+        CASE WHEN mf.n = 1 THEN mf.company_id WHEN mc.n = 1 THEN mc.company_id END
+    END AS f_company_id,
     -- Solo un DNI exacto e inequívoco habilita cuota personal.
-    (md.n = 1 AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
+    (md.n = 1 AND s.pre_company_id IS NULL
+     AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
     CASE
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN 'conflicto_owner_y_company'
       WHEN s.es_sociedad AND s.pre_company_id IS NOT NULL THEN 'company_preexistente'
@@ -591,6 +654,8 @@ WITH src AS (
     count(DISTINCT titular_id) AS titulares_unicos,
     count(*) FILTER (WHERE owner_id IS NULL AND company_id IS NULL) AS unmatched,
     count(*) FILTER (WHERE conflicto_ids) AS conflicto_owner_y_company,
+    -- Ninguna fila operativa puede salir con owner_id y company_id reales.
+    count(*) FILTER (WHERE owner_id IS NOT NULL AND company_id IS NOT NULL) AS mezcla_owner_company,
     count(*) FILTER (WHERE unit_block_reason = 'dh_sin_unidad_registral') AS dh_sin_unidad,
     count(*) FILTER (WHERE evidence_ok) AS evidence_ok,
     count(*) FILTER (WHERE NOT evidence_ok) AS evidence_missing,
@@ -637,6 +702,7 @@ SELECT jsonb_build_object(
   'paridad_1a1', (agg.staged_rows = src.n AND agg.titulares_unicos = agg.staged_rows),
   'unmatched', agg.unmatched,
   'conflicto_owner_y_company', agg.conflicto_owner_y_company,
+  'mezcla_owner_company', agg.mezcla_owner_company,
   'dh_sin_unidad', agg.dh_sin_unidad,
   'evidence_ok', agg.evidence_ok,
   'evidence_missing', agg.evidence_missing,
@@ -655,6 +721,7 @@ SELECT jsonb_build_object(
     'todas_con_building_id', agg.staged_con_building = agg.staged_rows,
     'titular_unico', agg.titulares_unicos = agg.staged_rows,
     'conflicto_no_alimenta_cuota', agg.bad_conflicto_feeds = 0,
+    'sin_mezcla_owner_company', agg.mezcla_owner_company = 0,
     'ningun_unmatched_alimenta_cuota', agg.bad_unmatched_feeds = 0,
     'solo_pleno_alimenta_cuota', agg.bad_no_pleno_feeds = 0,
     'solo_canonica_alimenta_cuota', agg.bad_no_canonica_feeds = 0,
@@ -667,6 +734,7 @@ SELECT jsonb_build_object(
     AND agg.staged_con_building = agg.staged_rows
     AND agg.titulares_unicos = agg.staged_rows
     AND agg.bad_conflicto_feeds = 0
+    AND agg.mezcla_owner_company = 0
     AND agg.bad_unmatched_feeds = 0
     AND agg.bad_no_pleno_feeds = 0
     AND agg.bad_no_canonica_feeds = 0
@@ -716,6 +784,7 @@ REVOKE ALL ON FUNCTION public.p0_nota_signature(uuid)       FROM PUBLIC, anon, a
 REVOKE ALL ON FUNCTION public.p0_evidence_check(uuid)       FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_nota_vigencia(jsonb)       FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_pct_regex(numeric)         FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_parse_pct(text)            FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_right_regex(text)          FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_right_type_from_rol(text, text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.p0_nota_unit_key(uuid)      TO service_role;
@@ -723,5 +792,6 @@ GRANT EXECUTE ON FUNCTION public.p0_nota_signature(uuid)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_evidence_check(uuid)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_vigencia(jsonb)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_pct_regex(numeric)       TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_parse_pct(text)          TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_right_regex(text)        TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_right_type_from_rol(text, text, text) TO service_role;

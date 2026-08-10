@@ -40,17 +40,19 @@ SELECT
   '11111111-1111-1111-1111-000000000004'::uuid AS b4,  -- 60/40 vs 50/50
   '11111111-1111-1111-1111-000000000005'::uuid AS b5,  -- capa 90 (bloqueada)
   '11111111-1111-1111-1111-000000000006'::uuid AS b6,  -- duplicado idéntico
+  '11111111-1111-1111-1111-000000000007'::uuid AS b7,  -- negativos structured_json
   '22222222-2222-2222-2222-000000000001'::uuid AS o_ana,
   '22222222-2222-2222-2222-000000000002'::uuid AS o_juan,
   '33333333-3333-3333-3333-000000000001'::uuid AS c_soc;
 
-INSERT INTO public.buildings (id, direccion, division_horizontal)
-SELECT b1, 'TEST W1A1 B1', false FROM _ids
-UNION ALL SELECT b2, 'TEST W1A1 B2', true  FROM _ids
-UNION ALL SELECT b3, 'TEST W1A1 B3', true  FROM _ids
-UNION ALL SELECT b4, 'TEST W1A1 B4', false FROM _ids
-UNION ALL SELECT b5, 'TEST W1A1 B5', false FROM _ids
-UNION ALL SELECT b6, 'TEST W1A1 B6', false FROM _ids;
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal)
+SELECT b1, 'TEST W1A1 B1', 'Madrid', false FROM _ids
+UNION ALL SELECT b2, 'TEST W1A1 B2', 'Madrid', true  FROM _ids
+UNION ALL SELECT b3, 'TEST W1A1 B3', 'Madrid', true  FROM _ids
+UNION ALL SELECT b4, 'TEST W1A1 B4', 'Madrid', false FROM _ids
+UNION ALL SELECT b5, 'TEST W1A1 B5', 'Madrid', false FROM _ids
+UNION ALL SELECT b6, 'TEST W1A1 B6', 'Madrid', false FROM _ids
+UNION ALL SELECT b7, 'TEST W1A1 B7', 'Madrid', false FROM _ids;
 
 INSERT INTO public.owners (id, nombre, metadatos)
 SELECT o_ana,  'ANA GARCIA SOTO', '{"dni__nif__cif":"12345678Z"}'::jsonb FROM _ids
@@ -144,9 +146,9 @@ VALUES ('55555555-0000-0000-0000-00000000000d', '44444444-0000-0000-0000-0000000
 -- CASO F · ganancial y CASO G · rol desconocido (B3)
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal)
 VALUES ('55555555-0000-0000-0000-00000000000f', '44444444-0000-0000-0000-000000000003',
-        'JUAN PEREZ LOPEZ', '87654321X', 100, NULL, 'con carácter ganancial'),
+        'JUAN PEREZ LOPEZ', '87654321X', 100, 'ganancial', 'con carácter ganancial'),
        ('55555555-0000-0000-0000-000000000017', '44444444-0000-0000-0000-000000000003',
-        'ANA GARCIA SOTO', '12345678Z', 100, NULL, 'titular');
+        'ANA GARCIA SOTO', '12345678Z', 100, 'otro', 'titular');
 
 -- CASO H · evidencia con DERECHO EQUIVOCADO (dice usufructo, la fila es pleno)
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, evidencia)
@@ -183,6 +185,32 @@ SELECT '55555555-0000-0000-0000-000000000016', '44444444-0000-0000-0000-00000000
 INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal, company_id)
 SELECT '55555555-0000-0000-0000-000000000018', '44444444-0000-0000-0000-000000000005',
        'HERMANOS MARTINEZ', NULL, 5, 'pleno', 'pleno dominio', c_soc FROM _ids;
+
+-- CASOS M · negativos de structured_json (B7, sin DH, sin evidencia de titular,
+-- raw vacío: el único camino posible sería el fallback structured_json).
+INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
+VALUES ('44444444-0000-0000-0000-000000000007', (SELECT b7 FROM _ids), 'listo', '',
+        '{"fecha_nota":"2026-03-01","titulares":[
+           {"nombre":"ANA GARCIA SOTO","derecho":"usufructo","porcentaje":"50","cita":"El usufructo del 50 % de ANA GARCIA SOTO"},
+           {"nombre":"JUAN PEREZ LOPEZ","derecho":"pleno dominio","porcentaje":"45","cita":"El pleno dominio del 45 % de JUAN PEREZ LOPEZ"},
+           {"nombre":"MARIA LOPEZ RUIZ","derecho":"pleno dominio","porcentaje":"25","cita":"   ","pagina":"  ","ruta":""},
+           {"nombre":"PEDRO SANZ GIL","derecho":"pleno dominio","porcentaje":"cincuenta por ciento","cita":"El pleno dominio de PEDRO SANZ GIL"}
+         ]}'::jsonb);
+
+INSERT INTO public.nota_simple_titulares (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal)
+VALUES
+  -- M1 · el structured_json declara OTRO derecho (usufructo) para una fila pleno
+  ('55555555-0000-0000-0000-000000000019', '44444444-0000-0000-0000-000000000007',
+   'ANA GARCIA SOTO', '12345678Z', 50, 'pleno', 'pleno dominio'),
+  -- M2 · el structured_json declara OTRO porcentaje (45 vs 40)
+  ('55555555-0000-0000-0000-00000000001a', '44444444-0000-0000-0000-000000000007',
+   'JUAN PEREZ LOPEZ', '87654321X', 40, 'pleno', 'pleno dominio'),
+  -- M3 · coincide todo pero el localizador está vacío (no hay trazabilidad)
+  ('55555555-0000-0000-0000-00000000001b', '44444444-0000-0000-0000-000000000007',
+   'MARIA LOPEZ RUIZ', NULL, 25, 'pleno', 'pleno dominio'),
+  -- M4 · porcentaje textual NO numérico: no debe abortar el dry-run
+  ('55555555-0000-0000-0000-00000000001c', '44444444-0000-0000-0000-000000000007',
+   'PEDRO SANZ GIL', NULL, 25, 'pleno', 'pleno dominio');
 
 -- ---------------------------------------------------------------------
 -- 2) Aserciones
@@ -240,11 +268,35 @@ BEGIN
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000010';
   PERFORM pg_temp.assert(NOT v.evidence_ok, 'H: derecho equivocado invalida la evidencia');
   PERFORM pg_temp.assert((v.evidence_ref ->> 'derecho_ok')::boolean IS FALSE, 'H: derecho_ok=false');
+  -- el raw_pdf_text de la nota SÍ contiene el dato correcto: no debe rescatar
+  PERFORM pg_temp.assert(v.evidence_ref ->> 'fuente' = 'titular.evidencia',
+                         'H: la evidencia principal contradictoria no se rescata con raw_pdf_text');
 
   -- I · evidencia con porcentaje equivocado
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000011';
   PERFORM pg_temp.assert(NOT v.evidence_ok, 'I: porcentaje equivocado invalida la evidencia');
   PERFORM pg_temp.assert((v.evidence_ref ->> 'porcentaje_ok')::boolean IS FALSE, 'I: porcentaje_ok=false');
+  PERFORM pg_temp.assert(v.evidence_ref ->> 'fuente' = 'titular.evidencia',
+                         'I: la evidencia principal contradictoria no se rescata con raw_pdf_text');
+
+  -- M · negativos de structured_json (fallback legítimo, pero no debe aprobar)
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000019';
+  PERFORM pg_temp.assert(NOT v.evidence_ok, 'M1: derecho distinto en structured_json no vale');
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-00000000001a';
+  PERFORM pg_temp.assert(NOT v.evidence_ok, 'M2: porcentaje distinto en structured_json no vale');
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-00000000001b';
+  PERFORM pg_temp.assert(NOT v.evidence_ok, 'M3: localizador vacío no es trazabilidad');
+  SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-00000000001c';
+  PERFORM pg_temp.assert(NOT v.evidence_ok, 'M4: porcentaje textual no numérico no vale');
+  PERFORM pg_temp.assert((SELECT bool_or(feeds_cuota) FROM _s
+                          WHERE building_id = (SELECT b7 FROM _ids)) IS NOT TRUE,
+                         'M: ninguna fila de B7 alimenta cuota');
+
+  -- p0_parse_pct: seguro y tolerante, nunca lanza cast
+  PERFORM pg_temp.assert(public.p0_parse_pct('50,00 %') = 50, 'parse_pct: coma y %');
+  PERFORM pg_temp.assert(public.p0_parse_pct(' 45.5 ') = 45.5, 'parse_pct: punto y espacios');
+  PERFORM pg_temp.assert(public.p0_parse_pct('cincuenta por ciento') IS NULL, 'parse_pct: texto no numérico → NULL');
+  PERFORM pg_temp.assert(public.p0_parse_pct(NULL) IS NULL, 'parse_pct: NULL → NULL');
 
   -- 100 con coma y con punto deben reconocerse igual
   PERFORM pg_temp.assert('El pleno dominio del 100,00 % de ANA' ~ public.p0_pct_regex(100), 'pct: coma');
@@ -303,10 +355,15 @@ BEGIN
   -- K · conflicto owner_id + company_id: se conservan ambos en auditoría, bloqueado
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000016';
   PERFORM pg_temp.assert(v.conflicto_ids, 'K: conflicto detectado');
+  PERFORM pg_temp.assert(v.owner_id IS NULL AND v.company_id IS NULL,
+                         'K: la salida operativa deja owner_id y company_id en NULL');
   PERFORM pg_temp.assert(NOT v.feeds_cuota AND v.review_flag, 'K: bloqueado sin cuota');
   PERFORM pg_temp.assert((v.audit_ids ->> 'pre_owner_id') IS NOT NULL
                          AND (v.audit_ids ->> 'pre_company_id') IS NOT NULL,
                          'K: ambos IDs originales conservados en auditoría');
+  -- ninguna fila puede salir con ambos IDs reales
+  PERFORM pg_temp.assert((SELECT count(*) FROM _s WHERE owner_id IS NOT NULL AND company_id IS NOT NULL) = 0,
+                         'ninguna fila operativa con owner_id y company_id a la vez');
 
   -- L · company_id preexistente fuerza es_sociedad y conserva el vínculo
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000018';
@@ -331,6 +388,9 @@ BEGIN
   PERFORM pg_temp.assert((v_dry ->> 'capas_completas')::int >= 1, 'debe detectar al menos una capa completa');
   PERFORM pg_temp.assert((v_dry ->> 'contradicciones')::int >= 1, 'debe detectar la contradicción 60/40 vs 50/50');
   PERFORM pg_temp.assert((v_dry ->> 'duplicados_identicos')::int >= 1, 'debe detectar el duplicado idéntico');
+  PERFORM pg_temp.assert((v_dry ->> 'mezcla_owner_company')::int = 0, 'mezcla_owner_company debe ser 0');
+  PERFORM pg_temp.assert((v_dry -> 'invariants' ->> 'sin_mezcla_owner_company')::boolean,
+                         'invariante sin_mezcla_owner_company debe ser true');
   PERFORM pg_temp.assert((v_dry ->> 'invariants_ok')::boolean, 'invariants_ok debe ser true');
 
   -- Rebuild real deshabilitado
@@ -363,9 +423,9 @@ BEGIN
     PERFORM pg_temp.assert(r.n1 = r.n2 AND r.ck1 = r.ck2,
       format('la tabla %s cambió durante el dry-run (%s->%s)', r.t, r.n1, r.n2));
   END LOOP;
-  -- buildings sí cambia: el test inserta 6 edificios sintéticos (se revierten con ROLLBACK)
+  -- buildings sí cambia: el test inserta 7 edificios sintéticos (se revierten con ROLLBACK)
   PERFORM pg_temp.assert(
-    (SELECT n FROM _before WHERE t = 'buildings') + 6 = (SELECT count(*) FROM public.buildings),
+    (SELECT n FROM _before WHERE t = 'buildings') + 7 = (SELECT count(*) FROM public.buildings),
     'buildings solo debe variar por los fixtures del test');
   RAISE NOTICE 'WAVE 1A.1 · TODAS LAS ASERCIONES OK (se revierte todo)';
 END $$;
