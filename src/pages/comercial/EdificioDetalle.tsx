@@ -32,7 +32,6 @@ import {
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
-import { syncBuildingTasks } from "@/lib/buildingTasks";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
@@ -128,11 +127,7 @@ export default function ComercialEdificioDetalle() {
     window.history.replaceState({}, "", url.toString());
   }, [viewActivo]);
 
-  useEffect(() => {
-    if (id && user?.id) {
-      syncBuildingTasks(id, user.id).catch(() => {});
-    }
-  }, [id, user?.id]);
+  // Legacy auto-task generation retired: opening a building no longer writes tasks.
 
   const { data } = useQuery({
     queryKey: ["comercial:edificio", id, user?.id],

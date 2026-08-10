@@ -1,6 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  filterVisibleOperationalTasks,
+  VISIBLE_OPERATIONAL_TASK_OR_FILTER,
+} from "@/lib/operationalTasks";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +16,7 @@ type Task = {
   user_id: string;
   status: string;
   task_type: string;
+  task_key: string | null;
   title: string | null;
   created_at: string;
   completed_at: string | null;
@@ -68,12 +73,14 @@ export default function GestorComerciales() {
     queryFn: async (): Promise<Task[]> => {
       const { data, error } = await supabase
         .from("building_tasks")
-        .select("id,user_id,status,task_type,title,created_at,completed_at,due_date")
+        .select("id,user_id,status,task_type,task_key,title,created_at,completed_at,due_date")
         .gte("created_at", since)
+        .or(VISIBLE_OPERATIONAL_TASK_OR_FILTER)
         .order("created_at", { ascending: false })
         .limit(5000);
       if (error) throw new Error(`No se pudo leer building_tasks: ${error.message}`);
-      return (data ?? []) as Task[];
+      // Defensive client-side filter on top of the server-side filter.
+      return filterVisibleOperationalTasks((data ?? []) as Task[]);
     },
   });
 

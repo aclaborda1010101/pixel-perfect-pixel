@@ -15,10 +15,14 @@ import {
 } from "@/components/ui/select";
 import {
   Phone, PhoneCall, Mail, ClipboardList, FileSearch, AlertTriangle,
-  Brain, MapPin, RefreshCw, Plus, ChevronDown, ChevronRight, Trash2,
+  Brain, MapPin, Plus, ChevronDown, ChevronRight, Trash2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { syncBuildingTasks, TASK_DEFS, type Priority } from "@/lib/buildingTasks";
+import { TASK_DEFS, type Priority } from "@/lib/buildingTasks";
+import {
+  filterVisibleOperationalTasks,
+  VISIBLE_OPERATIONAL_TASK_OR_FILTER,
+} from "@/lib/operationalTasks";
 import { sortByDueThenPriority } from "@/lib/taskSchedule";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
@@ -54,19 +58,12 @@ export function BuildingTasksSection({
         .select("*")
         .eq("building_id", buildingId)
         .eq("user_id", userId)
+        .or(VISIBLE_OPERATIONAL_TASK_OR_FILTER)
         .order("priority", { ascending: true })
         .order("task_type", { ascending: false })
         .order("created_at", { ascending: true });
-      return (data ?? []) as any[];
-    },
-  });
-
-  const syncMutation = useMutation({
-    mutationFn: async () => syncBuildingTasks(buildingId, userId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["building_tasks", buildingId, userId] });
-      qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
-      toast({ title: "Tareas re-evaluadas" });
+      // Defensive client-side filter on top of the server-side filter.
+      return filterVisibleOperationalTasks((data ?? []) as any[]);
     },
   });
 
@@ -110,15 +107,6 @@ export function BuildingTasksSection({
           <CardTitle>Tareas del edificio</CardTitle>
         </div>
         <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-          >
-            <RefreshCw className={cn("h-3 w-3", syncMutation.isPending && "animate-spin")} />
-            Re-evaluar
-          </Button>
           <NewTaskDialog
             open={openNew}
             onOpenChange={setOpenNew}
@@ -133,7 +121,7 @@ export function BuildingTasksSection({
       <CardContent className="p-0">
         {sortedPending.length === 0 && !isFetching ? (
           <div className="px-5 py-6 text-sm text-muted-foreground">
-            No hay tareas pendientes. Pulsa <em>Re-evaluar</em> para detectar nuevas.
+            No hay tareas pendientes. Puedes crear una tarea manual.
           </div>
         ) : (
           <ul className="divide-y divide-border-faint">
