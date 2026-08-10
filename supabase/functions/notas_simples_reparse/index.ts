@@ -213,14 +213,14 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
     } catch (e) {
       console.warn(`[notas_reparse] unpdf ${id}`, (e as Error).message);
     }
-    if (rawText) rawText = letrasANumerosEnTexto(rawText);
+    if (rawText) rawText = sanitize(letrasANumerosEnTexto(rawText));
 
     const currentTitulares = Array.isArray(nota.structured_json?.titulares) ? nota.structured_json.titulares : [];
     const needTitulares = currentTitulares.length === 0;
 
-    let extracted: ExtractedFields | null = null;
+    let llm: { data: ExtractedFields | null; error?: string; model?: string };
     if (rawText.length >= 200) {
-      extracted = await callLLM([
+      llm = await callLLM([
         { role: "system", content: "Eres un experto en notas simples del Registro de la Propiedad español. Devuelves SIEMPRE JSON válido." },
         { role: "user", content: buildTextPrompt(rawText, needTitulares) },
       ]);
@@ -231,9 +231,10 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
       for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
       const b64 = btoa(bin);
       const dataUrl = `data:application/pdf;base64,${b64}`;
-      extracted = await callLLM(buildVisionMessages(dataUrl, needTitulares));
+      llm = await callLLM(buildVisionMessages(dataUrl, needTitulares));
     }
-    if (!extracted) return { id, ok: false, reason: "llm_fail" };
+    const extracted = llm.data;
+    if (!extracted) return { id, ok: false, reason: `llm_fail: ${llm.error ?? "sin detalle"}`.slice(0, 400) };
 
     // 3) Merge structured_json
     const prev = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
@@ -258,9 +259,14 @@ async function processOne(sb: any, nota: any): Promise<{ id: string; ok: boolean
       })).filter((t) => t.nombre);
     }
 
+    merged.reparse_model = llm.model ?? null;
     const { error: updErr } = await sb.from("notas_simples").update({
-      raw_pdf_text: rawText ? rawText.slice(0, 60000) : null,
+      raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
       structured_json: merged,
+      attempt_count: (nota.attempt_count ?? 0) + 1,
+      last_error: null,
+      next_retry_at: null,
+      claimed_at: null,
     }).eq("id", id);
     if (updErr) return { id, ok: false, reason: `update_fail:${updErr.message}` };
 
