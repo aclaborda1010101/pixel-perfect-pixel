@@ -1,42 +1,81 @@
-# Análisis (solo lectura) del generador de cola de llamadas
+# Diagnóstico del backend (solo lectura, sin cambios)
 
-## 1. Cómo selecciona candidatos
-`assign_daily_call_queue` (POST, body `{user_id, n}`):
-- Con `user_id`, lee `building_assignments` (status `active`) de ese usuario. Si no hay ninguna, devuelve `{ok:true, inserted:0, reason:'no_assignments'}` y no crea nada.
-- Consulta `v_call_queue_daily` (límite 500) filtrando por esos `building_id`.
-- La vista une `building_owners` + `owners` (exige `telefono` no vacío) + `v_building_score` + `v_owner_score`. `temperatura='hot'` si hay llamada en los últimos 60 días, si no `cold`. Orden: `prioridad = score_edificio * score_owner * (1 + dias_cadencia_vencida/30)`.
-- La función deduplica por `building_id:owner_id`.
+## 1. Evidencia observada ahora mismo
 
-## 2. Cuántas tareas y mezcla T-02/T-08
-- `n` entre 5 y 50 (por defecto 20): 60% hot + 40% cold (n=20 → 12 hot + 8 cold; si faltan hot, genera menos).
-- **No existe lógica T-02/T-08 en el generador.** Sus títulos son `Llamar a <nombre> (hot|cold)` con prioridad `high`/`medium`. Las 79 tareas actuales llevan títulos `T-02 Primera llamada…` / `T-08 Seguimiento interesado…` y prioridad `normal`: **se insertaron manualmente por SQL, no con esta función**. No hay cron que la invoque.
+Comprobaciones ejecutadas (todas de lectura):
 
-## 3. task_key y due_date
-- `task_key = call_queue:<YYYY-MM-DD de hoy, UTC>:<owner_id>`.
-- **La función no escribe `due_date` (queda NULL).** El reparto 4/5/6/7 de agosto vino del insert manual.
+- Estado del backend: **activo y sano** desde el panel de la plataforma.
+- `select 1` → **funciona** (respuesta inmediata).
+- Conexiones: **12 en uso de 60 disponibles** → no hay agotamiento de conexiones.
+- Tamaño de base de datos: **871 MB** → lejos de cualquier límite de disco.
+- Consultas algo más pesadas (actividad detallada, historial de cron, estadísticas de consultas, métricas de salud) → **fallan de forma intermitente** con "Connection terminated due to connection timeout" y "context deadline exceeded".
+- Registros de la base de datos: varios **"canceling statement due to statement timeout"** en los últimos minutos.
+- Cron: **27 trabajos activos**, de los cuales 2 se ejecutan **cada minuto** y 9 **cada 5 minutos** (transcripciones, análisis de llamadas, sincronización HubSpot, reparse de notas, consentimiento WhatsApp, watchdog, etc.).
 
-## 4. ¿Borrar las 79 y ejecutar hoy daría una cola correcta?
-No tal cual, por tres motivos verificados en base:
-- **David (67dc7846…) no tiene ningún `building_assignments` activo** (los 151 activos son de 629f43a0… con 77 y de 4c05aaaa… con 74). Para David devolvería `inserted:0 / no_assignments`.
-- **Faltan hot**: en los edificios de Jesús la vista da 297 cold y solo **3 hot**; con n=20 saldrían ~11 tareas (3 hot + 8 cold).
-- Las nuevas tendrían `due_date` NULL (se verían “Sin fecha límite”, nunca “Hoy”/“Vencida”) y perderían el etiquetado T-02/T-08 que hoy muestra la UI.
+## 2. Qué está fallando exactamente
 
-Reparto actual pendiente: David 40 (10 por día 4–7), Jesús 39 (10/10/10/9).
+No falla "el backend" entero: falla la **capa de ejecución de consultas por saturación de CPU/E-S de la instancia**.
 
-## 5. Llamada exacta
-Edge function `assign_daily_call_queue`, una invocación por comercial:
+- La base de datos responde a lo trivial (`select 1`), luego el proceso Postgres está vivo y accesible.
+- Todo lo que requiere trabajo real (leer catálogos grandes, estadísticas, métricas) se corta por tiempo.
+- Auth Admin (`listUsers`) devolvió 504 y el endpoint de métricas expira: ambos dependen de la misma instancia saturada.
+- Los códigos 499/502/504 que viste son **síntomas del mismo cuello de botella**, no fallos distintos: la petición se agota antes de recibir respuesta y cada capa la reporta con su propio código.
+
+**Confianza: alta (~85%)** en que es saturación de recursos de la instancia (CPU/E-S), no una caída de la plataforma ni un problema de conexiones ni de disco.
+Confianza media en la causa concreta: el volumen de trabajos programados es el sospechoso principal, pero no he podido leer el historial de ejecuciones de cron ni las estadísticas de consultas justamente porque esas consultas expiran.
+
+## 3. Descartado con datos
+
+- **Agotamiento de conexiones**: no (12/60).
+- **Disco lleno**: no (871 MB).
+- **Backend pausado o caído**: no, figura activo y responde.
+- **Bloqueos/locks de larga duración**: no observados en el muestreo que sí completó (sólo 2 consultas activas, ninguna antigua salvo una conexión inactiva histórica).
+
+## 4. Servicios externos (Maps, Drive, FileCloud, Firecrawl)
+
+**No hay relación causal.** Esos servicios no consumen CPU de la base de datos; sólo la afectarían si alguna función programada los llamara y escribiera resultados masivamente. Desactivarlos no arregla los timeouts. Puede existir **correlación** aparente si el corte coincidió con un lote de enriquecimiento, pero eso sería el trabajo programado el que satura, no el servicio externo.
+
+## 5. Riesgo de pérdida o corrupción de datos
+
+**Riesgo de corrupción: prácticamente nulo.** Postgres es transaccional: una consulta cancelada por timeout deshace su transacción entera.
+**Riesgo real: trabajo no realizado.** Ejecuciones de cron que fallen ahora (sincronizaciones, transcripciones, análisis) simplemente no se completan; se recuperarán en la siguiente pasada si el flujo es idempotente (el nuestro lo es, con claves de idempotencia y colas de reintento).
+
+## 6. Qué hacemos nosotros (cuando lo autorices)
+
+1. **Pausar temporalmente los trabajos más agresivos** (los de cada minuto y varios de cada 5 minutos) para dejar respirar a la instancia. Es la palanca más rápida y reversible.
+2. **No lanzar ahora**: creación del usuario Carlos, migraciones, backfills, reparse masivo de notas, auditorías retroactivas. Esperar a que la instancia responda con normalidad.
+3. Una vez estable, **medir**: historial de cron y estadísticas de consultas para identificar los 3-5 procesos que se llevan el tiempo.
+4. Valorar **subir el tamaño de la instancia** de Lovable Cloud (Cloud → Ajustes avanzados → ampliar instancia). Con ~27 trabajos programados y sincronizaciones continuas contra HubSpot, el proyecto ha superado el dimensionamiento inicial.
+
+## 7. Qué debe hacer soporte de Lovable
+
+Confirmar si hay incidencia o degradación en la infraestructura de esa instancia, y revisar CPU/E-S y el endpoint de métricas (que hoy expira).
+
+### Texto exacto para soporte
 
 ```text
-POST /functions/v1/assign_daily_call_queue
-{"user_id":"629f43a0-2e80-4be1-a402-516fddcabee9","n":20}
-{"user_id":"67dc7846-c5a4-42b3-91b7-b802ced25382","n":20}
+Asunto: Timeouts intermitentes en la base de datos — project_id 9c1df87e-c8db-480f-94ec-e2461d3355cf / ref vsbrupwznqaaoiflvliu
+
+El backend figura activo y responde a "select 1", pero cualquier consulta con algo de carga
+falla de forma intermitente:
+- "Connection terminated due to connection timeout" (HTTP 544 desde la API de consultas)
+- "context deadline exceeded" al pedir /customer/v1/privileged/metrics (métricas no disponibles)
+- Errores en los logs de Postgres: "canceling statement due to statement timeout"
+- Auth Admin listUsers devolvió 504
+- Previamente 499 (request_cancelled) y 502 (UNAVAILABLE) para la misma consulta mínima
+
+Descartado por nuestra parte:
+- Conexiones: 12 de 60 en uso
+- Tamaño de base de datos: 871 MB
+- Sin locks ni consultas largas visibles en el muestreo
+
+Petición:
+1) Confirmar si hay incidencia/degradación en la instancia o en el nodo que la aloja.
+2) Revisar saturación de CPU/E-S y por qué el endpoint de métricas expira.
+3) Indicar el tamaño de instancia actual y si recomiendan ampliarlo para este volumen
+   (27 trabajos pg_cron activos, 2 cada minuto, 9 cada 5 minutos, sincronización continua con HubSpot).
 ```
 
-o desde el front `supabase.functions.invoke('assign_daily_call_queue', { body: { user_id, n: 20 } })` — es lo que ya hace `ColaHoyCard`.
+## 8. Siguiente paso que te propongo
 
-## Qué haría falta antes de regenerar (propuesta, no ejecutada)
-1. Crear/activar `building_assignments` para David (o asignación por zona).
-2. Que el generador escriba `due_date` (hoy) y, si se quiere conservar la nomenclatura, títulos T-02 (sin contactos previos) / T-08 (con contacto previo).
-3. Rellenar con cold hasta `n` cuando no haya hot suficientes.
-
-Este análisis no ha cambiado código ni datos.
+Autorízame a **pausar temporalmente los cron más frecuentes** (acción reversible, sin tocar datos) y a repetir las mediciones cuando la instancia se estabilice. Nada más se ejecutará hasta que lo apruebes.
