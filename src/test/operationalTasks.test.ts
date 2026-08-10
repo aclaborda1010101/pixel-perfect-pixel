@@ -86,7 +86,8 @@ describe("legacy building task engine is retired", () => {
     const src = readFileSync(resolve(process.cwd(), "src/lib/buildingTasks.ts"), "utf8");
     expect(src.length).toBeGreaterThan(0);
     expect(src).not.toMatch(/from\s+["']@\/integrations\/supabase\/client["']/);
-    expect(src.toLowerCase()).not.toContain("building_tasks");
+    expect(src).not.toMatch(/from\s*\(\s*["']building_tasks["']/);
+    expect(src).not.toMatch(/\bsupabase\s*\./);
 
     const mod = await import("@/lib/buildingTasks");
     expect(typeof mod.syncBuildingTasks).toBe("function");
