@@ -16,7 +16,6 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { clearMustChangePassword, PARTIAL_MESSAGE } from "./profile.ts";
 
 const MIN_LEN = 10;
-const PROFILE_RETRIES = 3;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
