@@ -13,6 +13,7 @@
 // =====================================================================
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { clearMustChangePassword, PARTIAL_MESSAGE } from "./profile.ts";
 
 const MIN_LEN = 10;
 const PROFILE_RETRIES = 3;
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
   if (pwErr) {
     // No se registra ni la contraseña ni el token, sólo el código de error.
     console.error("auth_update_failed", pwErr.status ?? "unknown");
-    return json({ ok: false, stage: "auth", error: pwErr.message }, 400);
+    return json({ ok: false, stage: "auth", error: "No se pudo actualizar la contraseña." }, 400);
   }
 
   // Sólo tras el éxito en Auth se baja el flag, con service role.
@@ -68,28 +69,16 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  let lastError: string | null = null;
-  for (let attempt = 1; attempt <= PROFILE_RETRIES; attempt++) {
-    const { error } = await admin
-      .from("profiles")
-      .update({ must_change_password: false })
-      .eq("id", userId);
-    if (!error) {
-      return json({ ok: true, stage: "done", must_change_password: false });
-    }
-    lastError = error.message;
-    await new Promise((r) => setTimeout(r, 200 * attempt));
-  }
+  const res = await clearMustChangePassword(admin as any, userId);
+  if (res.ok) return json({ ok: true, stage: "done", must_change_password: false });
 
-  console.error("profile_flag_update_failed", userId);
   return json(
     {
       ok: false,
       stage: "partial",
+      reason: res.reason,
       must_change_password: true,
-      error:
-        "La contraseña se ha cambiado, pero no se pudo actualizar el perfil. El acceso sigue bloqueado; vuelve a intentarlo.",
-      detail: lastError,
+      error: PARTIAL_MESSAGE,
     },
     207,
   );
