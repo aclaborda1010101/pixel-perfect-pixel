@@ -145,7 +145,7 @@ export function buildReconcilePlan(
     if (exacta) {
       consumidas.add(exacta.id);
       const patch = construirPatch(exacta, d);
-      if (!patch.ok) return { ok: false, reason: patch.reason, detalle: patch.detalle, updates: [], inserts: [] };
+      if (patch.ok === false) return { ok: false, reason: patch.reason, detalle: patch.detalle, updates: [], inserts: [] };
       if (Object.keys(patch.value).length) updates.push({ id: exacta.id, patch: patch.value });
       continue;
     }
@@ -164,7 +164,7 @@ export function buildReconcilePlan(
       const f = candidatos[0];
       consumidas.add(f.id);
       const patch = construirPatch(f, d);
-      if (!patch.ok) return { ok: false, reason: patch.reason, detalle: patch.detalle, updates: [], inserts: [] };
+      if (patch.ok === false) return { ok: false, reason: patch.reason, detalle: patch.detalle, updates: [], inserts: [] };
       if (Object.keys(patch.value).length) updates.push({ id: f.id, patch: patch.value });
       continue;
     }
@@ -187,7 +187,7 @@ function construirPatch(
   if ((f.rol ?? null) !== d.rol) patch.rol = d.rol;
   if ((f.rol_literal ?? null) !== (d.rol_literal ?? null)) patch.rol_literal = d.rol_literal;
   const merged = mergeEvidencias(f.evidencia ?? null, d.evidencia ?? null);
-  if (!merged.ok) {
+  if (merged.ok === false) {
     return { ok: false, reason: "evidence_conflict", detalle: `${f.id}:${merged.detalle}` };
   }
   if (evidenciaStable(f.evidencia ?? null) !== evidenciaStable(merged.value)) {

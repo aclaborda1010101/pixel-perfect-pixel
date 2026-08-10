@@ -82,18 +82,18 @@ export function decidirTitulares(args: {
       return { ok: false, reason: "titulares_refetch_vacio", detalle: "el LLM no devolvió titulares" };
     }
     const norm = normalizeTitularesChecked(nuevos);
-    if (!norm.ok) return { ok: false, reason: norm.reason, detalle: norm.detalle };
+    if (norm.ok === false) return { ok: false, reason: norm.reason, detalle: norm.detalle };
     const estricto = validarTitularesNuevos(norm.value);
-    if (!estricto.ok) return { ok: false, reason: estricto.reason, detalle: estricto.detalle };
+    if (estricto.ok === false) return { ok: false, reason: estricto.reason, detalle: estricto.detalle };
     return { ok: true, value: norm.value, refetched: true };
   }
   const fuente = nuevos.length ? nuevos : (Array.isArray(args.actuales) ? args.actuales : []);
   if (fuente.length === 0) return { ok: false, reason: "titulares_source_empty" };
   const norm = normalizeTitularesChecked(fuente);
-  if (!norm.ok) return { ok: false, reason: norm.reason, detalle: norm.detalle };
+  if (norm.ok === false) return { ok: false, reason: norm.reason, detalle: norm.detalle };
   if (nuevos.length) {
     const estricto = validarTitularesNuevos(norm.value);
-    if (!estricto.ok) return { ok: false, reason: estricto.reason, detalle: estricto.detalle };
+    if (estricto.ok === false) return { ok: false, reason: estricto.reason, detalle: estricto.detalle };
   }
   return { ok: true, value: norm.value, refetched: nuevos.length > 0 };
 }
@@ -113,7 +113,7 @@ export async function processNotaCore(
 
   const actuales = (args.structured as any)?.titulares;
   const decision = decidirTitulares({ needsRefetch, extraidos: llm.data.titulares, actuales });
-  if (!decision.ok) {
+  if (decision.ok === false) {
     return { ...base, reason: decision.reason, detalle: decision.detalle, model: llm.model ?? null };
   }
   const titulares = decision.value;
