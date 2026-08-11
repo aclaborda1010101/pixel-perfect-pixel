@@ -11,6 +11,7 @@
  */
 import { runReparseCycle } from "./orchestrator.ts";
 import { createReparseDeps } from "./deps.ts";
+import { decidirAuth, redactar, type JwtVerifier } from "./auth.ts";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,22 +23,43 @@ export const DEFAULT_LIMIT = 2;
 export const MAX_LIMIT = 5;
 export const CLAIM_MINUTES = 30;
 export const MAX_ATTEMPTS = 5;
+/** Tope duro de bytes de cuerpo aceptados (canario dirigido, no ingesta masiva). */
+export const MAX_BODY_BYTES = 8 * 1024;
+/** Tope duro de ids aceptados en un canario dirigido. */
+export const MAX_IDS = MAX_LIMIT;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Canario dirigido: lista de ids UUID válidos (máx. MAX_LIMIT). Cualquier
- * entrada no-UUID se descarta: nunca amplía la selección de la cola.
+ * Canario dirigido FAIL-CLOSED (P0.8): si el cuerpo trae `ids` no vacío,
+ * CUALQUIER entrada inválida (no UUID, duplicada o por encima del tope)
+ * invalida la petición entera. Jamás se degrada al lote general de la cola.
  */
-export function parseIds(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
+export type IdsParse =
+  | { ok: true; ids: string[] }
+  | { ok: false; reason: string; detalle: string };
+
+export function parseIdsStrict(raw: unknown): IdsParse {
+  if (raw == null) return { ok: true, ids: [] };
+  if (!Array.isArray(raw)) return { ok: false, reason: "ids_invalidos", detalle: "ids debe ser un array" };
+  if (raw.length === 0) return { ok: true, ids: [] };
+  if (raw.length > MAX_IDS) {
+    return { ok: false, reason: "ids_demasiados", detalle: `${raw.length} > ${MAX_IDS}` };
+  }
   const out: string[] = [];
   for (const v of raw) {
     const s = String(v ?? "").trim();
-    if (UUID_RE.test(s) && !out.includes(s)) out.push(s);
-    if (out.length >= MAX_LIMIT) break;
+    if (!UUID_RE.test(s)) return { ok: false, reason: "id_invalido", detalle: s.slice(0, 60) };
+    if (out.includes(s)) return { ok: false, reason: "id_duplicado", detalle: s };
+    out.push(s);
   }
-  return out;
+  return { ok: true, ids: out };
+}
+
+/** Compatibilidad: lista de ids válidos, vacía si el cuerpo no es válido. */
+export function parseIds(raw: unknown): string[] {
+  const r = parseIdsStrict(raw);
+  return r.ok ? r.ids : [];
 }
 
 export function backoffMinutes(attempt: number): number {
@@ -97,13 +119,48 @@ export async function handleReparseRequest(
   req: Request,
   sb: any,
   processOne: ProcessOne,
+  authOpts?: {
+    internalSecret?: string | null;
+    serviceRoleKey?: string | null;
+    verifyJwt?: JwtVerifier | null;
+  },
 ): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const json = (payload: Record<string, unknown>, status: number) =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
+  // 1) AUTORIZACIÓN EN CÓDIGO. verify_jwt=false no abre el endpoint.
+  const auth = await decidirAuth({
+    headers: req.headers,
+    internalSecret: authOpts?.internalSecret ?? null,
+    serviceRoleKey: authOpts?.serviceRoleKey ?? null,
+    verifyJwt: authOpts?.verifyJwt ?? null,
+  });
+  if (auth.ok === false) {
+    return json({ ok: false, status: "unauthorized", error_message: redactar(auth.reason) }, auth.status);
+  }
+
+  // 2) Cuerpo acotado en bytes y validado fail-closed.
+  let raw = "";
+  try { raw = await req.text(); } catch { raw = ""; }
+  if (raw.length > MAX_BODY_BYTES) {
+    return json({ ok: false, status: "rejected", error_message: `body_demasiado_grande:${raw.length}` }, 413);
+  }
   let body: any = {};
-  try { body = await req.json(); } catch { /* cuerpo opcional */ }
+  if (raw.trim()) {
+    try { body = JSON.parse(raw); } catch { return json({ ok: false, status: "rejected", error_message: "body_json_invalido" }, 400); }
+  }
   const limit = Math.max(1, Math.min(MAX_LIMIT, Number(body?.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
-  const ids = parseIds(body?.ids);
+  const parsed = parseIdsStrict(body?.ids);
+  if (parsed.ok === false) {
+    // Nunca se cae al lote general: la petición dirigida falla cerrada.
+    return json({ ok: false, status: "rejected", error_message: `${parsed.reason}:${redactar(parsed.detalle)}` }, 400);
+  }
+  const ids = parsed.ids;
 
   const deps = createReparseDeps(sb, {
     claimMinutes: Math.max(1, Math.min(120, Number(body?.lock_minutes ?? CLAIM_MINUTES) || CLAIM_MINUTES)),
@@ -112,8 +169,18 @@ export async function handleReparseRequest(
   });
 
   const cycle = await runReparseCycle(deps, { limit });
-  return new Response(JSON.stringify(cycle.body), {
-    status: cycle.http,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+  // Los ids solicitados deben reclamarse TODOS: si alguno no es reclamable,
+  // la respuesta es un fallo explícito, jamás un lote parcial silencioso.
+  const body2: Record<string, unknown> = { ...cycle.body };
+  if (ids.length) {
+    const procesadas = Array.isArray((cycle.body as any).resultados) ? (cycle.body as any).resultados.length : 0;
+    if (procesadas !== ids.length) {
+      body2.ok = false;
+      body2.status = "partial";
+      body2.error_message = [`ids_no_reclamables:${ids.length - procesadas}`, body2.error_message]
+        .filter(Boolean).join(" | ");
+      return json(body2, 500);
+    }
+  }
+  return json(body2, cycle.http);
 }

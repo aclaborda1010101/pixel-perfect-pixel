@@ -7,8 +7,17 @@ import {
   citaVerificable,
   esRolEspecifico,
   normalizeTitularesChecked,
+  textoComparable,
   type TitularNormalizado,
 } from "./lib.ts";
+import {
+  derechoDe,
+  extraerInventario,
+  reconciliarCompletitud,
+  type Completitud,
+  type Inventario,
+} from "./completeness.ts";
+import { porcentajeCanonico } from "./porcentaje.ts";
 import {
   needsTitularesRefetch,
   runReconciliation,
@@ -35,6 +44,8 @@ export type ApplyPlanArgs = {
   titulares: TitularNormalizado[];
   extracted: Record<string, unknown>;
   model: string | null;
+  /** P0.8: JSON de completitud; sin ok=true la RPC aborta la transacción. */
+  completeness?: Completitud | null;
 };
 
 export type ApplyPlanResult = {
@@ -52,6 +63,8 @@ export function applyPlanReason(error: string | null | undefined): string {
   if (/titular_update_fail/i.test(e)) return "titular_update_fail";
   if (/titular_insert_fail/i.test(e)) return "titular_insert_fail";
   if (/finalize_fail/i.test(e)) return "finalize_fail";
+  if (/completeness_(fail|ausente|post_apply)/i.test(e)) return "completeness_fail";
+  if (/porcentaje_fuera_de_rango/i.test(e)) return "porcentaje_fuera_de_rango";
   return "apply_plan_fail";
 }
 
@@ -83,7 +96,65 @@ export type ResultadoCore = {
   model?: string | null;
   refetched: boolean;
   titulares?: TitularNormalizado[];
+  /** JSON de completitud: SIEMPRE presente cuando hubo inventario. */
+  completeness?: Completitud | null;
+  /** Irrecuperable: dead-letter sin reintento (p. ej. documento no registral). */
+  fatal?: boolean;
 };
+
+/**
+ * PRECISIÓN EXACTA (P0.8). El porcentaje persistido se deriva de la CITA
+ * fuente, nunca del redondeo del LLM. La misma cita debe contener el nombre,
+ * el derecho y el porcentaje: si no, el hecho no está probado y bloquea.
+ */
+export function canonizarPorcentajes(
+  titulares: TitularNormalizado[],
+  opts?: { inventario?: Inventario | null },
+): { ok: true; value: TitularNormalizado[] } | { ok: false; reason: string; detalle: string } {
+  const out: TitularNormalizado[] = [];
+  for (const t of titulares) {
+    const fuente = citaAnclada(t.evidencia);
+    if (!fuente?.cita) {
+      return { ok: false, reason: "titular_sin_evidencia_real", detalle: t.nombre };
+    }
+    const cita = fuente.cita;
+    const citaCmp = textoComparable(cita);
+    if (!citaCmp.includes(textoComparable(t.nombre))) {
+      return { ok: false, reason: "cita_sin_identidad", detalle: `${t.nombre}` };
+    }
+    const derechoCita = derechoDe(cita);
+    if (derechoCita == null) {
+      return { ok: false, reason: "cita_sin_derecho", detalle: t.nombre };
+    }
+    if (derechoCita !== t.rol) {
+      return { ok: false, reason: "cita_derecho_discrepante", detalle: `${t.nombre}:${t.rol}!=${derechoCita}` };
+    }
+    // Desambiguación por localizador: un hecho del inventario con misma
+    // identidad + derecho (y página, si consta) fija el literal esperado.
+    const candidatosInv = (opts?.inventario?.hechos ?? []).filter((h) =>
+      h.nombre_norm === textoComparable(t.nombre).replace(/\s+/g, " ") ||
+      textoComparable(h.nombre) === textoComparable(t.nombre)
+    ).filter((h) => h.right_type === t.rol)
+      .filter((h) => fuente.pagina == null || h.page === fuente.pagina);
+    const literalEsperado = candidatosInv.length === 1 ? candidatosInv[0].porcentaje_literal : null;
+
+    const pct = porcentajeCanonico({ cita, porcentajeLlm: t.porcentaje, literalEsperado });
+    if (pct.ok === false) {
+      return { ok: false, reason: pct.reason, detalle: `${t.nombre}: ${pct.detalle}` };
+    }
+    out.push({
+      ...t,
+      porcentaje: pct.fuente.valor,
+      porcentaje_diagnostico: {
+        llm: pct.llm,
+        fuente: pct.fuente.valor,
+        literal: pct.fuente.literal,
+        forma: pct.fuente.forma,
+      },
+    });
+  }
+  return { ok: true, value: out };
+}
 
 /**
  * Validación estricta de titulares RECIÉN extraídos (P0.7). Cada titular debe
@@ -162,6 +233,19 @@ export async function processNotaCore(
   const needsRefetch = needsTitularesRefetch(args.structured);
   const base: ResultadoCore = { ok: false, updated: 0, inserted: 0, finalized: false, refetched: false };
 
+  // 0) Inventario determinista de hechos registrales (sólo si hay texto real).
+  const inventario: Inventario | null = args.textoFuente ? extraerInventario(args.textoFuente) : null;
+  if (inventario && inventario.documento === "NON_REGISTRY_DOCUMENT") {
+    // No es una nota simple: 0 titulares, dead-letter, sin reintento infinito.
+    return {
+      ...base,
+      reason: "NON_REGISTRY_DOCUMENT",
+      detalle: "el documento no contiene marcas registrales",
+      completeness: reconciliarCompletitud({ inventario, materializados: [] }),
+      fatal: true,
+    } as ResultadoCore;
+  }
+
   const llm = await deps.extract(needsRefetch);
   if (!llm.data) {
     return { ...base, reason: "llm_fail", detalle: (llm.error ?? "sin detalle").slice(0, 300) };
@@ -177,7 +261,34 @@ export async function processNotaCore(
   if (decision.ok === false) {
     return { ...base, reason: decision.reason, detalle: decision.detalle, model: llm.model ?? null };
   }
-  const titulares = decision.value;
+
+  // 1) PRECISIÓN: el porcentaje sale de la cita, nunca del redondeo del LLM.
+  const exactos = canonizarPorcentajes(decision.value, { inventario });
+  if (exactos.ok === false) {
+    return { ...base, reason: exactos.reason, detalle: exactos.detalle, model: llm.model ?? null, refetched: decision.refetched };
+  }
+  const titulares = exactos.value;
+
+  // 2) COMPLETITUD FAIL-CLOSED: 1:1 contra el inventario. Sin ella no se
+  //    finaliza nada: la transacción de titulares NO avanza.
+  let completeness: Completitud | null = null;
+  if (inventario) {
+    completeness = reconciliarCompletitud({
+      inventario,
+      materializados: titulares.map((t) => ({ nombre: t.nombre, rol: t.rol, porcentaje: t.porcentaje })),
+    });
+    if (!completeness.ok) {
+      return {
+        ...base,
+        reason: completeness.motivo ?? "completeness_fail",
+        detalle: `expected=${completeness.expected} materialized=${completeness.materialized}`,
+        model: llm.model ?? null,
+        refetched: decision.refetched,
+        completeness,
+        titulares,
+      };
+    }
+  }
 
   const existentes = await deps.repo.listTitulares(args.notaId);
   if (existentes.error) {
@@ -207,6 +318,7 @@ export async function processNotaCore(
       titulares,
       extracted: llm.data as Record<string, unknown>,
       model: llm.model ?? null,
+      completeness,
     });
     if (!applied.ok) {
       return {
@@ -215,6 +327,7 @@ export async function processNotaCore(
         detalle: String(applied.error ?? "").slice(0, 300),
         model: llm.model ?? null,
         refetched: decision.refetched,
+        completeness,
       };
     }
     return {
@@ -225,6 +338,7 @@ export async function processNotaCore(
       model: llm.model ?? null,
       refetched: decision.refetched,
       titulares,
+      completeness,
     };
   }
 
@@ -259,6 +373,7 @@ export async function processNotaCore(
     model: llm.model ?? null,
     refetched: decision.refetched,
     titulares,
+    completeness,
   };
 }
 

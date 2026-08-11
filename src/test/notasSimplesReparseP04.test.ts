@@ -280,9 +280,13 @@ function dbTransaccional(opts: {
 }
 
 const evid = (cita: string, pagina = 1) => ({ fuentes: [{ cita, pagina, ruta: "SECCION A" }] });
-const titularLLM = (nombre: string, cita: string) => ({
+// P0.8: la cita ancla identidad + derecho + porcentaje en el mismo literal.
+const titularLLM = (nombre: string, _cita?: string) => ({
   nombre, cif_dni: null, porcentaje: 100, rol: "pleno", rol_literal: "PLENO DOMINIO",
-  evidencia: { cita, pagina: 1, ruta: "SECCION A" },
+  evidencia: {
+    cita: `TITULAR: ${nombre} PARTICIPACION: 100% del pleno dominio`,
+    pagina: 1, ruta: "SECCION A",
+  },
 });
 
 function repoDe(tx: ReturnType<typeof dbTransaccional>, existentes: Fila[]): NotaRepo {
