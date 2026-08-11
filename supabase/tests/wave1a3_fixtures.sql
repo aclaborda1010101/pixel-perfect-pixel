@@ -349,11 +349,11 @@ BEGIN
   ASSERT (d ->> 'date_conflicts')::int >= 1, 'contador de date_conflicts';
   ASSERT (d ->> 'regime_conflicts')::int >= 1, 'contador de regime_conflicts';
 
-  -- 7) CASO 6: ruta/offset/página SIN cita anclada => structured_unverified.
+  -- 7) CASO 6: ruta/offset/página SIN cita anclada => evidencia inválida.
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = '66666666-0000-0000-0000-0000000000b2'
-     AND structured_unverified AND NOT evidence_ok AND NOT feeds_cuota;
-  ASSERT n = 1, 'ruta válida hacia otro titular + offset sin cita => structured_unverified, cero feed';
+     AND bad_evidence AND NOT evidence_ok AND NOT feeds_cuota;
+  ASSERT n = 1, 'ruta válida hacia otro titular + offset sin cita => bad_evidence, cero feed';
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE building_id = '66666666-6666-6666-6666-666666666666' AND feeds_cuota;
   ASSERT n = 0, 'sintaxis válida no es evidencia: la unidad no proyecta';
