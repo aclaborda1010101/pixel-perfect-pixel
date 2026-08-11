@@ -134,7 +134,11 @@ SKIP_LOCAL=(
 # 1A.2 -> 1A.3 se ejecuta después con el rol dedicado no-superusuario.
 echo "ADMIN    $(sha256sum "$BASELINE" | cut -c1-16)  $(basename "$BASELINE") (provisión de plataforma)"
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q -f "$BASELINE" >"$WORK/baseline.log" 2>&1 \
-  || { sed -n '1,40p' "$WORK/baseline.log" >&2; die "el baseline de plataforma no aplica en el clúster efímero."; }
+  || { sed -n '1,40p' "$WORK/baseline.log" >&2;
+       if grep -q 'extension "vector" is not available' "$WORK/baseline.log"; then
+         skip "pgvector no está instalado en el PostgreSQL local: la cadena histórica no puede reproducirse aquí."
+       fi
+       die "el baseline de plataforma no aplica en el clúster efímero."; }
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
   -c "GRANT ALL ON SCHEMA public, auth, storage, extensions, cron, net TO \"$ROLE\";" >/dev/null 2>&1 || true
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
