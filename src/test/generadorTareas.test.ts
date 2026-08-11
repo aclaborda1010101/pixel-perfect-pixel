@@ -70,7 +70,8 @@ describe("mezcla de trabajo", () => {
 
   it("compensa el déficit según el histórico", () => {
     const historico = Array<string>(10).fill("T-02_03");
-    expect(elegirTipo({ mix: MIX_POR_DEFECTO, historico, disponibles: TIPOS })).toBe("T-01");
+    // Con el reparto por defecto (Equilibrado 20/40/40) el mayor déficit es el seguimiento.
+    expect(elegirTipo({ mix: MIX_POR_DEFECTO, historico, disponibles: TIPOS })).toBe("T-04");
   });
 
   it("solo elige entre tipos con candidato real", () => {

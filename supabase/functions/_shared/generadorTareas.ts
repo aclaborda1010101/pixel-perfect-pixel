@@ -8,7 +8,7 @@
 export const TIPOS = ['T-01', 'T-02_03', 'T-04', 'T-05', 'T-06', 'T-08'] as const;
 export type Tipo = (typeof TIPOS)[number];
 
-/** Clave de la mezcla de work_modes que corresponde a cada tipo. */
+/** Código corto usado en la clave interna de la tarea (formato histórico). */
 export const MIX_KEY: Record<Tipo, string> = {
   'T-01': 'T1',
   'T-02_03': 'T2_T3',
@@ -18,9 +18,21 @@ export const MIX_KEY: Record<Tipo, string> = {
   'T-08': 'T8',
 };
 
+/** Reparto por defecto ("Equilibrado"), en nomenclatura de tipos de tarea. */
 export const MIX_POR_DEFECTO: Record<string, number> = {
-  T1: 25, T2_T3: 50, T4: 10, T5: 5, T6: 5, T8: 5,
+  'T-01': 20, 'T-02_03': 40, 'T-04': 40, 'T-05': 0, 'T-06': 0, 'T-08': 0,
 };
+
+/**
+ * Devuelve el porcentaje del tipo aceptando tanto la nomenclatura actual
+ * (T-01, T-02_03…) como la antigua (T1, T2_T3…).
+ */
+export function porcentajeDeTipo(mix: Record<string, number>, tipo: Tipo): number {
+  const directo = mix[tipo];
+  if (directo != null) return Number(directo) || 0;
+  const legado = mix[MIX_KEY[tipo]];
+  return Number(legado) || 0;
+}
 
 /** Términos vetados por el cliente en cualquier texto visible de la tarjeta. */
 export const TERMINOS_PROHIBIDOS = [
@@ -42,14 +54,17 @@ export function elegirTipo(input: {
   historico: string[];
   disponibles: readonly Tipo[];
 }): Tipo {
-  const disponibles = input.disponibles.length > 0 ? input.disponibles : TIPOS;
   const mix = input.mix && Object.keys(input.mix).length > 0 ? input.mix : MIX_POR_DEFECTO;
+  const todos = input.disponibles.length > 0 ? input.disponibles : TIPOS;
+  // Los tipos con porcentaje 0 sólo entran si no hay ninguno con porcentaje.
+  const conPeso = todos.filter((t) => porcentajeDeTipo(mix, t) > 0);
+  const disponibles = conPeso.length > 0 ? conPeso : todos;
   const totalMix = Object.values(mix).reduce((a, b) => a + (Number(b) || 0), 0) || 100;
   const n = input.historico.length;
   let mejor: Tipo = disponibles[0];
   let mejorDeficit = -Infinity;
   for (const tipo of disponibles) {
-    const objetivo = (Number(mix[MIX_KEY[tipo]]) || 0) / totalMix;
+    const objetivo = porcentajeDeTipo(mix, tipo) / totalMix;
     const hechas = input.historico.filter((h) => h === tipo).length;
     const actual = n === 0 ? 0 : hechas / n;
     const deficit = objetivo - actual;
