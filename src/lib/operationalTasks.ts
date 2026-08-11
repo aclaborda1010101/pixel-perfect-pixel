@@ -36,20 +36,58 @@ export function filterVisibleOperationalTasks<T extends OperationalTaskLike>(tas
 }
 
 /**
- * Extrae el código V5 (T1, T2_T3, T4, ...) de una task_key `v5:...`.
- * Soporta las dos formas en circulación:
- *   v5:<fecha>:<code>:<id>
- *   v5:<rules_version>:<code>:<building>:<subject>:<fingerprint>
+ * Extrae el código V5 de una task_key `v5:...`. Hay DOS generaciones reales
+ * en circulación y ninguna es "Manual":
+ *
+ *  - legacy productiva (assign_daily_call_queue): `v5:<YYYY-MM-DD>:T-01:<uuid>`
+ *    con el catálogo con guion T-01…T-09 (T-07 excluido).
+ *  - canónica nueva (motor V5): `v5:<rules_version>:T2_T3:<building>:<subject>:<fp>`
+ *    con los códigos T1, T2_T3, T4, T5, T6, T8, T9.
+ *
+ * El código se normaliza SIEMPRE a la forma canónica sin guion ni ceros
+ * (`T-01` -> `T1`), y se devuelve además el formato de origen.
  */
-const V5_CODE_RX = /^T\d+(?:_T\d+)?$/;
+/** Códigos canónicos admitidos por el catálogo V5 (T7 no existe: peso 0). */
+export const V5_CANONICAL_CODES = ["T1", "T2_T3", "T2", "T3", "T4", "T5", "T6", "T8", "T9"] as const;
+
+const V5_CANONICAL_RX = /^T[1-9](?:_T[1-9])?$/;
+const V5_LEGACY_RX = /^T-0([1-9])$/;
+
+export type V5KeyFormat = "legacy_call_queue" | "canonical";
+
+export type ParsedV5TaskKey = {
+  /** Clave original. */
+  key: string;
+  /** Segmento tal cual aparece en la clave (`T-01`, `T2_T3`, ...). */
+  rawCode: string | null;
+  /** Código normalizado sin guion (`T1`, `T2_T3`, ...). */
+  code: string | null;
+  /** Generación de la clave, o null si no se reconoce el código. */
+  format: V5KeyFormat | null;
+};
+
+/**
+ * Parsea una task_key V5. Devuelve null SOLO si la clave no es V5 en absoluto.
+ * Una clave V5 con código irreconocible se devuelve con `code: null`: sigue
+ * siendo V5 y jamás debe degradarse a "Manual".
+ */
+export function parseV5TaskKey(taskKey: unknown): ParsedV5TaskKey | null {
+  if (!isV5TaskKey(taskKey)) return null;
+  const key = String(taskKey);
+  for (const seg of key.split(":").slice(1)) {
+    if (V5_CANONICAL_RX.test(seg)) {
+      return { key, rawCode: seg, code: seg, format: "canonical" };
+    }
+    const legacy = V5_LEGACY_RX.exec(seg);
+    if (legacy) {
+      return { key, rawCode: seg, code: `T${legacy[1]}`, format: "legacy_call_queue" };
+    }
+  }
+  return { key, rawCode: null, code: null, format: null };
+}
 
 export function v5TaskCodeFromKey(taskKey: unknown): string | null {
-  if (!isV5TaskKey(taskKey)) return null;
-  const parts = String(taskKey).split(":");
-  for (const p of parts.slice(1)) {
-    if (V5_CODE_RX.test(p)) return p;
-  }
-  return null;
+  return parseV5TaskKey(taskKey)?.code ?? null;
 }
 
 export type OperationalTaskBadge = {
@@ -64,10 +102,8 @@ export type OperationalTaskBadge = {
  * task_type='manual' (y sin clave V5) se etiqueta "Manual".
  */
 export function operationalTaskBadge(task: OperationalTaskLike | null | undefined): OperationalTaskBadge {
-  if (isV5TaskKey(task?.task_key)) {
-    const code = v5TaskCodeFromKey(task?.task_key);
-    return { label: code ? `V5 · ${code}` : "V5", variant: "info" };
-  }
+  const parsed = parseV5TaskKey(task?.task_key);
+  if (parsed) return { label: parsed.code ? `V5 · ${parsed.code}` : "V5", variant: "info" };
   if (task?.task_type === "manual") return { label: "Manual", variant: "outline" };
   return { label: "Legacy", variant: "secondary" };
 }
