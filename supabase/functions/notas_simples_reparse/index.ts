@@ -35,7 +35,9 @@ import {
 import {
   processNotaCore,
   decideMatching,
-  decidePendingMatchOnDrain,
+  decidePendingMatchOnDrainState,
+  foldMatchPendingHistory,
+  computeNextMatchPending,
   runMatching,
   type NotaRepo,
 } from "./core.ts";
@@ -51,6 +53,8 @@ const DEFAULT_LIMIT = 2;
 const MAX_LIMIT = 5;
 const CLAIM_MINUTES = 30;
 const MAX_ATTEMPTS = 5;
+/** Historial acotado que se pliega para hallar el último match_pending durable. */
+const MATCH_STATE_HISTORY = 25;
 // Modelo estable, el mismo que ya usa analyze_nota_simple.
 const PRIMARY = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3.1-flash-lite-preview" };
 const FALLBACK = { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5.6-luna" };
