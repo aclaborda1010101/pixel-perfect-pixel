@@ -26,7 +26,7 @@ export function derechoIdentityKey(t: {
 }
 
 export type PlanReemplazo =
-  | { ok: true; updates: Array<{ id: string; patch: PatchTitular }>; inserts: TitularNormalizado[]; deletes: string[] }
+  | { ok: true; updates: Array<{ id: string; patch: PatchTitular }>; inserts: TitularNormalizado[]; deletes: string[]; reviews: ReconcileReview[] }
   | { ok: false; reason: MotivoBloqueo; detalle: string; updates: []; inserts: []; deletes: [] };
 
 /**
@@ -44,7 +44,7 @@ export function buildReplacementPlan(
   existentes: FilaExistente[],
   deseadosRaw: TitularNormalizado[],
 ): PlanReemplazo {
-  const vacio = { updates: [] as [], inserts: [] as [], deletes: [] as [] };
+  const vacio = { updates: [] as [], inserts: [] as [], deletes: [] as [], reviews: [] as [] };
   if (!Array.isArray(deseadosRaw) || deseadosRaw.length === 0) {
     return { ok: false, reason: "deseados_vacios", detalle: "sin titulares deseados", ...vacio };
   }
@@ -59,6 +59,7 @@ export function buildReplacementPlan(
   const consumidas = new Set<string>();
   const updates: Array<{ id: string; patch: PatchTitular }> = [];
   const inserts: TitularNormalizado[] = [];
+  const reviews: ReconcileReview[] = [];
 
   const porLogica = new Map<string, FilaExistente[]>();
   const porDerecho = new Map<string, FilaExistente[]>();
@@ -88,10 +89,9 @@ export function buildReplacementPlan(
         `${normalizeNombre(f.nombre_extraido)}|${normalizeDoc(f.cif_dni)}` === nk);
     }
     if (candidatos.length > 1) {
-      return {
-        ok: false, reason: "titular_reconcile_ambiguous",
-        detalle: `${candidatos.length} filas para ${derechoIdentityKey(d)}`, ...vacio,
-      };
+      reviews.push({ desired_key: logicalRightKey(d), candidate_ids: candidatos.map((f) => f.id).sort(), reason: "multiple_existing_links" });
+      inserts.push({ ...d, evidencia: parseEvidencia(d.evidencia) });
+      continue;
     }
     if (candidatos.length === 1) {
       const f = candidatos[0];
@@ -105,8 +105,14 @@ export function buildReplacementPlan(
   }
 
   const deletes = filas.filter((f) => !consumidas.has(f.id)).map((f) => f.id);
-  return { ok: true, updates, inserts, deletes };
+  return { ok: true, updates, inserts, deletes, reviews };
 }
+
+export type ReconcileReview = {
+  desired_key: string;
+  candidate_ids: string[];
+  reason: "multiple_existing_links";
+};
 
 export type FilaExistente = {
   id: string;

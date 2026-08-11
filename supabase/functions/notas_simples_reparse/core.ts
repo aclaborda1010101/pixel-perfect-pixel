@@ -47,6 +47,7 @@ export type ApplyPlanArgs = {
    * versión parcial). Se borran dentro de la MISMA transacción del plan.
    */
   deletes?: string[];
+  reviews?: Array<{ desired_key: string; candidate_ids: string[]; reason: string }>;
   titulares: TitularNormalizado[];
   extracted: Record<string, unknown>;
   model: string | null;
@@ -316,6 +317,7 @@ export async function processNotaCore(
       notaId: args.notaId,
       claimToken: args.claimToken,
       deletes: plan.deletes,
+      reviews: plan.reviews,
       updates: plan.updates,
       inserts: plan.inserts.map((t) => ({
         nota_simple_id: args.notaId,
