@@ -76,7 +76,10 @@ END $$;
 -- 6) No existe índice único prematuro sobre titular_id.
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_class WHERE relname='bpr_titular_unico_wave1b') THEN
+  -- El índice sólo puede existir DESPUÉS de un swap aplicado, nunca por DDL
+  -- de la migración sobre las filas históricas.
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname='bpr_titular_unico_wave1b')
+     AND NOT EXISTS (SELECT 1 FROM afflux_audit.wave1b_runs WHERE applied) THEN
     RAISE EXCEPTION 'FALLO: índice titular_id creado antes de materializar';
   END IF;
   IF (public.p0_wave1b_preflight() ->> 'index_solo_tras_swap')::boolean IS NOT TRUE THEN
