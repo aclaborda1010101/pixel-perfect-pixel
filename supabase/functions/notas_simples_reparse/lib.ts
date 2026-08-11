@@ -338,7 +338,7 @@ export function textoComparable(raw: unknown): string {
 }
 
 /** Fracción mínima de la cita que debe encontrarse literalmente en el texto. */
-export const CITA_COBERTURA_MINIMA = 0.8;
+export const CITA_COBERTURA_MINIMA = 0.6;
 const CITA_VENTANA = 5;
 
 /**
@@ -347,8 +347,9 @@ const CITA_VENTANA = 5;
  * En una nota simple el hecho ("TITULAR ... PARTICIPACION: 6,25% de la nuda
  * propiedad") aparece partido por saltos de página y pies de página, así que
  * exigir contención contigua exacta rechazaría citas legítimas. Se comprueba
- * por VENTANAS de 5 palabras: al menos el 80 % de las ventanas de la cita debe
- * aparecer literalmente en el texto. Un texto inventado no supera el umbral.
+ * por VENTANAS de 5 palabras: al menos una fracción alta de las ventanas de la cita debe
+ * aparecer literalmente en el texto: al menos el 60 % (un corte de página parte
+ * hasta cuatro ventanas). Un texto inventado no supera el umbral.
  *
  * Sin texto fuente (escaneado sin capa de texto) no se puede desmentir: true.
  */
@@ -366,7 +367,7 @@ export function citaVerificable(texto: string | null | undefined, cita: unknown)
     total++;
     if (fuente.includes(palabras.slice(i, i + CITA_VENTANA).join(" "))) encontradas++;
   }
-  return total > 0 && encontradas / total >= CITA_COBERTURA_MINIMA;
+  return total > 0 && encontradas >= 2 && encontradas / total >= CITA_COBERTURA_MINIMA;
 }
 
 /** Comparación estable de dos evidencias ya canónicas. */
