@@ -818,6 +818,7 @@ export default function ComercialEdificios() {
     advancedCount;
 
   const filteredTodos = apply(rowsByTab);
+  const { data: interlocutores = {} } = useInterlocutores(filteredTodos.map((r: any) => r.id));
 
   // Al cambiar filtros/orden/tab, volvemos a la primera "página" de render.
   useEffect(() => {
