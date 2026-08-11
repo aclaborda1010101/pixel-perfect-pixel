@@ -49,6 +49,35 @@ export type CycleResult = {
   logError: string | null;
 };
 
+/**
+ * Liberación CAS de TODOS los claims ya adquiridos. Exige exactamente una
+ * fila liberada por nota (released=true). Cualquier 0 filas, error o
+ * excepción se reporta con detalle: nunca se traga y nunca se pisa el claim
+ * de otro worker (la RPC compara id + token del servidor).
+ */
+async function releaseAllClaims(
+  deps: CycleDeps,
+  notas: readonly unknown[],
+): Promise<{ released: number; errors: string[] }> {
+  const errors: string[] = [];
+  let released = 0;
+  if (!deps.releaseClaim) {
+    return { released: 0, errors: notas.map((n) => `release_no_disponible:${(n as any)?.id ?? "?"}`) };
+  }
+  for (const n of notas) {
+    const id = String((n as any)?.id ?? "?");
+    try {
+      const r = await deps.releaseClaim(n);
+      if (!r.ok) errors.push(`release_error:${id}:${String(r.error ?? "desconocido").slice(0, 120)}`);
+      else if (!r.released) errors.push(`release_cas_miss:${id}`);
+      else released += 1;
+    } catch (e) {
+      errors.push(`release_exception:${id}:${String((e as Error)?.message ?? e).slice(0, 120)}`);
+    }
+  }
+  return { released, errors };
+}
+
 function fail(
   deps: CycleDeps,
   t0: number,
