@@ -335,6 +335,37 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
   }
 }
 
+/** Refresco de claim + pipeline + estado de reintento de UNA nota. */
+async function processNotaWithClaim(sb: any, n: any) {
+  const claimToken = new Date().toISOString();
+  let q = sb.from("notas_simples").update({ claimed_at: claimToken }).eq("id", n.id);
+  q = n.claimed_at ? q.eq("claimed_at", n.claimed_at) : q.is("claimed_at", null);
+  const { data: claimRow, error: claimErr } = await q.select("id").maybeSingle();
+  if (claimErr || !claimRow) {
+    return { id: n.id as string, ok: false, reason: `claim_refresh_fail:${claimErr?.message ?? "rows=0"}` };
+  }
+
+  const r: any = await processOne(sb, n, claimToken);
+  if (!r.ok) {
+    const attempts = (n.attempt_count ?? 0) + 1;
+    const dead = attempts >= MAX_ATTEMPTS;
+    const { data: retryRow, error: retryErr } = await sb.from("notas_simples").update({
+      attempt_count: attempts,
+      last_error: String(r.reason ?? "desconocido").slice(0, 500),
+      next_retry_at: dead ? null : new Date(Date.now() + backoffMinutes(attempts) * 60_000).toISOString(),
+      dead_letter: dead,
+      claimed_at: null,
+    }).eq("id", n.id).eq("claimed_at", claimToken).select("id").maybeSingle();
+    if (retryErr || !retryRow) {
+      r.retry_state_fail = retryErr?.message ?? "rows=0";
+      r.reason = `${r.reason} | retry_state_fail:${r.retry_state_fail}`.slice(0, 400);
+    }
+    r.attempt_count = attempts;
+    r.dead_letter = dead;
+  }
+  return r;
+}
+
 // ---------- handler ----------
 
 Deno.serve(async (req) => {
@@ -349,184 +380,50 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { /* ok */ }
   const limit = Math.max(1, Math.min(MAX_LIMIT, Number(body?.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
 
-  const t0 = Date.now();
 
-  // Estado DURABLE previo de match_pending (historial acotado, más reciente primero).
-  const { data: logRows, error: logReadErr } = await sb.from("hubspot_sync_log")
-    .select("metadatos").eq("entity", ENTITY)
-    .order("started_at", { ascending: false }).limit(MATCH_STATE_HISTORY);
-  const prevState = foldMatchPendingHistory({
-    rows: (logRows ?? null) as any,
-    error: logReadErr ?? null,
-    limit: MATCH_STATE_HISTORY,
-  });
-
-  // 1) Reclamar lote con bloqueo (evita repetir siempre las mismas 12)
-  const { data: notas, error: selErr } = await sb.rpc("reparse_claim_batch", {
-    p_limit: limit,
-    p_lock_minutes: CLAIM_MINUTES,
-  });
-
-  if (selErr) {
-    return new Response(JSON.stringify({ error: selErr.message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  if (!notas || notas.length === 0) {
-    // Drenado: UN solo intento acotado de matching si quedó pendiente de un lote
-    // anterior (o si el estado no es legible). El éxito lo limpia; el fallo lo
-    // conserva y devuelve HTTP no-2xx (nunca un bucle silencioso de "éxito").
-    const decision = decidePendingMatchOnDrainState(prevState);
-    let outcome: any = null;
-    if (decision.run) {
-      outcome = await runMatching(async () => await sb.rpc("match_notas_pendientes"));
-    }
-    const next = computeNextMatchPending({ previous: prevState, ran: decision.run, outcome });
-    const degradado = next.pending && (outcome?.status === "error" || next.degraded);
-    await sb.from("hubspot_sync_log").insert({
-      entity: ENTITY,
-      started_at: new Date(t0).toISOString(),
-      finished_at: new Date().toISOString(),
-      records_upserted: 0,
-      records_failed: 0,
-      status: degradado ? "partial" : "ok",
-      error_message: outcome?.error ?? next.stateReadError ?? null,
-      metadatos: {
-        drained: true,
-        match_pending: next.pending,
-        match_pending_reason: next.reason,
-        state_read_error: next.stateReadError,
-        match_status: outcome?.status ?? "skipped",
-        match_result: outcome?.data ?? null,
-      },
-    });
-    return new Response(JSON.stringify({
-      ok: !degradado,
-      status: degradado ? "partial" : "ok",
-      procesadas: 0,
-      drained: true,
-      match_attempt: decision.run ? outcome : null,
-      match_reason: decision.reason,
-      match_pending: next.pending,
-      state_read_error: next.stateReadError,
-    }), {
-      status: degradado ? 500 : 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  // 2) Procesar en serie (LLM ya es lo costoso; evitamos golpear rate limit)
-  const results: any[] = [];
-  const errores: string[] = [];
-  let retryStateFailed = 0;
-  for (const n of notas) {
-    // refrescar el claim (compare-and-set sobre claimed_at) y obtener el nuevo token
-    const claimToken = new Date().toISOString();
-    let q = sb.from("notas_simples").update({ claimed_at: claimToken }).eq("id", n.id);
-    q = n.claimed_at ? q.eq("claimed_at", n.claimed_at) : q.is("claimed_at", null);
-    const { data: claimRow, error: claimErr } = await q.select("id").maybeSingle();
-    if (claimErr || !claimRow) {
-      const reason = `claim_refresh_fail:${claimErr?.message ?? "rows=0"}`;
-      errores.push(`${n.id}:${reason}`.slice(0, 200));
-      results.push({ id: n.id, ok: false, reason });
-      continue;
-    }
-    const r = await processOne(sb, n, claimToken);
-    if (!r.ok) {
-      errores.push(`${n.id}:${String(r.reason ?? "desconocido").slice(0, 160)}`);
-      const attempts = (n.attempt_count ?? 0) + 1;
-      const dead = attempts >= MAX_ATTEMPTS;
-      const { data: retryRow, error: retryErr } = await sb.from("notas_simples").update({
-        attempt_count: attempts,
-        last_error: String(r.reason ?? "desconocido").slice(0, 500),
-        next_retry_at: dead ? null : new Date(Date.now() + backoffMinutes(attempts) * 60_000).toISOString(),
-        dead_letter: dead,
-        claimed_at: null,
-      }).eq("id", n.id).eq("claimed_at", claimToken).select("id").maybeSingle();
-      if (retryErr || !retryRow) {
-        retryStateFailed++;
-        const detalle = retryErr?.message ?? "rows=0";
-        console.warn(`[notas_reparse] retry_state_fail ${n.id}: ${detalle}`);
-        errores.push(`${n.id}:retry_state_fail:${detalle}`.slice(0, 200));
-        (r as any).retry_state_fail = detalle;
+  const deps: CycleDeps = {
+    async readState() {
+      const { data, error } = await sb.rpc("reparse_match_state_read");
+      if (error) return { ok: false, error: error.message ?? String(error) };
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) return { ok: false, error: "estado_singleton_ausente" };
+      return { ok: true, pending: row.match_pending === true, generation: Number(row.generation ?? 0) };
+    },
+    async markPending() {
+      const { data, error } = await sb.rpc("reparse_mark_match_pending");
+      if (error) return { ok: false, error: error.message ?? String(error) };
+      const gen = Number(Array.isArray(data) ? data[0] : data);
+      if (!Number.isFinite(gen)) return { ok: false, error: "mark_sin_generacion" };
+      return { ok: true, generation: gen };
+    },
+    async clearPending(expected) {
+      const { data, error } = await sb.rpc("reparse_clear_match_pending", { p_expected_generation: expected });
+      if (error) return { ok: false, error: error.message ?? String(error) };
+      return { ok: true, cleared: (Array.isArray(data) ? data[0] : data) === true };
+    },
+    async claimBatch(limit) {
+      const { data, error } = await sb.rpc("reparse_claim_batch", {
+        p_limit: limit,
+        p_lock_minutes: CLAIM_MINUTES,
+      });
+      return { rows: (data ?? []) as unknown[], error: error?.message ?? null };
+    },
+    async releaseClaims(notas) {
+      for (const n of notas as any[]) {
+        await sb.from("notas_simples").update({ claimed_at: n.claimed_at ?? null }).eq("id", n.id);
       }
-      r.attempt_count = attempts;
-      r.dead_letter = dead;
-    }
-    results.push(r);
-  }
-  const ok = results.filter((r) => r.ok).length;
-  const resumen = summarizeBatch(results.length, ok, errores);
+    },
+    processNota: (n) => processNotaWithClaim(sb, n),
+    runMatch: () => runMatching(async () => await sb.rpc("match_notas_pendientes")),
+    async insertLog(entry) {
+      const { error } = await sb.from("hubspot_sync_log").insert(entry as any);
+      return { error: error?.message ?? null };
+    },
+  };
 
-  // 3) Emparejado en BD: se ejecuta si AL MENOS una nota finalizó bien, aunque
-  //    otras fallen. Un fallo del RPC se registra aparte y NUNCA convierte una
-  //    nota finalizada en no finalizada; deja match_pending durable.
-  const matchDecision = decideMatching({ ok, failed: resumen.records_failed });
-  let matchOutcome: any = null;
-  if (matchDecision.run) {
-    matchOutcome = await runMatching(async () => await sb.rpc("match_notas_pendientes"));
-    if (matchOutcome.status === "error") console.error(`[notas_reparse] match rpc:`, matchOutcome.error);
-  }
-  // match_pending NUNCA se borra si no hubo RPC con éxito en este ciclo.
-  const nextPending = computeNextMatchPending({
-    previous: prevState,
-    ran: matchDecision.run,
-    outcome: matchOutcome,
-  });
-  const matchPending = nextPending.pending;
-  const matchResult = matchOutcome?.data ?? null;
-  // Si no podemos garantizar durabilidad del pendiente, la respuesta es no-2xx.
-  const degradado = nextPending.degraded;
-  const httpStatus = degradado && resumen.http < 400 ? 500 : resumen.http;
-  const statusFinal = degradado && resumen.status === "ok" ? "partial" : resumen.status;
-
-  // 4) Log
-  try {
-    const { error: logErr } = await sb.from("hubspot_sync_log").insert({
-      entity: ENTITY,
-      started_at: new Date(t0).toISOString(),
-      finished_at: new Date().toISOString(),
-      records_upserted: resumen.records_upserted,
-      records_failed: resumen.records_failed,
-      status: statusFinal,
-      error_message: resumen.error_message ?? nextPending.stateReadError,
-      metadatos: {
-        ok,
-        fail: resumen.records_failed,
-        retry_state_failed: retryStateFailed,
-        dead_letter: results.filter((r) => r.dead_letter).length,
-        match_result: matchResult,
-        match_status: matchOutcome?.status ?? "skipped",
-        match_error: matchOutcome?.error ?? null,
-        match_reason: matchDecision.reason,
-        match_pending: matchPending,
-        match_pending_reason: nextPending.reason,
-        state_read_error: nextPending.stateReadError,
-        fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
-      },
-    });
-    if (logErr) console.warn(`[notas_reparse] log insert:`, logErr.message);
-  } catch (e) {
-    console.warn(`[notas_reparse] log insert exception:`, (e as Error).message);
-  }
-
-  return new Response(JSON.stringify({
-    ok: resumen.ok && !degradado,
-    status: statusFinal,
-    procesadas: results.length,
-    correctas: resumen.records_upserted,
-    fallidas: resumen.records_failed,
-    error_message: resumen.error_message ?? nextPending.stateReadError,
-    retry_state_failed: retryStateFailed,
-    match_result: matchResult,
-    match_status: matchOutcome?.status ?? "skipped",
-    match_pending: matchPending,
-    state_read_error: nextPending.stateReadError,
-    elapsed_ms: Date.now() - t0,
-    resultados: results,
-  }), {
-    status: httpStatus,
+  const cycle = await runReparseCycle(deps, { limit });
+  return new Response(JSON.stringify(cycle.body), {
+    status: cycle.http,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
