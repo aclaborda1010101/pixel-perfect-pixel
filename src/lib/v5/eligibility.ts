@@ -16,6 +16,8 @@ import {
   isAllowedT5Field,
   isConcreteIncident,
   isValidEvidence,
+  isTraceableId,
+  isValidPastTimestamp,
   type V5BuildingContext,
   type V5Candidate,
   type V5Evidence,
