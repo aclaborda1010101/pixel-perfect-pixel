@@ -277,13 +277,20 @@ describe("P0.7 · P0.6 intacto", () => {
           data: {
             titulares: [{
               nombre: "A B", porcentaje: 100, rol: "pleno", rol_literal: "pleno dominio",
-              evidencia: { cita: "A B pleno dominio 100%", pagina: 1 },
+              evidencia: { cita: "TITULAR: A B PARTICIPACION: 100% del pleno dominio.", pagina: 1 },
             }],
           },
           model: "lovable/google/gemini-3.6-flash",
         }),
       },
-      { notaId: "n3", claimToken: "tok", structured: {}, textoFuente: "A B pleno dominio 100%" },
+      {
+        notaId: "n3", claimToken: "tok", structured: {},
+        // P0.8: corpus registral mínimo (inventario = 1 hecho esperado).
+        textoFuente: [
+          "NOTA SIMPLE INFORMATIVA", "Pág. 1", "TITULARIDADES",
+          "TITULAR: A B PARTICIPACION: 100% del pleno dominio.",
+        ].join("\n"),
+      },
     );
     expect(res.ok).toBe(false);
     expect(res.reason).toBe("claim_lost");
