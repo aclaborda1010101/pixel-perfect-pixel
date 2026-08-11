@@ -346,6 +346,60 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     expect(flojaCls.violations.map((v) => v.reason).join(" ")).toContain("contrato");
   });
 
+  it("SQL: un INSERT top-level tras cerrar la RPC autorizada NO se le atribuye", () => {
+    const src =
+      "CREATE OR REPLACE FUNCTION public.commit_v5_generation_plan(p jsonb) RETURNS void AS $f$\n" +
+      "BEGIN\n  PERFORM public.v5_assert_canonical_task_key(p->>'task_key');\n" +
+      "  -- lease verificado\n" +
+      "  INSERT INTO public.building_tasks (task_key, generation_mode) VALUES (p->>'task_key', 'production');\n" +
+      "END $f$ LANGUAGE plpgsql;\n" +
+      "INSERT INTO public.building_tasks (id) VALUES (gen_random_uuid());";
+    const file = "supabase/pending_migrations/bypass.sql";
+    const ops = scanBuildingTaskWrites(file, src);
+    expect(ops.map((o) => o.fn)).toEqual(["public.commit_v5_generation_plan", null]);
+    const { authorized, violations } = classifyBuildingTaskWrites(ops, { [file]: src });
+    expect(authorized).toHaveLength(1);
+    expect(violations.map((v) => v.reason).join(" ")).toContain("NIVEL SUPERIOR");
+    // Rangos dollar-quoted reales.
+    const [r] = sqlFunctionRanges(src);
+    expect(src.slice(r.bodyStart, r.bodyEnd)).toContain("INSERT INTO public.building_tasks");
+    expect(src.slice(r.bodyEnd)).toContain("$f$ LANGUAGE");
+  });
+
+  it("SQL: validación después del INSERT o en rama muerta invalida la RPC", () => {
+    const file = "supabase/pending_migrations/bypass2.sql";
+    const despues =
+      "CREATE OR REPLACE FUNCTION public.commit_v5_generation_plan(p jsonb) RETURNS void AS $f$\n" +
+      "BEGIN\n  INSERT INTO public.building_tasks (task_key, generation_mode) VALUES (p->>'task_key', 'production');\n" +
+      "  PERFORM public.v5_assert_canonical_task_key(p->>'task_key');\n  -- lease\nEND $f$ LANGUAGE plpgsql;";
+    expect(
+      classifyBuildingTaskWrites(scanBuildingTaskWrites(file, despues), { [file]: despues })
+        .violations.map((v) => v.reason).join(" "),
+    ).toContain("contrato antes de escribir");
+
+    const ramaMuerta =
+      "CREATE OR REPLACE FUNCTION public.commit_v5_generation_plan(p jsonb) RETURNS void AS $f$\n" +
+      "BEGIN\n  IF false THEN\n    PERFORM public.v5_assert_canonical_task_key(p->>'task_key');\n  END IF;\n" +
+      "  IF true THEN\n" +
+      "  INSERT INTO public.building_tasks (task_key, generation_mode) VALUES (p->>'task_key', 'production');\n" +
+      "  -- lease\n  END IF;\nEND $f$ LANGUAGE plpgsql;";
+    const cls = classifyBuildingTaskWrites(scanBuildingTaskWrites(file, ramaMuerta), { [file]: ramaMuerta });
+    expect(cls.authorized).toEqual([]);
+    expect(cls.violations.map((v) => v.reason).join(" ")).toMatch(/rama condicional|contrato/);
+  });
+
+  it("SQL: UPDATE/DELETE fuera de las RPC de ciclo de vida se bloquean", () => {
+    const file = "supabase/pending_migrations/bypass3.sql";
+    const src =
+      "CREATE OR REPLACE FUNCTION public.limpieza() RETURNS void AS $z$\nBEGIN\n" +
+      "  DELETE FROM public.building_tasks WHERE status = 'pending';\nEND $z$ LANGUAGE plpgsql;";
+    const { authorized, violations } = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites(file, src), { [file]: src },
+    );
+    expect(authorized).toEqual([]);
+    expect(violations.map((v) => v.reason).join(" ")).toContain("delete SQL no autorizado");
+  });
+
   it("el motor legacy sigue siendo no-op", async () => {
     const mod = await import("@/lib/buildingTasks");
     expect(mod.LEGACY_TASK_ENGINE_RETIRED).toBe(true);
