@@ -252,17 +252,18 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
           .eq("nota_simple_id", notaId);
         return { rows: (data ?? []) as any[], error: error?.message ?? null };
       },
-      async updateTitular(rowId, patch): Promise<OpResult> {
-        const { data, error } = await sb.from("nota_simple_titulares")
-          .update(patch).eq("id", rowId).select("id").maybeSingle();
-        return { rows: data ? 1 : 0, error: error?.message ?? null };
+      // Escrituras hijas DIRECTAS prohibidas: todo va por la RPC transaccional.
+      async updateTitular(): Promise<OpResult> {
+        return { rows: 0, error: "direct_child_write_forbidden" };
       },
-      async insertTitular(row): Promise<OpResult> {
-        const { data, error } = await sb.from("nota_simple_titulares")
-          .insert(row).select("id").maybeSingle();
-        return { rows: data ? 1 : 0, error: error?.message ?? null };
+      async insertTitular(): Promise<OpResult> {
+        return { rows: 0, error: "direct_child_write_forbidden" };
       },
-      async finalizeNota({ id: notaId, claimToken: token, titulares, extracted, model }): Promise<OpResult> {
+      async finalizeNota(): Promise<OpResult> {
+        return { rows: 0, error: "direct_finalize_forbidden" };
+      },
+      /** Una sola transacción de servidor: bloqueo por claim, hijos y finalize. */
+      async applyPlan({ notaId, claimToken: token, updates, inserts, titulares, extracted, model }) {
         const ex = extracted as ExtractedFields;
         const prev = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
         const merged: any = { ...prev, reparse_done: "1" };
@@ -279,15 +280,25 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
         merged.reparse_schema_version = 2;
         refCatastralFinal = merged.ref_catastral ?? null;
         direccionFinal = merged.direccion ?? null;
-        const { data, error } = await sb.from("notas_simples").update({
-          raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
-          structured_json: merged,
-          attempt_count: (nota.attempt_count ?? 0) + 1,
-          last_error: null,
-          next_retry_at: null,
-          claimed_at: null,
-        }).eq("id", notaId).eq("claimed_at", token).select("id").maybeSingle();
-        return { rows: data ? 1 : 0, error: error?.message ?? null };
+        const { data, error } = await sb.rpc("apply_nota_reparse_plan", {
+          p_payload: {
+            nota_id: notaId,
+            claim_token: token,
+            updates,
+            inserts,
+            structured: merged,
+            raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
+            attempt_count: (nota.attempt_count ?? 0) + 1,
+          },
+        });
+        if (error) {
+          return { ok: false, updated: 0, inserted: 0, finalized: false, error: error.message ?? String(error) };
+        }
+        const r = (data ?? {}) as any;
+        if (r?.ok !== true) {
+          return { ok: false, updated: 0, inserted: 0, finalized: false, error: "apply_plan_sin_confirmacion" };
+        }
+        return { ok: true, updated: Number(r.updated ?? 0), inserted: Number(r.inserted ?? 0), finalized: true, error: null };
       },
     };
 
