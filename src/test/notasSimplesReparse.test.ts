@@ -102,7 +102,7 @@ describe("porcentaje seguro", () => {
     expect(normalizePorcentaje("50/100")).toBe(50);
     expect(normalizePorcentaje("1/0")).toBeNull();
     expect(normalizePorcentaje("50,00%")).toBe(50);
-    expect(normalizePorcentaje("33,333")).toBe(33.33);
+    expect(normalizePorcentaje("33,333")).toBe(33.333); // P0.8: 6 decimales, sin round(2)
     for (const v of [0, -1, 101, "abc", "1/2/3", "cincuenta", "", null, undefined, {}]) {
       expect(normalizePorcentaje(v as unknown)).toBeNull();
     }
@@ -405,9 +405,12 @@ function repoMemoria(opts: {
 const extractorDe = (data: any, model = "test/model") => async () => ({ data, model });
 const escrituras = (log: Registro[]) => log.filter((x) => x.op !== "list");
 
+// P0.8: la cita debe contener identidad + derecho + porcentaje exacto.
 const titularValido = (o: any = {}) => ({
   nombre: "Ana Pérez", cif_dni: "12345678Z", porcentaje: 50,
-  rol_literal: "pleno dominio", evidencia: { cita: "URBANA", pagina: 1 }, ...o,
+  rol_literal: "pleno dominio",
+  evidencia: { cita: "TITULAR: Ana Pérez PARTICIPACION: 50% del pleno dominio", pagina: 1 },
+  ...o,
 });
 
 const argsNota = (structured: unknown = {}) => ({
@@ -438,7 +441,7 @@ describe("core: refetch estricto", () => {
   it("titular nuevo sin evidencia real (solo cita, sin localizador) no finaliza", async () => {
     const f = repoMemoria();
     const r = await processNotaCore(
-      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ evidencia: { cita: "URBANA" } })] }) },
+      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ evidencia: { cita: "TITULAR: Ana Pérez PARTICIPACION: 50% del pleno dominio" } })] }) },
       argsNota({}),
     );
     expect(r.reason).toBe("titular_sin_evidencia_real");
@@ -479,7 +482,7 @@ describe("core: refetch estricto", () => {
 });
 
 describe("core: persistencia verificable", () => {
-  const dos = [titularValido(), titularValido({ nombre: "Luis Soto", cif_dni: "99", evidencia: { cita: "USUFRUCTO", pagina: 2 }, rol_literal: "usufructo vitalicio" })];
+  const dos = [titularValido(), titularValido({ nombre: "Luis Soto", cif_dni: "99", evidencia: { cita: "TITULAR: Luis Soto PARTICIPACION: 50% del usufructo vitalicio", pagina: 2 }, rol_literal: "usufructo vitalicio" })];
 
   it("éxito: finaliza una sola vez y en último lugar", async () => {
     const f = repoMemoria();
