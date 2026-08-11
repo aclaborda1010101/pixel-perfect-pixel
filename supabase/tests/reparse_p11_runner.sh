@@ -17,6 +17,15 @@ if [ "$(id -u)" = "0" ]; then
   RUNAS="${P11_LOCAL_USER:-pgtest}"
   if id "$RUNAS" >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1; then
     AS="setpriv --reuid=$(id -u "$RUNAS") --regid=$(id -g "$RUNAS") --clear-groups env HOME=/tmp"
+  elif command -v useradd >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1; then
+    # Rol efímero, sin login ni privilegios, creado dentro del runner.
+    useradd -M -N -s /usr/sbin/nologin "$RUNAS" >/dev/null 2>&1 || true
+    if id "$RUNAS" >/dev/null 2>&1; then
+      AS="setpriv --reuid=$(id -u "$RUNAS") --regid=$(id -g "$RUNAS") --clear-groups env HOME=/tmp"
+    else
+      echo "SKIP / NO VERIFICADO: no se pudo crear el usuario local sin privilegios." >&2
+      exit 3
+    fi
   else
     echo "SKIP / NO VERIFICADO: define P11_LOCAL_USER con un usuario local sin privilegios." >&2
     exit 3
