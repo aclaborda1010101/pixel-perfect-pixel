@@ -899,20 +899,14 @@ DROP FUNCTION IF EXISTS public.finalize_sales_manager_setup(uuid, text, uuid[]);
 DROP POLICY IF EXISTS profiles_select_authenticated   ON public.profiles;
 DROP POLICY IF EXISTS user_roles_select_authenticated ON public.user_roles;
 
--- profiles: propio perfil + admin + datos MÍNIMOS de miembros activos del equipo.
+-- profiles: SELECT DIRECTO sólo self + admin. El sales_manager NO recibe filas
+-- de perfil de sus miembros: el panel consume únicamente la RPC agregada.
 DROP POLICY IF EXISTS profiles_select_scoped ON public.profiles;
 CREATE POLICY profiles_select_scoped ON public.profiles
   FOR SELECT TO authenticated
   USING (
     id = auth.uid()
     OR public.has_role(auth.uid(), 'admin')
-    OR (
-      public.has_role(auth.uid(), 'sales_manager')
-      AND EXISTS (
-        SELECT 1 FROM public.sales_manager_team_members t
-        WHERE t.manager_id = auth.uid() AND t.member_id = public.profiles.id AND t.active
-      )
-    )
   );
 
 -- user_roles: propio rol + admin + rol de los miembros activos del equipo.
