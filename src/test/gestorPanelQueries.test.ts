@@ -75,9 +75,11 @@ describe("migración pendiente sales_manager", () => {
 
   it("start_building_task es idempotente y sólo del propietario", () => {
     const i = sql.indexOf("FUNCTION public.start_building_task");
-    const body = sql.slice(i, i + 2000);
+    const body = sql.slice(i, sql.indexOf("END $$;", i));
     expect(body).toContain("COALESCE(started_at, now())");
     expect(body).toContain("la tarea no te pertenece");
+    expect(body).toContain("requiere reapertura");
+    expect(body).toContain("modo de generación no iniciable");
   });
 });
 
