@@ -42,14 +42,66 @@ SNAP_EXT="$SNAP.extensions"
 SNAP_ROLES="$SNAP.roles"
 SNAP_SUM="$SNAP.sha256"
 SNAP_PROV="$SNAP.provenance"
+
+# --- 0.a.0 PUERTA ANTI-SHIM (P0.6) ------------------------------------
+# Ni deriva, ni stubs, ni placeholders, ni sed sobre SQL versionado.
+[ -e "$ROOT/supabase/tests/wave1a_baseline_drift.sql" ] \
+  && die "P0.6: existe wave1a_baseline_drift.sql. Los shims están prohibidos."
+if [ -s "$SNAP.NO_VERIFICADO" ]; then
+  sed -n '1,6p' "$SNAP.NO_VERIFICADO" >&2
+  skip "el generador declaró NO_VERIFICADO: no hay snapshot real pre-1A.2 y P0.6 prohíbe fabricarlo con shims."
+fi
+for f in "$SNAP" "$ROOT/supabase/tests/wave1a_local_baseline.sql"; do
+  [ -f "$f" ] || continue
+  grep -nEi 'BASELINE LOCAL PLACEHOLDER|placeholder|_wave1a_drift|drift|CREATE (OR REPLACE )?FUNCTION (cron|net)\.' "$f" \
+    && die "P0.6: '$f' contiene shims/placeholders/stubs. Prohibido."
+done
+
 for f in "$SNAP" "$SNAP_EXT" "$SNAP_ROLES" "$SNAP_SUM" "$SNAP_PROV"; do
   [ -s "$f" ] || skip "falta $(basename "$f"): sin snapshot versionado EXACTO pre-1A.2 con checksum y procedencia no se declara aplicabilidad. Regenéralo con wave1a3_make_snapshot.sh."
 done
 ( cd "$(dirname "$SNAP")" && sha256sum -c "$(basename "$SNAP_SUM")" >/dev/null 2>&1 ) \
   || die "el checksum del snapshot pre-1A.2 no coincide: la procedencia no es verificable."
-for campo in generador commit postgres corte migraciones_aplicadas; do
+
+# --- 0.a.1 PROCEDENCIA VALIDADA SEMÁNTICAMENTE (P0.6) -----------------
+for campo in generador commit postgres corte migraciones_aplicadas migraciones_no_aplicables; do
   grep -q "^$campo=" "$SNAP_PROV" || die "la procedencia del snapshot no declara '$campo'."
 done
+PROV_COMMIT="$(sed -n 's/^commit=//p' "$SNAP_PROV" | head -1)"
+echo "$PROV_COMMIT" | grep -qE '^[0-9a-f]{40}$' \
+  || die "procedencia: commit='$PROV_COMMIT' no es un SHA de 40 hex."
+( cd "$ROOT" && git -c safe.directory="$ROOT" cat-file -e "${PROV_COMMIT}^{commit}" 2>/dev/null ) \
+  || die "procedencia: el commit $PROV_COMMIT no existe en este repositorio."
+PROV_OMIT="$(sed -n 's/^migraciones_no_aplicables=//p' "$SNAP_PROV" | head -1)"
+[ "$PROV_OMIT" = "0" ] || die "procedencia: migraciones_no_aplicables=$PROV_OMIT (debe ser 0)."
+grep -qi '^deriva=.*drift' "$SNAP_PROV" \
+  && die "procedencia: declara una deriva/shim. P0.6 lo prohíbe."
+PROV_CUT="$(sed -n 's/^corte=.*< //p' "$SNAP_PROV" | head -1)"
+echo "$PROV_CUT" | grep -qE '^[0-9]{14}$' || die "procedencia: corte '$PROV_CUT' no es un timestamp de 14 dígitos."
+
+# Lista EXACTA y ORDENADA: ni una migración de más, ni una de menos, y el
+# sha256 de cada fichero debe coincidir con el declarado.
+sed -n '/^--- migraciones aplicadas/,$p' "$SNAP_PROV" | tail -n +2 > "$WORK_PROV_TMP=$(mktemp)" 2>/dev/null || true
+PROV_LIST="$(mktemp)"; REPO_LIST="$(mktemp)"
+trap 'rm -f "$PROV_LIST" "$REPO_LIST"' EXIT
+sed -n '/^--- migraciones aplicadas/,$p' "$SNAP_PROV" | tail -n +2 > "$PROV_LIST"
+for f in $(ls "$ROOT"/supabase/migrations/*.sql | LC_ALL=C sort); do
+  b="$(basename "$f")"
+  if [ "${b:0:14}" \< "$PROV_CUT" ]; then
+    echo "$(sha256sum "$f" | cut -d' ' -f1)  $b" >> "$REPO_LIST"
+  fi
+done
+PROV_N="$(grep -c . "$PROV_LIST" || true)"
+REPO_N="$(grep -c . "$REPO_LIST" || true)"
+PROV_DECL="$(sed -n 's/^migraciones_aplicadas=//p' "$SNAP_PROV" | head -1)"
+[ "$PROV_N" = "$PROV_DECL" ] || die "procedencia: declara $PROV_DECL migraciones pero lista $PROV_N."
+[ "$PROV_N" = "$REPO_N" ]   || die "procedencia: el corte del repo tiene $REPO_N migraciones y la procedencia $PROV_N (falta o sobra alguna)."
+if ! diff -u "$REPO_LIST" "$PROV_LIST" > "$ROOT/.wave1a3_prov.diff" 2>&1; then
+  sed -n '1,40p' "$ROOT/.wave1a3_prov.diff" >&2; rm -f "$ROOT/.wave1a3_prov.diff"
+  die "procedencia: la lista ordenada de migraciones (nombre + sha256) NO coincide con el corte real del repositorio."
+fi
+rm -f "$ROOT/.wave1a3_prov.diff"
+echo "PROCEDENCIA PASS  commit=$PROV_COMMIT  migraciones=$PROV_N  omitidas=0  lista y sha256 exactos"
 
 # --- 0.b Extensiones REALES exigidas POR EL PROPIO SNAPSHOT -----------
 # El directorio de extensiones se deriva de pg_config y, si no existe, de
