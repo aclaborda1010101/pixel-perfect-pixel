@@ -159,10 +159,17 @@ CHAIN+=("$ROOT/supabase/pending_migrations/20260812000000_wave1a3_registral_forw
 # real desde antes del historial versionado y varias migraciones de datos la
 # referencian por FK. Se re-asegura (idempotente) antes de cada migración,
 # en cuanto la tabla existe. No es un reintento: no reaplica nada fallido.
+# También reproduce la deriva de esquema que existe en producción fuera del
+# historial versionado (columnas añadidas manualmente) para que la cadena
+# EXACTA pueda aplicarse sin tocar ni un byte de las migraciones.
 asegurar_placeholder() {
   "${PSQL_TEST[@]}" -c "DO \$ph\$
   BEGIN
     IF to_regclass('public.buildings') IS NOT NULL THEN
+      BEGIN
+        ALTER TABLE public.buildings ADD COLUMN IF NOT EXISTS comercial text;
+      EXCEPTION WHEN others THEN NULL;
+      END;
       BEGIN
         INSERT INTO public.buildings (id, direccion, ciudad)
         VALUES ('0485d8cf-c1a2-4412-b38f-e37fb18961a2', 'BASELINE LOCAL PLACEHOLDER', 'LOCAL')
