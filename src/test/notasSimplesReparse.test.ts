@@ -538,7 +538,7 @@ describe("matching", () => {
 // ---------------- match_pending durable ----------------
 
 const HIST = 25;
-const logPend = (v: unknown) => ({ metadatos: { match_pending: v } });
+const logPend = (v: unknown) => ({ metadatos: { match_pending: v } } as any);
 
 /** Simulación del handler real: lee estado durable, corre RPC y decide log/HTTP. */
 async function cicloLote(args: {
@@ -567,7 +567,7 @@ async function cicloDrenado(args: { rows: any[] | null; readError?: unknown; rpc
 
 describe("match_pending durable", () => {
   it("pliega el historial hasta el último boolean real", () => {
-    const s = foldMatchPendingHistory({ rows: [{ metadatos: { otra: 1 } }, logPend(true), logPend(false)], limit: HIST });
+    const s = foldMatchPendingHistory({ rows: [{ metadatos: { otra: 1 } } as any, logPend(true), logPend(false)], limit: HIST });
     expect(s).toEqual({ known: true, pending: true, source: "log" });
     expect(foldMatchPendingHistory({ rows: [], limit: HIST })).toEqual({ known: true, pending: false, source: "sin_historial" });
     expect(foldMatchPendingHistory({ rows: [logPend("true")], limit: HIST }).known).toBe(true);
