@@ -249,7 +249,7 @@ RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS
              md5(coalesce(ns.raw_pdf_text, '')) AS y
       FROM public.notas_simples ns) n), '') || '|P|' ||
     coalesce((SELECT string_agg(z, ',' ORDER BY z) FROM (
-      SELECT bo.building_id::text || ':' || bo.owner_id::text
+      SELECT bo.building_id::text || ':' || bo.owner_id::text AS z
       FROM public.building_owners bo) p), '')
   )
 $$;
