@@ -31,8 +31,12 @@ export type CycleDeps = {
   claimBatch(limit: number): Promise<{ rows: unknown[] | null; error?: string | null }>;
   /** Procesa UNA nota (claim refresh + pipeline + retry state) y devuelve su resultado. */
   processNota(nota: any): Promise<NotaResult>;
-  /** Libera el claim del lote si no se pudo marcar el estado. */
-  releaseClaims?(notas: unknown[]): Promise<void>;
+  /**
+   * Libera el claim de UNA nota por CAS (id + token del servidor).
+   * released=false significa que el claim ya no era nuestro: JAMÁS se pisa
+   * el claim de otro worker. Cualquier error se reporta, nunca se traga.
+   */
+  releaseClaim?(nota: unknown): Promise<{ ok: boolean; released: boolean; error?: string | null }>;
   runMatch(): Promise<MatchOutcome>;
   insertLog(entry: Record<string, unknown>): Promise<{ error?: string | null }>;
   now?(): number;
@@ -86,7 +90,42 @@ function fail(
   })();
 }
 
+/**
+ * Envoltura de honestidad: TODA la orquestación real (readState, claimBatch,
+ * markPending, processNota, matching, clearPending, release y log) queda
+ * dentro. Cualquier excepción inesperada se normaliza a HTTP 500 con
+ * ok:false / status:"partial" y un error_message trazable; el pendiente del
+ * singleton se conserva porque nunca se limpia sin CAS con éxito.
+ */
 export async function runReparseCycle(deps: CycleDeps, opts: { limit: number }): Promise<CycleResult> {
+  const t0 = deps.now?.() ?? Date.now();
+  try {
+    return await runReparseCycleInner(deps, opts);
+  } catch (e) {
+    const detalle = String((e as Error)?.stack ?? (e as Error)?.message ?? e).slice(0, 600);
+    try {
+      return await fail(deps, t0, "cycle_exception", detalle, { match_pending: true });
+    } catch (e2) {
+      // Ni siquiera el log de fallo funcionó: el singleton es la fuente de verdad.
+      const logError = String((e2 as Error)?.message ?? e2).slice(0, 300);
+      return {
+        http: 500,
+        body: {
+          ok: false,
+          status: "partial",
+          procesadas: 0,
+          match_pending: true,
+          error_message: `cycle_exception:${detalle}`.slice(0, 1000),
+          log_error: logError,
+        },
+        logged: null,
+        logError,
+      };
+    }
+  }
+}
+
+async function runReparseCycleInner(deps: CycleDeps, opts: { limit: number }): Promise<CycleResult> {
   const now = () => deps.now?.() ?? Date.now();
   const t0 = now();
 
@@ -111,12 +150,25 @@ export async function runReparseCycle(deps: CycleDeps, opts: { limit: number }):
   // 4) Marcar pendiente ANTES de tocar ninguna nota.
   const mark = await deps.markPending();
   if (mark.ok === false) {
-    if (deps.releaseClaims) {
-      try { await deps.releaseClaims(notas); } catch { /* el claim caduca solo */ }
+    // Liberación CAS: exactamente una fila por nota. 0 filas o error se
+    // reportan; nunca se pisa el claim de otro worker.
+    const releaseErrors: string[] = [];
+    if (deps.releaseClaim) {
+      for (const n of notas) {
+        try {
+          const r = await deps.releaseClaim(n);
+          if (!r.ok) releaseErrors.push(`release_error:${String(r.error ?? "desconocido").slice(0, 120)}`);
+          else if (!r.released) releaseErrors.push("release_cas_miss");
+        } catch (e) {
+          releaseErrors.push(`release_exception:${String((e as Error)?.message ?? e).slice(0, 120)}`);
+        }
+      }
     }
     return await fail(deps, t0, "state_mark_fail", mark.error, {
       match_pending: true,
       notas_en_lote: notas.length,
+      release_errors: releaseErrors,
+      released: notas.length - releaseErrors.length,
     });
   }
   const token = mark.generation;
