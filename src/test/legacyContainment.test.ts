@@ -157,14 +157,19 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
       "src/lib/taskWriters.ts#insertManualBuildingTask",
       "supabase/functions/_shared/taskWriters.ts#insertV5CallQueueTask",
       "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask",
+      "supabase/pending_migrations/20260815000000_v5_engine_p03_runtime_connect.sql#public.commit_v5_generation_plan",
     ]);
     expect(authorized.every((o) => AUTHORIZED_WRITERS[`${o.file}#${o.fn}`])).toBe(true);
   });
 
   it("los updates de ciclo de vida no cuentan como creación", () => {
-    const tareas = sources["src/pages/comercial/Tareas.tsx"];
-    expect(tareas).toContain(".update({");
-    expect(scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", tareas)).toEqual([]);
+    const ciclo =
+      'await db.from("building_tasks").update({ status: "completed" }).eq("id", id);\n' +
+      'await db.from("building_tasks").delete().eq("id", id);';
+    expect(scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", ciclo)).toEqual([]);
+    // Y además las pantallas reales ya no escriben: cierran vía RPC.
+    expect(sources["src/pages/comercial/Tareas.tsx"]).toContain("resolveBuildingTask(");
+    expect(sources["src/pages/comercial/Tareas.tsx"]).not.toContain(".update({");
   });
 
   it("los callsites autorizados pasan por su helper con payload válido", () => {
