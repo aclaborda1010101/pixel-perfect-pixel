@@ -44,6 +44,8 @@ export type ApplyPlanArgs = {
   titulares: TitularNormalizado[];
   extracted: Record<string, unknown>;
   model: string | null;
+  /** P0.8: JSON de completitud; sin ok=true la RPC aborta la transacción. */
+  completeness?: Completitud | null;
 };
 
 export type ApplyPlanResult = {
@@ -61,6 +63,8 @@ export function applyPlanReason(error: string | null | undefined): string {
   if (/titular_update_fail/i.test(e)) return "titular_update_fail";
   if (/titular_insert_fail/i.test(e)) return "titular_insert_fail";
   if (/finalize_fail/i.test(e)) return "finalize_fail";
+  if (/completeness_(fail|ausente|post_apply)/i.test(e)) return "completeness_fail";
+  if (/porcentaje_fuera_de_rango/i.test(e)) return "porcentaje_fuera_de_rango";
   return "apply_plan_fail";
 }
 
@@ -314,6 +318,7 @@ export async function processNotaCore(
       titulares,
       extracted: llm.data as Record<string, unknown>,
       model: llm.model ?? null,
+      completeness,
     });
     if (!applied.ok) {
       return {
