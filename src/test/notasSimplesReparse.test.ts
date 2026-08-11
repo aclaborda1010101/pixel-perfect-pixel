@@ -534,3 +534,106 @@ describe("matching", () => {
     expect(decidePendingMatchOnDrain({ metadatos: { match_pending: outcome.pending } }).run).toBe(false);
   });
 });
+
+// ---------------- match_pending durable ----------------
+
+const HIST = 25;
+const logPend = (v: unknown) => ({ metadatos: { match_pending: v } });
+
+/** Simulación del handler real: lee estado durable, corre RPC y decide log/HTTP. */
+async function cicloLote(args: {
+  rows: any[] | null; readError?: unknown;
+  ok: number; total: number; errores?: string[];
+  rpc?: () => Promise<{ data?: unknown; error?: any }>;
+}) {
+  const prev = foldMatchPendingHistory({ rows: args.rows as any, error: args.readError ?? null, limit: HIST });
+  const resumen = summarizeBatch(args.total, args.ok, args.errores ?? []);
+  const decision = decideMatching({ ok: args.ok, failed: resumen.records_failed });
+  const outcome = decision.run && args.rpc ? await runMatching(args.rpc) : null;
+  const next = computeNextMatchPending({ previous: prev, ran: decision.run, outcome });
+  const http = next.degraded && resumen.http < 400 ? 500 : resumen.http;
+  const status = next.degraded && resumen.status === "ok" ? "partial" : resumen.status;
+  return { prev, next, http, status, logged: { match_pending: next.pending, state_read_error: next.stateReadError } };
+}
+
+async function cicloDrenado(args: { rows: any[] | null; readError?: unknown; rpc: () => Promise<{ data?: unknown; error?: any }> }) {
+  const prev = foldMatchPendingHistory({ rows: args.rows as any, error: args.readError ?? null, limit: HIST });
+  const decision = decidePendingMatchOnDrainState(prev);
+  const outcome = decision.run ? await runMatching(args.rpc) : null;
+  const next = computeNextMatchPending({ previous: prev, ran: decision.run, outcome });
+  const degradado = next.pending && (outcome?.status === "error" || next.degraded);
+  return { decision, next, http: degradado ? 500 : 200, status: degradado ? "partial" : "ok" };
+}
+
+describe("match_pending durable", () => {
+  it("pliega el historial hasta el último boolean real", () => {
+    const s = foldMatchPendingHistory({ rows: [{ metadatos: { otra: 1 } }, logPend(true), logPend(false)], limit: HIST });
+    expect(s).toEqual({ known: true, pending: true, source: "log" });
+    expect(foldMatchPendingHistory({ rows: [], limit: HIST })).toEqual({ known: true, pending: false, source: "sin_historial" });
+    expect(foldMatchPendingHistory({ rows: [logPend("true")], limit: HIST }).known).toBe(true);
+  });
+
+  it("error de lectura o historial agotado => estado desconocido y conservador", () => {
+    const e = foldMatchPendingHistory({ rows: null, error: { message: "boom" }, limit: HIST });
+    expect([e.known, e.pending]).toEqual([false, true]);
+    expect((e as any).reason).toContain("state_read_error");
+    const agotado = foldMatchPendingHistory({ rows: [{ metadatos: {} }, { metadatos: null }], limit: 2 });
+    expect([agotado.known, agotado.pending]).toEqual([false, true]);
+  });
+
+  it("pending previo true + lote sin éxitos => el log CONSERVA true y drenado reintenta", async () => {
+    const c = await cicloLote({ rows: [logPend(true)], ok: 0, total: 3, errores: ["a", "b", "c"] });
+    expect(c.next.reason).toBe("conservado");
+    expect(c.logged.match_pending).toBe(true);
+    expect(c.http).toBe(500);
+    const drenado = await cicloDrenado({ rows: [logPend(true)], rpc: async () => ({ data: { matched: 2 } }) });
+    expect(drenado.decision.run).toBe(true);
+    expect(drenado.next.pending).toBe(false);
+    expect(drenado.http).toBe(200);
+  });
+
+  it("varios fallos posteriores NO borran el pendiente anterior", async () => {
+    const c = await cicloLote({ rows: [logPend(false), logPend(true)], ok: 0, total: 2, errores: ["x"] });
+    expect(c.logged.match_pending).toBe(false); // el más reciente manda
+    const c2 = await cicloLote({ rows: [logPend(true), logPend(false)], ok: 0, total: 2, errores: ["x"] });
+    expect(c2.logged.match_pending).toBe(true);
+  });
+
+  it("estado ilegible conserva pendiente y responde partial / no-2xx", async () => {
+    const c = await cicloLote({ rows: null, readError: { message: "timeout" }, ok: 0, total: 0 });
+    expect(c.next.pending).toBe(true);
+    expect(c.next.degraded).toBe(true);
+    expect(c.logged.state_read_error).toContain("state_read_error");
+    expect([c.http, c.status]).toEqual([500, "partial"]);
+  });
+
+  it("drenado: RPC fallido conserva true y devuelve no-2xx; RPC OK limpia", async () => {
+    const fail = await cicloDrenado({ rows: [logPend(true)], rpc: async () => ({ error: { message: "deadlock" } }) });
+    expect(fail.next.pending).toBe(true);
+    expect([fail.http, fail.status]).toEqual([500, "partial"]);
+    const ok = await cicloDrenado({ rows: [logPend(true)], rpc: async () => ({ data: { matched: 1 } }) });
+    expect(ok.next.pending).toBe(false);
+    expect([ok.http, ok.status]).toEqual([200, "ok"]);
+    const nada = await cicloDrenado({ rows: [logPend(false)], rpc: async () => ({ data: 1 }) });
+    expect(nada.decision.run).toBe(false);
+    expect(nada.next.pending).toBe(false);
+  });
+
+  it("parcial: una nota OK dispara matching y HTTP 500 por las otras, sin desfinalizar la buena", async () => {
+    const store = repoMemoria();
+    const buena = await processNotaCore(
+      { repo: store.repo, extract: extractorDe({ titulares: [titularValido()] }) },
+      argsNota({}),
+    );
+    expect([buena.ok, buena.finalized]).toEqual([true, true]);
+    const c = await cicloLote({
+      rows: [logPend(false)], ok: 1, total: 3, errores: ["n2:llm_fail", "n3:llm_fail"],
+      rpc: async () => ({ error: { message: "deadlock" } }),
+    });
+    expect(c.next.reason).toBe("rpc_fail");
+    expect(c.logged.match_pending).toBe(true);
+    expect([c.http, c.status]).toEqual([500, "partial"]);
+    // la nota buena sigue finalizada: el matching fallido no revierte nada
+    expect(store.conteo().finalizes).toBe(1);
+  });
+});
