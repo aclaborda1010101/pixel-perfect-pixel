@@ -10,6 +10,9 @@ import {
 import {
   needsTitularesRefetch,
   runReconciliation,
+  buildReconcilePlan,
+  type PatchTitular,
+  type FilaInsert,
   type FilaExistente,
   type OpResult,
   type ReconcileRepo,
@@ -21,9 +24,43 @@ export type ExtraccionLLM = {
   model?: string;
 };
 
+/** Plan que se aplica en UNA transacción servidor (RPC apply_nota_reparse_plan). */
+export type ApplyPlanArgs = {
+  notaId: string;
+  claimToken: string;
+  updates: Array<{ id: string; patch: PatchTitular }>;
+  inserts: FilaInsert[];
+  titulares: TitularNormalizado[];
+  extracted: Record<string, unknown>;
+  model: string | null;
+};
+
+export type ApplyPlanResult = {
+  ok: boolean;
+  updated: number;
+  inserted: number;
+  finalized: boolean;
+  error?: string | null;
+};
+
+/** Traduce el error de la RPC transaccional a un motivo estable. */
+export function applyPlanReason(error: string | null | undefined): string {
+  const e = String(error ?? "");
+  if (/claim_lost/i.test(e)) return "claim_lost";
+  if (/titular_update_fail/i.test(e)) return "titular_update_fail";
+  if (/titular_insert_fail/i.test(e)) return "titular_insert_fail";
+  if (/finalize_fail/i.test(e)) return "finalize_fail";
+  return "apply_plan_fail";
+}
+
 export type NotaRepo = Omit<ReconcileRepo, "finalizeNota"> & {
   /** SELECT de los titulares actuales de la nota. */
   listTitulares(notaId: string): Promise<{ rows: FilaExistente[]; error?: string | null }>;
+  /**
+   * Aplicación TRANSACCIONAL claim-scoped (preferente). Si está presente,
+   * ninguna escritura hija se hace fuera de la transacción del servidor.
+   */
+  applyPlan?(args: ApplyPlanArgs): Promise<ApplyPlanResult>;
   /** UPDATE ... WHERE id AND claimed_at=claimToken RETURNING id (exactamente 1). */
   finalizeNota(args: {
     id: string;
@@ -121,6 +158,50 @@ export async function processNotaCore(
   const existentes = await deps.repo.listTitulares(args.notaId);
   if (existentes.error) {
     return { ...base, reason: "titulares_read_fail", detalle: String(existentes.error).slice(0, 300) };
+  }
+
+  // Camino productivo: TODO en una transacción del servidor, bajo el claim.
+  if (deps.repo.applyPlan) {
+    const plan = buildReconcilePlan(existentes.rows ?? [], titulares);
+    if (plan.ok === false) {
+      const f = plan as { ok: false; reason: string; detalle: string };
+      return { ...base, reason: f.reason, detalle: f.detalle, model: llm.model ?? null, refetched: decision.refetched };
+    }
+    const applied = await deps.repo.applyPlan({
+      notaId: args.notaId,
+      claimToken: args.claimToken,
+      updates: plan.updates,
+      inserts: plan.inserts.map((t) => ({
+        nota_simple_id: args.notaId,
+        nombre_extraido: t.nombre,
+        cif_dni: t.cif_dni,
+        porcentaje: t.porcentaje,
+        rol: t.rol,
+        rol_literal: t.rol_literal,
+        evidencia: t.evidencia,
+      })),
+      titulares,
+      extracted: llm.data as Record<string, unknown>,
+      model: llm.model ?? null,
+    });
+    if (!applied.ok) {
+      return {
+        ...base,
+        reason: applyPlanReason(applied.error),
+        detalle: String(applied.error ?? "").slice(0, 300),
+        model: llm.model ?? null,
+        refetched: decision.refetched,
+      };
+    }
+    return {
+      ok: true,
+      updated: applied.updated,
+      inserted: applied.inserted,
+      finalized: true,
+      model: llm.model ?? null,
+      refetched: decision.refetched,
+      titulares,
+    };
   }
 
   const wrapped: ReconcileRepo = {
