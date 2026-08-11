@@ -91,7 +91,7 @@ BEGIN
     r := '$.titulares[' || (
       CASE (i % 5)
         WHEN 0 THEN repeat((i % 10)::text, 1 + (i % 300))
-        WHEN 1 THEN (2147483647 + i)::text
+        WHEN 1 THEN (2147483647::bigint + i)::text
         WHEN 2 THEN '-' || i::text
         WHEN 3 THEN md5(i::text)
         ELSE chr(191 + (i % 60)) || i::text
