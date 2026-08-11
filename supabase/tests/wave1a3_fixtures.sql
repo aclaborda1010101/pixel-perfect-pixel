@@ -131,7 +131,114 @@ INSERT INTO public.nota_simple_titulares
    'GANANCIALES PATRIMONIAL SL', 'B12345678', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
    '{"cita":"GANANCIALES PATRIMONIAL SL es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
 
-COMMIT;
+-- ---------------------------------------------------------------------
+-- CASO 6 (Retiro 1): EVIDENCIA ESTRUCTURADA SIN CITA ANCLADA.
+-- Ruta JSON sintácticamente válida que apunta a OTRO titular, offset
+-- válido sin cita y página sin vínculo => auditoría, nunca cuota.
+-- ---------------------------------------------------------------------
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('66666666-0000-0000-0000-0000000000a1',
+   '66666666-6666-6666-6666-666666666666', 'listo',
+   '{"fecha_nota":"2026-01-10","titulares":[{"nombre":"ANA LOPEZ","porcentaje":"50 %"}]}'::jsonb,
+   'ANA LOPEZ es titular del 50 % del pleno dominio. LUIS PEREZ comparece en el otorgamiento.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('66666666-0000-0000-0000-0000000000b1', '66666666-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 50, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 50 % del pleno dominio","pagina":"1"}'::jsonb),
+  -- ruta válida, pero apunta al elemento de OTRO titular y no trae cita
+  ('66666666-0000-0000-0000-0000000000b2', '66666666-0000-0000-0000-0000000000a1',
+   'LUIS PEREZ', '00000002B', 50, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"ruta":"$.titulares[0].porcentaje","offset":"120","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- CASO 7 (Alcalá 9): 'otro' NO resuelto conviviendo con un pleno 100 %
+-- perfectamente probado => la UNIDAD entera deja de proyectar.
+-- ---------------------------------------------------------------------
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('77777777-0000-0000-0000-0000000000a1',
+   '77777777-7777-7777-7777-777777777777', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio. LUIS PEREZ es titular del 100 % del usufructo.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('77777777-0000-0000-0000-0000000000b1', '77777777-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb),
+  -- rol 'pleno' contra literal 'usufructo' => conflicto de fuentes => 'otro'
+  ('77777777-0000-0000-0000-0000000000b2', '77777777-0000-0000-0000-0000000000a1',
+   'LUIS PEREZ', '00000002B', 100, 'pleno', '{"rol_literal":"usufructo"}'::jsonb,
+   '{"cita":"LUIS PEREZ es titular del 100 % del usufructo","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- CASO 8 (Goya 4, DH): DOS localizadores registrales válidos y distintos
+-- en la misma nota => unit_key_conflict y bloqueo de TODO el edificio.
+-- ---------------------------------------------------------------------
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('88888888-0000-0000-0000-0000000000a1',
+   '88888888-8888-8888-8888-888888888888', 'listo',
+   '{"fecha_nota":"2026-01-10","finca_registral":"1001","idufir":"12345678901"}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio.'),
+  ('88888888-0000-0000-0000-0000000000a2',
+   '88888888-8888-8888-8888-888888888888', 'listo',
+   '{"fecha_nota":"2026-01-10","finca_registral":"1002"}'::jsonb,
+   'LUIS PEREZ es titular del 100 % del pleno dominio.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('88888888-0000-0000-0000-0000000000b1', '88888888-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('88888888-0000-0000-0000-0000000000b2', '88888888-0000-0000-0000-0000000000a2',
+   'LUIS PEREZ', '00000002B', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"LUIS PEREZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- CASO 9 (Serrano 2): DNI duplicado en el CRM y CIF duplicado =>
+-- identidad AMBIGUA, jamás "coincidencia exacta".
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000003', 'MARIA GIL',  '{"dni__nif__cif":"00000009X"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000004', 'MARIA G.',   '{"dni__nif__cif":"00000009X"}'::jsonb);
+
+INSERT INTO public.companies (id, nombre, cif) VALUES
+  ('c0000000-0000-0000-0000-000000000002', 'DUPLICADA UNO SL', 'B99999999'),
+  ('c0000000-0000-0000-0000-000000000003', 'DUPLICADA DOS SL', 'B99999999');
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('99999999-0000-0000-0000-0000000000a1',
+   '99999999-9999-9999-9999-999999999999', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'MARIA GIL es titular del 100 % del pleno dominio.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('99999999-0000-0000-0000-0000000000b1', '99999999-0000-0000-0000-0000000000a1',
+   'MARIA GIL', '00000009X', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"MARIA GIL es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- CASO 10 (Velázquez 8, DH): nota 'listo' SIN titulares en un edificio
+-- con división horizontal => bloqueo de edificio, cero canónicas y cero
+-- feeds para TODAS las unidades.
+-- ---------------------------------------------------------------------
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('aaaaaaaa-0000-0000-0000-0000000000a1',
+   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'listo',
+   '{"fecha_nota":"2025-01-10","finca_registral":"2001"}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio.'),
+  ('aaaaaaaa-0000-0000-0000-0000000000a2',
+   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'Nota posterior lista sin titulares extraídos.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('aaaaaaaa-0000-0000-0000-0000000000b1', 'aaaaaaaa-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
 
 -- =====================================================================
 -- ASERCIONES DE REGRESIÓN
