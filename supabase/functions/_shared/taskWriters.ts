@@ -188,3 +188,78 @@ export async function insertV5CanonicalTask(
   assertV5CanonicalTaskRow(row, opts);
   return await client.from("building_tasks").insert(row).select("id, task_key").maybeSingle();
 }
+
+/* ------------------------------------------------------------------ */
+/* GENERADOR CONTINUO DE TAREAS V1                                     */
+/* ------------------------------------------------------------------ */
+
+/** Tipos operativos que el generador continuo puede crear. */
+export const GENERATED_TASK_TYPES = ["T-01", "T-02_03", "T-04", "T-05", "T-06", "T-08"] as const;
+
+/** Clave del generador continuo: `v5:gen1:<code>:<building>:<subject>:<sello>`. */
+export const GENERATED_TASK_KEY_RX =
+  /^v5:gen1:(T1|T2_T3|T4|T5|T6|T8):[^:]+:[^:]+:[^:]+$/;
+
+/** Términos vetados por el cliente en el texto visible de la tarjeta. */
+const GENERATED_FORBIDDEN_TERMS = [
+  "disparador", "v5", "backlog", "motor", "evidencia", "guarda", "orquestador",
+];
+
+export type GeneratedTaskRow = {
+  building_id: string;
+  user_id: string;
+  task_type: (typeof GENERATED_TASK_TYPES)[number];
+  task_key: string;
+  title: string;
+  description: string;
+  objetivo: string;
+  pasos_registro: string;
+  status: "pending";
+  priority: "low" | "medium" | "high";
+  started_at: string;
+  due_date: string;
+};
+
+export function assertGeneratedTaskRow(row: unknown): asserts row is GeneratedTaskRow {
+  const r = (row ?? {}) as Record<string, unknown>;
+  const nonEmpty = (v: unknown) => typeof v === "string" && v.trim().length > 0;
+  for (const f of [
+    "building_id", "user_id", "task_key", "title", "description",
+    "objetivo", "pasos_registro", "started_at", "due_date",
+  ]) {
+    if (!nonEmpty(r[f])) throw new Error(`tarea generada: ${f} obligatorio`);
+  }
+  if (!(GENERATED_TASK_TYPES as readonly string[]).includes(String(r.task_type))) {
+    throw new Error(`tarea generada: task_type fuera de catálogo (${String(r.task_type)})`);
+  }
+  if (!GENERATED_TASK_KEY_RX.test(String(r.task_key))) {
+    throw new Error(`tarea generada: task_key inválida (${String(r.task_key)})`);
+  }
+  if (r.status !== "pending") throw new Error("tarea generada: status inicial debe ser pending");
+  if (!["low", "medium", "high"].includes(String(r.priority))) {
+    throw new Error("tarea generada: priority inválida");
+  }
+  const started = Date.parse(String(r.started_at));
+  const due = Date.parse(String(r.due_date));
+  if (!Number.isFinite(started) || !Number.isFinite(due) || due < started) {
+    throw new Error("tarea generada: fechas incoherentes");
+  }
+  const visible = `${String(r.title)}\n${String(r.description)}`.toLowerCase();
+  for (const term of GENERATED_FORBIDDEN_TERMS) {
+    if (visible.includes(term)) throw new Error(`tarea generada: término prohibido en la tarjeta (${term})`);
+  }
+  const d = String(r.description);
+  const iQue = d.indexOf("Qué hacer");
+  const iObj = d.indexOf("Objetivo");
+  const iFin = d.indexOf("Al terminar");
+  if (iQue !== 0 || iObj <= iQue || iFin <= iObj) {
+    throw new Error("tarea generada: la tarjeta debe tener Qué hacer, Objetivo y Al terminar en orden");
+  }
+}
+
+/** Inserta UNA tarea del generador continuo tras validar el contrato completo. */
+export async function insertGeneratedTask(client: ClientLike, input: unknown) {
+  const row = input;
+  assertGeneratedTaskRow(row);
+  return await client.from("building_tasks").insert(row).select("*").maybeSingle();
+}
