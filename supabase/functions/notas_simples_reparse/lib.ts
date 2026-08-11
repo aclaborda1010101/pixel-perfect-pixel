@@ -384,6 +384,11 @@ export type TitularNormalizado = {
   evidencia: Evidencia;
   /** Diagnóstico NO registral (nunca evidencia, nunca se persiste como fuente). */
   rol_diagnostico?: string | null;
+  /**
+   * P0.8 · trazabilidad del porcentaje: qué dijo el LLM y qué dice la fuente.
+   * El valor persistido (`porcentaje`) es SIEMPRE el de la fuente.
+   */
+  porcentaje_diagnostico?: { llm: number | null; fuente: number; literal: string; forma: string } | null;
 };
 
 /**

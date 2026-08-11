@@ -26,6 +26,8 @@ export type PatchTitular = {
   rol?: string;
   rol_literal?: string | null;
   evidencia?: unknown;
+  /** P0.8: porcentaje EXACTO de la fuente (corrige redondeos previos). */
+  porcentaje?: number;
 };
 
 export type MotivoBloqueo =
@@ -187,6 +189,14 @@ function construirPatch(
   const patch: PatchTitular = {};
   if ((f.rol ?? null) !== d.rol) patch.rol = d.rol;
   if ((f.rol_literal ?? null) !== (d.rol_literal ?? null)) patch.rol_literal = d.rol_literal;
+  // El porcentaje persistido debe ser el de la fuente con 6 decimales: las
+  // filas escritas con redondeo del LLM (0.11 frente a 0,109649) se corrigen.
+  if (typeof d.porcentaje === "number" && Number.isFinite(d.porcentaje)) {
+    const actual = f.porcentaje == null ? null : Number(f.porcentaje);
+    if (actual == null || !Number.isFinite(actual) || Math.abs(actual - d.porcentaje) > 5e-7) {
+      patch.porcentaje = d.porcentaje;
+    }
+  }
   const merged = mergeEvidencias(f.evidencia ?? null, d.evidencia ?? null);
   if (merged.ok === false) {
     return { ok: false, reason: "evidence_conflict", detalle: `${f.id}:${merged.detalle}` };

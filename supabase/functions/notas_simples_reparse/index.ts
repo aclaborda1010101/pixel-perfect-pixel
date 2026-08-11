@@ -40,6 +40,7 @@ import { handleReparseRequest, processNotaWithClaim as processNotaWithClaimCore 
 import { buildProviders, buildDocumentMessages, callChat, REGLAS_EVIDENCIA } from "./llm.ts";
 import { inspectPdf, fitsSingleDocument, type PdfInspection } from "./pdf.ts";
 import { decideReingest, shouldReplaceStored, fetchHubspotPdf, REINGEST_FLAG } from "./reingest.ts";
+import { backupVerificado } from "./backup.ts";
 
 // ---------- utilidades de texto ----------
 
@@ -206,31 +207,43 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
         countPages: contarPaginas,
       });
       let detalle = bajada.ok ? "descargado" : bajada.reason;
+      let logError: string | null = bajada.ok ? null : `reingest_fetch_fail:${bajada.reason}`;
       if (bajada.ok) {
         const decision = shouldReplaceStored({ nueva: bajada.inspection, shaAnterior: insp.sha256 });
         detalle = `${detalle}|${decision.reason}`;
         if (decision.replace) {
-          // Snapshot del binario anterior ANTES de sustituir (auditoría).
-          try {
-            await sb.storage.from("notas-simples").upload(
-              `reingest-backup/${nota.file_url}.${Date.now()}.bak`,
-              blob,
-              { contentType: "application/octet-stream", upsert: false },
-            );
-          } catch { /* el snapshot nunca bloquea el intento */ }
-          const up = await sb.storage.from("notas-simples")
-            .upload(nota.file_url, bajada.bytes, { contentType: "application/pdf", upsert: true });
-          detalle = `${detalle}|upload:${up?.error?.message ?? "ok"}`;
-          if (!up?.error) {
-            bytes = bajada.bytes;
-            insp = bajada.inspection;
-            pdfOrigen = "hubspot_reingest";
+          // BACKUP VERIFICADO (bytes + sha256 releídos) ANTES del overwrite.
+          // Si el backup falla, NO se sobrescribe el original.
+          const bk = await backupVerificado({
+            upload: (path, b) => sb.storage.from("notas-simples")
+              .upload(path, b, { contentType: "application/octet-stream", upsert: false }),
+            download: async (path) => {
+              const { data } = await sb.storage.from("notas-simples").download(path);
+              return data ? new Uint8Array(await data.arrayBuffer()) : null;
+            },
+          }, { fileUrl: nota.file_url, bytes });
+          detalle = `${detalle}|backup:${bk.ok ? "ok" : bk.reason}`;
+          if (!bk.ok) {
+            logError = `backup_fail:${bk.reason}`;
+          } else {
+            const up = await sb.storage.from("notas-simples")
+              .upload(nota.file_url, bajada.bytes, { contentType: "application/pdf", upsert: true });
+            detalle = `${detalle}|upload:${up?.error?.message ?? "ok"}`;
+            if (up?.error) {
+              logError = `overwrite_fail:${up.error.message}`;
+            } else {
+              bytes = bajada.bytes;
+              insp = bajada.inspection;
+              pdfOrigen = "hubspot_reingest";
+            }
           }
         }
       }
-      await sb.from("hubspot_sync_log").insert({
-        tipo: "notas_simples_reparse_reingest",
-        status: bajada.ok && insp.ok ? "ok" : "error",
+      // Log con las columnas REALES de hubspot_sync_log (entity, no tipo).
+      const logRes = await sb.from("hubspot_sync_log").insert({
+        entity: "notas_simples_reparse_reingest",
+        status: bajada.ok && insp.ok && !logError ? "ok" : "error",
+        error_message: logError ? String(logError).slice(0, 500) : null,
         metadatos: {
           nota_id: id,
           hs_file_id: prevStructured.hs_file_id ?? null,
@@ -240,6 +253,13 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
           pdf_valido: insp.ok,
         },
       });
+      // Un fallo de log NO puede producir un falso éxito.
+      if (logRes?.error) {
+        return { id, ok: false, reason: `sync_log_fail:${String(logRes.error.message ?? "").slice(0, 200)}` };
+      }
+      if (logError) {
+        return { id, ok: false, reason: logError.slice(0, 300) };
+      }
     }
     if (!insp.ok) {
       // Irrecuperable tras la reingesta única: dead-letter trazable, sin bucle.
@@ -386,6 +406,10 @@ if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       ),
       processOne as any,
+      {
+        internalSecret: Deno.env.get("REPARSE_INTERNAL_SECRET") ?? null,
+        serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? null,
+      },
     ),
   );
 }
