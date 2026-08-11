@@ -37,6 +37,15 @@ INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Positivo 100', 'Madrid', false),
   ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Positivo 60/40', 'Madrid', false);
 
+-- P0.3 · Edificios de NAMESPACES DE UNIDAD y VÍNCULO DE EVIDENCIA.
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('f1111111-1111-1111-1111-111111111111', 'Alias co-localizados', 'Madrid', true),
+  ('f2222222-2222-2222-2222-222222222222', 'Dos IDUFIR',           'Madrid', true),
+  ('f3333333-3333-3333-3333-333333333333', 'Alias repetidos',      'Madrid', true),
+  ('f4444444-4444-4444-4444-444444444444', 'Nodos distintos',      'Madrid', true),
+  ('f5555555-5555-5555-5555-555555555555', 'Triple duplicada',     'Madrid', false),
+  ('f6666666-6666-6666-6666-666666666666', 'Ruta inválida',        'Madrid', false);
+
 -- Edificios de los casos de CONVERGENCIA DE IDENTIDAD (negativos).
 INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
   ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Identidad Divergente 1', 'Madrid', false),
@@ -188,13 +197,15 @@ INSERT INTO public.nota_simple_titulares
    '{"cita":"LUIS PEREZ es titular del 100 % del usufructo","pagina":"1"}'::jsonb);
 
 -- ---------------------------------------------------------------------
--- CASO 8 (Goya 4, DH): DOS localizadores registrales válidos y distintos
--- en la misma nota => unit_key_conflict y bloqueo de TODO el edificio.
+-- CASO 8 (Goya 4, DH): DOS valores válidos y distintos DEL MISMO TIPO
+-- (dos fincas) en la misma nota => unit_key_conflict y bloqueo de TODO el
+-- edificio. P0.3: el conflicto exige mismo namespace; IDUFIR vs finca NO
+-- se compara jamás.
 -- ---------------------------------------------------------------------
 INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
   ('88888888-0000-0000-0000-0000000000a1',
    '88888888-8888-8888-8888-888888888888', 'listo',
-   '{"fecha_nota":"2026-01-10","finca_registral":"1001","idufir":"12345678901"}'::jsonb,
+   '{"fecha_nota":"2026-01-10","finca_registral":"1001","numero_finca":"1002"}'::jsonb,
    'ANA LOPEZ es titular del 100 % del pleno dominio.'),
   ('88888888-0000-0000-0000-0000000000a2',
    '88888888-8888-8888-8888-888888888888', 'listo',
@@ -267,14 +278,14 @@ INSERT INTO public.owners (id, nombre, metadatos) VALUES
 INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
   ('bbbbbbbb-0000-0000-0000-0000000000a1',
    'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'listo',
-   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   '{"fecha_nota":"2026-01-10","titulares":[{"nombre":"ROSA VEGA","derecho":"pleno dominio","porcentaje":"100 %","cita":"ROSA VEGA es titular del 100 % del pleno dominio"}]}'::jsonb,
    'ROSA VEGA es titular del 100 % del pleno dominio de la finca.');
 
 INSERT INTO public.nota_simple_titulares
   (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
   ('bbbbbbbb-0000-0000-0000-0000000000b1', 'bbbbbbbb-0000-0000-0000-0000000000a1',
    'ROSA VEGA', '00000010C', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
-   '{"cita":"ROSA VEGA es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+   '{"cita":"ROSA VEGA es titular del 100 % del pleno dominio","pagina":"1","offset":"0","ruta":"$.titulares[0]"}'::jsonb);
 
 -- ---------------------------------------------------------------------
 -- CASO 12 (POSITIVO, Positivo 60/40): dos titulares seguros que suman
@@ -343,6 +354,66 @@ INSERT INTO public.nota_simple_titulares
   ('eeeeeeee-0000-0000-0000-0000000000b1', 'eeeeeeee-0000-0000-0000-0000000000a1',
    'CARLOS VIA', 'B77777777', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
    '{"cita":"CARLOS VIA es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- P0.3 · CASOS 15-18: IDENTIDAD DE UNIDAD POR NAMESPACE
+-- ---------------------------------------------------------------------
+-- 15: IDUFIR + finca CO-LOCALIZADOS en el MISMO nodo => alias compatibles
+--     de la misma unidad. NO es conflicto y la clave estable es el IDUFIR.
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('f1111111-0000-0000-0000-0000000000a1', 'f1111111-1111-1111-1111-111111111111', 'listo',
+   '{"fecha_nota":"2026-01-10","finca":{"idufir":"12345678901","numero":"1001"}}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio.');
+-- 16: DOS IDUFIR distintos (mismo namespace) => conflicto.
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('f2222222-0000-0000-0000-0000000000a1', 'f2222222-2222-2222-2222-222222222222', 'listo',
+   '{"fecha_nota":"2026-01-10","idufir":"12345678901","cru":"98765432109"}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio.');
+-- 17: el MISMO IDUFIR repetido en dos campos del mismo nodo => alias, no conflicto.
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('f3333333-0000-0000-0000-0000000000a1', 'f3333333-3333-3333-3333-333333333333', 'listo',
+   '{"fecha_nota":"2026-01-10","idufir":"12345678901","idufir_cru":"1234-5678-901"}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio.');
+-- 18: tipos distintos en NODOS distintos => cross_type_unverified => bloqueo.
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('f4444444-0000-0000-0000-0000000000a1', 'f4444444-4444-4444-4444-444444444444', 'listo',
+   '{"fecha_nota":"2026-01-10","idufir":"12345678901","finca":{"numero":"1001"}}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio.');
+
+-- ---------------------------------------------------------------------
+-- P0.3 · CASOS 19-20: VÍNCULO DE EVIDENCIA INEQUÍVOCO
+-- ---------------------------------------------------------------------
+-- 19: la MISMA triple (titular+derecho+porcentaje) en DOS nodos => ambiguo.
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('f5555555-0000-0000-0000-0000000000a1', 'f5555555-5555-5555-5555-555555555555', 'listo',
+   '{"fecha_nota":"2026-01-10","titulares":[{"nombre":"ANA LOPEZ","derecho":"pleno dominio","porcentaje":"100 %"},{"nombre":"ANA LOPEZ","derecho":"pleno dominio","porcentaje":"100 %"}]}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio.');
+-- 20: página válida + ruta que no resuelve a ningún elemento => cero.
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('f6666666-0000-0000-0000-0000000000a1', 'f6666666-6666-6666-6666-666666666666', 'listo',
+   '{"fecha_nota":"2026-01-10","titulares":[{"nombre":"ANA LOPEZ","derecho":"pleno dominio","porcentaje":"100 %"}]}'::jsonb,
+   'ANA LOPEZ es titular del 100 % del pleno dominio.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('f1111111-0000-0000-0000-0000000000b1', 'f1111111-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('f2222222-0000-0000-0000-0000000000b1', 'f2222222-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('f3333333-0000-0000-0000-0000000000b1', 'f3333333-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('f4444444-0000-0000-0000-0000000000b1', 'f4444444-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('f5555555-0000-0000-0000-0000000000b1', 'f5555555-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","ruta":"$.titulares[0]"}'::jsonb),
+  ('f6666666-0000-0000-0000-0000000000b1', 'f6666666-0000-0000-0000-0000000000a1',
+   'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1","ruta":"$.titulares[7]"}'::jsonb);
 
 -- =====================================================================
 -- ASERCIONES DE REGRESIÓN
@@ -424,7 +495,7 @@ BEGIN
   --    bloqueo de todo el edificio, sin elegir el primero.
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = '88888888-0000-0000-0000-0000000000b1' AND unidad_key_conflict;
-  ASSERT n = 1, 'IDUFIR y finca distintos => unit_key_conflict';
+  ASSERT n = 1, 'dos FINCAS distintas (mismo namespace) => unit_key_conflict';
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE building_id = '88888888-8888-8888-8888-888888888888'
      AND (feeds_cuota OR is_canonical OR NOT building_block);
@@ -459,6 +530,49 @@ BEGIN
   ASSERT n = 1, 'documento que casa con owner y company a la vez => identity_conflict y cero feeds';
   ASSERT (d ->> 'identity_conflicts')::int >= 2, 'contador de identity_conflicts';
 
+  -- 12 ter) P0.3 · NAMESPACES DE UNIDAD.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = 'f1111111-0000-0000-0000-0000000000b1'
+     AND NOT unidad_key_conflict
+     AND NOT (audit_ids ->> 'unit_cross_type_unverified')::boolean
+     AND unidad_key LIKE 'dh:%:idufir:12345678901';
+  ASSERT n = 1, 'IDUFIR y finca CO-LOCALIZADOS son alias compatibles: clave IDUFIR, sin conflicto';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = 'f1111111-0000-0000-0000-0000000000b1'
+     AND (audit_ids -> 'unit_aliases' -> 'finca') @> '["1001"]'::jsonb
+     AND (audit_ids -> 'unit_aliases' -> 'idufir') @> '["12345678901"]'::jsonb;
+  ASSERT n = 1, 'unit_aliases conserva TODOS los namespaces sin perder ninguno';
+
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = 'f2222222-0000-0000-0000-0000000000b1' AND unidad_key_conflict;
+  ASSERT n = 1, 'dos IDUFIR distintos => unit_key_conflict';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'f2222222-2222-2222-2222-222222222222' AND (feeds_cuota OR is_canonical);
+  ASSERT n = 0, 'conflicto de IDUFIR: cero canónicas y cero feeds';
+
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = 'f3333333-0000-0000-0000-0000000000b1'
+     AND NOT unidad_key_conflict AND unidad_key LIKE 'dh:%:idufir:12345678901';
+  ASSERT n = 1, 'el mismo IDUFIR repetido (con separadores) es alias, no conflicto';
+
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = 'f4444444-0000-0000-0000-0000000000b1'
+     AND (audit_ids ->> 'unit_cross_type_unverified')::boolean
+     AND NOT unidad_key_conflict AND unidad_key IS NULL
+     AND unit_block_reason = 'cross_type_unverified'
+     AND NOT feeds_cuota AND NOT is_canonical;
+  ASSERT n = 1, 'tipos distintos en nodos distintos: cross_type_unverified, bloqueo, sin comparar literales';
+
+  -- 12 quater) P0.3 · VÍNCULO DE EVIDENCIA.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = 'f5555555-0000-0000-0000-0000000000b1'
+     AND NOT evidence_ok AND NOT feeds_cuota;
+  ASSERT n = 1, 'misma triple en dos nodos: vínculo ambiguo => cero feed';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = 'f6666666-0000-0000-0000-0000000000b1'
+     AND bad_evidence AND NOT evidence_ok AND NOT feeds_cuota;
+  ASSERT n = 1, 'página válida + ruta que no resuelve => cero feed';
+
   -- 13) POSITIVO 100 %: exactamente una fila segura que alimenta cuota.
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -471,6 +585,15 @@ BEGIN
      AND owner_id = 'a0000000-0000-0000-0000-000000000010'
      AND company_id IS NULL AND NOT identidad_ambigua;
   ASSERT n = 1, 'pleno 100 % con cita anclada y DNI único DEBE alimentar cuota';
+  -- P0.3 POSITIVO DE VÍNCULO: ruta correcta + cita anclada al MISMO nodo.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = 'bbbbbbbb-0000-0000-0000-0000000000b1'
+     AND (evidence_ref -> 'locator' ->> 'ruta_ok')::boolean
+     AND (evidence_ref -> 'locator' ->> 'offset_ok')::boolean
+     AND (evidence_ref -> 'locator' ->> 'link_ok')::boolean
+     AND NOT (evidence_ref -> 'locator' ->> 'link_ambiguo')::boolean
+     AND evidence_ref -> 'locator' -> 'nodo_resuelto' IS NOT NULL;
+  ASSERT n = 1, 'ruta correcta + cita anclada al mismo nodo => vínculo positivo y auditable';
   SELECT coalesce(sum(percentage), 0) INTO n FROM public.v_p0_rights_staging
    WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND feeds_cuota;
   ASSERT n = 100, 'la capa segura suma 100';
