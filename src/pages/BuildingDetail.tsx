@@ -286,6 +286,10 @@ export default function BuildingDetail() {
             Titulares con %: {titStats.conPct} de {titStats.total}
           </Chip>
         )}
+        <Chip tone={titularidadSegura ? "gold" : "warning"}>
+          {titularidadSegura ? "Titularidad registral demostrada" : "Pendiente de titularidad"}
+        </Chip>
+        {derechosEnReview > 0 && <Chip tone="warning">{derechosEnReview} derecho{derechosEnReview === 1 ? "" : "s"} en revisión</Chip>}
       </div>
 
       {/* KPIs reales */}
@@ -312,7 +316,9 @@ export default function BuildingDetail() {
               <Eyebrow>Cuota total</Eyebrow>
               <div className="mt-2"><MetricValue size="lg" unit="%">{totalCuota.toFixed(0)}</MetricValue></div>
               <p className={cn("mt-1 text-xs", cuotaInconsistente ? "text-destructive" : "text-muted-foreground")}>
-                {cuotaInconsistente ? "⚠ inconsistente — revisar notas" : "sumatorio cuotas"}
+                {cuotaInconsistente
+                  ? "⚠ inconsistente — revisar notas"
+                  : titularidadSegura ? "cuota operativa vigente (registral)" : "pendiente de titularidad"}
               </p>
             </>
           )}
