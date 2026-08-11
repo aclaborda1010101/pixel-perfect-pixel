@@ -11,7 +11,7 @@
 export type SeccionTipo = "titularidad" | "cargas" | "descripcion" | "otro";
 
 export type Pagina = { page: number; inicio: number; fin: number };
-export type Zona = { seccion: SeccionTipo; inicio: number; fin: number; encabezado: string };
+export type Zona = { seccion: SeccionTipo; inicio: number; fin: number; encabezado: string; razon?: string };
 export type Bloque = {
   texto: string;
   inicio: number;
@@ -23,21 +23,39 @@ export type Bloque = {
 /** Marcadores de página por POSICIÓN (no por línea). */
 const RE_PAGINA_MARCA = /\f|(?:-{0,3}\s*)?P[áa]g(?:ina)?\.?\s*(\d{1,3})(?:\s*(?:de|\/)\s*\d{1,3})?/gi;
 
-/** Encabezados de sección reconocibles aunque vayan pegados al texto. */
-const RE_ENCABEZADO =
-  /(MAPA\s+DE\s+TITULARIDADES?|TITULARIDADES?|TITULARES|DERECHOS\s+INSCRITOS|CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?|HIPOTECAS?|AFECCIONES?|EMBARGOS?|SERVIDUMBRES?|ANOTACIONES\s+PREVENTIVAS?|DESCRIPCI[ÓO]N(?:\s+DE\s+LA\s+FINCA)?)\s*:?/g;
-
-/** Delimitador de bloque de hecho: cada titular abre uno. */
-const RE_INICIO_HECHO = /(?:TITULAR(?:ES)?\s*:|A\s+FAVOR\s+DE\s*:?|ADQUIRENTE\s*:)/gi;
+/** Sólo cabeceras estructurales; palabras narrativas nunca cambian sección. */
+const RE_TITULARIDADES_HEADER = /(?:MAPA\s+DE\s+)?TITULARIDADES?\s*:?/g;
+const RE_CARGAS_HEADER = /CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?\s*:?/g;
 
 export const RE_PARTICIPACION_G = /PARTICIPACI[ÓO]N/gi;
 
-function tipoDeEncabezado(h: string): SeccionTipo {
-  const t = h.toUpperCase();
-  if (/CARG|HIPOTEC|AFECCI|EMBARG|SERVIDUMBRE|ANOTACI/.test(t)) return "cargas";
-  if (/TITULAR/.test(t)) return "titularidad";
-  if (/DESCRIPCI/.test(t)) return "descripcion";
-  return "otro";
+export type VentanaRegistral = {
+  inicio: number;
+  fin: number;
+  titularidades_header: [number, number];
+  cargas_header: [number, number] | null;
+  razon_inicio: "cabecera_titularidades";
+  razon_fin: "cabecera_cargas_estructural" | "fin_documento_sin_cargas";
+};
+
+function primera(re: RegExp, src: string, desde = 0): RegExpExecArray | null {
+  re.lastIndex = desde;
+  return re.exec(src);
+}
+
+/** Ventana inequívoca [fin cabecera TITULARIDADES, inicio cabecera CARGAS). */
+export function localizarVentanaRegistral(src: string): VentanaRegistral | null {
+  const titular = primera(RE_TITULARIDADES_HEADER, src);
+  if (!titular) return null;
+  const cargas = primera(RE_CARGAS_HEADER, src, titular.index + titular[0].length);
+  return {
+    inicio: titular.index + titular[0].length,
+    fin: cargas?.index ?? src.length,
+    titularidades_header: [titular.index, titular.index + titular[0].length],
+    cargas_header: cargas ? [cargas.index, cargas.index + cargas[0].length] : null,
+    razon_inicio: "cabecera_titularidades",
+    razon_fin: cargas ? "cabecera_cargas_estructural" : "fin_documento_sin_cargas",
+  };
 }
 
 /** Páginas por posición. Siempre devuelve al menos una página cubriendo todo. */
@@ -58,13 +76,13 @@ export function segmentarPaginas(src: string): Pagina[] {
   if (marcas[0].idx > 0) {
     // Texto antes del primer marcador: pertenece a la página anterior (o 1).
     const primera = Math.max(1, (marcas[0].page ?? 2) - 1);
-    paginas.push({ page: primera, inicio: 0, fin: marcas[0].idx });
+    paginas.push({ page: primera, inicio: 0, fin: marcas[0].idx + marcas[0].len });
   }
   for (let i = 0; i < marcas.length; i++) {
     const marca = marcas[i];
     actual = marca.page ?? (actual + 1);
     cursor = marca.idx + marca.len;
-    const fin = i + 1 < marcas.length ? marcas[i + 1].idx : src.length;
+    const fin = i + 1 < marcas.length ? marcas[i + 1].idx + marcas[i + 1].len : src.length;
     paginas.push({ page: actual, inicio: cursor, fin });
   }
   void page;
@@ -78,59 +96,37 @@ export function paginaDe(paginas: Pagina[], offset: number): number {
 
 /** Zonas de sección por posición: CARGAS/HIPOTECAS excluyen sus participaciones. */
 export function segmentarSecciones(src: string): Zona[] {
-  const cortes: Array<{ idx: number; fin: number; seccion: SeccionTipo; encabezado: string }> = [];
-  RE_ENCABEZADO.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = RE_ENCABEZADO.exec(src))) {
-    cortes.push({ idx: m.index, fin: m.index + m[0].length, seccion: tipoDeEncabezado(m[1]), encabezado: m[0].trim() });
+  const v = localizarVentanaRegistral(src);
+  if (!v) return [{ seccion: "otro", inicio: 0, fin: src.length, encabezado: "", razon: "ventana_registral_ausente" }];
+  const out: Zona[] = [];
+  if (v.titularidades_header[0] > 0) out.push({ seccion: "otro", inicio: 0, fin: v.titularidades_header[0], encabezado: "", razon: "antes_titularidades" });
+  out.push({ seccion: "titularidad", inicio: v.inicio, fin: v.fin, encabezado: src.slice(...v.titularidades_header), razon: v.razon_fin });
+  if (v.cargas_header) {
+    out.push({ seccion: "cargas", inicio: v.cargas_header[1], fin: src.length, encabezado: src.slice(...v.cargas_header), razon: v.razon_fin });
   }
-  const zonas: Zona[] = [];
-  if (cortes.length === 0 || cortes[0].idx > 0) {
-    zonas.push({ seccion: "otro", inicio: 0, fin: cortes.length ? cortes[0].idx : src.length, encabezado: "" });
-  }
-  for (let i = 0; i < cortes.length; i++) {
-    const c = cortes[i];
-    const fin = i + 1 < cortes.length ? cortes[i + 1].idx : src.length;
-    if (fin > c.fin) zonas.push({ seccion: c.seccion, inicio: c.fin, fin, encabezado: c.encabezado });
-  }
-  return zonas;
+  return out;
 }
 
 /**
- * Bloques semánticos de hecho dentro de una zona. Un bloque arranca en un
- * delimitador de titular y termina en el siguiente (o al final de la zona).
- * Sin delimitadores se cae a los separadores fuertes (";", "|").
+ * Bloques semánticos: CADA token PARTICIPACION abre un hecho y termina justo
+ * antes del siguiente token (o al final de la sección). No depende de líneas,
+ * guiones, TITULAR: ni de separadores editoriales.
  */
 export function segmentarBloques(src: string, zona: Zona, paginas: Pagina[]): Bloque[] {
   const trozo = src.slice(zona.inicio, zona.fin);
   const arranques: number[] = [];
-  RE_INICIO_HECHO.lastIndex = 0;
+  RE_PARTICIPACION_G.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = RE_INICIO_HECHO.exec(trozo))) arranques.push(m.index);
-
-  const rangos: Array<[number, number]> = [];
-  if (arranques.length) {
-    if (arranques[0] > 0) rangos.push([0, arranques[0]]);
-    for (let i = 0; i < arranques.length; i++) {
-      rangos.push([arranques[i], i + 1 < arranques.length ? arranques[i + 1] : trozo.length]);
-    }
-  } else {
-    let cursor = 0;
-    const re = /[;|]/g;
-    let s: RegExpExecArray | null;
-    while ((s = re.exec(trozo))) {
-      rangos.push([cursor, s.index]);
-      cursor = s.index + 1;
-    }
-    rangos.push([cursor, trozo.length]);
-  }
+  while ((m = RE_PARTICIPACION_G.exec(trozo))) arranques.push(m.index);
 
   const out: Bloque[] = [];
-  for (const [a, b] of rangos) {
-    const texto = trozo.slice(a, b);
-    if (!texto.trim()) continue;
+  for (let i = 0; i < arranques.length; i++) {
+    const token = arranques[i];
+    const previo = i === 0 ? 0 : arranques[i - 1] + "PARTICIPACION".length;
+    const a = Math.max(previo, token - 320);
+    const b = i + 1 < arranques.length ? arranques[i + 1] : trozo.length;
     const inicio = zona.inicio + a;
-    out.push({ texto, inicio, fin: zona.inicio + b, page: paginaDe(paginas, inicio), seccion: zona.seccion });
+    out.push({ texto: trozo.slice(a, b), inicio, fin: zona.inicio + b, page: paginaDe(paginas, zona.inicio + token), seccion: zona.seccion });
   }
   return out;
 }
@@ -190,11 +186,17 @@ export function construirExtracto(src: string, opts?: { maxChars?: number; solap
       cursor = Math.max(cursor + 1, fin - solape);
     }
   }
+  const ordenados = chunks.slice().sort((a, b) => a.inicio - b.inicio);
+  let frontera = 0;
+  for (const c of ordenados) {
+    if (c.inicio > frontera) break;
+    frontera = Math.max(frontera, c.fin);
+  }
   return {
     chunks,
-    cubiertos,
+    cubiertos: frontera,
     total: texto.length,
-    truncado: texto.length > tope,
+    truncado: texto.length > tope || frontera < texto.length,
     paginas: paginas.length ? Math.max(...paginas.map((p) => p.page)) : 0,
   };
 }

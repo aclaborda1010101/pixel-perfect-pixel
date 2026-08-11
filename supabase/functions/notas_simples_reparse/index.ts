@@ -320,7 +320,7 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
         return { rows: 0, error: "direct_finalize_forbidden" };
       },
       /** Una sola transacción de servidor: bloqueo por claim, hijos y finalize. */
-      async applyPlan({ notaId, claimToken: token, updates, inserts, deletes, titulares, extracted, model, completeness }) {
+      async applyPlan({ notaId, claimToken: token, updates, inserts, deletes, reviews, titulares, extracted, model, completeness }) {
         const ex = extracted as ExtractedFields;
         const prev = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
         const merged: any = { ...prev, reparse_done: "1" };
@@ -337,6 +337,12 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
         merged.reparse_schema_version = 2;
         // Sin completitud ok=true la RPC aborta: nunca hay reparse_done falso.
         merged.completeness = completeness ?? null;
+        merged.reparse_diagnostic = {
+          expected: completeness?.expected ?? null,
+          actual: completeness?.materialized ?? null,
+          ambiguous: completeness?.ambiguos ?? [],
+          link_reviews: reviews ?? [],
+        };
         merged[REINGEST_FLAG] = pdfOrigen === "hubspot_reingest" ? true : (prev[REINGEST_FLAG] ?? false);
         merged.pdf_meta = {
           origen: pdfOrigen,
