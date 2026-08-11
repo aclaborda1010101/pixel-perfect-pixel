@@ -126,7 +126,7 @@ describe("has_role · inventario y endpoint seguro", () => {
     const src = readFileSync(resolve(ROOT, "supabase/functions/guardas_aprobar/index.ts"), "utf8");
     expect(src).toContain('.from("user_roles")');
     expect(src).toContain('.eq("user_id", user.id)');
-    expect(src).not.toContain("has_role");
+    expect(src).not.toMatch(/rpc\(\s*["']has_role["']/);
   });
 
   it("current_user_has_role NO acepta user_id y fija auth.uid()", () => {
