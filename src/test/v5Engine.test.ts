@@ -11,6 +11,7 @@ import {
 import {
   buildV5TaskKey,
   V5_RULES_VERSION,
+  V5_GENERATION_MODES,
   isValidEvidence,
   type V5BuildingContext,
   type V5Candidate,
@@ -29,9 +30,20 @@ import {
 } from "@/lib/v5/modes";
 import {
   buildDemoProposals,
+  assertPersistableGenerationMode,
   planRecomputeDeletions,
   validateManualDraft,
 } from "@/lib/v5/manualDemo";
+import {
+  V5_TASK_STATUSES,
+  assertV5TaskStatus,
+  countOccupiedSlots,
+  isOpenStatus,
+  isTerminalStatus,
+  isV5TaskStatus,
+  occupiesAutomaticSlot,
+} from "@/lib/v5/status";
+import { canReopenTask, decideTaskReopen, decideTaskStart } from "@/lib/taskStart";
 import { FEATURE_V5_ENGINE_PHASE_A } from "@/lib/featureFlags";
 
 const NOW = new Date("2026-08-11T10:00:00Z");
