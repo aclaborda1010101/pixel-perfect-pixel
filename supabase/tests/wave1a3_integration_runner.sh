@@ -154,6 +154,10 @@ CHAIN+=("$ROOT/supabase/pending_migrations/20260812000000_wave1a3_registral_forw
 
 MANIFEST="$WORK/manifest.txt"
 : > "$MANIFEST"
+# Extensiones de plataforma que no existen en un clúster local: su
+# CREATE EXTENSION se neutraliza en una COPIA del fichero (el original no se
+# toca) y el manifiesto lo declara como SHIM con checksum de ambos.
+MISSING_EXT_RE='pg_cron|pg_net'
 echo "--- MANIFIESTO DE LA CADENA (sha256) ---"
 for f in "${CHAIN[@]}"; do
   base="$(basename "$f")"
@@ -167,8 +171,19 @@ for f in "${CHAIN[@]}"; do
     echo "OMITIDA  $sum  $base" | tee -a "$MANIFEST"
     continue
   fi
-  echo "APLICA   $sum  $base" | tee -a "$MANIFEST"
-  if ! "${PSQL_TEST[@]}" -f "$f" >"$WORK/last.log" 2>&1; then
+  aplicar="$f"
+  if grep -qiE "CREATE EXTENSION[^;]*($MISSING_EXT_RE)" "$f"; then
+    if grep -qiE 'p0_|property_rights|nota_simple_titulares' "$f"; then
+      die "El fichero $base necesita shim de extensión y además toca objetos registrales: la cadena dejaría de ser exacta."
+    fi
+    aplicar="$WORK/shim_$base"
+    sed -E "s@(CREATE EXTENSION[^;]*($MISSING_EXT_RE)[^;]*;)@-- SHIM LOCAL (extensión de plataforma no disponible): \1@Ig" \
+      "$f" > "$aplicar"
+    echo "SHIM     $sum -> $(sha256sum "$aplicar" | cut -c1-16)  $base" | tee -a "$MANIFEST"
+  else
+    echo "APLICA   $sum  $base" | tee -a "$MANIFEST"
+  fi
+  if ! "${PSQL_TEST[@]}" -f "$aplicar" >"$WORK/last.log" 2>&1; then
     sed -n '1,40p' "$WORK/last.log" >&2
     # SIN REINTENTOS: una migración parcialmente aplicada invalida la base.
     die "La migración $base no aplica con el rol dedicado. La base se destruye; no se reintenta."
