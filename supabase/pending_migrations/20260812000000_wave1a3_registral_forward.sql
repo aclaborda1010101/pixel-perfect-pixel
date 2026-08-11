@@ -1672,6 +1672,10 @@ REVOKE ALL ON FUNCTION public.p0_regime_candidates(text, text, text)      FROM P
 REVOKE ALL ON FUNCTION public.p0_regime_conflict(text, text, text)        FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_frac_contexto_ok(text)                   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_locator_valid(text, text, text)          FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_locator_all_valid(text, text, text)      FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_json_path_resolve(jsonb, text)           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_ruta_elemento(jsonb, text)               FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_locator_link_ok(jsonb, text, text, text, text, text, text, text, numeric) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_unit_locator_valid(text, text)           FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_nota_unit_claves(uuid)                   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_nota_unit_key_conflict(uuid)             FROM PUBLIC, anon, authenticated;
@@ -1684,6 +1688,10 @@ GRANT EXECUTE ON FUNCTION public.p0_regime_candidates(text, text, text)   TO ser
 GRANT EXECUTE ON FUNCTION public.p0_regime_conflict(text, text, text)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_frac_contexto_ok(text)                TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_locator_valid(text, text, text)       TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_locator_all_valid(text, text, text)   TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_json_path_resolve(jsonb, text)        TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_ruta_elemento(jsonb, text)            TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_locator_link_ok(jsonb, text, text, text, text, text, text, text, numeric) TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_unit_locator_valid(text, text)        TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_unit_claves(uuid)                TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_unit_key_conflict(uuid)          TO service_role;
