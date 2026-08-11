@@ -250,6 +250,50 @@ INSERT INTO public.nota_simple_titulares
    'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
    '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
 
+-- ---------------------------------------------------------------------
+-- CASO 11 (POSITIVO, Positivo 100): no-DH, una sola nota canónica,
+-- persona física con DNI único en el CRM, pleno dominio 100 %, cita
+-- anclada literalmente en raw_pdf_text con titular + derecho + 100 %.
+-- Debe producir EXACTAMENTE una fila segura con feeds_cuota = true.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000010', 'ROSA VEGA', '{"dni__nif__cif":"00000010C"}'::jsonb);
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('bbbbbbbb-0000-0000-0000-0000000000a1',
+   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'ROSA VEGA es titular del 100 % del pleno dominio de la finca.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('bbbbbbbb-0000-0000-0000-0000000000b1', 'bbbbbbbb-0000-0000-0000-0000000000a1',
+   'ROSA VEGA', '00000010C', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ROSA VEGA es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- CASO 12 (POSITIVO, Positivo 60/40): dos titulares seguros que suman
+-- 100 %. AMBAS filas deben alimentar cuota.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000011', 'PABLO SOTO', '{"dni__nif__cif":"00000011D"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000012', 'ELENA RUIZ', '{"dni__nif__cif":"00000012E"}'::jsonb);
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('cccccccc-0000-0000-0000-0000000000a1',
+   'cccccccc-cccc-cccc-cccc-cccccccccccc', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'PABLO SOTO es titular del 60 % del pleno dominio. ELENA RUIZ es titular del 40 % del pleno dominio.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('cccccccc-0000-0000-0000-0000000000b1', 'cccccccc-0000-0000-0000-0000000000a1',
+   'PABLO SOTO', '00000011D', 60, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"PABLO SOTO es titular del 60 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('cccccccc-0000-0000-0000-0000000000b2', 'cccccccc-0000-0000-0000-0000000000a1',
+   'ELENA RUIZ', '00000012E', 40, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ELENA RUIZ es titular del 40 % del pleno dominio","pagina":"1"}'::jsonb);
+
 -- =====================================================================
 -- ASERCIONES DE REGRESIÓN
 -- =====================================================================
