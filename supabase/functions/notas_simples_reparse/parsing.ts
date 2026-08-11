@@ -76,13 +76,13 @@ export function segmentarPaginas(src: string): Pagina[] {
   if (marcas[0].idx > 0) {
     // Texto antes del primer marcador: pertenece a la página anterior (o 1).
     const primera = Math.max(1, (marcas[0].page ?? 2) - 1);
-    paginas.push({ page: primera, inicio: 0, fin: marcas[0].idx });
+    paginas.push({ page: primera, inicio: 0, fin: marcas[0].idx + marcas[0].len });
   }
   for (let i = 0; i < marcas.length; i++) {
     const marca = marcas[i];
     actual = marca.page ?? (actual + 1);
     cursor = marca.idx + marca.len;
-    const fin = i + 1 < marcas.length ? marcas[i + 1].idx : src.length;
+    const fin = i + 1 < marcas.length ? marcas[i + 1].idx + marcas[i + 1].len : src.length;
     paginas.push({ page: actual, inicio: cursor, fin });
   }
   void page;
