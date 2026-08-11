@@ -85,6 +85,8 @@ function lineOf(src: string, index: number): number {
 
 type Resolved = { table: string | null; sawFrom: boolean; reason?: string };
 
+/** Tabla resuelta a un valor distinto de building_tasks (no es objetivo). */
+
 function scanTs(file: string, source: string): WriteOp[] {
   const sf = ts.createSourceFile(
     file, source, ts.ScriptTarget.Latest, true,
@@ -93,32 +95,106 @@ function scanTs(file: string, source: string): WriteOp[] {
 
   /** const NAME = "literal" */
   const strings = new Map<string, string>();
+  /** const NAME = { a: "tabla_a", b: "tabla_b" } */
+  const objects = new Map<string, string[]>();
   /** const NAME = db.from("x") — variable ya "anclada" a una tabla */
   const boundTables = new Map<string, Resolved>();
   /** alias: const A = B */
   const aliases = new Map<string, string>();
 
-  const literalOf = (n: ts.Node | undefined): string | null => {
-    if (!n) return null;
-    if (ts.isStringLiteralLike(n)) return n.text;
-    if (ts.isIdentifier(n)) return resolveIdentString(n.text, new Set());
-    if (ts.isAsExpression(n) || ts.isParenthesizedExpression(n)) return literalOf(n.expression);
+  /**
+   * Conjunto de valores posibles de una expresión de tabla.
+   * `null` = NO resoluble (fail-closed).
+   */
+  function literalsOf(n: ts.Node | undefined, seen = new Set<string>(), depth = 0): string[] | null {
+    if (!n || depth > 20) return null;
+    if (ts.isStringLiteralLike(n)) return [n.text];
+    if (ts.isAsExpression(n) || ts.isParenthesizedExpression(n) || ts.isNonNullExpression(n)) {
+      return literalsOf(n.expression, seen, depth + 1);
+    }
+    if (ts.isConditionalExpression(n)) {
+      const a = literalsOf(n.whenTrue, seen, depth + 1);
+      const b = literalsOf(n.whenFalse, seen, depth + 1);
+      return a && b ? [...a, ...b] : null;
+    }
+    if (ts.isElementAccessExpression(n) || ts.isPropertyAccessExpression(n)) {
+      const root = n.expression;
+      // Acceso a un objeto constante de tablas: se consideran TODOS sus valores.
+      if (ts.isIdentifier(root) && objects.has(root.text)) return objects.get(root.text)!;
+      return null;
+    }
+    if (ts.isIdentifier(n)) {
+      const name = n.text;
+      if (seen.has(name)) return null;
+      seen.add(name);
+      if (strings.has(name)) return [strings.get(name)!];
+      const alias = aliases.get(name);
+      if (alias) {
+        if (strings.has(alias)) return [strings.get(alias)!];
+        if (objects.has(alias)) return objects.get(alias)!;
+        return null;
+      }
+      return resolveParameter(n, seen, depth + 1);
+    }
     return null;
-  };
-  function resolveIdentString(name: string, seen: Set<string>): string | null {
-    if (seen.has(name)) return null;
-    seen.add(name);
-    if (strings.has(name)) return strings.get(name)!;
-    const alias = aliases.get(name);
-    return alias ? resolveIdentString(alias, seen) : null;
   }
 
-  // Paso 1: mapa de constantes/aliases.
+  /**
+   * Parámetro de función: se resuelve por TODOS sus call-sites del fichero.
+   * Si algún call-site no es resoluble, el parámetro tampoco lo es.
+   */
+  function resolveParameter(id: ts.Identifier, seen: Set<string>, depth: number): string[] | null {
+    let cur: ts.Node | undefined = id.parent;
+    while (cur) {
+      const params = (cur as ts.SignatureDeclaration).parameters as
+        ts.NodeArray<ts.ParameterDeclaration> | undefined;
+      if (params) {
+        const i = params.findIndex((p) => ts.isIdentifier(p.name) && p.name.text === id.text);
+        if (i >= 0) {
+          const fnName =
+            (ts.isFunctionDeclaration(cur) && cur.name?.text) ||
+            ((ts.isArrowFunction(cur) || ts.isFunctionExpression(cur)) &&
+              cur.parent && ts.isVariableDeclaration(cur.parent) && ts.isIdentifier(cur.parent.name)
+              ? cur.parent.name.text : null);
+          if (!fnName) return null;
+          const out: string[] = [];
+          let ok = true;
+          let calls = 0;
+          const visitCalls = (node: ts.Node) => {
+            if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+                node.expression.text === fnName) {
+              calls++;
+              const vals = literalsOf(node.arguments[i], new Set(seen), depth + 1);
+              if (!vals) ok = false;
+              else out.push(...vals);
+            }
+            ts.forEachChild(node, visitCalls);
+          };
+          visitCalls(sf);
+          return ok && calls > 0 ? out : null;
+        }
+      }
+      cur = cur.parent;
+    }
+    return null;
+  }
+
+  // Paso 1: mapa de constantes/objetos/aliases.
   const collect = (node: ts.Node) => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const name = node.name.text;
-      if (ts.isStringLiteralLike(node.initializer)) strings.set(name, node.initializer.text);
-      else if (ts.isIdentifier(node.initializer)) aliases.set(name, node.initializer.text);
+      const init = ts.isAsExpression(node.initializer) ? node.initializer.expression : node.initializer;
+      if (ts.isStringLiteralLike(init)) strings.set(name, init.text);
+      else if (ts.isIdentifier(init)) aliases.set(name, init.text);
+      else if (ts.isObjectLiteralExpression(init)) {
+        const vals: string[] = [];
+        let ok = true;
+        for (const p of init.properties) {
+          if (ts.isPropertyAssignment(p) && ts.isStringLiteralLike(p.initializer)) vals.push(p.initializer.text);
+          else ok = false;
+        }
+        if (ok) objects.set(name, vals);
+      }
     }
     ts.forEachChild(node, collect);
   };
@@ -135,8 +211,9 @@ function scanTs(file: string, source: string): WriteOp[] {
       const callee = node.expression;
       if (ts.isPropertyAccessExpression(callee) && callee.name.text === "from") {
         const arg = node.arguments[0];
-        const lit = literalOf(arg);
-        if (lit !== null) return { table: lit, sawFrom: true };
+        const lits = literalsOf(arg);
+        if (lits && lits.includes(TABLE)) return { table: TABLE, sawFrom: true };
+        if (lits) return { table: lits[0] ?? "", sawFrom: true };
         return {
           table: null, sawFrom: true,
           reason: `destino de .from(${arg ? arg.getText(sf) : ""}) no resoluble`,
