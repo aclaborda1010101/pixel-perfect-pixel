@@ -271,7 +271,16 @@ export function getSalesManagerDashboardSim(
 
     const conInicio = creadas.filter((t) => !!t.started_at).length;
     const snapCount = (s: string) => mine.filter((t) => t.status === s).length;
-    const known = ["pending", "in_progress", "blocked", "skipped", "completed", "no_procede"];
+    const known = [
+      "pending",
+      "in_progress",
+      "blocked",
+      "skipped",
+      "completed",
+      "no_procede",
+      "cancelled",
+      "superseded",
+    ];
 
     const mezcla: Record<string, number> = {};
     for (const t of creadas) {
@@ -312,6 +321,9 @@ export function getSalesManagerDashboardSim(
         ).length,
         bloqueadas_vencidas: mine.filter(
           (t) => t.status === "blocked" && t.due_date && new Date(t.due_date) < now,
+        ).length,
+        terminadas_sin_cierre: mine.filter(
+          (t) => t.status === "cancelled" || t.status === "superseded",
         ).length,
         as_of: now.toISOString(),
       },

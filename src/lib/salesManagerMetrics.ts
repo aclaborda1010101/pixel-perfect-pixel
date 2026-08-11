@@ -21,6 +21,8 @@ export type SalesManagerSnapshot = {
   vencidas_ahora: number;
   /** Bloqueadas fuera de plazo: se informan APARTE, no penalizan al comercial. */
   bloqueadas_vencidas: number;
+  /** cancelled + superseded: terminales conocidos, nunca vencidos. */
+  terminadas_sin_cierre: number;
   as_of: string;
 };
 

@@ -124,10 +124,13 @@ export default function GestorComerciales() {
                       ["Pendientes", u.snapshot.pending],
                       ["En curso", u.snapshot.in_progress],
                       ["Bloqueadas", u.snapshot.blocked],
-                      ["No procede", u.snapshot.skipped],
+                      ["Saltadas", u.snapshot.skipped],
+                      ["No procede", u.snapshot.no_procede],
                       ["Completadas", u.snapshot.completed],
                       ["Desconocido", u.snapshot.unknown],
                       ["Vencidas ahora", u.snapshot.vencidas_ahora],
+                      ["Bloqueadas vencidas", u.snapshot.bloqueadas_vencidas],
+                      ["Terminales sin cierre", u.snapshot.terminadas_sin_cierre],
                     ] as const).map(([label, value]) => (
                       <div key={label} className="rounded-md border p-3">
                         <div className="text-xs text-muted-foreground">{label}</div>
