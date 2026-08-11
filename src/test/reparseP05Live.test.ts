@@ -22,7 +22,7 @@ const envFor = (user?: string) => ({
 });
 
 function run(user: string | undefined, sql: string): string {
-  return execFileSync("psql", ["-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql], {
+  return execFileSync("psql", ["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "-c", sql], {
     env: envFor(user) as any,
     encoding: "utf8",
   }).trim();
