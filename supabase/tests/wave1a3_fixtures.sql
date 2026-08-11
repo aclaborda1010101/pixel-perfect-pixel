@@ -51,6 +51,12 @@ INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
   ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Identidad Divergente 1', 'Madrid', false),
   ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Identidad Divergente 2', 'Madrid', false);
 
+-- P0.4 · Edificios de REGRESIÓN DE CAPAS: nuda propiedad y usufructo
+-- JAMÁS se suman como pleno dominio ni alimentan cuota.
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('a1111111-1111-1111-1111-11111111aaaa', 'Capas nuda+usufructo',       'Madrid', false),
+  ('a2222222-2222-2222-2222-22222222aaaa', 'Capas pleno+nuda+usufructo', 'Madrid', false);
+
 INSERT INTO public.owners (id, nombre, metadatos) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'ANA LOPEZ',  '{"dni__nif__cif":"00000001A"}'::jsonb),
   ('a0000000-0000-0000-0000-000000000002', 'LUIS PEREZ', '{"dni__nif__cif":"00000002B"}'::jsonb);
@@ -415,6 +421,47 @@ INSERT INTO public.nota_simple_titulares
    'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
    '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1","ruta":"$.titulares[7]"}'::jsonb);
 
+-- ---------------------------------------------------------------------
+-- P0.4 · CASOS DE CAPAS (regresión explícita): la nuda propiedad y el
+-- usufructo son CAPAS DISTINTAS. Ni sumadas entre sí ni sumadas al pleno
+-- dominio pueden alimentar cuota: sólo el pleno dominio proyecta.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000021', 'MARTA NUDA', '{"dni__nif__cif":"00000021H"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000022', 'HUGO USUFR', '{"dni__nif__cif":"00000022J"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000023', 'IRENE PLENO','{"dni__nif__cif":"00000023K"}'::jsonb);
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('a1111111-0000-0000-0000-0000000000a1',
+   'a1111111-1111-1111-1111-11111111aaaa', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'MARTA NUDA es titular del 100 % de la nuda propiedad. HUGO USUFR es titular del 100 % del usufructo.'),
+  ('a2222222-0000-0000-0000-0000000000a1',
+   'a2222222-2222-2222-2222-22222222aaaa', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'IRENE PLENO es titular del 50 % del pleno dominio. MARTA NUDA es titular del 50 % de la nuda propiedad. HUGO USUFR es titular del 50 % del usufructo.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  -- Unidad con SOLO nuda + usufructo: 100 + 100 jamás es un pleno del 100.
+  ('a1111111-0000-0000-0000-0000000000b1', 'a1111111-0000-0000-0000-0000000000a1',
+   'MARTA NUDA', '00000021H', 100, 'nuda_propiedad', '{"rol_literal":"nuda propiedad"}'::jsonb,
+   '{"cita":"MARTA NUDA es titular del 100 % de la nuda propiedad","pagina":"1"}'::jsonb),
+  ('a1111111-0000-0000-0000-0000000000b2', 'a1111111-0000-0000-0000-0000000000a1',
+   'HUGO USUFR', '00000022J', 100, 'usufructo', '{"rol_literal":"usufructo"}'::jsonb,
+   '{"cita":"HUGO USUFR es titular del 100 % del usufructo","pagina":"1"}'::jsonb),
+  -- Unidad con pleno 50 + nuda 50 + usufructo 50: las capas no se mezclan,
+  -- así que el pleno NO llega a 100 y la unidad no proyecta nada.
+  ('a2222222-0000-0000-0000-0000000000b1', 'a2222222-0000-0000-0000-0000000000a1',
+   'IRENE PLENO', '00000023K', 50, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"IRENE PLENO es titular del 50 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('a2222222-0000-0000-0000-0000000000b2', 'a2222222-0000-0000-0000-0000000000a1',
+   'MARTA NUDA', '00000021H', 50, 'nuda_propiedad', '{"rol_literal":"nuda propiedad"}'::jsonb,
+   '{"cita":"MARTA NUDA es titular del 50 % de la nuda propiedad","pagina":"1"}'::jsonb),
+  ('a2222222-0000-0000-0000-0000000000b3', 'a2222222-0000-0000-0000-0000000000a1',
+   'HUGO USUFR', '00000022J', 50, 'usufructo', '{"rol_literal":"usufructo"}'::jsonb,
+   '{"cita":"HUGO USUFR es titular del 50 % del usufructo","pagina":"1"}'::jsonb);
+
 -- =====================================================================
 -- ASERCIONES DE REGRESIÓN
 -- =====================================================================
@@ -535,7 +582,7 @@ BEGIN
    WHERE titular_id = 'f1111111-0000-0000-0000-0000000000b1'
      AND NOT unidad_key_conflict
      AND NOT (audit_ids ->> 'unit_cross_type_unverified')::boolean
-     AND unidad_key LIKE 'dh:%:idufir:12345678901';
+     AND ownership_unit_key LIKE 'dh:%:idufir:12345678901';
   ASSERT n = 1, 'IDUFIR y finca CO-LOCALIZADOS son alias compatibles: clave IDUFIR, sin conflicto';
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = 'f1111111-0000-0000-0000-0000000000b1'
@@ -552,13 +599,13 @@ BEGIN
 
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = 'f3333333-0000-0000-0000-0000000000b1'
-     AND NOT unidad_key_conflict AND unidad_key LIKE 'dh:%:idufir:12345678901';
+     AND NOT unidad_key_conflict AND ownership_unit_key LIKE 'dh:%:idufir:12345678901';
   ASSERT n = 1, 'el mismo IDUFIR repetido (con separadores) es alias, no conflicto';
 
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = 'f4444444-0000-0000-0000-0000000000b1'
      AND (audit_ids ->> 'unit_cross_type_unverified')::boolean
-     AND NOT unidad_key_conflict AND unidad_key IS NULL
+     AND NOT unidad_key_conflict AND ownership_unit_key IS NULL
      AND unit_block_reason = 'cross_type_unverified'
      AND NOT feeds_cuota AND NOT is_canonical;
   ASSERT n = 1, 'tipos distintos en nodos distintos: cross_type_unverified, bloqueo, sin comparar literales';
