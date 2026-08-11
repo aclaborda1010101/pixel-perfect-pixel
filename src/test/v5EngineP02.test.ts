@@ -356,7 +356,8 @@ describe("V5 P0.2 — adaptador runtime", () => {
     expect(draft.valid).toBe(true);
     expect(draft.draft?.generationMode).toBe("manual");
     expect(validateManualDraft({ ...(draft.draft as any), createdBy: "" }).valid).toBe(false);
-    expect(decideTaskStart({ status: "pending", generation_mode: "manual", started_at: null } as any).allowed).toBe(true);
+    expect(decideTaskStart({ status: "pending", generation_mode: "manual", started_at: null }).action).toBe("start");
+    expect(decideTaskStart({ status: "pending", generation_mode: "demo" }).action).toBe("reject");
     // El motor nunca toca las manuales: no ocupan slot production.
     const rows: V5TaskRow[] = [{
       id: "m1", userId: "C1", generationMode: "manual", status: "pending", taskKey: "manual:1",
