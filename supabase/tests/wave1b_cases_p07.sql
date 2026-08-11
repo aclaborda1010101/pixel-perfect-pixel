@@ -106,7 +106,7 @@ DO $$
 DECLARE h1 text; h2 text;
 BEGIN
   h1 := public.p0_wave1b_context_hash();
-  INSERT INTO public.buildings(id) VALUES (gen_random_uuid());
+  INSERT INTO public.buildings(id, direccion) VALUES (gen_random_uuid(), 'Firma sensible');
   h2 := public.p0_wave1b_context_hash();
   IF h1 IS NULL THEN RAISE EXCEPTION 'FALLO: context_hash nulo'; END IF;
   RAISE NOTICE 'CASO OK · context_hash calculable y determinista';
