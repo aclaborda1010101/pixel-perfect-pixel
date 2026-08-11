@@ -291,7 +291,9 @@ export function mergeEvidencias(...entradas: unknown[]): MergeEvidenciaResult {
         if (nuevo == null) continue;
         const actual = (merged as Record<string, unknown>)[campo];
         if (actual != null && actual !== nuevo) {
-          return { ok: false, reason: "evidence_conflict", detalle: `${k}:${campo}` };
+          // Misma identidad de fuente (localizador + cita normalizados): sólo
+          // puede diferir el formato del texto. Se conserva SIEMPRE lo previo.
+          continue;
         }
         (merged as Record<string, unknown>)[campo] = nuevo;
       }
