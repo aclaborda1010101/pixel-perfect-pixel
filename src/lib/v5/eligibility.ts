@@ -317,7 +317,8 @@ export function evaluateOwner(
   // --- T4: cadencia realmente vencida sobre la señal EFECTIVA.
   const dueMs = ts(owner.cadence?.dueAt);
   const cadenceDue = dueMs !== null && dueMs <= nowMs;
-  if (cadenceDue && signal?.kind !== "interesado" && owner.cadence?.channelUsable === true) {
+  const signalKind: string | undefined = signal?.kind;
+  if (cadenceDue && signalKind !== "interesado" && owner.cadence?.channelUsable === true) {
     return {
       candidate: makeCandidate({
         taskCode: "T4",
