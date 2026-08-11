@@ -337,16 +337,36 @@ export function textoComparable(raw: unknown): string {
   return foldAccents(String(raw ?? "")).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+/** Fracción mínima de la cita que debe encontrarse literalmente en el texto. */
+export const CITA_COBERTURA_MINIMA = 0.8;
+const CITA_VENTANA = 5;
+
 /**
- * ¿La cita existe REALMENTE en el texto fuente? Si no hay texto fuente
- * (documento escaneado sin capa de texto) no se puede desmentir: devuelve true.
+ * ¿La cita existe REALMENTE en el texto fuente?
+ *
+ * En una nota simple el hecho ("TITULAR ... PARTICIPACION: 6,25% de la nuda
+ * propiedad") aparece partido por saltos de página y pies de página, así que
+ * exigir contención contigua exacta rechazaría citas legítimas. Se comprueba
+ * por VENTANAS de 5 palabras: al menos el 80 % de las ventanas de la cita debe
+ * aparecer literalmente en el texto. Un texto inventado no supera el umbral.
+ *
+ * Sin texto fuente (escaneado sin capa de texto) no se puede desmentir: true.
  */
 export function citaVerificable(texto: string | null | undefined, cita: unknown): boolean {
   const fuente = textoComparable(texto);
   if (!fuente) return true;
   const c = textoComparable(cita);
   if (!c) return false;
-  return fuente.includes(c);
+  if (fuente.includes(c)) return true;
+  const palabras = c.split(" ").filter(Boolean);
+  if (palabras.length < CITA_VENTANA) return false;
+  let total = 0;
+  let encontradas = 0;
+  for (let i = 0; i + CITA_VENTANA <= palabras.length; i++) {
+    total++;
+    if (fuente.includes(palabras.slice(i, i + CITA_VENTANA).join(" "))) encontradas++;
+  }
+  return total > 0 && encontradas / total >= CITA_COBERTURA_MINIMA;
 }
 
 /** Comparación estable de dos evidencias ya canónicas. */
