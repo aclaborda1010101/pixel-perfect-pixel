@@ -166,6 +166,7 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     const creaciones = authorized.filter((o) => o.op === "insert" || o.op === "upsert" || o.op === "merge");
     expect([...new Set(creaciones.map((o) => `${o.file}#${o.fn}`))].sort()).toEqual([
       "src/lib/taskWriters.ts#insertManualBuildingTask",
+      "supabase/functions/_shared/taskWriters.ts#insertGeneratedTask",
       "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask",
       "supabase/pending_migrations/20260815000000_v5_engine_p03_runtime_connect.sql#public.commit_v5_generation_plan",
     ]);
