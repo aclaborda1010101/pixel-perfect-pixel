@@ -19,43 +19,81 @@ export const V5_CANONICAL_TASK_KEY_RX =
 
 export const V5_CANONICAL_TASK_CODES = ["T1", "T2_T3", "T4", "T5", "T6", "T8", "T9"] as const;
 
-export type V5CallQueueTaskRow = {
+/** Catálogo HISTÓRICO real de la cola legacy. T-07 existió pero NUNCA se genera. */
+export const LEGACY_HISTORIC_TASK_CODES = [
+  "T-01", "T-02", "T-03", "T-04", "T-05", "T-06", "T-07", "T-08", "T-09",
+] as const;
+/** Códigos que un writer podría haber generado (T-07 es sólo de lectura). */
+export const LEGACY_GENERABLE_TASK_CODES = LEGACY_HISTORIC_TASK_CODES.filter((c) => c !== "T-07");
+
+export type LegacyHistoricTaskKey = {
+  fecha: string;
+  code: (typeof LEGACY_HISTORIC_TASK_CODES)[number];
+  id: string;
+  /** true para T-07: legible en el histórico, jamás generable. */
+  legacyOnly: boolean;
+};
+
+/** Fecha de CALENDARIO real (no 2026-02-31 ni 2026-13-01). */
+export function isRealCalendarDate(v: unknown): boolean {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number);
+  if (m < 1 || m > 12 || d < 1) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * Lectura ESTRICTA de una clave histórica: exactamente 4 segmentos,
+ * `v5` + fecha de calendario real + código del catálogo histórico + id no
+ * vacío y sin ':'. Devuelve null si algo no encaja (fail-closed).
+ */
+export function parseLegacyHistoricTaskKey(taskKey: unknown): LegacyHistoricTaskKey | null {
+  if (typeof taskKey !== "string") return null;
+  const seg = taskKey.split(":");
+  if (seg.length !== 4) return null;
+  const [pref, fecha, code, id] = seg;
+  if (pref !== "v5") return null;
+  if (!isRealCalendarDate(fecha)) return null;
+  if (!(LEGACY_HISTORIC_TASK_CODES as readonly string[]).includes(code)) return null;
+  if (!id || id.trim() === "" || id.includes(":")) return null;
+  return { fecha, code: code as LegacyHistoricTaskKey["code"], id, legacyOnly: code === "T-07" };
+}
+
+/**
+ * Validación de una fila histórica LEÍDA de `building_tasks`. No autoriza
+ * ninguna escritura: el writer legacy está RETIRADO (Motor V5 P0.3).
+ */
+export function assertLegacyHistoricTaskRow(row: unknown): asserts row is LegacyHistoricTaskRow {
+  const r = (row ?? {}) as Record<string, unknown>;
+  const nonEmpty = (v: unknown) => typeof v === "string" && v.trim().length > 0;
+  if (!nonEmpty(r.building_id)) throw new Error("v5 histórica: building_id obligatorio");
+  if (!nonEmpty(r.user_id)) throw new Error("v5 histórica: user_id obligatorio");
+  if (r.task_type !== "call_queue") throw new Error("v5 histórica: task_type debe ser call_queue");
+  const parsed = parseLegacyHistoricTaskKey(r.task_key);
+  if (!parsed) throw new Error(`v5 histórica: task_key inválida (${String(r.task_key)})`);
+  if (r.generation_mode !== undefined && r.generation_mode !== "legacy") {
+    throw new Error("v5 histórica: generation_mode sólo puede ser legacy");
+  }
+  if (!nonEmpty(r.title)) throw new Error("v5 histórica: title obligatorio");
+  if (!nonEmpty(r.due_date)) throw new Error("v5 histórica: due_date obligatorio");
+}
+
+export type LegacyHistoricTaskRow = {
   building_id: string;
   user_id: string;
   task_type: "call_queue";
   task_key: string;
   title: string;
-  description?: string | null;
-  priority: "low" | "medium" | "high";
-  status: "pending";
   due_date: string;
 };
 
-export function assertV5CallQueueRow(row: unknown): asserts row is V5CallQueueTaskRow {
-  const r = (row ?? {}) as Record<string, unknown>;
-  const nonEmpty = (v: unknown) => typeof v === "string" && v.trim().length > 0;
-  if (!nonEmpty(r.building_id)) throw new Error("v5 task: building_id obligatorio");
-  if (!nonEmpty(r.user_id)) throw new Error("v5 task: user_id obligatorio");
-  if (r.task_type !== "call_queue") throw new Error("v5 task: task_type debe ser call_queue");
-  if (!nonEmpty(r.task_key) || !V5_TASK_KEY_RX.test(String(r.task_key))) {
-    throw new Error(`v5 task: task_key inválida (${String(r.task_key)})`);
-  }
-  if (!nonEmpty(r.title)) throw new Error("v5 task: title obligatorio");
-  if (!["low", "medium", "high"].includes(String(r.priority))) {
-    throw new Error("v5 task: priority inválida");
-  }
-  if (r.status !== "pending") throw new Error("v5 task: status inicial debe ser pending");
-  if (!nonEmpty(r.due_date)) throw new Error("v5 task: due_date obligatorio");
-}
-
-type ClientLike = { from: (table: string) => any };
-
-/** Inserta una tarea de la cola V5 tras validar el contrato completo. */
-export async function insertV5CallQueueTask(client: ClientLike, input: unknown) {
-  const row = input;
-  assertV5CallQueueRow(row);
-  return await client.from("building_tasks").insert(row).select("id, task_key").maybeSingle();
-}
+/**
+ * WRITER LEGACY RETIRADO. Se conserva el símbolo para que la guarda de
+ * arquitectura detecte cualquier intento de resucitarlo: importarlo o
+ * llamarlo es una violación y, en ejecución, lanza siempre.
+ */
+export const LEGACY_CALL_QUEUE_WRITER_RETIRED = true;
 
 /**
  * Fila CANÓNICA del Motor V5 (generation_mode='production'). Exige la clave
