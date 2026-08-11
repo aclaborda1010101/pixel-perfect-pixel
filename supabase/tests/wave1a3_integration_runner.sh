@@ -93,8 +93,10 @@ PSQL_ADMIN=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d postgres -q)
 # Extensiones: único paso admin dentro de la base (requieren superusuario).
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
   -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null 2>&1 || true
-psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
-  -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' >/dev/null 2>&1 || true
+for ext in '"uuid-ossp"' pg_trgm vector; do
+  psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
+    -c "CREATE EXTENSION IF NOT EXISTS $ext;" >/dev/null 2>&1 || true
+done
 
 # A partir de aquí TODO se ejecuta con el rol dedicado.
 PSQL_TEST=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ROLE" -d "$TESTDB" -q)
