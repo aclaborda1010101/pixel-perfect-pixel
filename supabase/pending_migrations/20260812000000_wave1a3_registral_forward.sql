@@ -679,6 +679,7 @@ WITH notas AS (
          ns.structured_json AS sj, ns.processed_at, ns.created_at,
          coalesce(b.division_horizontal, false) AS dh,
          public.p0_nota_unit_key(ns.id)                       AS unit_key,
+         public.p0_nota_unit_key_conflict(ns.id)              AS unit_key_conflict,
          public.p0_nota_ownership_signature(ns.id)            AS nota_signature,
          public.p0_nota_fecha_registral(ns.structured_json)   AS fecha_registral,
          public.p0_nota_date_conflict(ns.structured_json)     AS date_conflict,
@@ -686,6 +687,16 @@ WITH notas AS (
   FROM public.notas_simples ns
   LEFT JOIN public.buildings b ON b.id = ns.building_id
   WHERE ns.building_id IS NOT NULL AND ns.status = 'listo'
+), edificio AS (
+  -- (4)(5) BLOQUEO A NIVEL EDIFICIO. Un problema que impide siquiera saber
+  -- de qué unidad hablamos no puede "desaparecer" por unit_key NULL: deja
+  -- CERO canónicas y CERO feeds para TODAS las unidades del edificio.
+  SELECT n.building_id,
+         bool_or(n.unit_key_conflict)                          AS b_unit_key_conflict,
+         bool_or(n.dh AND n.unit_key IS NULL)                  AS b_dh_sin_clave,
+         bool_or(n.n_titulares = 0 AND n.unit_key IS NULL)     AS b_lista_sin_titulares_sin_unidad,
+         bool_or(n.n_titulares = 0)                            AS b_alguna_lista_sin_titulares
+  FROM notas n GROUP BY n.building_id
 ), tit AS (
   SELECT
     t.id AS titular_id, n.nota_id, n.building_id, n.nota_status,
@@ -712,6 +723,7 @@ WITH notas AS (
       coalesce(nullif(btrim(to_jsonb(t) ->> 'rol_literal'), ''), t.metadatos ->> 'rol_literal'),
       t.metadatos ->> 'regimen') AS regime_conflict,
     n.unit_key, n.nota_signature, n.fecha_registral, n.date_conflict,
+    n.unit_key_conflict,
     public.p0_evidence_check(t.id) AS ev,
     n.dh, n.sj, n.processed_at, n.created_at
   FROM public.nota_simple_titulares t
@@ -724,7 +736,8 @@ WITH notas AS (
   FROM tit
 ), nota_meta AS (
   -- (2) Parte de notas, NO del inner join: las listas sin titulares existen.
-  SELECT n.nota_id, n.unit_key, n.nota_signature, n.nota_status,
+  SELECT n.nota_id, n.building_id, n.unit_key, n.unit_key_conflict,
+         n.nota_signature, n.nota_status,
          n.fecha_registral, n.date_conflict, n.processed_at, n.created_at,
          n.n_titulares,
          (n.n_titulares = 0) AS sin_titulares,
@@ -737,6 +750,7 @@ WITH notas AS (
          count(DISTINCT nota_signature)             AS n_firmas,
          count(*) FILTER (WHERE sin_titulares)      AS n_sin_titulares,
          bool_or(date_conflict)                     AS unidad_date_conflict,
+         bool_or(unit_key_conflict)                 AS unidad_key_conflict,
          max(fecha_registral)                       AS max_fecha
   FROM nota_meta WHERE unit_key IS NOT NULL GROUP BY unit_key
 ), top_sig AS (
@@ -751,13 +765,14 @@ WITH notas AS (
   GROUP BY nm.unit_key
 ), unit_state AS (
   SELECT uf.unit_key, uf.n_firmas, uf.n_notas, uf.n_sin_titulares,
-         uf.unidad_date_conflict, uf.max_fecha, ts.top_signature,
+         uf.unidad_date_conflict, uf.unidad_key_conflict, uf.max_fecha, ts.top_signature,
     -- Contenido distinto sólo se supersede con cronología registral
     -- inequívoca. Mismo contenido con fechas distintas NO contradice
     -- (la firma ya no incluye la fecha).
     (
       uf.n_sin_titulares = 0
       AND NOT uf.unidad_date_conflict
+      AND NOT uf.unidad_key_conflict
       AND (
         uf.n_firmas = 1
         OR (
@@ -776,12 +791,17 @@ WITH notas AS (
   LEFT JOIN top_sig ts ON ts.unit_key = uf.unit_key
 ), canon AS (
   -- (2) Contradicción no resuelta o lista sin titulares => CERO canónicas.
+  -- (4)(5) Y un bloqueo de edificio deja CERO canónicas en todo el edificio.
   SELECT DISTINCT ON (nm.unit_key) nm.unit_key, nm.nota_id
   FROM nota_meta nm
   JOIN unit_state us ON us.unit_key = nm.unit_key
+  JOIN edificio ed ON ed.building_id = nm.building_id
   WHERE nm.unit_key IS NOT NULL
     AND us.resuelta
     AND NOT nm.sin_titulares
+    AND NOT coalesce(ed.b_unit_key_conflict, false)
+    AND NOT coalesce(ed.b_dh_sin_clave, false)
+    AND NOT coalesce(ed.b_lista_sin_titulares_sin_unidad, false)
   ORDER BY nm.unit_key,
            (us.top_signature IS NOT NULL AND nm.nota_signature = us.top_signature) DESC,
            nm.fecha_registral DESC NULLS LAST,
