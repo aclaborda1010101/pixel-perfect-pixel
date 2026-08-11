@@ -15,8 +15,9 @@
 DO $$
 BEGIN
   IF current_database() NOT LIKE 'wave1a\_test\_%'
-     AND current_database() NOT LIKE 'smp03\_test\_%' THEN
-    RAISE EXCEPTION 'ABORTADO: baseline local solo en base desechable wave1a_test_*/smp03_test_*, base actual = %', current_database();
+     AND current_database() NOT LIKE 'smp03\_test\_%'
+     AND current_database() NOT LIKE 'v5p03\_test\_%' THEN
+    RAISE EXCEPTION 'ABORTADO: baseline local solo en base desechable wave1a_test_*/smp03_test_*/v5p03_test_*, base actual = %', current_database();
   END IF;
 END $$;
 
