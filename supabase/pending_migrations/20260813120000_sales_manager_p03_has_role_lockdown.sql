@@ -35,7 +35,7 @@ DECLARE
   v_check  text;
   v_sql    text;
   v_rx     constant text :=
-    '(?:public\.)?has_role\(\s*auth\.uid\(\)\s*,\s*(''[a-z_]+''(?:::(?:public\.)?app_role)?)\s*\)';
+    '(^|[^a-z_.])(?:public\.)?has_role\(\s*auth\.uid\(\)\s*,\s*(''[a-z_]+''(?:::(?:public\.)?app_role)?)\s*\)';
 BEGIN
   FOR r IN
     SELECT schemaname, tablename, policyname,
@@ -46,8 +46,8 @@ BEGIN
      AND pol.polrelid = (quote_ident(pp.schemaname) || '.' || quote_ident(pp.tablename))::regclass
     WHERE COALESCE(pp.qual, '') || COALESCE(pp.with_check, '') LIKE '%has_role(%'
   LOOP
-    v_using := regexp_replace(r.qual,      v_rx, 'public.current_user_has_role(\1)', 'g');
-    v_check := regexp_replace(r.withcheck, v_rx, 'public.current_user_has_role(\1)', 'g');
+    v_using := regexp_replace(r.qual,      v_rx, '\1public.current_user_has_role(\2)', 'g');
+    v_check := regexp_replace(r.withcheck, v_rx, '\1public.current_user_has_role(\2)', 'g');
 
     IF v_using IS NOT NULL AND v_using ~ 'has_role\(\s*auth\.uid' THEN
       RAISE EXCEPTION 'política % en %.%: expresión USING no portable', r.policyname, r.schemaname, r.tablename;
@@ -66,21 +66,21 @@ DECLARE
   r     record;
   v_def text;
   v_rx  constant text :=
-    '(?:public\.)?has_role\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(''[a-z_]+''(?:::(?:public\.)?app_role)?)\s*\)';
+    '(^|[^a-z_.])(?:public\.)?has_role\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(''[a-z_]+''(?:::(?:public\.)?app_role)?)\s*\)';
 BEGIN
   FOR r IN
     SELECT p.oid, n.nspname, p.proname
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
-      AND p.prosrc LIKE '%has_role(%'
+      AND p.prosrc ~ '(^|[^a-z_.])has_role\('
       AND p.proname NOT IN ('has_role', 'current_user_has_role', 'internal_member_has_role')
   LOOP
     v_def := pg_get_functiondef(r.oid);
-    v_def := regexp_replace(v_def, '(?:public\.)?has_role\(\s*auth\.uid\(\)\s*,\s*(''[a-z_]+''(?:::(?:public\.)?app_role)?)\s*\)',
-                            'public.current_user_has_role(\1)', 'g');
-    v_def := regexp_replace(v_def, v_rx, 'public.internal_member_has_role(\1, \2)', 'g');
-    IF v_def ~ '[^_]has_role\(' THEN
+    v_def := regexp_replace(v_def, '(^|[^a-z_.])(?:public\.)?has_role\(\s*auth\.uid\(\)\s*,\s*(''[a-z_]+''(?:::(?:public\.)?app_role)?)\s*\)',
+                            '\1public.current_user_has_role(\2)', 'g');
+    v_def := regexp_replace(v_def, v_rx, '\1public.internal_member_has_role(\2, \3)', 'g');
+    IF v_def ~ '(^|[^a-z_.])has_role\(' THEN
       RAISE EXCEPTION 'función %.% mantiene llamadas a has_role no portables', r.nspname, r.proname;
     END IF;
     EXECUTE v_def;
@@ -95,11 +95,11 @@ DECLARE
   v_dep int;
 BEGIN
   SELECT count(*) INTO v_pol FROM pg_policies
-   WHERE (COALESCE(qual,'') || COALESCE(with_check,'')) ~ '[^_]has_role\(';
+   WHERE (COALESCE(qual,'') || COALESCE(with_check,'')) ~ '(^|[^a-z_.])has_role\(';
 
   SELECT count(*) INTO v_fn FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE p.prosrc ~ '[^_]has_role\('
+   WHERE p.prosrc ~ '(^|[^a-z_.])has_role\('
      AND p.proname NOT IN ('has_role','current_user_has_role','internal_member_has_role');
 
   SELECT count(*) INTO v_dep
