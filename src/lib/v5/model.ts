@@ -96,8 +96,33 @@ export function isConcreteIncident(inc: unknown): inc is V5Incident {
   return v.evidence.every(isValidEvidence);
 }
 
-/** Firma completa de una incidencia (dedupe determinista). */
+/**
+ * Firma CANÓNICA y determinista de una incidencia (P0.2).
+ * Incluye TODA la evidencia: id, field, observed, expected, source, action,
+ * blocking, reference, at, quote. Ordena y deduplica: dos incidencias
+ * iguales tienen exactamente la misma firma, y un cambio material sólo en
+ * la evidencia (cita, referencia, fecha) cambia la firma.
+ */
 export function incidentSignature(inc: V5Incident): string {
+  const evidence = [...inc.evidence]
+    .map((e) => ({
+      field: e.field,
+      observed: e.observed ?? null,
+      expected: e.expected ?? null,
+      source: e.source,
+      reference: e.reference,
+      at: e.at ?? null,
+      quote: e.quote ?? null,
+    }))
+    .map((e) => [stableStringify(e), e] as const)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const dedupedEvidence: unknown[] = [];
+  let prev: string | null = null;
+  for (const [sig, e] of evidence) {
+    if (sig === prev) continue;
+    prev = sig;
+    dedupedEvidence.push(e);
+  }
   return stableStringify({
     id: inc.id,
     field: inc.field,
@@ -106,10 +131,20 @@ export function incidentSignature(inc: V5Incident): string {
     source: inc.source,
     action: inc.action,
     blocking: inc.blocking === true,
-    evidence: [...inc.evidence]
-      .map((e) => ({ field: e.field, source: e.source, reference: e.reference, observed: e.observed ?? null }))
-      .sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1)),
+    evidence: dedupedEvidence,
   });
+}
+
+/** Id trazable no vacío tras trim. `true`/números no valen como id. */
+export function isTraceableId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/** Timestamp ISO válido y NO futuro respecto a `now`. */
+export function isValidPastTimestamp(value: unknown, now: Date = new Date()): boolean {
+  if (typeof value !== "string" || value.trim().length === 0) return false;
+  const t = Date.parse(value);
+  return Number.isFinite(t) && t <= now.getTime();
 }
 
 export type V5Signal = {
