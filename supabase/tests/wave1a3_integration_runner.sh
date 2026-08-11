@@ -30,7 +30,7 @@ skip() { echo "SKIP / NO VERIFICADO: $*" >&2; echo "SENTINEL: WAVE1A3_P03_NO_VER
 for v in DATABASE_URL SUPABASE_DB_URL PGHOST PGPORT PGUSER PGDATABASE \
          PGPASSWORD PGSERVICE PGSERVICEFILE PGOPTIONS PGURI PGCONNECT_TIMEOUT; do
   if [ -n "${!v:-}" ]; then
-    die "La variable $v está definida. Este runner sólo opera contra un clúster efímero propio."
+    die "La variable $v está definida. Este runner sólo opera contra un clúster efímero propio; no acepta destinos externos."
   fi
 done
 unset PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD PGSERVICE PGSERVICEFILE PGOPTIONS

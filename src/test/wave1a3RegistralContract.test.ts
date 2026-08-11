@@ -175,3 +175,83 @@ describe("Wave 1A.3 · rebuild real sigue deshabilitado", () => {
     expect(sql).toContain("REAL_REBUILD_DISABLED_PENDING_DRY_RUN_APPROVAL");
   });
 });
+
+describe("Wave 1A.3 P0.3 · namespaces, vínculo, parseo total y atomicidad", () => {
+  const sql = R(SQL_1A3);
+  const runner = R(RUNNER);
+  const fixtures = R(FIXTURES);
+  const puros = R("supabase/tests/wave1a3_pure_cases.sql");
+
+  it("los identificadores de unidad viven en namespaces separados", () => {
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.p0_nota_unit_locators(");
+    // El conflicto se calcula agrupando POR TIPO: nunca comparando literales
+    // de namespaces distintos.
+    expect(sql).toMatch(
+      /p0_nota_unit_key_conflict[\s\S]{0,900}count\(DISTINCT l ->> 'clave'\)[\s\S]{0,200}GROUP BY \(l ->> 'tipo'\)/,
+    );
+    expect(sql).toContain("prioridad', 'idufir>finca>refcat'");
+    expect(sql).toContain("'unit_aliases', s.unit_aliases");
+  });
+
+  it("alias cross-type no demostrable bloquea en lugar de comparar literales", () => {
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.p0_nota_unit_cross_type_unverified(");
+    expect(sql).toMatch(/count\(DISTINCT l ->> 'tipo'\) > 1 AND count\(DISTINCT l ->> 'nodo'\) > 1/);
+    expect(sql).toContain("WHEN e.cross_type_unverified THEN 'cross_type_unverified'");
+  });
+
+  it("el vínculo de evidencia exige un único elemento y es auditable", () => {
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.p0_locator_link_diag(");
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.p0_sj_triple_nodos(");
+    // Triple repetida en dos nodos => ambiguo, nunca feed.
+    expect(sql).toMatch(/IF v_ruta_ok AND v_triple > 1 THEN[\s\S]{0,120}v_ambiguo := true;/);
+    // evidence_ref guarda cada localizador por separado, sin coalesce.
+    for (const clave of ["'pagina',", "'offset',", "'ruta_declarada',", "'locator',"]) {
+      expect(sql).toContain(clave);
+    }
+    expect(sql).toContain("'nodo_resuelto'");
+  });
+
+  it("el parseo de localizadores no puede lanzar", () => {
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.p0_safe_int(");
+    expect(sql).toMatch(/IF s !~ '\^\[0-9\]\+\$' THEN RETURN NULL; END IF;/);
+    expect(sql).toMatch(/IF char_length\(s\) > 9 THEN RETURN NULL; END IF;/);
+    expect(sql).toContain("EXCEPTION WHEN others THEN\n  RETURN NULL;");
+    // Nadie castea texto libre a integer directamente en los localizadores.
+    expect(sql).not.toMatch(/p_offset\)::int/);
+    expect(sql).not.toMatch(/p_pagina\)::int/);
+    expect(puros).toContain("public.p0_safe_int('1e3') IS NULL");
+    expect(puros).toContain("repeat('x', 100000)");
+  });
+
+  it("la migración pendiente es atómica", () => {
+    expect(sql).toMatch(/\nBEGIN;\n/);
+    expect(sql.trimEnd().endsWith("COMMIT;")).toBe(true);
+  });
+
+  it("el runner no usa shims ni omite migraciones", () => {
+    expect(runner).not.toContain("SHIM");
+    expect(runner).not.toContain("SKIP_LOCAL");
+    expect(runner).not.toContain("asegurar_placeholder");
+    expect(runner).not.toMatch(/sed -E "s@\(CREATE EXTENSION/);
+    expect(runner).not.toMatch(/>\/dev\/null 2>&1 \|\| true/);
+    // Extensiones reales o SKIP explícito, sin declarar aplicabilidad.
+    for (const ext of ["pg_cron", "pg_net", "vector"]) expect(runner).toContain(ext);
+    expect(runner).toContain("NO se declara aplicabilidad");
+    expect(runner).toContain("wave1a3_snapshot_pre_1a2.sql");
+    expect(runner).toContain("sha256sum -c");
+    expect(runner).toContain("SENTINEL: WAVE1A3_P03_PASS");
+    expect(runner).toContain("SENTINEL: WAVE1A3_P03_NO_GO");
+    expect(runner).toContain("SENTINEL: WAVE1A3_P03_NO_VERIFICADO");
+  });
+
+  it("las fixtures cubren identidad de unidad y vínculo de evidencia", () => {
+    expect(fixtures).toContain("alias compatibles");
+    expect(fixtures).toContain("dos IDUFIR distintos => unit_key_conflict");
+    expect(fixtures).toContain("cross_type_unverified, bloqueo");
+    expect(fixtures).toContain("misma triple en dos nodos");
+    expect(fixtures).toContain("página válida + ruta que no resuelve => cero feed");
+    expect(fixtures).toContain("vínculo positivo y auditable");
+    // feeds=3 sigue siendo exclusivo de los positivos.
+    expect(fixtures).toContain("solo alimentan las 3 filas seguras de los casos positivos");
+  });
+});
