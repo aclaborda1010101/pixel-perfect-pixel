@@ -553,6 +553,12 @@ BEGIN
         AND v_raw_norm IS NOT NULL
         AND public.p0_norm_text(cita) IS NOT NULL
         AND position(public.p0_norm_text(cita) IN v_raw_norm) > 0
+        -- Y si el elemento aporta ruta/offset, deben resolver a ESTE titular.
+        AND (
+          (pagina IS NULL AND off IS NULL AND ruta IS NULL)
+          OR (public.p0_locator_all_valid(pagina, off, ruta)
+              AND public.p0_locator_link_ok(v_sj, v_raw, cita, pagina, off, ruta, v_nn, v_right, v_pct))
+        )
     )
     SELECT count(*),
            jsonb_build_object('cita', min(cita), 'ruta', coalesce(min(pagina), min(off), min(ruta)))
@@ -722,19 +728,21 @@ $$;
 
 -- (5) DOS localizadores VÁLIDOS y DISTINTOS de la misma clase (dos IDUFIR,
 -- dos fincas, dos refcat) => unit_key_conflict. NO se elige el primero.
+-- P0.2: el CONJUNTO COMPLETO de localizadores jurídicos de la nota se trata
+-- como un todo. Dos valores inequívocos distintos son conflicto AUNQUE sean
+-- de tipos distintos (IDUFIR vs finca, IDUFIR vs refcat). No se agrupa por
+-- tipo ni se elige el primero. Un mismo valor repetido/sinónimo es válido.
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key_conflict(p_nota_id uuid)
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
-  SELECT EXISTS (
-    SELECT 1
+  SELECT coalesce((
+    SELECT count(DISTINCT split_part(c.v, ':', 2))
     FROM unnest(public.p0_nota_unit_claves(p_nota_id)) AS c(v)
-    GROUP BY split_part(c.v, ':', 1)
-    HAVING count(DISTINCT split_part(c.v, ':', 2)) > 1
-  );
+  ), 0) > 1;
 $$;
 
 COMMENT ON FUNCTION public.p0_nota_unit_key_conflict(uuid) IS
-  'true si la nota declara dos IDUFIR / dos fincas / dos refcat válidos y distintos: la unidad NO puede identificarse y no se elige el primero.';
+  'true si la nota declara DOS localizadores registrales válidos y distintos, del tipo que sean (IDUFIR, finca o refcat): la unidad NO puede identificarse y jamás se elige el primero.';
 
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key(p_nota_id uuid)
 RETURNS text
