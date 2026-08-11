@@ -101,7 +101,7 @@ export async function callChat(args: {
             messages: args.messages,
             response_format: { type: "json_object" },
             temperature: 0,
-            max_tokens: 4000,
+            max_tokens: args.maxTokens ?? MAX_OUTPUT_TOKENS,
           }),
         });
         if (!r.ok) {
@@ -114,10 +114,21 @@ export async function callChat(args: {
           break; // 4xx de input: siguiente modelo, sin reintento ciego.
         }
         const j = await r.json();
-        let txt = j?.choices?.[0]?.message?.content ?? "{}";
+        const choice = j?.choices?.[0] ?? {};
+        const finish = String(choice?.finish_reason ?? choice?.native_finish_reason ?? "");
+        let txt = choice?.message?.content ?? "{}";
         txt = String(txt).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-        const parsed = args.parse ? args.parse(txt) : JSON.parse(txt);
-        return { data: parsed, model: `${p.name}/${p.model}` };
+        try {
+          const parsed = args.parse ? args.parse(txt) : JSON.parse(txt);
+          return { data: parsed, model: `${p.name}/${p.model}` };
+        } catch (e) {
+          // Respuesta TRUNCADA o no-JSON: reintentar el mismo cuerpo a
+          // temperatura 0 no cambia nada. Se pasa al siguiente modelo.
+          errores.push(
+            `${p.name}/${p.model} json_invalido(finish=${finish || "?"},chars=${String(txt).length}): ${String((e as Error)?.message ?? e).slice(0, 120)}`,
+          );
+          break;
+        }
       } catch (e) {
         errores.push(`${p.name}/${p.model} excepción: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
         if (intento < maxRetries) {
