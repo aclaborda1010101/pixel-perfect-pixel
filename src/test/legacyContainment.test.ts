@@ -312,12 +312,16 @@ describe("writers autorizados · contrato de payload", () => {
     due_date: "2026-08-10T18:00:00.000Z",
   };
 
-  it("writer V5 escribe con payload válido (clave legacy y canónica)", async () => {
+  it("writer histórico (flag OFF) solo acepta el formato de fecha legacy", async () => {
     const repo = fakeRepo();
     await insertV5CallQueueTask(repo as any, v5Row);
-    await insertV5CallQueueTask(repo as any, { ...v5Row, task_key: "v5:2026-08-10:T2_T3:o1" });
-    expect(repo.rows).toHaveLength(2);
-    expect(repo.rows.map((r) => r.task_type)).toEqual(["call_queue", "call_queue"]);
+    expect(repo.rows).toHaveLength(1);
+    // Una clave canónica NO entra por el writer histórico.
+    await expect(insertV5CallQueueTask(repo as any, {
+      ...v5Row,
+      task_key: buildV5TaskKey({ taskCode: "T2_T3", buildingId: "b1", subjectId: "o1", triggerFingerprint: "fp" }),
+    })).rejects.toThrow(/task_key inválida/);
+    expect(repo.rows).toHaveLength(1);
   });
 
   it("writer V5 rechaza payload auto/legacy o incompleto", async () => {
@@ -329,6 +333,35 @@ describe("writers autorizados · contrato de payload", () => {
     const { due_date, ...sinDue } = v5Row as any;
     await expect(insertV5CallQueueTask(repo as any, sinDue)).rejects.toThrow(/due_date/);
     expect(repo.rows).toHaveLength(0);
+  });
+
+  it("writer canónico usa buildV5TaskKey real y exige todas las columnas Motor", async () => {
+    const repo = fakeRepo();
+    const taskKey = buildV5TaskKey({
+      taskCode: "T2_T3", buildingId: "b1", subjectId: "o1", triggerFingerprint: "fp-1",
+    });
+    expect(taskKey.split(":")).toHaveLength(6);
+    const canonical = {
+      building_id: "b1", user_id: "u1", task_type: "call_queue", task_key: taskKey,
+      title: "WhatsApp — Goya 4", description: "x", priority: "medium", status: "pending",
+      starts_at: "2026-08-10T08:00:00.000Z", due_date: "2026-08-10T18:00:00.000Z",
+      generation_mode: "production", rules_version: taskKey.split(":")[1],
+      task_code: "T2_T3", subject_type: "owner", subject_id: "o1",
+      trigger_fingerprint: "fp-1", eligibility_snapshot: {}, mode_snapshot: {},
+    };
+    await insertV5CanonicalTask(repo as any, canonical);
+    expect(repo.rows).toHaveLength(1);
+
+    // Falta una columna Motor -> rechazo.
+    const { mode_snapshot, ...sinSnapshot } = canonical as any;
+    await expect(insertV5CanonicalTask(repo as any, sinSnapshot)).rejects.toThrow(/snapshots/);
+    // Discordancia clave/columna -> rechazo.
+    await expect(insertV5CanonicalTask(repo as any, { ...canonical, task_code: "T4" }))
+      .rejects.toThrow(/task_code no concuerda/);
+    // Clave histórica disfrazada de canónica -> rechazo.
+    await expect(insertV5CanonicalTask(repo as any, { ...canonical, task_key: "v5:2026-08-10:T-04:o1" }))
+      .rejects.toThrow(/task_key inválida/);
+    expect(repo.rows).toHaveLength(1);
   });
 
   it("writer manual escribe task_type manual sin task_key", async () => {
@@ -347,7 +380,7 @@ describe("writers autorizados · contrato de payload", () => {
       building_id: "b1", user_id: "u1", title: "x", priority: "high", task_type: "call_queue",
     })).rejects.toThrow(/manual/);
     await expect(insertManualBuildingTask(repo as any, {
-      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_key: "v5:2026-08-10:T4:o1",
+      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_key: "v5:v5a.1:T4:b1:o1:fp",
     })).rejects.toThrow(/task_key/);
     expect(repo.rows).toHaveLength(0);
   });
@@ -358,7 +391,7 @@ describe("writers autorizados · contrato de payload", () => {
 // ---------------------------------------------------------------------------
 describe("badge de origen de tarea", () => {
   it("una task_key v5 con task_type=call_queue se etiqueta V5, nunca Manual", () => {
-    const badge = operationalTaskBadge({ task_type: "call_queue", task_key: "v5:2026-08-10:T4:abc" });
+    const badge = operationalTaskBadge({ task_type: "call_queue", task_key: "v5:2026-08-10:T-04:abc" });
     expect(badge.label).toBe("V5 · T4");
     expect(badge.label).not.toContain("Manual");
     expect(operationalTaskBadge({ task_type: "call_queue", task_key: "v5:v5a.1:T2_T3:b:o:f" }).label)
@@ -390,7 +423,7 @@ describe("dashboard comercial · tareas visibles sin edificios", () => {
 
   it("devuelve tareas V5 y manuales aunque el comercial tenga cero edificios", async () => {
     const client = fakeClient([
-      { id: "1", task_type: "call_queue", task_key: "v5:2026-08-10:T4:o1" },
+      { id: "1", task_type: "call_queue", task_key: "v5:2026-08-10:T-04:o1" },
       { id: "2", task_type: "manual", task_key: null },
       { id: "3", task_type: "auto", task_key: "call_queue:2026-01-01:o9" },
     ]);
