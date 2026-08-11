@@ -150,19 +150,22 @@ NCOMMIT=$(grep -ciE '^[[:space:]]*COMMIT[[:space:]]*;' "${CHAIN[2]}")
 cat "${CHAIN[@]}" > "$WORK/chain.sql"
 
 # --- 4. ATOMICIDAD: fallo tardío => rollback total --------------------
-CATSQL="SELECT md5(string_agg(t, E'\n' ORDER BY t)) FROM (
-  SELECT 'C:'||c.relkind::text||':'||c.relname AS t FROM pg_class c
-    JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
-  UNION ALL
-  SELECT 'F:'||p.proname||':'||pg_get_function_identity_arguments(p.oid) FROM pg_proc p
-    JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'
-  UNION ALL
-  SELECT 'T:'||typ.typname FROM pg_type typ
-    JOIN pg_namespace n ON n.oid=typ.typnamespace WHERE n.nspname='public'
-) s"
+# P0.5: el fingerprint es COMPLETO (columnas+tipos+defaults+nullability,
+# constraints con definición y validación, índices con predicado,
+# definiciones completas de views/functions, owners/grants/ACL, triggers,
+# políticas, tipos y checksums de datos). Comparar nombres no vale.
+FPSQL="$ROOT/supabase/tests/wave1a3_fingerprint.sql"
+[ -f "$FPSQL" ] || die "falta el fingerprint completo: $FPSQL"
 
-CAT_ANTES="$("${PSQL_TEST[@]}" -At -c "$CATSQL")"
-[ -n "$CAT_ANTES" ] || die "no se pudo calcular el checksum de catálogo previo"
+fingerprint() {  # $1 = fichero de salida
+  "${PSQL_TEST[@]}" -At -f "$FPSQL" > "$1" 2>"$WORK/fp.err" \
+    || { sed -n '1,40p' "$WORK/fp.err" >&2; die "no se pudo calcular el fingerprint completo"; }
+  [ -s "$1" ] || die "fingerprint vacío: $1"
+}
+
+fingerprint "$WORK/fp_antes.txt"
+CAT_ANTES="$(sha256sum "$WORK/fp_antes.txt" | cut -d' ' -f1)"
+echo "FINGERPRINT previo: $(wc -l < "$WORK/fp_antes.txt") hechos, sha256=$CAT_ANTES"
 
 # La variante de fallo tardío es la MISMA cadena, con la única diferencia
 # de que el COMMIT final de la 1A.3 se sustituye por una excepción. Así
@@ -188,14 +191,19 @@ fi
 grep -q 'WAVE1A3_FALLO_TARDIO_DELIBERADO' "$WORK/atomic.log" \
   || { sed -n '1,40p' "$WORK/atomic.log" >&2; die "la cadena falló ANTES del fallo tardío: no se puede evaluar la atomicidad."; }
 
-CAT_DESPUES="$("${PSQL_TEST[@]}" -At -c "$CATSQL")"
+fingerprint "$WORK/fp_despues.txt"
+CAT_DESPUES="$(sha256sum "$WORK/fp_despues.txt" | cut -d' ' -f1)"
 if [ "$CAT_ANTES" != "$CAT_DESPUES" ]; then
-  echo "checksum antes=$CAT_ANTES  despues=$CAT_DESPUES" >&2
-  die "ATOMICIDAD ROTA: tras el rollback del fallo tardío el catálogo cambió."
+  echo "sha256 antes=$CAT_ANTES  despues=$CAT_DESPUES" >&2
+  echo "--- DIFERENCIAS DEL FINGERPRINT COMPLETO (max 60 líneas) ---" >&2
+  diff "$WORK/fp_antes.txt" "$WORK/fp_despues.txt" | sed -n '1,60p' >&2
+  die "ATOMICIDAD ROTA: tras el rollback del fallo tardío el estado completo cambió."
 fi
+diff -q "$WORK/fp_antes.txt" "$WORK/fp_despues.txt" >/dev/null \
+  || die "ATOMICIDAD ROTA: el fingerprint difiere pese a coincidir el hash (imposible)."
 RESIDUO="$("${PSQL_TEST[@]}" -At -c "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'p0\_%'")"
 [ "$RESIDUO" = "0" ] || die "ATOMICIDAD ROTA: quedaron $RESIDUO funciones p0_* tras el rollback."
-echo "ATOMICIDAD PASS  fallo tardío revertido, catálogo idéntico ($CAT_ANTES)"
+echo "ATOMICIDAD PASS  fallo tardío revertido, fingerprint completo idéntico ($CAT_ANTES)"
 
 # --- 5. Aplicación REAL de la cadena en UNA sola transacción ----------
 if ! psql -1 -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ROLE" -d "$TESTDB" -q -f "$WORK/chain.sql" >"$WORK/chain.log" 2>&1; then
@@ -249,6 +257,7 @@ run_suite "fixtures_1a3"    "$ROOT/supabase/tests/wave1a3_fixtures.sql"
 run_suite "readiness_positivo" "$ROOT/supabase/tests/wave1a3_readiness_positivo.sql"
 run_suite "wrapper_idempotencia" "$ROOT/supabase/tests/wave1a3_wrapper_idempotencia.sql"
 run_suite "vocabulario_identity_match" "$ROOT/supabase/tests/wave1a3_identity_vocab.sql"
+run_suite "fuzz_json_path"  "$ROOT/supabase/tests/wave1a3_json_path_fuzz.sql"
 
 if [ "$FAILED" != "0" ]; then
   echo "WAVE 1A.3 P0.4 · integración: NO-GO (al menos un caso en rojo)"
