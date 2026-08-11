@@ -153,6 +153,12 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       inv.ambiguos.push({ page, offset, cita, motivo: "participacion_sin_porcentaje" });
       continue;
     }
+    // Varios porcentajes DENTRO del tramo del hecho (antes de TITULO:) es
+    // ambigüedad real: no se elige por conveniencia, bloquea.
+    if (candidatos.length > 1) {
+      inv.ambiguos.push({ page, offset, cita, motivo: "participacion_con_varios_porcentajes" });
+      continue;
+    }
     const derecho = derechoDe(tramo);
     if (!derecho) {
       inv.ambiguos.push({ page, offset, cita, motivo: "participacion_sin_derecho" });
@@ -172,7 +178,7 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       forma: elegido.forma,
       page,
       offset,
-      range: [a.hecho[0], a.hecho[1]],
+      range: [a.identidad[0], a.hecho[1]],
       locator: `p${page}:o${offset}`,
       cita,
       seccion: a.seccion,

@@ -144,7 +144,7 @@ function nombreTrasMarcador(zona: string): string | null {
   if (idx < 0) return null;
   const bruto = zona
     .slice(idx + "TITULAR:".length)
-    .replace(/\b(con|y|el|la|los|las|de|del)\b/gi, " ")
+    .replace(/\b(con|y|el|la|los|las|de|del)\b/g, " ")
     .replace(/\b(DNI|NIF|CIF|NIE|N\.I\.F\.|D\.N\.I\.)\b/gi, " ")
     .replace(/[,;:]+\s*$/, "")
     .replace(/\s+/g, " ")
