@@ -87,7 +87,8 @@ type Grants = Record<string, Set<string>>;
 function grantModel(sql: string, fns: string[]): Grants {
   const g: Grants = {};
   for (const fn of fns) g[fn] = new Set(["anon", "authenticated", "service_role"]);
-  for (const line of sql.split("\n")) {
+  const stmts = sql.split(";").map((x) => x.replace(/\s+/g, " ").trim());
+  for (const line of stmts) {
     const fn = fns.find((f) => line.includes(`FUNCTION public.${f}(`));
     if (!fn) continue;
     const roles = line.includes("PUBLIC")
