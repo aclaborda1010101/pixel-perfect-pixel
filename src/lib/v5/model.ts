@@ -22,11 +22,26 @@ export function isV5TaskCode(code: unknown): code is V5TaskCode {
 export type V5SubjectType = "owner" | "building";
 
 /**
- * legacy = filas anteriores al motor (nunca se reclasifican).
- * production | demo | manual son SIEMPRE explícitos.
+ * DOMINIO PERSISTIBLE de generation_mode.
+ *
+ * legacy = filas anteriores al motor (nunca se reclasifican ni se
+ * interpretan como manual). production | manual son SIEMPRE explícitos.
+ *
+ * 'demo' YA NO EXISTE en el dominio persistible: la demo es preview puro
+ * en memoria (ver manualDemo.ts) y nunca llega a building_tasks.
  */
-export const V5_GENERATION_MODES = ["legacy", "production", "demo", "manual"] as const;
+export const V5_GENERATION_MODES = ["legacy", "production", "manual"] as const;
 export type V5GenerationMode = (typeof V5_GENERATION_MODES)[number];
+
+/** Modo de PREVIEW, jamás persistible. */
+export const V5_PREVIEW_MODE = "demo" as const;
+
+export function isPersistableGenerationMode(mode: unknown): mode is V5GenerationMode {
+  return typeof mode === "string" && (V5_GENERATION_MODES as readonly string[]).includes(mode);
+}
+
+/** Modos cuyas tareas son REALES e iniciables (las manuales también lo son). */
+export const V5_STARTABLE_GENERATION_MODES = ["production", "manual"] as const;
 
 export type V5ManualSubtype = "posible_interes" | "otro";
 
