@@ -169,21 +169,11 @@ export function selectNextByMode(input: V5SelectNextInput): V5SelectNextResult {
   const resolved = resolveModeFor(input.comercialId, input.config);
 
   const base = {
-    mode: resolved.mode,
+    mode: normalizeModeCode(resolved.mode),
     source: resolved.source,
     comercial_id: input.comercialId,
     window_size: windowIn.length,
   };
-
-  if (resolved.mode === "manual") {
-    return {
-      selected: null,
-      window: [...windowIn],
-      modeSnapshot: { ...base, automaticas: 0, motivo: "Modo manual: cero tareas automáticas." },
-      reasons: ["Modo manual: no se generan automáticas."],
-      rejected,
-    };
-  }
 
   const activatable = isModeActivatable(resolved.mode, resolved.mix);
   if (!activatable.activatable) {
@@ -195,7 +185,7 @@ export function selectNextByMode(input: V5SelectNextInput): V5SelectNextResult {
       rejected,
     };
   }
-  const mix = resolved.mix as Record<string, number>;
+  const mix = generableMix(resolved.mix as V5Mix);
 
   const inWindow = new Set(windowIn.map((e) => e.taskKey));
   const pool: V5Candidate[] = [];
