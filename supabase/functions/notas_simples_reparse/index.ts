@@ -36,7 +36,8 @@ import {
   runMatching,
   type NotaRepo,
 } from "./core.ts";
-import { runReparseCycle, type CycleDeps } from "./orchestrator.ts";
+import { runReparseCycle } from "./orchestrator.ts";
+import { createReparseDeps } from "./deps.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -278,10 +279,11 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
         merged.reparse_schema_version = 2;
         refCatastralFinal = merged.ref_catastral ?? null;
         direccionFinal = merged.direccion ?? null;
+        // Token OPACO de servidor (uuid tipado), nunca un timestamp serializado.
         const { data, error } = await sb.rpc("apply_nota_reparse_plan", {
+          p_nota_id: notaId,
+          p_claim_token: token,
           p_payload: {
-            nota_id: notaId,
-            claim_token: token,
             updates,
             inserts,
             structured: merged,
@@ -333,29 +335,33 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
   }
 }
 
-/** Refresco de claim + pipeline + estado de reintento de UNA nota. */
-async function processNotaWithClaim(sb: any, n: any) {
-  const claimToken = new Date().toISOString();
-  let q = sb.from("notas_simples").update({ claimed_at: claimToken }).eq("id", n.id);
-  q = n.claimed_at ? q.eq("claimed_at", n.claimed_at) : q.is("claimed_at", null);
-  const { data: claimRow, error: claimErr } = await q.select("id").maybeSingle();
-  if (claimErr || !claimRow) {
-    return { id: n.id as string, ok: false, reason: `claim_refresh_fail:${claimErr?.message ?? "rows=0"}` };
+/**
+ * Pipeline + estado de reintento de UNA nota YA reclamada.
+ * El claim_token lo emitió el servidor en reparse_claim_batch: aquí no se
+ * genera ni se renueva ningún token, y el cierre de intento fallido pasa por
+ * la RPC CAS reparse_fail_nota (nunca por un UPDATE directo).
+ */
+export async function processNotaWithClaim(sb: any, n: any) {
+  const claimToken: string | null = n?.claim_token ?? null;
+  if (!claimToken) {
+    return { id: n?.id as string, ok: false, reason: "claim_token_ausente" };
   }
 
   const r: any = await processOne(sb, n, claimToken);
   if (!r.ok) {
     const attempts = (n.attempt_count ?? 0) + 1;
     const dead = attempts >= MAX_ATTEMPTS;
-    const { data: retryRow, error: retryErr } = await sb.from("notas_simples").update({
-      attempt_count: attempts,
-      last_error: String(r.reason ?? "desconocido").slice(0, 500),
-      next_retry_at: dead ? null : new Date(Date.now() + backoffMinutes(attempts) * 60_000).toISOString(),
-      dead_letter: dead,
-      claimed_at: null,
-    }).eq("id", n.id).eq("claimed_at", claimToken).select("id").maybeSingle();
-    if (retryErr || !retryRow) {
-      r.retry_state_fail = retryErr?.message ?? "rows=0";
+    const { data, error } = await sb.rpc("reparse_fail_nota", {
+      p_id: n.id,
+      p_expected_token: claimToken,
+      p_last_error: String(r.reason ?? "desconocido").slice(0, 500),
+      p_attempt: attempts,
+      p_next_retry_at: dead ? null : new Date(Date.now() + backoffMinutes(attempts) * 60_000).toISOString(),
+      p_dead: dead,
+    });
+    const applied = (Array.isArray(data) ? data[0] : data) === true;
+    if (error || !applied) {
+      r.retry_state_fail = error?.message ?? "rows=0";
       r.reason = `${r.reason} | retry_state_fail:${r.retry_state_fail}`.slice(0, 400);
     }
     r.attempt_count = attempts;
@@ -379,45 +385,10 @@ Deno.serve(async (req) => {
   const limit = Math.max(1, Math.min(MAX_LIMIT, Number(body?.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
 
 
-  const deps: CycleDeps = {
-    async readState() {
-      const { data, error } = await sb.rpc("reparse_match_state_read");
-      if (error) return { ok: false, error: error.message ?? String(error) };
-      const row = Array.isArray(data) ? data[0] : data;
-      if (!row) return { ok: false, error: "estado_singleton_ausente" };
-      return { ok: true, pending: row.match_pending === true, generation: Number(row.generation ?? 0) };
-    },
-    async markPending() {
-      const { data, error } = await sb.rpc("reparse_mark_match_pending");
-      if (error) return { ok: false, error: error.message ?? String(error) };
-      const gen = Number(Array.isArray(data) ? data[0] : data);
-      if (!Number.isFinite(gen)) return { ok: false, error: "mark_sin_generacion" };
-      return { ok: true, generation: gen };
-    },
-    async clearPending(expected) {
-      const { data, error } = await sb.rpc("reparse_clear_match_pending", { p_expected_generation: expected });
-      if (error) return { ok: false, error: error.message ?? String(error) };
-      return { ok: true, cleared: (Array.isArray(data) ? data[0] : data) === true };
-    },
-    async claimBatch(limit) {
-      const { data, error } = await sb.rpc("reparse_claim_batch", {
-        p_limit: limit,
-        p_lock_minutes: CLAIM_MINUTES,
-      });
-      return { rows: (data ?? []) as unknown[], error: error?.message ?? null };
-    },
-    async releaseClaims(notas) {
-      for (const n of notas as any[]) {
-        await sb.from("notas_simples").update({ claimed_at: n.claimed_at ?? null }).eq("id", n.id);
-      }
-    },
-    processNota: (n) => processNotaWithClaim(sb, n),
-    runMatch: () => runMatching(async () => await sb.rpc("match_notas_pendientes")),
-    async insertLog(entry) {
-      const { error } = await sb.from("hubspot_sync_log").insert(entry as any);
-      return { error: error?.message ?? null };
-    },
-  };
+  const deps = createReparseDeps(sb, {
+    claimMinutes: CLAIM_MINUTES,
+    processNota: (n: any) => processNotaWithClaim(sb, n),
+  });
 
   const cycle = await runReparseCycle(deps, { limit });
   return new Response(JSON.stringify(cycle.body), {
