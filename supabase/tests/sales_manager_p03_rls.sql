@@ -72,9 +72,10 @@ BEGIN
   --   admin ve todos los roles; el resto sólo los suyos.
   r := pg_temp.como(u_admin, 'SELECT count(*)::text FROM public.user_roles');
   IF r::int < 5 THEN RAISE EXCEPTION 'CASO 4 FAIL: el admin perdió visibilidad (%)', r; END IF;
-  r := pg_temp.como(u_com, 'SELECT count(*)::text FROM public.user_roles');
-  IF r <> '1' THEN RAISE EXCEPTION 'CASO 4 FAIL: el comercial ve roles ajenos (%) políticas=%', r,
-    (SELECT string_agg(policyname || '=' || COALESCE(qual,'-'), ' | ') FROM pg_policies WHERE tablename='user_roles'); END IF;
+  -- El comercial sólo ve SUS filas (puede tener varias: el alta añade 'viewer').
+  r := pg_temp.como(u_com, format(
+    'SELECT count(*)::text FROM public.user_roles WHERE user_id <> %L::uuid', u_com));
+  IF r <> '0' THEN RAISE EXCEPTION 'CASO 4 FAIL: el comercial ve roles ajenos (%)', r; END IF;
   RAISE NOTICE 'CASO 4 PASS · user_roles: admin todo, tercero sólo self';
 
   -- CASO 5: perfiles ajenos no son legibles por un comercial.
