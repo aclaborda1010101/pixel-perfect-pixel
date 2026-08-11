@@ -201,13 +201,13 @@ describe("P0.7 · evidencia obligatoria", () => {
       actuales: [],
     });
     expect(d.ok).toBe(false);
-    if (!d.ok) expect(d.reason).toBe("titular_sin_evidencia_real");
+    expect((d as { reason?: string }).reason).toBe("titular_sin_evidencia_real");
   });
 
   it("documento sin titulares (caso d52b59d8) no inventa cuota", () => {
     const d = decidirTitulares({ needsRefetch: true, extraidos: [], actuales: [] });
     expect(d.ok).toBe(false);
-    if (!d.ok) expect(d.reason).toBe("titulares_refetch_vacio");
+    expect((d as { reason?: string }).reason).toBe("titulares_refetch_vacio");
   });
 });
 

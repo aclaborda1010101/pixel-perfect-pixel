@@ -12,6 +12,8 @@
 export const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 export const PRIMARY_MODEL = "google/gemini-3.6-flash";
 export const FALLBACK_MODEL = "google/gemini-2.5-flash";
+/** Una nota simple larga con evidencia por titular no cabe en 4k tokens. */
+export const MAX_OUTPUT_TOKENS = 16000;
 
 export type LlmProvider = { name: string; url: string; model: string; auth: string };
 
@@ -83,6 +85,7 @@ export async function callChat(args: {
   fetchImpl: FetchLike;
   maxRetries?: number;
   sleep?: (ms: number) => Promise<void>;
+  maxTokens?: number;
   parse?: (txt: string) => unknown;
 }): Promise<LlmResult<any>> {
   if (!args.providers.length) return { data: null, error: "sin_proveedor_ia_configurado" };
