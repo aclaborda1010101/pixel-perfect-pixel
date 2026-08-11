@@ -61,10 +61,14 @@ END $$;
 DO $$
 DECLARE bad text;
 BEGIN
-  SELECT string_agg(grantee||':'||table_name||':'||privilege_type, ', ') INTO bad
-    FROM information_schema.role_table_grants
-   WHERE table_schema='afflux_audit'
-     AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE');
+  -- Se excluye al propietario del objeto: sus privilegios son implícitos y no
+  -- revocables; lo auditable es que ningún rol de aplicación los tenga.
+  SELECT string_agg(g.grantee||':'||g.table_name||':'||g.privilege_type, ', ') INTO bad
+    FROM information_schema.role_table_grants g
+    JOIN pg_tables t ON t.schemaname=g.table_schema AND t.tablename=g.table_name
+   WHERE g.table_schema='afflux_audit'
+     AND g.privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE')
+     AND g.grantee <> t.tableowner;
   IF bad IS NOT NULL THEN RAISE EXCEPTION 'FALLO: auditoría escribible -> %', bad; END IF;
   RAISE NOTICE 'CASO OK · auditoría append-only sin grants directos';
 END $$;
