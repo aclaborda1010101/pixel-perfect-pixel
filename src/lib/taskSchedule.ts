@@ -1,3 +1,5 @@
+import { V5_TERMINAL_STATUSES } from "./v5/status";
+
 const TZ = "Europe/Madrid";
 
 const dateFmt = new Intl.DateTimeFormat("es-ES", {
