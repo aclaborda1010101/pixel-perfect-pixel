@@ -1,0 +1,4 @@
+estado=NO_VERIFICADO
+motivo=la migración 20260525213229_836a4f11-28c1-4f30-842c-3242119b9a25.sql del corte NO aplica sobre material exclusivamente versionado. P0.6 prohíbe shims/derivas: hace falta un snapshot real (pg_dump --schema-only de un estado pre-1A.2) o un clon fiel.
+generador=supabase/tests/wave1a3_make_snapshot.sh
+regla=P0.6 prohíbe shims, stubs, placeholders y omisiones
