@@ -244,7 +244,7 @@ describe("Wave 1A.3 P0.3 · namespaces, vínculo, parseo total y atomicidad", ()
     expect(runner).toContain("sha256sum -c");
     expect(runner).toContain("SENTINEL: WAVE1A3_P04_PASS");
     expect(runner).toContain("SENTINEL: WAVE1A3_P04_NO_GO");
-    expect(runner).toContain("SENTINEL: WAVE1A3_P03_NO_VERIFICADO");
+    expect(runner).toContain("SENTINEL: WAVE1A3_P04_NO_VERIFICADO");
   });
 
   it("las fixtures cubren identidad de unidad y vínculo de evidencia", () => {
