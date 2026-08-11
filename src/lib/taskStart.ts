@@ -44,6 +44,38 @@ export async function reopenBuildingTask(taskId: string): Promise<{ ok: boolean;
   return { ok: true };
 }
 
+/** Estados de cierre admitidos por `resolve_building_task`. */
+export const RESOLVABLE_STATUSES = [
+  "completed",
+  "skipped",
+  "no_procede",
+  "blocked",
+  "cancelled",
+] as const;
+export type ResolveStatus = (typeof RESOLVABLE_STATUSES)[number];
+
+/**
+ * ÚNICA vía de cierre/bloqueo/cancelación. El RPC es transaccional: cambia
+ * el estado y crea, en la MISMA transacción, una única solicitud de
+ * reposición. Ninguna pantalla escribe `building_tasks` directamente.
+ */
+export async function resolveBuildingTask(
+  taskId: string,
+  status: ResolveStatus,
+  note?: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(RESOLVABLE_STATUSES as readonly string[]).includes(status)) {
+    return { ok: false, error: `Estado de cierre no admitido: ${status}` };
+  }
+  const { error } = await (supabase.rpc as any)("resolve_building_task", {
+    p_task_id: taskId,
+    p_status: status,
+    p_note: note ?? null,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
 export function canStartTask(task: TaskLike | null | undefined): boolean {
   return decideTaskStart(task).action === "start";
 }
