@@ -118,7 +118,7 @@ BEGIN
   FOREACH v IN ARRAY ARRAY['0','1','2147483647','2147483648','-1','-2147483648',
                            repeat('9', 64), repeat('9', 65), repeat('9', 5000),
                            '', ' ', '  12  ', '007', '1.0', '1e3', 'abc', '٢',
-                           '１２３', chr(0)||'1', NULL] LOOP
+                           '１２３', chr(1)||'1', NULL] LOOP
     BEGIN
       PERFORM public.p0_safe_int(v);
     EXCEPTION WHEN OTHERS THEN n_err := n_err + 1;
