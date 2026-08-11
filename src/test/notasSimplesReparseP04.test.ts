@@ -104,7 +104,7 @@ describe("REPARSEO P0.4 · resultado honesto y estado atómico", () => {
       estado,
       claimBatch: async () => ({ rows: [nota("a"), nota("b")], error: null }),
       processNota: async (n: any) => { procesadas++; return { id: n.id, ok: true }; },
-      releaseClaims: async (ns) => { liberados = ns.length; },
+      releaseClaim: async () => { liberados++; return { ok: true, released: true }; },
     });
     const r = await runReparseCycle(d, { limit: 5 });
     expect(procesadas).toBe(0);
