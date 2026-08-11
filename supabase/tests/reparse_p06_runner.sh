@@ -52,6 +52,6 @@ echo "   manifiesto:"; sha256sum "${MIGS[@]}" supabase/tests/reparse_p06_shim.sq
 echo "== suites de integración (handler + RPC reales, todo como worker) =="
 P05_LIVE=1 P05_PGHOST="$SOCK" P05_PGDATABASE=p06 P05_PGUSER=service_role P05_PGOWNER=p06owner \
 P06_LIVE=1 P06_PGHOST="$SOCK" P06_PGDATABASE=p06 P06_PGUSER=service_role P06_PGOWNER=p06owner \
-  bunx vitest run src/test/reparseP05Live.test.ts src/test/reparseP06Live.test.ts
+  bunx vitest run --fileParallelism=false src/test/reparseP05Live.test.ts src/test/reparseP06Live.test.ts
 
 echo "PASS · P0.6 verificado contra PostgreSQL efímero real"

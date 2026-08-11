@@ -259,7 +259,7 @@ d("P0.6 · lease vigente, roles reales y rollback verificado", () => {
     const r: any = await processNotaWithClaim(sb as any, n, async () => ({ id, ok: false, reason: "pdf_ilegible" }));
     expect(r.ok).toBe(false);
     expect(r.retry_state_fail).toBeUndefined();       // el CAS aplicó
-    expect(owner(`SELECT attempt_count::text || '|' || (claim_token IS NULL)::text FROM public.notas_simples WHERE id='${id}'`)).toBe("1|t");
+    expect(owner(`SELECT attempt_count::text || '|' || (claim_token IS NULL)::text FROM public.notas_simples WHERE id='${id}'`)).toBe("1|true");
   });
 
   it("handler: todas las notas OK + matching caído => 500/partial y pendiente", async () => {
