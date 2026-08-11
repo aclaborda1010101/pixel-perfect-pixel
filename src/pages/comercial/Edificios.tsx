@@ -56,6 +56,8 @@ import { cn } from "@/lib/utils";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
 import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
+import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
+import { useInterlocutores } from "@/hooks/useInterlocutores";
 import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -145,7 +147,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   owners_desc: "Nº propietarios ↓",
 };
 
-function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
+function BuildingCard({ r, showActivo, interlocutor }: { r: Row; showActivo?: boolean; interlocutor?: { nombre: string | null } | null }) {
   const mode: "total" | "activo" = showActivo ? "activo" : "total";
   const displayScore = getDisplayScore(
     { score_total: r.score_total, score_activo: r.score_activo, score: r.score },
@@ -169,6 +171,7 @@ function BuildingCard({ r, showActivo }: { r: Row; showActivo?: boolean }) {
               <AlarmChips avisos={r.raw?.avisos_inteligentes} esEstrella={r.es_estrella} max={3} />
               <DocAlertBadge building={{ score: r.score, metadatos: r.raw?.metadatos, catastro_ref: r.raw?.catastro_ref, refcatastral: r.raw?.refcatastral, iee_estado: (r as any).raw?.iee_estado ?? (r as any).iee_estado }} />
               <NotaSimpleBadge building={r.raw} hasNota={r.has_nota_simple} />
+              {interlocutor && <InterlocutorFlag nombre={interlocutor.nombre} compact />}
               {r.assigned && (
                 <Badge
                   variant="gold"
@@ -1086,7 +1089,7 @@ export default function ComercialEdificios() {
             <>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {filteredTodos.slice(0, shownTodos).map((r) => (
-                  <BuildingCard key={r.id} r={r} showActivo={viewActivo} />
+                  <BuildingCard key={r.id} r={r} showActivo={viewActivo} interlocutor={interlocutores[r.id] ?? null} />
                 ))}
               </div>
               {shownTodos < filteredTodos.length && (
