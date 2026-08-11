@@ -71,13 +71,17 @@ export function BuildingTasksSection({
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, completed }: { id: string; completed: boolean }) => {
-      await (supabase.from("building_tasks" as any) as any)
-        .update({
-          status: completed ? "completed" : "pending",
-          completed_at: completed ? new Date().toISOString() : null,
-        })
-        .eq("id", id);
+      if (completed) {
+        await (supabase.from("building_tasks" as any) as any)
+          .update({ status: "completed", completed_at: new Date().toISOString() })
+          .eq("id", id);
+        return;
+      }
+      // Reapertura ÚNICA vía RPC (nunca UPDATE directo).
+      const res = await reopenBuildingTask(id);
+      if (!res.ok) throw new Error(res.error ?? "No se pudo reabrir la tarea");
     },
+    onError: (e: Error) => toast({ title: "No se pudo reabrir", description: e.message }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["building_tasks", buildingId, userId] });
       qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
