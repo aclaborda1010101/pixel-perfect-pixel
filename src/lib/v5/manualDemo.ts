@@ -4,8 +4,8 @@
 
 import { computeEligibility } from "./eligibility";
 import { selectNextByMode, V5_WINDOW_SIZE, type V5ModeConfig, type V5WindowEntry } from "./modes";
-import type { V5BuildingContext, V5Candidate, V5ManualSubtype } from "./model";
-import { V5_RULES_VERSION, V5_PREVIEW_MODE } from "./model";
+import type { V5BuildingContext, V5Candidate, V5GenerationMode, V5ManualSubtype } from "./model";
+import { V5_RULES_VERSION, V5_PREVIEW_MODE, isPersistableGenerationMode } from "./model";
 
 export type V5ManualDraft = {
   buildingId: string;
