@@ -201,6 +201,7 @@ for f in "${CHAIN[@]}"; do
   else
     echo "APLICA   $sum  $base" | tee -a "$MANIFEST"
   fi
+  asegurar_placeholder
   if ! "${PSQL_TEST[@]}" -f "$aplicar" >"$WORK/last.log" 2>&1; then
     sed -n '1,40p' "$WORK/last.log" >&2
     # SIN REINTENTOS: una migración parcialmente aplicada invalida la base.
