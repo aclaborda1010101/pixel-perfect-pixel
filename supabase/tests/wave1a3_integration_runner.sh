@@ -98,7 +98,6 @@ psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
 
 # A partir de aquí TODO se ejecuta con el rol dedicado.
 PSQL_TEST=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ROLE" -d "$TESTDB" -q)
-WHO="$("${PSQL_TEST[@]}" -At -c 'SELECT current_user || :: text || rolsuper::text FROM pg_roles WHERE rolname = current_user' 2>/dev/null || true)"
 "${PSQL_TEST[@]}" -At -c "SELECT CASE WHEN rolsuper THEN 1/0 ELSE 1 END FROM pg_roles WHERE rolname = current_user" >/dev/null \
   || die "el rol de pruebas no puede ser superusuario"
 
