@@ -196,7 +196,9 @@ describe("P0.11 · las 29 filas reales -> 66", () => {
     const plan = buildReplacementPlan(filas29, deseados);
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    expect(plan.updates.length + plan.inserts.length).toBe(66);
+    // Set final EXACTO: 29 filas - 4 retiradas + 41 nuevas = 66.
+    expect(plan.inserts.length).toBe(41);
+    expect(filas29.length - plan.deletes.length + plan.inserts.length).toBe(66);
     // Las dos claves duplicadas quedan en review y jamás propagan vínculo.
     expect(plan.reviews.length).toBe(2);
     expect(plan.reviews.every((r) => r.reason === "multiple_existing_links")).toBe(true);
