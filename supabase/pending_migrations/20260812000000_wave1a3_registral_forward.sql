@@ -731,7 +731,8 @@ WITH notas AS (
 ), soc AS (
   SELECT tit.*,
     (tit.pre_company_id IS NOT NULL
-     OR tit.nombre_extraido ~* '(S\.?L\.?U?|S\.?A\.?|SOCIEDAD LIMITADA|SOCIEDAD ANONIMA|INMOBILIARIA|PATRIMONI|CAPITAL)\M'
+     -- \m al principio: sin él, "ROSA" o "TERESA" activaban el patrón "S.A."
+     OR tit.nombre_extraido ~* '\m(S\.?L\.?U?|S\.?A\.?|SOCIEDAD LIMITADA|SOCIEDAD ANONIMA|INMOBILIARIA|PATRIMONI|CAPITAL)\M'
      OR tit.dni ~ '^[ABCDEFGHJNPQRSUVW][0-9]') AS es_sociedad
   FROM tit
 ), nota_meta AS (
