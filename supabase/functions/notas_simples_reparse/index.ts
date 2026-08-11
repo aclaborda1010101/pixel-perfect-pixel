@@ -345,6 +345,16 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
 
+  // Estado DURABLE previo de match_pending (historial acotado, más reciente primero).
+  const { data: logRows, error: logReadErr } = await sb.from("hubspot_sync_log")
+    .select("metadatos").eq("entity", ENTITY)
+    .order("started_at", { ascending: false }).limit(MATCH_STATE_HISTORY);
+  const prevState = foldMatchPendingHistory({
+    rows: (logRows ?? null) as any,
+    error: logReadErr ?? null,
+    limit: MATCH_STATE_HISTORY,
+  });
+
   // 1) Reclamar lote con bloqueo (evita repetir siempre las mismas 12)
   const { data: notas, error: selErr } = await sb.rpc("reparse_claim_batch", {
     p_limit: limit,
@@ -358,31 +368,44 @@ Deno.serve(async (req) => {
   }
 
   if (!notas || notas.length === 0) {
-    // Drenado: intento ACOTADO de matching sólo si quedó pendiente de un lote anterior
-    // (marcador durable en hubspot_sync_log.metadatos.match_pending). Sin bucle caro.
-    const { data: lastLog } = await sb.from("hubspot_sync_log")
-      .select("metadatos").eq("entity", ENTITY)
-      .order("started_at", { ascending: false }).limit(1).maybeSingle();
-    const decision = decidePendingMatchOnDrain(lastLog as any);
+    // Drenado: UN solo intento acotado de matching si quedó pendiente de un lote
+    // anterior (o si el estado no es legible). El éxito lo limpia; el fallo lo
+    // conserva y devuelve HTTP no-2xx (nunca un bucle silencioso de "éxito").
+    const decision = decidePendingMatchOnDrainState(prevState);
     let outcome: any = null;
     if (decision.run) {
       outcome = await runMatching(async () => await sb.rpc("match_notas_pendientes"));
-      await sb.from("hubspot_sync_log").insert({
-        entity: ENTITY,
-        started_at: new Date(t0).toISOString(),
-        finished_at: new Date().toISOString(),
-        records_upserted: 0,
-        records_failed: 0,
-        status: outcome.status === "error" ? "partial" : "ok",
-        error_message: outcome.error ?? null,
-        metadatos: { drained: true, match_pending: outcome.pending, match_status: outcome.status, match_result: outcome.data ?? null },
-      });
     }
+    const next = computeNextMatchPending({ previous: prevState, ran: decision.run, outcome });
+    const degradado = next.pending && (outcome?.status === "error" || next.degraded);
+    await sb.from("hubspot_sync_log").insert({
+      entity: ENTITY,
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      records_upserted: 0,
+      records_failed: 0,
+      status: degradado ? "partial" : "ok",
+      error_message: outcome?.error ?? next.stateReadError ?? null,
+      metadatos: {
+        drained: true,
+        match_pending: next.pending,
+        match_pending_reason: next.reason,
+        state_read_error: next.stateReadError,
+        match_status: outcome?.status ?? "skipped",
+        match_result: outcome?.data ?? null,
+      },
+    });
     return new Response(JSON.stringify({
-      ok: true, procesadas: 0, drained: true,
+      ok: !degradado,
+      status: degradado ? "partial" : "ok",
+      procesadas: 0,
+      drained: true,
       match_attempt: decision.run ? outcome : null,
       match_reason: decision.reason,
+      match_pending: next.pending,
+      state_read_error: next.stateReadError,
     }), {
+      status: degradado ? 500 : 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
