@@ -571,6 +571,54 @@ $$;
 COMMENT ON FUNCTION public.p0_unit_locator_valid(text, text) IS
   'Formato mínimo de IDUFIR (8-14 dígitos), finca (hasta 8 dígitos + letra opcional) y referencia catastral (14-20 alfanuméricos). Clave dudosa => la unidad va a revisión.';
 
+-- Todas las claves registrales VÁLIDAS declaradas por la nota, normalizadas
+-- y desduplicadas, como 'fuente:clave'. Sirve para detectar contradicción.
+CREATE OR REPLACE FUNCTION public.p0_nota_unit_claves(p_nota_id uuid)
+RETURNS text[]
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  WITH n AS (
+    SELECT ns.structured_json AS sj FROM public.notas_simples ns WHERE ns.id = p_nota_id
+  ), v AS (
+    SELECT DISTINCT x.ns_fuente,
+           nullif(upper(regexp_replace(x.valor, '[^A-Za-z0-9]', '', 'g')), '') AS clave
+    FROM n
+    CROSS JOIN LATERAL (
+      VALUES
+        ('idufir', nullif(btrim(coalesce(n.sj ->> 'idufir','')), '')),
+        ('idufir', nullif(btrim(coalesce(n.sj ->> 'idufir_cru','')), '')),
+        ('idufir', nullif(btrim(coalesce(n.sj ->> 'cru','')), '')),
+        ('idufir', nullif(btrim(coalesce(n.sj #>> '{finca,idufir}','')), '')),
+        ('finca',  nullif(btrim(coalesce(n.sj ->> 'finca_registral','')), '')),
+        ('finca',  nullif(btrim(coalesce(n.sj ->> 'numero_finca','')), '')),
+        ('finca',  nullif(btrim(coalesce(n.sj #>> '{finca,numero}','')), '')),
+        ('finca',  nullif(btrim(coalesce(n.sj #>> '{registro,finca}','')), '')),
+        ('refcat', nullif(btrim(coalesce(n.sj ->> 'referencia_catastral','')), '')),
+        ('refcat', nullif(btrim(coalesce(n.sj #>> '{finca,referencia_catastral}','')), ''))
+    ) AS x(ns_fuente, valor)
+    WHERE x.valor IS NOT NULL
+      AND public.p0_unit_locator_valid(
+            x.ns_fuente, nullif(upper(regexp_replace(x.valor, '[^A-Za-z0-9]', '', 'g')), ''))
+  )
+  SELECT coalesce(array_agg(v.ns_fuente || ':' || v.clave ORDER BY v.ns_fuente, v.clave), '{}'::text[])
+  FROM v WHERE v.clave IS NOT NULL;
+$$;
+
+-- (5) DOS localizadores VÁLIDOS y DISTINTOS de la misma clase (dos IDUFIR,
+-- dos fincas, dos refcat) => unit_key_conflict. NO se elige el primero.
+CREATE OR REPLACE FUNCTION public.p0_nota_unit_key_conflict(p_nota_id uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM unnest(public.p0_nota_unit_claves(p_nota_id)) AS c(v)
+    GROUP BY split_part(c.v, ':', 1)
+    HAVING count(DISTINCT split_part(c.v, ':', 2)) > 1
+  );
+$$;
+
+COMMENT ON FUNCTION public.p0_nota_unit_key_conflict(uuid) IS
+  'true si la nota declara dos IDUFIR / dos fincas / dos refcat válidos y distintos: la unidad NO puede identificarse y no se elige el primero.';
+
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key(p_nota_id uuid)
 RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
@@ -610,6 +658,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   )
   SELECT CASE
     WHEN k.building_id IS NULL THEN NULL
+    -- (5) Contradicción de localizadores: cero clave, cero canónica.
+    WHEN public.p0_nota_unit_key_conflict(k.id) THEN NULL
+    -- (4) No-DH: la unidad SIEMPRE es el edificio. Nunca NULL.
     WHEN NOT k.dh THEN 'building:' || k.building_id::text
     WHEN k.clave_norm IS NOT NULL
       THEN 'dh:' || k.building_id::text || ':' || k.ns_fuente || ':' || k.clave_norm
