@@ -272,6 +272,24 @@ export type Database = {
         }
         Relationships: []
       }
+      _flags_20260811: {
+        Row: {
+          building_id: string | null
+          matching_ok: boolean | null
+          sumas_ok: boolean | null
+        }
+        Insert: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Update: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Relationships: []
+      }
       _fn_backups: {
         Row: {
           created_at: string | null
@@ -293,6 +311,45 @@ export type Database = {
           fn_name?: string | null
           id?: number
           note?: string | null
+        }
+        Relationships: []
+      }
+      _match_empresas_20260811: {
+        Row: {
+          company_id: string | null
+          id: string | null
+          nombre: string | null
+          sim: number | null
+        }
+        Insert: {
+          company_id?: string | null
+          id?: string | null
+          nombre?: string | null
+          sim?: number | null
+        }
+        Update: {
+          company_id?: string | null
+          id?: string | null
+          nombre?: string | null
+          sim?: number | null
+        }
+        Relationships: []
+      }
+      _matching_20260811: {
+        Row: {
+          id: string | null
+          owner_id: string | null
+          sim: number | null
+        }
+        Insert: {
+          id?: string | null
+          owner_id?: string | null
+          sim?: number | null
+        }
+        Update: {
+          id?: string | null
+          owner_id?: string | null
+          sim?: number | null
         }
         Relationships: []
       }
@@ -1085,6 +1142,141 @@ export type Database = {
           owner_id?: string | null
           telefono?: string | null
           veredicto?: string | null
+        }
+        Relationships: []
+      }
+      backup_20260811_building_owners: {
+        Row: {
+          building_id: string | null
+          created_at: string | null
+          cuota: number | null
+          cuota_auditada_at: string | null
+          cuota_estado: string | null
+          cuota_estado_motivo: string | null
+          es_influencer: boolean | null
+          influencer_reason: string | null
+          influencer_score: number | null
+          metadatos: Json | null
+          owner_id: string | null
+          owner_name_norm: string | null
+          rol_notas: string | null
+          subrole: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Insert: {
+          building_id?: string | null
+          created_at?: string | null
+          cuota?: number | null
+          cuota_auditada_at?: string | null
+          cuota_estado?: string | null
+          cuota_estado_motivo?: string | null
+          es_influencer?: boolean | null
+          influencer_reason?: string | null
+          influencer_score?: number | null
+          metadatos?: Json | null
+          owner_id?: string | null
+          owner_name_norm?: string | null
+          rol_notas?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Update: {
+          building_id?: string | null
+          created_at?: string | null
+          cuota?: number | null
+          cuota_auditada_at?: string | null
+          cuota_estado?: string | null
+          cuota_estado_motivo?: string | null
+          es_influencer?: boolean | null
+          influencer_reason?: string | null
+          influencer_score?: number | null
+          metadatos?: Json | null
+          owner_id?: string | null
+          owner_name_norm?: string | null
+          rol_notas?: string | null
+          subrole?: Database["public"]["Enums"]["owner_subrole"] | null
+        }
+        Relationships: []
+      }
+      backup_20260811_nota_simple_titulares: {
+        Row: {
+          cif_dni: string | null
+          company_id: string | null
+          created_at: string | null
+          evidencia: Json | null
+          id: string | null
+          metadatos: Json | null
+          nombre_extraido: string | null
+          nota_simple_id: string | null
+          owner_id: string | null
+          porcentaje: number | null
+          rol: Database["public"]["Enums"]["nota_titular_rol"] | null
+          rol_literal: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cif_dni?: string | null
+          company_id?: string | null
+          created_at?: string | null
+          evidencia?: Json | null
+          id?: string | null
+          metadatos?: Json | null
+          nombre_extraido?: string | null
+          nota_simple_id?: string | null
+          owner_id?: string | null
+          porcentaje?: number | null
+          rol?: Database["public"]["Enums"]["nota_titular_rol"] | null
+          rol_literal?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cif_dni?: string | null
+          company_id?: string | null
+          created_at?: string | null
+          evidencia?: Json | null
+          id?: string | null
+          metadatos?: Json | null
+          nombre_extraido?: string | null
+          nota_simple_id?: string | null
+          owner_id?: string | null
+          porcentaje?: number | null
+          rol?: Database["public"]["Enums"]["nota_titular_rol"] | null
+          rol_literal?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      backup_20260811_notas_simples_meta: {
+        Row: {
+          building_id: string | null
+          error_message: string | null
+          id: string | null
+          processed_at: string | null
+          status: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          error_message?: string | null
+          id?: string | null
+          processed_at?: string | null
+          status?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          error_message?: string | null
+          id?: string | null
+          processed_at?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
+      backup_20260811_titulares_sin_owner: {
+        Row: {
+          id: string | null
+        }
+        Insert: {
+          id?: string | null
+        }
+        Update: {
+          id?: string | null
         }
         Relationships: []
       }
@@ -2797,6 +2989,8 @@ export type Database = {
           notas: string | null
           numero_propietarios: number | null
           pct_terciario: number | null
+          porcentajes_estado: string | null
+          porcentajes_verificado_at: string | null
           refcatastral: string | null
           score: number | null
           score_activo: number | null
@@ -2842,6 +3036,8 @@ export type Database = {
           notas?: string | null
           numero_propietarios?: number | null
           pct_terciario?: number | null
+          porcentajes_estado?: string | null
+          porcentajes_verificado_at?: string | null
           refcatastral?: string | null
           score?: number | null
           score_activo?: number | null
@@ -2887,6 +3083,8 @@ export type Database = {
           notas?: string | null
           numero_propietarios?: number | null
           pct_terciario?: number | null
+          porcentajes_estado?: string | null
+          porcentajes_verificado_at?: string | null
           refcatastral?: string | null
           score?: number | null
           score_activo?: number | null
