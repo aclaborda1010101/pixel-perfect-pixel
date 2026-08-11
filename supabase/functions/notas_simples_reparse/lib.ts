@@ -4,6 +4,16 @@
 export const ROLES_CANONICOS = ["pleno", "usufructo", "nuda_propiedad", "ganancial", "otro"] as const;
 export type RolCanonico = (typeof ROLES_CANONICOS)[number];
 
+/**
+ * DERECHOS jurídicos específicos y reconocidos. "ganancial" es un RÉGIMEN de
+ * cotitularidad (no un derecho) y "otro" es desconocido: ninguno de los dos
+ * puede entrar en conflicto con un derecho específico ni convertirse en pleno.
+ */
+export const ROLES_ESPECIFICOS = ["pleno", "usufructo", "nuda_propiedad"] as const;
+export function esRolEspecifico(r: RolCanonico | null | undefined): boolean {
+  return r != null && (ROLES_ESPECIFICOS as readonly string[]).includes(r);
+}
+
 const CLAVES_PROHIBIDAS = new Set(["__proto__", "prototype", "constructor"]);
 
 export const MAX_SANITIZE_DEPTH = 12;
