@@ -545,10 +545,17 @@ describe("V5 modos", () => {
     const pool = Array.from({ length: 30 }, (_, i) => fakeCandidate("T2_T3", `O${String(i).padStart(2, "0")}`));
     let window: V5WindowEntry[] = [];
     const keys: string[] = [];
+    const emitidas = new Set<string>();
     for (let i = 0; i < 25; i++) {
-      const step = selectNextByMode({ comercialId: "C1", candidates: pool, config: CFG, window });
+      const step = selectNextByMode({
+        comercialId: "C1",
+        candidates: pool.filter((c) => !emitidas.has(c.taskKey)),
+        config: CFG,
+        window,
+      });
       expect(step.selected).not.toBeNull();
       keys.push(step.selected!.taskKey);
+      emitidas.add(step.selected!.taskKey);
       window = step.window;
       expect(window.length).toBeLessThanOrEqual(20);
     }
