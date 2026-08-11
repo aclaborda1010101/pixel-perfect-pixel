@@ -299,6 +299,51 @@ INSERT INTO public.nota_simple_titulares
    'ELENA RUIZ', '00000012E', 40, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
    '{"cita":"ELENA RUIZ es titular del 40 % del pleno dominio","pagina":"1"}'::jsonb);
 
+-- ---------------------------------------------------------------------
+-- CASO 13 (Identidad Divergente 1): el DOCUMENTO casa con un owner y el
+-- NOMBRE con otro owner distinto, cada uno con un único candidato. La
+-- evidencia es impecable: lo único que falla es la convergencia de
+-- identidad => identity_conflict y CERO feeds.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000013', 'JULIA MAR',   '{"dni__nif__cif":"00000013F"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000014', 'SOFIA RUBIO', '{"dni__nif__cif":"00000014G"}'::jsonb);
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('dddddddd-0000-0000-0000-0000000000a1',
+   'dddddddd-dddd-dddd-dddd-dddddddddddd', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'SOFIA RUBIO es titular del 100 % del pleno dominio de la finca.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('dddddddd-0000-0000-0000-0000000000b1', 'dddddddd-0000-0000-0000-0000000000a1',
+   'SOFIA RUBIO', '00000013F', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"SOFIA RUBIO es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- CASO 14 (Identidad Divergente 2): el MISMO documento casa a la vez con
+-- un owner y con una company => no se puede decidir la naturaleza del
+-- titular: identity_conflict y CERO feeds.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000015', 'CARLOS VIA', '{"dni__nif__cif":"B77777777"}'::jsonb);
+
+INSERT INTO public.companies (id, nombre, cif) VALUES
+  ('c0000000-0000-0000-0000-000000000004', 'VIA PATRIMONIO SL', 'B77777777');
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('eeeeeeee-0000-0000-0000-0000000000a1',
+   'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'CARLOS VIA es titular del 100 % del pleno dominio de la finca.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('eeeeeeee-0000-0000-0000-0000000000b1', 'eeeeeeee-0000-0000-0000-0000000000a1',
+   'CARLOS VIA', 'B77777777', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"CARLOS VIA es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
 -- =====================================================================
 -- ASERCIONES DE REGRESIÓN
 -- =====================================================================
