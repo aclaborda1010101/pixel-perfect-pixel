@@ -959,6 +959,43 @@ WITH notas AS (
   JOIN public.companies k ON public.norm_person_name(k.nombre) = s.nn
   WHERE s.es_sociedad AND s.nn IS NOT NULL
   GROUP BY s.titular_id
+), x_own AS (
+  -- Coincidencias por DOCUMENTO contra owners, sin filtrar por es_sociedad.
+  SELECT s.titular_id, count(*) AS n
+  FROM soc s
+  JOIN public.owners o
+    ON nullif(upper(regexp_replace(coalesce(o.metadatos ->> 'dni__nif__cif',''), '[^A-Za-z0-9]', '', 'g')), '') = s.dni
+  WHERE s.dni IS NOT NULL AND o.merged_into IS NULL
+  GROUP BY s.titular_id
+), x_com AS (
+  -- Coincidencias por DOCUMENTO contra companies, sin filtrar por es_sociedad.
+  SELECT s.titular_id, count(*) AS n
+  FROM soc s
+  JOIN public.companies k
+    ON nullif(upper(regexp_replace(coalesce(to_jsonb(k) ->> 'cif',''), '[^A-Za-z0-9]', '', 'g')), '') = s.dni
+  WHERE s.dni IS NOT NULL
+  GROUP BY s.titular_id
+), conv AS (
+  -- (P0.2) CONVERGENCIA DE IDENTIDAD: documento, nombre y preasociación
+  -- deben apuntar al MISMO id. Si cada método devuelve un único id distinto,
+  -- o el documento casa a la vez con owner y company, hay identity_conflict.
+  SELECT s.titular_id,
+    (
+         (coalesce(md.n,0) = 1 AND coalesce(mn.n,0) = 1 AND md.owner_id IS DISTINCT FROM mn.owner_id)
+      OR (coalesce(mf.n,0) = 1 AND coalesce(mc.n,0) = 1 AND mf.company_id IS DISTINCT FROM mc.company_id)
+      OR (coalesce(xo.n,0) >= 1 AND coalesce(xc.n,0) >= 1)
+      OR (s.pre_owner_id IS NOT NULL AND coalesce(md.n,0) = 0 AND coalesce(mn.n,0) = 1
+          AND mn.owner_id IS DISTINCT FROM s.pre_owner_id)
+      OR (s.pre_company_id IS NOT NULL AND coalesce(mf.n,0) = 0 AND coalesce(mc.n,0) = 1
+          AND mc.company_id IS DISTINCT FROM s.pre_company_id)
+    ) AS identity_divergent
+  FROM soc s
+  LEFT JOIN m_dni  md ON md.titular_id = s.titular_id
+  LEFT JOIN m_nom  mn ON mn.titular_id = s.titular_id
+  LEFT JOIN m_cif  mf ON mf.titular_id = s.titular_id
+  LEFT JOIN m_comp mc ON mc.titular_id = s.titular_id
+  LEFT JOIN x_own  xo ON xo.titular_id = s.titular_id
+  LEFT JOIN x_com  xc ON xc.titular_id = s.titular_id
 ), base AS (
   SELECT s.*,
     (c.nota_id IS NOT NULL) AS is_canonical,
@@ -985,8 +1022,10 @@ WITH notas AS (
       OR (s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id)
       OR (s.es_sociedad AND s.pre_owner_id IS NOT NULL)
       OR (NOT s.es_sociedad AND s.pre_company_id IS NOT NULL)
+      OR coalesce(cv.identity_divergent, false)
     )                                                                    AS identity_conflict,
     CASE
+      WHEN coalesce(cv.identity_divergent, false) THEN NULL
       WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
         OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN NULL
       WHEN s.pre_owner_id IS NOT NULL AND md.n = 1 AND md.owner_id IS DISTINCT FROM s.pre_owner_id THEN NULL
@@ -998,6 +1037,7 @@ WITH notas AS (
         CASE WHEN md.n = 1 THEN md.owner_id WHEN mn.n = 1 THEN mn.owner_id END
     END AS f_owner_id,
     CASE
+      WHEN coalesce(cv.identity_divergent, false) THEN NULL
       WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
         OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN NULL
       WHEN s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id THEN NULL
@@ -1009,9 +1049,11 @@ WITH notas AS (
         CASE WHEN mf.n = 1 THEN mf.company_id WHEN mc.n = 1 THEN mc.company_id END
     END AS f_company_id,
     (md.n = 1 AND s.pre_company_id IS NULL
+     AND NOT coalesce(cv.identity_divergent, false)
      AND coalesce(mn.n,0) <= 1
      AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
     CASE
+      WHEN coalesce(cv.identity_divergent, false) THEN 'identity_conflict'
       WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
         OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN 'ambiguo'
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN 'conflicto_owner_y_company'
@@ -1029,7 +1071,9 @@ WITH notas AS (
          WHEN mn.n = 1 OR mc.n = 1 THEN 0.6 ELSE 0.3 END AS confidence,
     jsonb_build_object('pre_owner_id', s.pre_owner_id, 'pre_company_id', s.pre_company_id,
                        'dni_matches', coalesce(md.n,0), 'nombre_matches', coalesce(mn.n,0),
-                       'cif_matches', coalesce(mf.n,0), 'nombre_sociedad_matches', coalesce(mc.n,0)) AS audit_ids
+                       'cif_matches', coalesce(mf.n,0), 'nombre_sociedad_matches', coalesce(mc.n,0),
+                       'owner_doc_matches', coalesce(xo.n,0), 'company_doc_matches', coalesce(xc.n,0),
+                       'identity_divergent', coalesce(cv.identity_divergent,false)) AS audit_ids
   FROM soc s
   LEFT JOIN canon c ON c.unit_key = s.unit_key AND c.nota_id = s.nota_id
   LEFT JOIN unit_state us ON us.unit_key = s.unit_key
@@ -1038,6 +1082,9 @@ WITH notas AS (
   LEFT JOIN m_nom mn ON mn.titular_id = s.titular_id
   LEFT JOIN m_cif mf ON mf.titular_id = s.titular_id
   LEFT JOIN m_comp mc ON mc.titular_id = s.titular_id
+  LEFT JOIN x_own xo ON xo.titular_id = s.titular_id
+  LEFT JOIN x_com xc ON xc.titular_id = s.titular_id
+  LEFT JOIN conv cv ON cv.titular_id = s.titular_id
 ), fila AS (
   -- (1) SEGURIDAD DE FILA, antes de mirar la capa.
   SELECT b.*,
