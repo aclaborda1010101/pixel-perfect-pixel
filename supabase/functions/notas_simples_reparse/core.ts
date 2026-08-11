@@ -22,6 +22,7 @@ import {
   needsTitularesRefetch,
   runReconciliation,
   buildReconcilePlan,
+  buildReplacementPlan,
   type PatchTitular,
   type FilaInsert,
   type FilaExistente,
@@ -41,6 +42,11 @@ export type ApplyPlanArgs = {
   claimToken: string;
   updates: Array<{ id: string; patch: PatchTitular }>;
   inserts: FilaInsert[];
+  /**
+   * P0.9: ids de derechos DERIVADOS DE ESTA NOTA que sobran (residuos de la
+   * versión parcial). Se borran dentro de la MISMA transacción del plan.
+   */
+  deletes?: string[];
   titulares: TitularNormalizado[];
   extracted: Record<string, unknown>;
   model: string | null;
@@ -297,7 +303,11 @@ export async function processNotaCore(
 
   // Camino productivo: TODO en una transacción del servidor, bajo el claim.
   if (deps.repo.applyPlan) {
-    const plan = buildReconcilePlan(existentes.rows ?? [], titulares);
+    // P0.9 · REEMPLAZO REGISTRAL: el conjunto derivado de ESTA nota pasa a ser
+    // exactamente el inventario probado. Se planifica TODO (updates, inserts y
+    // borrado de residuos) antes de escribir una sola fila; la RPC lo aplica en
+    // una única transacción bajo el claim vigente.
+    const plan = buildReplacementPlan(existentes.rows ?? [], titulares);
     if (plan.ok === false) {
       const f = plan as { ok: false; reason: string; detalle: string };
       return { ...base, reason: f.reason, detalle: f.detalle, model: llm.model ?? null, refetched: decision.refetched };
@@ -305,6 +315,7 @@ export async function processNotaCore(
     const applied = await deps.repo.applyPlan({
       notaId: args.notaId,
       claimToken: args.claimToken,
+      deletes: plan.deletes,
       updates: plan.updates,
       inserts: plan.inserts.map((t) => ({
         nota_simple_id: args.notaId,

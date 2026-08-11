@@ -8,9 +8,105 @@ import {
   mergeEvidencias,
   evidenciaStable,
   parseEvidencia,
+  normalizeNombre,
+  normalizeDoc,
   type Evidencia,
   type TitularNormalizado,
 } from "./lib.ts";
+
+/**
+ * Identidad de un derecho SIN el porcentaje: nombre + documento + rol.
+ * Es la clave que permite reemplazar las filas antiguas escritas con
+ * redondeo (0,11 frente a 0,109649) sin que el plan quede bloqueado.
+ */
+export function derechoIdentityKey(t: {
+  nombre?: unknown; nombre_extraido?: unknown; cif_dni?: unknown; rol?: unknown;
+}): string {
+  return `${normalizeNombre(t.nombre ?? t.nombre_extraido)}|${normalizeDoc(t.cif_dni)}|${String(t.rol ?? "")}`;
+}
+
+export type PlanReemplazo =
+  | { ok: true; updates: Array<{ id: string; patch: PatchTitular }>; inserts: TitularNormalizado[]; deletes: string[] }
+  | { ok: false; reason: MotivoBloqueo; detalle: string; updates: []; inserts: []; deletes: [] };
+
+/**
+ * REEMPLAZO REGISTRAL COMPLETO (P0.9): el conjunto de derechos derivado de
+ * ESTA nota pasa a ser EXACTAMENTE `deseados`.
+ *  - Coincidencia lógica exacta -> UPDATE mínimo (o nada).
+ *  - Coincidencia por identidad+derecho (ignorando el porcentaje redondeado
+ *    de la versión vieja) y candidato único -> UPDATE con el % exacto.
+ *  - Deseado sin correspondencia -> INSERT.
+ *  - Fila existente sin correspondencia -> DELETE (residuo de la versión
+ *    parcial). Nunca se toca ninguna otra nota.
+ * Todo se PLANIFICA antes de escribir: el plan es la unidad transaccional.
+ */
+export function buildReplacementPlan(
+  existentes: FilaExistente[],
+  deseadosRaw: TitularNormalizado[],
+): PlanReemplazo {
+  const vacio = { updates: [] as [], inserts: [] as [], deletes: [] as [] };
+  if (!Array.isArray(deseadosRaw) || deseadosRaw.length === 0) {
+    return { ok: false, reason: "deseados_vacios", detalle: "sin titulares deseados", ...vacio };
+  }
+  const ded = dedupeDeseados(deseadosRaw);
+  if (!ded.ok) {
+    const f = ded as { ok: false; reason: MotivoBloqueo; detalle: string };
+    return { ok: false, reason: f.reason, detalle: f.detalle, ...vacio };
+  }
+  const deseados = (ded as { ok: true; value: TitularNormalizado[] }).value;
+
+  const filas = (existentes ?? []).slice();
+  const consumidas = new Set<string>();
+  const updates: Array<{ id: string; patch: PatchTitular }> = [];
+  const inserts: TitularNormalizado[] = [];
+
+  const porLogica = new Map<string, FilaExistente[]>();
+  const porDerecho = new Map<string, FilaExistente[]>();
+  for (const f of filas) {
+    const lk = logicalRightKey(f);
+    const dk = derechoIdentityKey(f);
+    (porLogica.get(lk) ?? porLogica.set(lk, []).get(lk)!).push(f);
+    (porDerecho.get(dk) ?? porDerecho.set(dk, []).get(dk)!).push(f);
+  }
+  for (const [k, fs] of porLogica) {
+    if (fs.length > 1) {
+      return { ok: false, reason: "existing_logical_duplicate", detalle: `${fs.length} filas para ${k}`, ...vacio };
+    }
+  }
+
+  for (const d of deseados) {
+    const exacta = (porLogica.get(logicalRightKey(d)) ?? []).find((f) => !consumidas.has(f.id));
+    let candidatos = exacta
+      ? [exacta]
+      : (porDerecho.get(derechoIdentityKey(d)) ?? []).filter((f) => !consumidas.has(f.id));
+    if (candidatos.length === 0) {
+      // Fila LEGADA (sin rol_literal): puede llevar un rol provisional
+      // ("otro") y un porcentaje redondeado. Sólo se adopta si es única.
+      const nk = `${normalizeNombre(d.nombre)}|${normalizeDoc(d.cif_dni)}`;
+      candidatos = filas.filter((f) =>
+        !consumidas.has(f.id) && esLegado(f) &&
+        `${normalizeNombre(f.nombre_extraido)}|${normalizeDoc(f.cif_dni)}` === nk);
+    }
+    if (candidatos.length > 1) {
+      return {
+        ok: false, reason: "titular_reconcile_ambiguous",
+        detalle: `${candidatos.length} filas para ${derechoIdentityKey(d)}`, ...vacio,
+      };
+    }
+    if (candidatos.length === 1) {
+      const f = candidatos[0];
+      consumidas.add(f.id);
+      const patch = construirPatch(f, d);
+      if (patch.ok === false) return { ok: false, reason: patch.reason, detalle: patch.detalle, ...vacio };
+      if (Object.keys(patch.value).length) updates.push({ id: f.id, patch: patch.value });
+      continue;
+    }
+    inserts.push({ ...d, evidencia: parseEvidencia(d.evidencia) });
+  }
+
+  const deletes = filas.filter((f) => !consumidas.has(f.id)).map((f) => f.id);
+  return { ok: true, updates, inserts, deletes };
+}
 
 export type FilaExistente = {
   id: string;

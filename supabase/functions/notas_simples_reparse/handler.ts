@@ -169,6 +169,11 @@ export async function handleReparseRequest(
   });
 
   const cycle = await runReparseCycle(deps, { limit });
+  // Conjunto exacto no reclamable (id inexistente o en manos de otro worker):
+  // 409, sin haber procesado ni escrito nada.
+  if (ids.length && /ids_no_reclamables_exactos/.test(String((cycle.body as any)?.error_message ?? ""))) {
+    return json({ ...cycle.body, ok: false, status: "rejected" }, 409);
+  }
   // Los ids solicitados deben reclamarse TODOS: si alguno no es reclamable,
   // la respuesta es un fallo explícito, jamás un lote parcial silencioso.
   const body2: Record<string, unknown> = { ...cycle.body };

@@ -41,6 +41,7 @@ import { buildProviders, buildDocumentMessages, callChat, REGLAS_EVIDENCIA } fro
 import { inspectPdf, fitsSingleDocument, type PdfInspection } from "./pdf.ts";
 import { decideReingest, shouldReplaceStored, fetchHubspotPdf, REINGEST_FLAG } from "./reingest.ts";
 import { backupVerificado } from "./backup.ts";
+import { construirExtracto, extractoParaPrompt, estadoTextoFuente } from "./parsing.ts";
 
 // ---------- utilidades de texto ----------
 
@@ -141,9 +142,9 @@ REGLAS:
 - ${REGLAS_EVIDENCIA}
 - Si un dato no aparece con claridad, OMÍTELO (no inventes).
 
-TEXTO:
+TEXTO COMPLETO (troceado por páginas con solape; cada bloque lleva su página y su rango de offsets; NO omitas ningún bloque):
 """
-${rawText.slice(0, 60000)}
+${extractoParaPrompt(construirExtracto(rawText))}
 """`;
 }
 
@@ -279,6 +280,24 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
     }
     if (rawText) rawText = sanitize(letrasANumerosEnTexto(rawText));
 
+    // 2.b) EXTRACCIÓN COMPLETA: nada de recortes. Un documento que no cabe
+    //      entero se declara no procesable en vez de finalizar truncado.
+    const extracto = construirExtracto(rawText);
+    if (extracto.truncado) {
+      return { id, ok: false, reason: `extraccion_truncada:${extracto.total}` } as any;
+    }
+    // 2.c) PDF escaneado sin capa de texto: no_evaluable / OCR_required.
+    //      Nunca marca reparse_done ni alimenta derechos.
+    const estadoTexto = estadoTextoFuente(rawText);
+    if (estadoTexto.ok === false && !fitsSingleDocument(insp)) {
+      return {
+        id, ok: false,
+        estado: "no_evaluable",
+        reason: `no_evaluable:OCR_required:chars=${estadoTexto.chars}`,
+        diagnostico: { estado: "no_evaluable", reason: "OCR_required", chars: estadoTexto.chars, pages: insp.pageCount },
+      } as any;
+    }
+
     // 3) Repositorio Supabase (CAS id+claimToken, RETURNING exactamente 1 fila)
     let refCatastralFinal: string | null = null;
     let direccionFinal: string | null = null;
@@ -301,7 +320,7 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
         return { rows: 0, error: "direct_finalize_forbidden" };
       },
       /** Una sola transacción de servidor: bloqueo por claim, hijos y finalize. */
-      async applyPlan({ notaId, claimToken: token, updates, inserts, titulares, extracted, model, completeness }) {
+      async applyPlan({ notaId, claimToken: token, updates, inserts, deletes, titulares, extracted, model, completeness }) {
         const ex = extracted as ExtractedFields;
         const prev = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
         const merged: any = { ...prev, reparse_done: "1" };
@@ -336,8 +355,9 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
           p_payload: {
             updates,
             inserts,
+            deletes: deletes ?? [],
             structured: merged,
-            raw_pdf_text: rawText ? sanitize(rawText).slice(0, 60000) : null,
+            raw_pdf_text: rawText ? sanitize(rawText) : null,
             attempt_count: (nota.attempt_count ?? 0) + 1,
           },
         });
@@ -376,7 +396,19 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
       notaId: id, claimToken, structured: nota.structured_json, textoFuente: rawText || null,
     });
     if (!res.ok) {
-      return { id, ok: false, reason: `${res.reason}:${res.detalle ?? ""}`.slice(0, 400) };
+      return {
+        id, ok: false,
+        reason: `${res.reason}:${res.detalle ?? ""}`.slice(0, 400),
+        // DIAGNÓSTICO DURABLE: JSON estructurado, nunca reducido a un string.
+        diagnostico: {
+          reason: res.reason ?? null,
+          detalle: res.detalle ?? null,
+          completeness: res.completeness ?? null,
+          refetched: res.refetched,
+          model: res.model ?? null,
+        },
+        fatal: res.fatal === true,
+      } as any;
     }
 
     return {
