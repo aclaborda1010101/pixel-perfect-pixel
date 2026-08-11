@@ -30,6 +30,7 @@ import { startBuildingTask, canStartTask, reopenBuildingTask,
 import { toast } from "sonner";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
+import { Sparkles, Loader2 } from "lucide-react";
 
 const ICONS: Record<string, any> = {
   Phone, PhoneCall, Mail, ClipboardList, FileSearch, AlertTriangle, Brain, MapPin,
@@ -46,6 +47,7 @@ export default function ComercialTareas() {
   const [statusFilter, setStatusFilter] = useState<string>("pending");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [generando, setGenerando] = useState(false);
   // Legacy auto-task generation retired: mounting this page performs no writes.
 
   const { data, isLoading } = useQuery({
@@ -137,6 +139,29 @@ export default function ComercialTareas() {
     qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
   };
 
+  /** Pide la siguiente tarea al servidor y la muestra sin recargar la página. */
+  const generarSiguiente = async (silencioso = false) => {
+    if (!userId) return;
+    setGenerando(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate_next_task", {
+        body: { p_user_id: userId },
+      });
+      if (error) throw error;
+      const res = data as any;
+      if (res?.created) {
+        toast.success(`Nueva tarea: ${res.created.title}`);
+      } else if (!silencioso) {
+        toast.info("No hay ninguna tarea nueva disponible ahora mismo.");
+      }
+      await qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+    } catch (e: any) {
+      if (!silencioso) toast.error(e?.message ?? "No se pudo generar la siguiente tarea");
+    } finally {
+      setGenerando(false);
+    }
+  };
+
   const toggle = async (id: string, completed: boolean) => {
     if (completed) {
       // Cierre ÚNICO vía RPC transaccional (estado + reposición).
@@ -145,6 +170,10 @@ export default function ComercialTareas() {
         toast.error(done.error ?? "No se pudo completar la tarea");
         return;
       }
+      qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+      // Al completar, se genera y se muestra la siguiente tarea sin recargar.
+      await generarSiguiente(true);
+      return;
     } else {
       // Reapertura ÚNICA vía RPC: valida estado, propiedad y limpia el ciclo.
       const res = await reopenBuildingTask(id);
@@ -162,6 +191,14 @@ export default function ComercialTareas() {
         eyebrow="Operativa · Tareas"
         title="Mis tareas"
         subtitle={`${totalPending} pendientes en tu cartera`}
+        actions={
+          totalPending === 0 ? (
+            <Button variant="gold" onClick={() => generarSiguiente(false)} disabled={generando}>
+              {generando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Generar mi siguiente tarea
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
