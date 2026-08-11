@@ -21,7 +21,8 @@ import {
   MAX_PERIOD_DAYS,
   type SalesManagerRow,
 } from "@/lib/salesManagerMetrics";
-import { canStartTask, decideTaskStart, reopenPatch } from "@/lib/taskStart";
+import { canStartTask, canReopenTask, decideTaskStart, decideTaskReopen } from "@/lib/taskStart";
+import { isModeConfigured, modeConfigLabel, DEFAULT_GENERATION_STATE } from "@/lib/salesTaskModes";
 import { FEATURE_SALES_TASK_MODE_ALLOCATOR, FEATURE_FORCE_PASSWORD_EDGE_FN } from "@/lib/featureFlags";
 import { decideAccess, GESTOR_PATH, PASSWORD_PATH, postPasswordChangePath } from "@/lib/access";
 import {
@@ -34,6 +35,8 @@ import {
   getSalesManagerDashboardSim,
   reopenBuildingTaskSim,
   startBuildingTaskSim,
+  getAgentDisplayNamesSim,
+  AGENT_DISPLAY_FIELDS,
   type AppRole,
   type Claims,
   type TaskRow,
@@ -77,11 +80,44 @@ describe("RLS efectiva con identidades", () => {
   const dav: Claims = { uid: "dav", roles: ["comercial_zona"] };
   const admin: Claims = { uid: "adm", roles: ["admin"] };
 
-  it("el gestor ve su perfil y el de sus miembros ACTIVOS, no otros", () => {
+  it("el gestor NO lee perfiles ni roles de sus miembros: sólo el suyo", () => {
     expect(canSelectProfile(mgr, "mgr", team)).toBe(true);
-    expect(canSelectProfile(mgr, "dav", team)).toBe(true);
+    expect(canSelectProfile(mgr, "dav", team)).toBe(false);
     expect(canSelectProfile(mgr, "old", team)).toBe(false);
-    expect(canSelectProfile(mgr, "ajeno", team)).toBe(false);
+    expect(canSelectUserRole(mgr, "dav", team)).toBe(false);
+    // La política SQL tampoco contempla ya la rama de equipo.
+    const profilesPolicy = /CREATE POLICY profiles_select_scoped[\s\S]*?;/.exec(SQL)![0];
+    expect(profilesPolicy).not.toMatch(/sales_manager_team_members/);
+    const rolesPolicy = /CREATE POLICY user_roles_select_scoped[\s\S]*?;/.exec(SQL)![0];
+    expect(rolesPolicy).not.toMatch(/sales_manager_team_members/);
+  });
+
+  it("atribución WhatsApp: sólo id + nombre, sin enumerar la base", () => {
+    const profiles = [
+      { id: "a1", full_name: "Ana", email: "ana@afflux.es" },
+      { id: "a2", full_name: null, email: "b@afflux.es" },
+    ];
+    const wa: Claims = { uid: "w", roles: ["whatsapp"] };
+    const out = getAgentDisplayNamesSim(wa, ["a1", "a2"], profiles);
+    expect(out).toEqual([
+      { id: "a1", display_name: "Ana" },
+      { id: "a2", display_name: "agente" },
+    ]);
+    for (const r of out) expect(Object.keys(r).sort()).toEqual([...AGENT_DISPLAY_FIELDS].sort());
+    // Sin ids no hay enumeración; un comercial no obtiene nada.
+    expect(getAgentDisplayNamesSim(wa, [], profiles)).toEqual([]);
+    expect(getAgentDisplayNamesSim(dav, ["a1"], profiles)).toEqual([]);
+    // El panel ya no consulta la tabla profiles.
+    const src = readFileSync("src/pages/whatsapp/WhatsappDashboard.tsx", "utf8");
+    expect(src).toContain("get_agent_display_names");
+    expect(src).not.toMatch(/from\("profiles"/);
+    expect(SQL).toContain("REVOKE ALL ON FUNCTION public.get_agent_display_names(uuid[]) FROM PUBLIC, anon");
+  });
+
+  it("un comercial sólo se ve a sí mismo y el admin lo ve todo", () => {
+    expect(canSelectProfile(dav, "dav", team)).toBe(true);
+    expect(canSelectProfile(dav, "mgr", team)).toBe(false);
+    expect(canSelectProfile(admin, "quien-sea", team)).toBe(true);
   });
 
   it("un comercial sólo se ve a sí mismo; el admin lo ve todo", () => {
@@ -173,6 +209,38 @@ describe("alta de gestor y equipo", () => {
     expect(SQL).toMatch(/manager_id[^,]*REFERENCES public\.profiles\(id\) ON DELETE CASCADE/);
     expect(SQL).toMatch(/member_id[^,]*REFERENCES public\.profiles\(id\) ON DELETE CASCADE/);
     expect(SQL).toMatch(/CHECK \(manager_id <> member_id\)/);
+  });
+
+  it("deduplica p_members: un UUID repetido no falla ni falsea el recuento", () => {
+    const db = base();
+    const r = finalizeSalesManagerSetupSim(
+      admin,
+      { user_id: "carlos", expected_email: "carlos@afflux.es", full_name: "Carlos", members: ["dav", "dav"] },
+      db,
+    );
+    expect(r).toMatchObject({ ok: true, miembros: 1 });
+    expect(db.team.filter((t) => t.manager_id === "carlos")).toHaveLength(1);
+    expect(SQL).toContain("array_agg(DISTINCT m)");
+  });
+
+  it("el gestor no puede ser miembro de su propio equipo", () => {
+    const db = base();
+    expect(
+      finalizeSalesManagerSetupSim(
+        admin,
+        { user_id: "carlos", expected_email: "carlos@afflux.es", full_name: "C", members: ["carlos"] },
+        db,
+      ),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("conserva el prerrequisito versionado del enum sales_manager con preflight claro", () => {
+    const prereq = readFileSync(
+      "supabase/migrations/20260810135324_sales_manager_role_enum.sql",
+      "utf8",
+    );
+    expect(prereq).toMatch(/sales_manager/);
+    expect(SQL).toContain("no contiene el valor sales_manager");
   });
 });
 
