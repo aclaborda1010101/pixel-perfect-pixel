@@ -4,7 +4,7 @@ import {
 } from "../../supabase/functions/notas_simples_reparse/pdf.ts";
 import {
   buildDocumentMessages, buildProviders, callChat, isRetryableStatus,
-  PRIMARY_MODEL, FALLBACK_MODEL,
+  PRIMARY_MODEL, FALLBACK_MODEL, MAX_OUTPUT_TOKENS,
 } from "../../supabase/functions/notas_simples_reparse/llm.ts";
 import {
   decideReingest, shouldReplaceStored, fetchHubspotPdf, REINGEST_FLAG,
@@ -99,6 +99,32 @@ describe("P0.7 · LLM", () => {
     expect(r.data).toEqual({ direccion: "X" });
     expect(calls.filter((c) => c === PRIMARY_MODEL)).toHaveLength(1); // 400 sin reintento ciego
     expect(calls.filter((c) => c === FALLBACK_MODEL)).toHaveLength(2); // 429 reintentado
+  });
+});
+
+  it("una respuesta TRUNCADA no se reintenta a ciegas: pasa al siguiente modelo", async () => {
+    const calls: string[] = [];
+    const fetchImpl = async (_u: string, init: any) => {
+      const model = JSON.parse(init.body).model;
+      calls.push(model);
+      if (model === PRIMARY_MODEL) {
+        return { ok: true, status: 200, text: async () => "", json: async () => ({ choices: [{ finish_reason: "length", message: { content: '{"titulares":[{"nombre":"A' } }] }) };
+      }
+      return { ok: true, status: 200, text: async () => "", json: async () => ({ choices: [{ finish_reason: "stop", message: { content: '{"direccion":"OK"}' } }] }) };
+    };
+    const r = await callChat({ providers: buildProviders("k"), messages: [], fetchImpl: fetchImpl as any, sleep: async () => {} });
+    expect(r.data).toEqual({ direccion: "OK" });
+    expect(calls).toEqual([PRIMARY_MODEL, FALLBACK_MODEL]);
+  });
+
+  it("el presupuesto de salida cubre una nota larga con evidencia por titular", async () => {
+    let body: any = null;
+    const fetchImpl = async (_u: string, init: any) => {
+      body = JSON.parse(init.body);
+      return { ok: true, status: 200, text: async () => "", json: async () => ({ choices: [{ message: { content: "{}" } }] }) };
+    };
+    await callChat({ providers: buildProviders("k"), messages: [], fetchImpl: fetchImpl as any });
+    expect(body.max_tokens).toBe(MAX_OUTPUT_TOKENS);
   });
 });
 
