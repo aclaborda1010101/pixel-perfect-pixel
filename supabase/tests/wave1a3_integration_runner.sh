@@ -137,6 +137,9 @@ BEGIN
            WHERE schemaname IN ('public','auth','storage','cron','net') LOOP
     EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', r.schemaname, r.tablename, '$ROLE');
   END LOOP;
+  FOR r IN SELECT pubname FROM pg_publication LOOP
+    EXECUTE format('ALTER PUBLICATION %I OWNER TO %I', r.pubname, '$ROLE');
+  END LOOP;
   FOR r IN SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
            WHERE n.nspname IN ('public','auth','storage','cron','net')
