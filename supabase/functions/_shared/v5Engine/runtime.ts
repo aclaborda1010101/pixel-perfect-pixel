@@ -11,10 +11,10 @@
  * manuales humanas (generation_mode='manual') no se tocan jamás.
  */
 
-import { revalidateOpenTasks, type V5ExistingTask, type V5TerminalRecord } from "./revalidate";
-import { selectNextByMode, type V5ModeConfig, type V5WindowEntry } from "./modes";
-import type { V5BuildingContext, V5Candidate } from "./model";
-import { occupiesAutomaticSlot } from "./status";
+import { revalidateOpenTasks, type V5ExistingTask, type V5TerminalRecord } from "./revalidate.ts";
+import { selectNextByMode, type V5ModeConfig, type V5WindowEntry } from "./modes.ts";
+import type { V5BuildingContext, V5Candidate } from "./model.ts";
+import { occupiesAutomaticSlot } from "./status.ts";
 
 /** Fila V5 tal y como vive en building_tasks (proyección mínima). */
 export type V5TaskRow = V5ExistingTask & {

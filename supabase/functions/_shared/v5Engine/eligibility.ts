@@ -27,7 +27,7 @@ import {
   type V5Signal,
   type V5T2T3Action,
   type V5TaskCode,
-} from "./model";
+} from "./model.ts";
 
 export type V5EligibilityResult = {
   candidates: V5Candidate[];

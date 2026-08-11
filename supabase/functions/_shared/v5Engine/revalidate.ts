@@ -10,13 +10,13 @@
  * NO ocupa slot automático (ver status.ts).
  */
 
-import { computeEligibility } from "./eligibility";
-import type { V5BuildingContext, V5Candidate, V5TaskCode } from "./model";
+import { computeEligibility } from "./eligibility.ts";
+import type { V5BuildingContext, V5Candidate, V5TaskCode } from "./model.ts";
 import {
   isTerminalStatus,
   isV5TaskStatus,
   type V5TaskStatus,
-} from "./status";
+} from "./status.ts";
 
 /** Tarea V5 existente, en cualquier estado canónico. */
 export type V5ExistingTask = {

@@ -9,8 +9,8 @@
  * guarden los 7 buckets desde el panel.
  */
 
-import type { V5Candidate, V5TaskCode } from "./model";
-import { V5_TASK_CODES } from "./model";
+import type { V5Candidate, V5TaskCode } from "./model.ts";
+import { V5_TASK_CODES } from "./model.ts";
 
 export type V5Bucket = V5TaskCode;
 export const V5_BUCKETS: readonly V5Bucket[] = V5_TASK_CODES;
