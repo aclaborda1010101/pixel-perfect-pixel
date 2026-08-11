@@ -1,8 +1,12 @@
 /**
- * MOTOR V5 — FASE A. Modos PUROS (no conectados al motor real).
+ * MOTOR V5 — FASE A.1. Modos PUROS (no conectados al motor real).
  *
  * Los modos SOLO seleccionan entre candidatos ya elegibles: nunca crean
  * candidatos ni relajan reglas. T7 se rechaza siempre.
+ *
+ * IMPORTANTE: los tres modos predefinidos EXISTEN pero NO tienen pesos.
+ * No se inventan: quedan NO ACTIVABLES hasta que Carlos Moreno o Carlos Sanz
+ * guarden los 7 buckets desde el panel.
  */
 
 import type { V5Candidate, V5TaskCode } from "./model";
@@ -14,17 +18,24 @@ export const V5_BUCKETS: readonly V5Bucket[] = V5_TASK_CODES;
 export type V5ModeCode = "iniciar_conversaciones" | "equilibrado" | "seguimiento" | "manual";
 export type V5Mix = Partial<Record<string, number>>;
 
-export const V5_MODE_TEMPLATES: Record<Exclude<V5ModeCode, "manual">, Record<V5Bucket, number>> = {
-  iniciar_conversaciones: { T1: 15, T2_T3: 45, T4: 10, T5: 10, T6: 10, T8: 10, T9: 0 },
-  equilibrado: { T1: 10, T2_T3: 25, T4: 20, T5: 15, T6: 15, T8: 10, T9: 5 },
-  seguimiento: { T1: 5, T2_T3: 10, T4: 35, T5: 20, T6: 15, T8: 10, T9: 5 },
+/** Únicos autorizados a guardar pesos. */
+export const V5_MODE_WEIGHT_EDITORS = ["carlos.moreno", "carlos.sanz"] as const;
+
+/** Los tres códigos existen; el mix es null hasta que se guarde en panel. */
+export const V5_PREDEFINED_MODES: Record<Exclude<V5ModeCode, "manual">, { mix: null }> = {
+  iniciar_conversaciones: { mix: null },
+  equilibrado: { mix: null },
+  seguimiento: { mix: null },
 };
 
 export type V5MixValidation = { valid: boolean; total: number; errors: string[] };
 
+/** Validación EXACTA: los 7 buckets, enteros, sin extras ni T7, suma 100. */
 export function validateMix(mix: V5Mix | null | undefined): V5MixValidation {
   const errors: string[] = [];
-  if (!mix || typeof mix !== "object") return { valid: false, total: 0, errors: ["No hay mezcla definida."] };
+  if (!mix || typeof mix !== "object") {
+    return { valid: false, total: 0, errors: ["No hay mezcla guardada: el modo no es activable."] };
+  }
   let total = 0;
   for (const [code, raw] of Object.entries(mix)) {
     if (code === "T7") {
@@ -42,14 +53,25 @@ export function validateMix(mix: V5Mix | null | undefined): V5MixValidation {
     }
     total += v;
   }
+  for (const b of V5_BUCKETS) {
+    if (!(b in mix)) errors.push(`Falta el bucket ${b} (cero es válido, ausente no).`);
+  }
   if (total !== 100) errors.push(`La suma debe ser exactamente 100 (actual: ${total}).`);
   return { valid: errors.length === 0, total, errors };
 }
 
+export function isModeActivatable(mode: V5ModeCode, mix: V5Mix | null | undefined): { activatable: boolean; errors: string[] } {
+  if (mode === "manual") return { activatable: true, errors: [] };
+  const v = validateMix(mix);
+  return {
+    activatable: v.valid,
+    errors: v.valid ? [] : ["Modo no activable hasta que Carlos Moreno o Carlos Sanz guarden los pesos.", ...v.errors],
+  };
+}
+
 export type V5ModeConfig = {
-  /** Modo global de la organización. */
   global: { mode: V5ModeCode; mix?: V5Mix | null };
-  /** Override por comercial: gana al global. */
+  /** Override por comercial: SIEMPRE gana al global. */
   overrides?: Record<string, { mode: V5ModeCode; mix?: V5Mix | null }> | null;
 };
 
@@ -60,161 +82,150 @@ export function resolveModeFor(
   const ov = comercialId ? config.overrides?.[comercialId] : undefined;
   const chosen = ov ?? config.global;
   const source: "override" | "global" = ov ? "override" : "global";
-  const mix =
-    chosen.mode === "manual"
-      ? null
-      : chosen.mix ?? V5_MODE_TEMPLATES[chosen.mode as Exclude<V5ModeCode, "manual">];
-  return { mode: chosen.mode, mix: mix ?? null, source };
+  return { mode: chosen.mode, mix: chosen.mode === "manual" ? null : chosen.mix ?? null, source };
 }
 
-export type V5SelectionInput = {
+export type V5WindowEntry = { taskKey: string; bucket: string };
+export const V5_WINDOW_SIZE = 20;
+
+export type V5SelectNextInput = {
   comercialId: string | null;
   candidates: readonly V5Candidate[];
   config: V5ModeConfig;
-  /** Buckets de las últimas 20 tareas production (más recientes primero). */
-  recentProductionBuckets?: readonly string[];
-  limit: number;
+  /** Ventana móvil de las últimas 20 selecciones (la más reciente primero). */
+  window?: readonly V5WindowEntry[];
+  now?: Date;
 };
 
-export type V5Selection = {
-  selected: V5Candidate[];
+export type V5SelectNextResult = {
+  selected: V5Candidate | null;
+  window: V5WindowEntry[];
   modeSnapshot: Record<string, unknown>;
-  deficitReport: Record<string, number>;
   reasons: string[];
+  rejected: { taskKey: string; reason: string }[];
 };
 
-function bucketCounts(source: readonly string[]): Record<string, number> {
+function bucketCounts(entries: readonly V5WindowEntry[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const b of V5_BUCKETS) out[b] = 0;
-  for (const b of source) if (b in out) out[b] += 1;
+  for (const e of entries) if (e.bucket in out) out[e.bucket] += 1;
   return out;
 }
 
-/** Prioriza urgencias: T8 urgente, T6 bloqueante, manual urgente. */
-function isPriority(c: V5Candidate): boolean {
-  return (c.taskCode === "T8" && !!c.urgent) || (c.taskCode === "T6" && !!c.blocking);
+function isUrgent(c: V5Candidate): boolean {
+  return (c.taskCode === "T8" && c.urgent === true) || (c.taskCode === "T6" && c.blocking === true);
 }
 
-/**
- * Selección ponderada DETERMINISTA por déficit sobre las últimas 20 production.
- * Si un bucket no tiene elegibles, continúa con los demás sin inventar nada.
- */
-export function selectByMode(input: V5SelectionInput): V5Selection {
+/** Selecciona 0 o 1 candidato. Nunca más. Nunca de otro comercial. */
+export function selectNextByMode(input: V5SelectNextInput): V5SelectNextResult {
   const reasons: string[] = [];
+  const rejected: { taskKey: string; reason: string }[] = [];
+  const windowIn = (input.window ?? []).slice(0, V5_WINDOW_SIZE);
   const resolved = resolveModeFor(input.comercialId, input.config);
-  const history = (input.recentProductionBuckets ?? []).slice(0, 20);
-  const counts = bucketCounts(history);
+
+  const base = {
+    mode: resolved.mode,
+    source: resolved.source,
+    comercial_id: input.comercialId,
+    window_size: windowIn.length,
+  };
 
   if (resolved.mode === "manual") {
     return {
-      selected: [],
-      modeSnapshot: {
-        mode: "manual",
-        source: resolved.source,
-        comercial_id: input.comercialId,
-        automaticas: 0,
-        motivo: "Modo manual: cero tareas automáticas.",
-      },
-      deficitReport: {},
+      selected: null,
+      window: [...windowIn],
+      modeSnapshot: { ...base, automaticas: 0, motivo: "Modo manual: cero tareas automáticas." },
       reasons: ["Modo manual: no se generan automáticas."],
+      rejected,
     };
   }
 
-  const validation = validateMix(resolved.mix);
-  if (!validation.valid) {
+  const activatable = isModeActivatable(resolved.mode, resolved.mix);
+  if (!activatable.activatable) {
     return {
-      selected: [],
-      modeSnapshot: {
-        mode: resolved.mode,
-        source: resolved.source,
-        invalid_mix: true,
-        errors: validation.errors,
-      },
-      deficitReport: {},
-      reasons: validation.errors,
+      selected: null,
+      window: [...windowIn],
+      modeSnapshot: { ...base, activable: false, errores: activatable.errors },
+      reasons: activatable.errors,
+      rejected,
     };
   }
   const mix = resolved.mix as Record<string, number>;
 
-  const pool = new Map<string, V5Candidate[]>();
-  for (const b of V5_BUCKETS) pool.set(b, []);
+  const inWindow = new Set(windowIn.map((e) => e.taskKey));
+  const pool: V5Candidate[] = [];
+  const seenKeys = new Set<string>();
   for (const c of input.candidates) {
-    if (!pool.has(c.taskCode)) continue;
-    pool.get(c.taskCode)!.push(c);
-  }
-  // Orden estable dentro de cada bucket.
-  for (const [, list] of pool) list.sort((a, b) => (a.taskKey < b.taskKey ? -1 : a.taskKey > b.taskKey ? 1 : 0));
-
-  const selected: V5Candidate[] = [];
-  const priorityJustifications: Record<string, string>[] = [];
-
-  // 1) Urgencias que ganan al reparto, justificadas en el snapshot.
-  for (const b of V5_BUCKETS) {
-    const list = pool.get(b)!;
-    for (let i = list.length - 1; i >= 0; i--) {
-      if (selected.length >= input.limit) break;
-      if (isPriority(list[i])) {
-        const [c] = list.splice(i, 1);
-        selected.push(c);
-        counts[c.taskCode] += 1;
-        priorityJustifications.push({
-          task_key: c.taskKey,
-          bucket: c.taskCode,
-          motivo: c.taskCode === "T8" ? "T8 urgente: gana al reparto." : "T6 bloqueante: gana al reparto.",
-        });
-      }
+    if ((c.comercialId ?? null) !== input.comercialId) {
+      rejected.push({ taskKey: c.taskKey, reason: `candidato de comercial ${String(c.comercialId)} ≠ ${String(input.comercialId)}` });
+      continue;
     }
+    if (!(V5_BUCKETS as readonly string[]).includes(c.taskCode)) {
+      rejected.push({ taskKey: c.taskKey, reason: `bucket no admitido: ${c.taskCode}` });
+      continue;
+    }
+    if (inWindow.has(c.taskKey) || seenKeys.has(c.taskKey)) {
+      rejected.push({ taskKey: c.taskKey, reason: "duplicado por task_key" });
+      continue;
+    }
+    seenKeys.add(c.taskKey);
+    pool.push(c);
   }
+  if (rejected.length > 0) reasons.push(`Candidatos descartados: ${rejected.length}`);
+  pool.sort((a, b) => (a.taskKey < b.taskKey ? -1 : a.taskKey > b.taskKey ? 1 : 0));
 
-  // 2) Reparto por mayor déficit respecto a la cuota teórica del histórico + selección.
-  const emptyBuckets: string[] = [];
-  while (selected.length < input.limit) {
-    const totalObserved = Object.values(counts).reduce((a, b) => a + b, 0) + 1;
-    let best: string | null = null;
+  let chosen: V5Candidate | null = null;
+  let urgentJustification: Record<string, unknown> | null = null;
+
+  const urgentCandidate = pool.find(isUrgent);
+  if (urgentCandidate) {
+    chosen = urgentCandidate;
+    urgentJustification = {
+      task_key: urgentCandidate.taskKey,
+      bucket: urgentCandidate.taskCode,
+      motivo: urgentCandidate.taskCode === "T8" ? "T8 urgente gana al reparto (una vez)." : "T6 bloqueante gana al reparto (una vez).",
+    };
+  } else {
+    const counts = bucketCounts(windowIn);
+    const totalObserved = windowIn.length + 1;
+    const vacios: string[] = [];
     let bestDeficit = -Infinity;
     for (const b of V5_BUCKETS) {
       const weight = mix[b] ?? 0;
       if (weight <= 0) continue;
-      if ((pool.get(b)?.length ?? 0) === 0) {
-        if (!emptyBuckets.includes(b)) emptyBuckets.push(b);
+      const available = pool.filter((c) => c.taskCode === b);
+      if (available.length === 0) {
+        vacios.push(b);
         continue;
       }
       const deficit = (weight / 100) * totalObserved - counts[b];
       if (deficit > bestDeficit + 1e-9) {
         bestDeficit = deficit;
-        best = b;
+        chosen = available[0];
       }
     }
-    if (!best) break;
-    const c = pool.get(best)!.shift()!;
-    selected.push(c);
-    counts[best] += 1;
+    if (vacios.length > 0) reasons.push(`Buckets sin elegibles (no se inventa nada): ${vacios.join(", ")}`);
   }
 
-  if (emptyBuckets.length > 0) {
-    reasons.push(`Buckets sin elegibles (no se inventa nada): ${emptyBuckets.join(", ")}`);
-  }
-  if (selected.length < input.limit) {
-    reasons.push(`Déficit: ${selected.length}/${input.limit} candidatos disponibles.`);
+  if (!chosen) {
+    reasons.push("Sin candidato seleccionable para este comercial.");
+    return { selected: null, window: [...windowIn], modeSnapshot: { ...base, mix }, reasons, rejected };
   }
 
-  const deficitReport: Record<string, number> = {};
-  const totalFinal = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
-  for (const b of V5_BUCKETS) deficitReport[b] = Number(((counts[b] / totalFinal) * 100).toFixed(2));
+  // Ventana móvil real: entra el nuevo, sale el más antiguo.
+  const window = [{ taskKey: chosen.taskKey, bucket: chosen.taskCode }, ...windowIn].slice(0, V5_WINDOW_SIZE);
 
   return {
-    selected,
+    selected: chosen,
+    window,
     modeSnapshot: {
-      mode: resolved.mode,
-      source: resolved.source,
-      comercial_id: input.comercialId,
+      ...base,
       mix,
-      history_size: history.length,
-      prioridades: priorityJustifications,
-      buckets_vacios: emptyBuckets,
-      distribucion_resultante: deficitReport,
+      seleccion: { task_key: chosen.taskKey, bucket: chosen.taskCode },
+      urgente: urgentJustification,
+      distribucion_ventana: bucketCounts(window),
     },
-    deficitReport,
     reasons,
+    rejected,
   };
 }
