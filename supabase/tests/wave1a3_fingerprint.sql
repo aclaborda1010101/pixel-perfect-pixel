@@ -65,7 +65,8 @@ SELECT format('FUNC|%s(%s)|kind=%s|ret=%s|vol=%s|secdef=%s|strict=%s|lang=%s|own
               p.prokind, pg_get_function_result(p.oid), p.provolatile,
               p.prosecdef, p.proisstrict, l.lanname, pg_get_userbyid(p.proowner),
               coalesce(array_to_string(p.proconfig, ','), '-'),
-              md5(pg_get_functiondef(p.oid)))
+              CASE WHEN p.prokind IN ('a','w') THEN 'agg/window'
+                   ELSE md5(pg_get_functiondef(p.oid)) END)
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace
   JOIN pg_language l ON l.oid = p.prolang
