@@ -299,7 +299,18 @@ export function mergeEvidencias(...entradas: unknown[]): MergeEvidenciaResult {
     }
   }
   if (!orden.length) return { ok: true, value: null };
-  return { ok: true, value: { fuentes: orden.map((k) => porLocalizador.get(k)!) } };
+  // Una fuente SIN cita en un localizador que ya tiene fuente(s) con cita no
+  // aporta un hecho nuevo: se absorbe (sin perder ningún campo previo).
+  const conCita = new Set<string>();
+  for (const k of orden) {
+    const f = porLocalizador.get(k)!;
+    if (f.cita) conCita.add(fuenteLocatorKey(f));
+  }
+  const fuentes = orden
+    .map((k) => porLocalizador.get(k)!)
+    .filter((f) => f.cita != null || !fuenteTieneLocalizador(f) || !conCita.has(fuenteLocatorKey(f)));
+  if (!fuentes.length) return { ok: true, value: null };
+  return { ok: true, value: { fuentes } };
 }
 
 /** Evidencia registral utilizable: al menos una fuente con localizador válido. */
