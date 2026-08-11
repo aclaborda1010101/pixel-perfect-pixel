@@ -153,7 +153,7 @@ export function hasUsableChannel(owner: V5OwnerContext): boolean {
 export function t2t3Actions(owner: V5OwnerContext, opts: { now?: Date } = {}): V5T2T3Action[] {
   const now = opts.now ?? new Date();
   const wa = owner.whatsapp ?? {};
-  const sig = effectiveSignal(owner).signal;
+  const sig = effectiveSignal(owner, { now }).signal;
   const sent = new Set((wa.sentMessageIds ?? []).filter(Boolean) as string[]);
   const actions: V5T2T3Action[] = [];
 
@@ -243,7 +243,7 @@ export function evaluateOwner(
     };
   }
 
-  const eff = effectiveSignal(owner);
+  const eff = effectiveSignal(owner, { now });
   const signal = eff.signal;
 
   // --- T8: interés vigente (señal efectiva). Gana a todas las automáticas.
@@ -307,7 +307,7 @@ export function evaluateOwner(
   }
 
   // --- T2_T3: UNA tarjeta con todas las acciones vivas.
-  const actions = t2t3Actions(owner);
+  const actions = t2t3Actions(owner, { now });
   if (actions.length > 0) {
     return {
       candidate: makeCandidate({
