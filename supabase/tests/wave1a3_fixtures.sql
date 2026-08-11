@@ -406,11 +406,11 @@ BEGIN
    WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
      AND feeds_cuota AND row_safe_pre_layer AND layer_safe AND unidad_segura
      AND is_canonical AND evidence_ok AND NOT structured_unverified
-     AND right_type = 'pleno_dominio' AND porcentaje = 100
+     AND right_type = 'pleno_dominio' AND percentage = 100
      AND owner_id = 'a0000000-0000-0000-0000-000000000010'
      AND company_id IS NULL AND NOT identidad_ambigua;
   ASSERT n = 1, 'pleno 100 % con cita anclada y DNI único DEBE alimentar cuota';
-  SELECT coalesce(sum(porcentaje), 0) INTO n FROM public.v_p0_rights_staging
+  SELECT coalesce(sum(percentage), 0) INTO n FROM public.v_p0_rights_staging
    WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND feeds_cuota;
   ASSERT n = 100, 'la capa segura suma 100';
 
@@ -419,7 +419,7 @@ BEGIN
    WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
      AND feeds_cuota AND row_safe_pre_layer AND layer_safe AND unidad_segura;
   ASSERT n = 2, '60/40 seguros: ambas filas alimentan cuota';
-  SELECT coalesce(sum(porcentaje), 0) INTO n FROM public.v_p0_rights_staging
+  SELECT coalesce(sum(percentage), 0) INTO n FROM public.v_p0_rights_staging
    WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota;
   ASSERT n = 100, '60 + 40 = 100 en la capa segura';
 
