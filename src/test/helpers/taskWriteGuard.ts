@@ -310,13 +310,30 @@ function scanTs(file: string, source: string): WriteOp[] {
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const name = node.expression.name.text;
-      if (name === "insert" || name === "upsert") {
+      if (name === "rpc") {
+        const lits = literalsOf(node.arguments[0]);
+        const nombres = lits ?? [null];
+        for (const rpcName of nombres) {
+          if (rpcName !== null && !TASK_RPC_RX.test(rpcName)) continue;
+          ops.push({
+            file, kind: "ts", op: "rpc",
+            payload: node.getText(sf).slice(0, 120),
+            payloadIdent: null,
+            line: lineOf(source, node.getStart(sf)),
+            pos: node.getStart(sf),
+            fn: enclosingFn(node),
+            table: rpcName,
+            unresolved: rpcName === null ? "nombre de RPC no resoluble" : undefined,
+          });
+        }
+      }
+      if (name === "insert" || name === "upsert" || name === "update" || name === "delete") {
         const recv = resolveReceiver(node.expression.expression);
         const isTarget = recv.table === TABLE || (recv.sawFrom && recv.table === null);
         if (isTarget) {
           const arg = node.arguments[0];
           ops.push({
-            file, kind: "ts", op: name as "insert" | "upsert",
+            file, kind: "ts", op: name as WriteOp["op"],
             payload: arg ? arg.getText(sf) : "",
             payloadIdent: arg && ts.isIdentifier(arg) ? arg.text : null,
             line: lineOf(source, node.getStart(sf)),
