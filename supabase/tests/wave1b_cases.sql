@@ -52,10 +52,12 @@ INSERT INTO public.building_owners (building_id, owner_id) VALUES
   ('b0000006-0000-0000-0000-000000000006','00000000-0000-0000-0000-0000000000a1');
 -- Cuota heredada insegura (las 1.989 del live, en miniatura). Simula el
 -- estado PREVIO a Wave 1B, por eso se siembra con el permiso del writer.
-SELECT set_config('afflux.wave1b_writer','on',true);
+-- Siembra de estado PREVIO: el guard sólo se desactiva a nivel DDL por el
+-- dueño del esquema de pruebas; ningún rol de aplicación puede hacerlo.
+ALTER TABLE public.building_owners DISABLE TRIGGER building_owners_cuota_guard;
 INSERT INTO public.building_owners (building_id, owner_id, cuota, cuota_estado) VALUES
   ('b0000008-0000-0000-0000-000000000008','00000000-0000-0000-0000-0000000000a3', 100, 'vigente');
-SELECT set_config('afflux.wave1b_writer','off',true);
+ALTER TABLE public.building_owners ENABLE TRIGGER building_owners_cuota_guard;
 
 -- CASO A · 100 % pleno seguro.
 INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
