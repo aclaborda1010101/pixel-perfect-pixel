@@ -2,7 +2,6 @@
 // Catálogo operativo: T-01, T-02, T-03, T-04, T-05, T-06, T-08, T-09.
 // T-07 excluido por decisión del cliente. No publica nada en HubSpot.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
-import { insertV5CallQueueTask } from '../_shared/taskWriters.ts';
 import { decideRuntimeMode } from '../_shared/v5Runtime.ts';
 
 const corsHeaders = {
@@ -153,8 +152,10 @@ Deno.serve(async (req) => {
     // queda contenido — no borra ni inserta NADA (dry-run forzado). Con el
     // flag ON la generación pasa exclusivamente por el Motor V5, que vive
     // fuera de esta función.
+    // CONTENCIÓN P0.4: el writer legacy está RETIRADO. Esta función es
+    // PREVISUALIZACIÓN pura: nunca inserta, nunca borra, con el flag ON o OFF.
     const runtime = decideRuntimeMode();
-    const dryRun = body.dry_run === true || !runtime.legacyWritesAllowed;
+    const dryRun = true;
     const explicitUsers: string[] | null = Array.isArray(body.user_ids)
       ? body.user_ids
       : (body.user_id ? [body.user_id] : null);
@@ -190,16 +191,8 @@ Deno.serve(async (req) => {
     }
 
     // 2) replace_today: borra SOLO pendientes del motor V5 de hoy de esos usuarios
-    let deleted = 0;
-    if (replaceToday && !dryRun) {
-      const { data: del } = await sb.from('building_tasks')
-        .delete()
-        .in('user_id', targets.map((t) => t.user_id))
-        .eq('status', 'pending')
-        .like('task_key', `v5:${hoy}:%`)
-        .select('id');
-      deleted = (del ?? []).length;
-    }
+    // El borrado legacy queda PROHIBIDO: ninguna DML sale de aquí.
+    const deleted = 0;
 
     // 3) Candidatos por comercial
     const takenOwners = new Set<string>();
@@ -298,10 +291,8 @@ Deno.serve(async (req) => {
           status: 'pending',
           due_date: dueIso,
         };
-        if (dryRun) { insertados.push({ ...row, dry_run: true }); continue; }
-        const { data: ins, error: insErr } = await insertV5CallQueueTask(sb, row);
-        if (ins) insertados.push({ ...ins, user_id: target.user_id, task_code: c.task_code });
-        else if (insErr) console.error('insert err', c.task_key, JSON.stringify(insErr));
+        // Previsualización SIEMPRE: el writer legacy ya no existe.
+        insertados.push({ ...row, dry_run: true });
       }
 
       const disponibles: Record<string, number> = {};
