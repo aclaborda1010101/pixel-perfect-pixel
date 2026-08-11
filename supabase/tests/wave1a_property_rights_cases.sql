@@ -547,19 +547,21 @@ BEGIN
   PERFORM pg_temp.assert((v_dry ->> 'bad_evidence')::int >= 1, 'contador bad_evidence');
   PERFORM pg_temp.assert((v_dry ->> 'invalid_pct')::int >= 0, 'contador invalid_pct presente');
   PERFORM pg_temp.assert((v_dry ->> 'dh_feeds')::int = 0, 'dh_feeds debe ser 0');
-  PERFORM pg_temp.assert((v_dry ->> 'bad_evidence_feeds')::int = 0, 'bad_evidence_feeds debe ser 0');
+  -- 1A.3 sustituye el contador por la invariante equivalente.
+  PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'evidencia_mala_o_ambigua_no_alimenta_cuota')::boolean,
+                         'ninguna evidencia mala o ambigua alimenta cuota');
   PERFORM pg_temp.assert((v_dry ->> 'contradicciones')::int >= 1, 'debe detectar la contradicción de misma fecha');
   PERFORM pg_temp.assert((v_dry ->> 'supersedidas_por_fecha')::int >= 2, 'debe detectar las unidades resueltas por fecha');
   PERFORM pg_temp.assert((v_dry ->> 'duplicados_identicos')::int >= 1, 'debe detectar el duplicado idéntico');
-  PERFORM pg_temp.assert((v_dry ->> 'capas_incompletas')::int >= 1, 'al menos una capa incompleta');
-  PERFORM pg_temp.assert((v_dry ->> 'capas_completas')::int >= 1, 'al menos una capa completa');
-  PERFORM pg_temp.assert((v_dry ->> 'mezcla_owner_company')::int = 0, 'mezcla_owner_company = 0');
+  PERFORM pg_temp.assert((v_dry ->> 'capas_no_seguras')::int >= 1, 'al menos una capa no segura');
+  PERFORM pg_temp.assert((v_dry ->> 'capas_seguras')::int >= 1, 'al menos una capa segura (el motor no es "siempre false")');
+  PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'sin_mezcla_owner_company')::boolean, 'sin mezcla owner/company');
   PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'dh_no_alimenta_cuota')::boolean, 'invariante DH');
   PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'role_conflict_no_alimenta_cuota')::boolean, 'invariante role_conflict');
   PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'ganancial_no_alimenta_cuota')::boolean, 'invariante ganancial');
   PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'evidencia_mala_o_ambigua_no_alimenta_cuota')::boolean,
                          'invariante evidencia');
-  PERFORM pg_temp.assert((v_dry ->> 'invariants_ok')::boolean, 'invariants_ok debe ser true');
+  PERFORM pg_temp.assert((v_dry ->> 'safety_invariants_ok')::boolean, 'safety_invariants_ok debe ser true');
   PERFORM pg_temp.assert((v_dry ->> 'applied')::boolean IS FALSE AND v_dry ->> 'real_rebuild' = 'disabled',
                          'el dry-run declara rebuild deshabilitado');
 
