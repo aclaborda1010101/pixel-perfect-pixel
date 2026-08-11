@@ -60,14 +60,26 @@ export function validateMix(mix: V5Mix | null | undefined): V5MixValidation {
   return { valid: errors.length === 0, total, errors };
 }
 
+/**
+ * NINGÚN modo se activa sin mapa completo: el modo `manual` (personalizado)
+ * también genera tareas automáticas, no es una pausa.
+ */
 export function isModeActivatable(mode: V5ModeCode, mix: V5Mix | null | undefined): { activatable: boolean; errors: string[] } {
-  if (mode === "manual") return { activatable: true, errors: [] };
+  void mode;
+  if (Array.isArray(mix) || typeof mix === "string") {
+    return { activatable: false, errors: ["El mapa de pesos debe ser un objeto."] };
+  }
   const v = validateMix(mix);
   return {
     activatable: v.valid,
     errors: v.valid ? [] : ["Modo no activable hasta que Carlos Moreno o Carlos Sanz guarden los pesos.", ...v.errors],
   };
 }
+
+/**
+ * Pausa de generación: interruptor SEPARADO del modo, apagado y NO conectado.
+ */
+export const V5_GENERATION_PAUSED_DEFAULT = false;
 
 export type V5ModeConfig = {
   global: { mode: V5ModeCode; mix?: V5Mix | null };
