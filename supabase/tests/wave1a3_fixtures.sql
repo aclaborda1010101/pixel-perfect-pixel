@@ -668,6 +668,98 @@ BEGIN
 END $$;
 
 -- =====================================================================
+-- P0.4 · MATRIZ CASO A CASO: TODAS las comprobaciones se ejecutan y se
+-- reportan (PASS/FAIL individual). Ningún fallo oculta a los demás; el
+-- bloque sólo lanza al final si alguna quedó en rojo.
+-- =====================================================================
+DO $$
+DECLARE
+  fallos int := 0;
+  d jsonb;
+  PROCEDURE_NOOP boolean;
+  r record;
+BEGIN
+  CREATE TEMP TABLE IF NOT EXISTS _p04_matriz(caso text, ok boolean) ON COMMIT DROP;
+  DELETE FROM _p04_matriz;
+  d := public.p0_property_rights_dry_run();
+
+  INSERT INTO _p04_matriz(caso, ok)
+  SELECT 'POSITIVO 100 pleno: 1 fila exacta alimenta',
+         (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+             AND feeds_cuota AND right_type = 'pleno_dominio' AND percentage = 100) = 1
+  UNION ALL SELECT 'POSITIVO 60/40: Pablo=60 y Elena=40 con IDs distintos',
+         (SELECT count(DISTINCT owner_id) FROM public.v_p0_rights_staging
+           WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota) = 2
+     AND (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE feeds_cuota AND owner_id = 'a0000000-0000-0000-0000-000000000011'
+             AND percentage = 60) = 1
+     AND (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE feeds_cuota AND owner_id = 'a0000000-0000-0000-0000-000000000012'
+             AND percentage = 40) = 1
+  UNION ALL SELECT 'POSITIVO 60/40: misma unidad y misma nota canónica',
+         (SELECT count(DISTINCT (ownership_unit_key, note_simple_id))
+            FROM public.v_p0_rights_staging
+           WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota) = 1
+  UNION ALL SELECT 'POSITIVO 60/40: suma exacta 100 y ambas en pleno dominio',
+         (SELECT coalesce(sum(percentage),0) FROM public.v_p0_rights_staging
+           WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota) = 100
+     AND (SELECT bool_and(right_type = 'pleno_dominio') FROM public.v_p0_rights_staging
+           WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota)
+  UNION ALL SELECT 'CAPAS: nuda 100 + usufructo 100 nunca son un pleno 100',
+         (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE building_id = 'a1111111-1111-1111-1111-11111111aaaa' AND feeds_cuota) = 0
+  UNION ALL SELECT 'CAPAS: cada derecho conserva su capa (nuda y usufructo separadas)',
+         (SELECT count(DISTINCT right_type) FROM public.v_p0_rights_staging
+           WHERE building_id = 'a1111111-1111-1111-1111-11111111aaaa') = 2
+  UNION ALL SELECT 'CAPAS: pleno 50 + nuda 50 + usufructo 50 no se suman ni alimentan',
+         (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE building_id = 'a2222222-2222-2222-2222-22222222aaaa' AND feeds_cuota) = 0
+  UNION ALL SELECT 'FEEDS TOTALES: exactamente 3, sólo en los positivos',
+         (SELECT count(*) FROM public.v_p0_rights_staging WHERE feeds_cuota) = 3
+     AND (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE feeds_cuota AND building_id NOT IN (
+                 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                 'cccccccc-cccc-cccc-cccc-cccccccccccc')) = 0
+  UNION ALL SELECT 'FEEDS: ninguna capa distinta de pleno dominio alimenta',
+         (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE feeds_cuota AND right_type <> 'pleno_dominio') = 0
+  UNION ALL SELECT 'DRY-RUN: readiness_ok false con universo de fixtures (no baseline)',
+         (d ->> 'readiness_ok')::boolean IS FALSE
+  UNION ALL SELECT 'DRY-RUN: baseline.universo_ok false y buildings != esperado',
+         (d -> 'baseline' ->> 'universo_ok')::boolean IS FALSE
+     AND (d -> 'baseline' ->> 'buildings_ok')::boolean IS FALSE
+  UNION ALL SELECT 'DRY-RUN: safety_invariants_ok independiente de readiness_ok',
+         (d ->> 'safety_invariants_ok')::boolean IS TRUE
+  UNION ALL SELECT 'DRY-RUN: wrapper p_apply=false es dry-run y no escribe',
+         (public.p0_rebuild_property_rights('p04', false) ->> 'applied')::boolean IS FALSE;
+
+  FOR r IN SELECT caso, ok FROM _p04_matriz ORDER BY caso LOOP
+    RAISE NOTICE 'CASO % · %', CASE WHEN r.ok THEN 'PASS' ELSE 'FAIL' END, r.caso;
+    IF NOT coalesce(r.ok, false) THEN fallos := fallos + 1; END IF;
+  END LOOP;
+
+  -- El rebuild real sigue bloqueado ANTES de escribir nada.
+  BEGIN
+    PERFORM public.p0_rebuild_property_rights('p04', true);
+    RAISE NOTICE 'CASO FAIL · p_apply=true debe abortar antes de escribir';
+    fallos := fallos + 1;
+  EXCEPTION WHEN others THEN
+    IF SQLERRM LIKE '%REAL_REBUILD_DISABLED%' THEN
+      RAISE NOTICE 'CASO PASS · p_apply=true abortado antes de escribir (%)', 'REAL_REBUILD_DISABLED';
+    ELSE
+      RAISE NOTICE 'CASO FAIL · p_apply=true abortó por otra causa: %', SQLERRM;
+      fallos := fallos + 1;
+    END IF;
+  END;
+
+  IF fallos > 0 THEN
+    RAISE EXCEPTION 'WAVE 1A.3 P0.4 · matriz caso a caso: % caso(s) en rojo', fallos;
+  END IF;
+  RAISE NOTICE 'WAVE 1A.3 P0.4 · matriz caso a caso: TODO EN VERDE';
+END $$;
+
+-- =====================================================================
 -- NADA SE PERSISTE: la transacción de fixtures SIEMPRE se deshace.
 -- =====================================================================
 ROLLBACK;
