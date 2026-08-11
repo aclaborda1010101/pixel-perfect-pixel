@@ -235,8 +235,12 @@ export type V5OwnerContext = {
     authorizedNumber?: boolean;
     pendingContentAfterSignal?: boolean;
     pendingMessageId?: string | null;
+    /** Alternativa trazable al pendingMessageId: id de evento de contenido. */
+    contentEventId?: string | null;
     sentMessageIds?: string[] | null;
     sent?: boolean;
+    /** Sólo legado explícito: `sent` global sin ids de mensaje. */
+    legacySentFallback?: boolean;
   } | null;
   cadence?: { dueAt?: string | null; channelUsable?: boolean } | null;
   identity?: V5IdentityFlags | null;
