@@ -57,14 +57,24 @@ export const AUTHORIZED_WRITERS: Record<string, TsRule> = {
 };
 
 /** RPC SQL autorizadas: clave `<esquema>.<función>` + contrato exigido. */
-export const AUTHORIZED_SQL_WRITERS: Record<string, { id: string; requires: RegExp[] }> = {
+export type SqlRule = {
+  id: string;
+  /** Deben aparecer ANTES de la escritura y a profundidad 0 (dominancia). */
+  requiresBefore: RegExp[];
+  /** Deben aparecer en el cuerpo (contrato de la fila escrita). */
+  requires: RegExp[];
+};
+
+export const AUTHORIZED_SQL_WRITERS: Record<string, SqlRule> = {
   "public.commit_v5_generation_plan": {
     id: "v5_commit_plan",
-    requires: [/v5_assert_canonical_task_key\s*\(/i, /'production'/],
+    requiresBefore: [/v5_assert_canonical_task_key\s*\(/i],
+    requires: [/'production'/],
   },
   "public.create_manual_building_task": {
     id: "manual_rpc",
-    requires: [/'manual'/, /manual_subtype/i],
+    requiresBefore: [/manual_subtype/i],
+    requires: [/'manual'/],
   },
 };
 
@@ -106,11 +116,19 @@ export const AUTHORIZED_TASK_RPCS: Record<string, { id: string; units: string[] 
 export const TASK_RPC_RX = /(building_task|_v5_generation|task_runtime)/i;
 
 /** Mutaciones SQL (update/delete) autorizadas por función + contrato. */
-export const AUTHORIZED_SQL_MUTATORS: Record<string, { id: string; requires: RegExp[] }> = {
-  "public.start_building_task": { id: "lifecycle_start", requires: [/FOR UPDATE/i, /auth\.uid\(\)/i] },
-  "public.reopen_building_task": { id: "lifecycle_reopen", requires: [/FOR UPDATE/i, /auth\.uid\(\)/i] },
-  "public.resolve_building_task": { id: "lifecycle_resolve", requires: [/FOR UPDATE/i, /auth\.uid\(\)/i] },
-  "public.commit_v5_generation_plan": { id: "v5_commit_plan", requires: [/lease/i] },
+export const AUTHORIZED_SQL_MUTATORS: Record<string, SqlRule> = {
+  "public.start_building_task": {
+    id: "lifecycle_start", requiresBefore: [/FOR UPDATE/i], requires: [/auth\.uid\(\)/i],
+  },
+  "public.reopen_building_task": {
+    id: "lifecycle_reopen", requiresBefore: [/FOR UPDATE/i], requires: [/auth\.uid\(\)/i],
+  },
+  "public.resolve_building_task": {
+    id: "lifecycle_resolve", requiresBefore: [/FOR UPDATE/i], requires: [/auth\.uid\(\)/i],
+  },
+  "public.commit_v5_generation_plan": {
+    id: "v5_commit_plan", requiresBefore: [/lease/i], requires: [],
+  },
 };
 
 /** DML de nivel superior autorizada en migraciones (clasificación histórica). */
@@ -565,12 +583,16 @@ function checkTsContract(
  * puede haber mutaciones posteriores de la tabla en el mismo cuerpo.
  */
 function checkSqlContract(
-  op: WriteOp, rule: { id: string; requires: RegExp[] }, source: string,
+  op: WriteOp, rule: SqlRule, source: string,
 ): string | null {
   const range = sqlFunctionRanges(source).find((r) => r.name === op.fn && op.pos > r.bodyStart && op.pos < r.bodyEnd);
   if (!range) return `${rule.id}: la operación no está dentro del cuerpo de ${op.fn}`;
   const antes = source.slice(range.bodyStart, op.pos);
+  const cuerpo = source.slice(range.bodyStart, range.bodyEnd);
   for (const rx of rule.requires) {
+    if (!rx.test(cuerpo)) return `${rule.id}: la definición no cumple el contrato (${rx})`;
+  }
+  for (const rx of rule.requiresBefore) {
     const local = new RegExp(rx.source, rx.flags.replace("g", "") + "g");
     let ok = false;
     let m: RegExpExecArray | null;
