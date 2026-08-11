@@ -92,10 +92,11 @@ BEGIN
 
   -- CASO 7: must_change_password no se puede limpiar desde el cliente.
   UPDATE public.profiles SET must_change_password = true WHERE id = u_com;
-  PERFORM pg_temp.como(u_com, format(
+  r := pg_temp.como(u_com, format(
     '(WITH x AS (UPDATE public.profiles SET must_change_password = false WHERE id = %L::uuid RETURNING 1) SELECT count(*)::text FROM x)', u_com));
   IF NOT (SELECT must_change_password FROM public.profiles WHERE id = u_com) THEN
-    RAISE EXCEPTION 'CASO 7 FAIL: el usuario se quitó el flag';
+    RAISE EXCEPTION 'CASO 7 FAIL: el usuario se quitó el flag (triggers=%, r=%)',
+      (SELECT string_agg(tgname, ',') FROM pg_trigger WHERE tgrelid='public.profiles'::regclass AND NOT tgisinternal), r;
   END IF;
   RAISE NOTICE 'CASO 7 PASS · must_change_password sólo por flujo privilegiado';
 END $$;
