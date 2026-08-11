@@ -235,10 +235,17 @@ COMMENT ON FUNCTION public.p0_locator_valid(text, text, text) IS
 -- ---------------------------------------------------------------------
 -- 6) EVIDENCIA CONSERVADORA
 -- ---------------------------------------------------------------------
--- Cita apta = contiene el MISMO titular + SU derecho + SU porcentaje y está
--- ANCLADA (normalización tolerante) en raw_pdf_text, o procede de un elemento
--- structured_json inequívoco (exactamente uno) con localizador verificable.
--- Se cuentan candidatos y se exige EXACTAMENTE UNO: nunca LIMIT 1.
+-- P0.1 · REGLA ÚNICA E INNEGOCIABLE DE ESTA WAVE:
+--   La ÚNICA evidencia que puede alimentar cuota es una CITA NO VACÍA,
+--   realmente ANCLADA en raw_pdf_text (normalización tolerante), y esa
+--   MISMA cita debe contener titular inequívoco + SU derecho + SU
+--   porcentaje. Exactamente UN candidato coherente (nunca LIMIT 1).
+--
+--   structured_json, ruta, pagina y offset son SOLO AUDITORÍA. Por sí
+--   solos NUNCA producen evidence_ok ni feeds_cuota: sintaxis válida no
+--   es evidencia. Un localizador no demuestra, en SQL, que apunta al
+--   MISMO elemento/titular; cuando no puede probarse se marca
+--   structured_unverified y se BLOQUEA.
 CREATE OR REPLACE FUNCTION public.p0_evidence_check(p_titular_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
@@ -266,6 +273,7 @@ DECLARE
   v_traz       boolean := false;
   v_amb        boolean := false;
   v_bad        boolean := false;
+  v_struct_unv boolean := false;
   v_evid_presente boolean := false;
   v_fuente     text := 'ninguna';
   v_ref        text := NULL;
@@ -279,6 +287,7 @@ BEGIN
     RETURN jsonb_build_object('titular_ok', false, 'derecho_ok', false, 'porcentaje_ok', false,
                               'anclada', false, 'trazable', false, 'evidence_ok', false,
                               'evidence_ambiguous', false, 'bad_evidence', true,
+                              'structured_unverified', false,
                               'fuente', 'ninguna', 'cita', NULL, 'candidatos', 0);
   END IF;
 
