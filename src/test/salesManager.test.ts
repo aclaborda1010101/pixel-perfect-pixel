@@ -21,7 +21,8 @@ import {
   MAX_PERIOD_DAYS,
   type SalesManagerRow,
 } from "@/lib/salesManagerMetrics";
-import { canStartTask, decideTaskStart, reopenPatch } from "@/lib/taskStart";
+import { canStartTask, canReopenTask, decideTaskStart, decideTaskReopen } from "@/lib/taskStart";
+import { isModeConfigured, modeConfigLabel, DEFAULT_GENERATION_STATE } from "@/lib/salesTaskModes";
 import { FEATURE_SALES_TASK_MODE_ALLOCATOR, FEATURE_FORCE_PASSWORD_EDGE_FN } from "@/lib/featureFlags";
 import { decideAccess, GESTOR_PATH, PASSWORD_PATH, postPasswordChangePath } from "@/lib/access";
 import {
@@ -34,6 +35,8 @@ import {
   getSalesManagerDashboardSim,
   reopenBuildingTaskSim,
   startBuildingTaskSim,
+  getAgentDisplayNamesSim,
+  AGENT_DISPLAY_FIELDS,
   type AppRole,
   type Claims,
   type TaskRow,
@@ -77,11 +80,44 @@ describe("RLS efectiva con identidades", () => {
   const dav: Claims = { uid: "dav", roles: ["comercial_zona"] };
   const admin: Claims = { uid: "adm", roles: ["admin"] };
 
-  it("el gestor ve su perfil y el de sus miembros ACTIVOS, no otros", () => {
+  it("el gestor NO lee perfiles ni roles de sus miembros: sólo el suyo", () => {
     expect(canSelectProfile(mgr, "mgr", team)).toBe(true);
-    expect(canSelectProfile(mgr, "dav", team)).toBe(true);
+    expect(canSelectProfile(mgr, "dav", team)).toBe(false);
     expect(canSelectProfile(mgr, "old", team)).toBe(false);
-    expect(canSelectProfile(mgr, "ajeno", team)).toBe(false);
+    expect(canSelectUserRole(mgr, "dav", team)).toBe(false);
+    // La política SQL tampoco contempla ya la rama de equipo.
+    const profilesPolicy = /CREATE POLICY profiles_select_scoped[\s\S]*?;/.exec(SQL)![0];
+    expect(profilesPolicy).not.toMatch(/sales_manager_team_members/);
+    const rolesPolicy = /CREATE POLICY user_roles_select_scoped[\s\S]*?;/.exec(SQL)![0];
+    expect(rolesPolicy).not.toMatch(/sales_manager_team_members/);
+  });
+
+  it("atribución WhatsApp: sólo id + nombre, sin enumerar la base", () => {
+    const profiles = [
+      { id: "a1", full_name: "Ana", email: "ana@afflux.es" },
+      { id: "a2", full_name: null, email: "b@afflux.es" },
+    ];
+    const wa: Claims = { uid: "w", roles: ["whatsapp"] };
+    const out = getAgentDisplayNamesSim(wa, ["a1", "a2"], profiles);
+    expect(out).toEqual([
+      { id: "a1", display_name: "Ana" },
+      { id: "a2", display_name: "agente" },
+    ]);
+    for (const r of out) expect(Object.keys(r).sort()).toEqual([...AGENT_DISPLAY_FIELDS].sort());
+    // Sin ids no hay enumeración; un comercial no obtiene nada.
+    expect(getAgentDisplayNamesSim(wa, [], profiles)).toEqual([]);
+    expect(getAgentDisplayNamesSim(dav, ["a1"], profiles)).toEqual([]);
+    // El panel ya no consulta la tabla profiles.
+    const src = readFileSync("src/pages/whatsapp/WhatsappDashboard.tsx", "utf8");
+    expect(src).toContain("get_agent_display_names");
+    expect(src).not.toMatch(/from\("profiles"/);
+    expect(SQL).toContain("REVOKE ALL ON FUNCTION public.get_agent_display_names(uuid[]) FROM PUBLIC, anon");
+  });
+
+  it("un comercial sólo se ve a sí mismo y el admin lo ve todo", () => {
+    expect(canSelectProfile(dav, "dav", team)).toBe(true);
+    expect(canSelectProfile(dav, "mgr", team)).toBe(false);
+    expect(canSelectProfile(admin, "quien-sea", team)).toBe(true);
   });
 
   it("un comercial sólo se ve a sí mismo; el admin lo ve todo", () => {
@@ -173,6 +209,38 @@ describe("alta de gestor y equipo", () => {
     expect(SQL).toMatch(/manager_id[^,]*REFERENCES public\.profiles\(id\) ON DELETE CASCADE/);
     expect(SQL).toMatch(/member_id[^,]*REFERENCES public\.profiles\(id\) ON DELETE CASCADE/);
     expect(SQL).toMatch(/CHECK \(manager_id <> member_id\)/);
+  });
+
+  it("deduplica p_members: un UUID repetido no falla ni falsea el recuento", () => {
+    const db = base();
+    const r = finalizeSalesManagerSetupSim(
+      admin,
+      { user_id: "carlos", expected_email: "carlos@afflux.es", full_name: "Carlos", members: ["dav", "dav"] },
+      db,
+    );
+    expect(r).toMatchObject({ ok: true, miembros: 1 });
+    expect(db.team.filter((t) => t.manager_id === "carlos")).toHaveLength(1);
+    expect(SQL).toContain("array_agg(DISTINCT m)");
+  });
+
+  it("el gestor no puede ser miembro de su propio equipo", () => {
+    const db = base();
+    expect(
+      finalizeSalesManagerSetupSim(
+        admin,
+        { user_id: "carlos", expected_email: "carlos@afflux.es", full_name: "C", members: ["carlos"] },
+        db,
+      ),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("conserva el prerrequisito versionado del enum sales_manager con preflight claro", () => {
+    const prereq = readFileSync(
+      "supabase/migrations/20260810135324_eb4eb19d-b6ad-43ed-8594-0b9ce132c348.sql",
+      "utf8",
+    );
+    expect(prereq).toMatch(/sales_manager/);
+    expect(SQL).toContain("no contiene el valor sales_manager");
   });
 });
 
@@ -315,10 +383,11 @@ describe("modos de reparto", () => {
     expect(SALES_TASK_GROUPS.every((g) => g.label.includes("pendiente validar"))).toBe(true);
   });
 
-  it("equilibrado no define porcentajes propios", () => {
-    const eq = SALES_TASK_MODES.find((m) => m.code === "equilibrado")!;
-    expect(eq.followsEngineDefault).toBe(true);
-    expect(eq.requiresWeights).toBe(false);
+  it("todos los modos, incluido equilibrado, exigen pesos explícitos del usuario", () => {
+    for (const m of SALES_TASK_MODES) {
+      expect(m.requiresWeights).toBe(true);
+      expect(m.followsEngineDefault).toBe(false);
+    }
   });
 
   it("exige TODOS los grupos: faltantes, extras y T7 != 0 fallan", () => {
@@ -405,7 +474,45 @@ describe("inicio, reapertura y cierre", () => {
     const t = mk({ status: "completed", started_at: "2026-03-01T09:00:00Z", completed_at: "2026-03-02T09:00:00Z" });
     reopenBuildingTaskSim(dav, t);
     expect(t).toMatchObject({ status: "pending", started_at: null, completed_at: null });
-    expect(reopenPatch()).toEqual({ status: "pending", started_at: null, completed_at: null });
+    // Reapertura sólo desde estados terminales/bloqueados.
+    for (const s of ["completed", "skipped", "no_procede", "blocked"]) {
+      expect(canReopenTask({ status: s })).toBe(true);
+    }
+    for (const s of ["pending", "in_progress"]) {
+      expect(decideTaskReopen({ status: s })).toMatchObject({ action: "reject" });
+      expect(reopenBuildingTaskSim(dav, mk({ status: s }))).toMatchObject({ ok: false });
+    }
+  });
+
+  it("in_progress histórico sin started_at no inventa duración: exige reapertura", () => {
+    expect(decideTaskStart({ status: "in_progress", started_at: null })).toMatchObject({
+      action: "reject", reason: "requiere_reapertura",
+    });
+    expect(startBuildingTaskSim(dav, mk({ status: "in_progress", started_at: null }), now)).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("los modos de generación no productivos no son iniciables", () => {
+    for (const m of ["legacy", "demo"]) {
+      expect(decideTaskStart({ status: "pending", generation_mode: m })).toMatchObject({
+        action: "reject", reason: "modo_no_iniciable",
+      });
+    }
+    for (const m of ["production", "manual"]) {
+      expect(decideTaskStart({ status: "pending", generation_mode: m }).action).toBe("start");
+    }
+  });
+
+  it("ninguna pantalla reabre tareas con UPDATE directo: todas usan el RPC", () => {
+    for (const f of [
+      "src/pages/comercial/Tareas.tsx",
+      "src/components/comercial/BuildingTasksSection.tsx",
+    ]) {
+      const src = readFileSync(f, "utf8");
+      expect(src).toContain("reopenBuildingTask");
+      expect(src).not.toMatch(/from\("building_tasks"\)\s*\.update/);
+    }
   });
 
   it("completar sin inicio está permitido pero no computa duración", () => {
@@ -517,12 +624,13 @@ describe("métricas del panel", () => {
   const row: SalesManagerRow = {
     user_id: "u1", full_name: "David",
     created_in_period: 10, completed_in_period: 8,
+    skipped_in_period: 2, no_procede_in_period: 1,
     con_plazo: 4, en_plazo: 3, con_duracion: 4,
     media_horas: 2.5, mediana_horas: 2,
     cobertura_inicio_creadas: 5, cobertura_inicio_pct: 50, cobertura_duracion_pct: 50,
     snapshot: {
-      pending: 2, in_progress: 1, blocked: 1, skipped: 0, completed: 8, unknown: 0,
-      vencidas_ahora: 1, as_of: "2026-03-09T10:00:00.000Z",
+      pending: 2, in_progress: 1, blocked: 1, skipped: 0, no_procede: 0, completed: 8, unknown: 0,
+      vencidas_ahora: 1, bloqueadas_vencidas: 1, as_of: "2026-03-09T10:00:00.000Z",
     },
     mezcla_creadas: { T1: 4, T2_T3: 6 },
   };
@@ -542,5 +650,46 @@ describe("métricas del panel", () => {
     expect(fmtHoras(null)).toBe("—");
     expect(fmtHoras(0.5)).toBe("30 min");
     expect(mezclaEntries(row)[0]).toEqual(["T2_T3", 6]);
+  });
+
+  it("skipped/no_procede no cuentan como completadas y blocked no penaliza", () => {
+    expect(row.completed_in_period).toBe(8);
+    expect(row.skipped_in_period + row.no_procede_in_period).toBe(3);
+    // Las bloqueadas vencidas se muestran aparte de las vencidas del comercial.
+    expect(row.snapshot.bloqueadas_vencidas).toBe(1);
+    expect(completionRate({ ...row, completed_in_period: 11 })).toBe(75);
+  });
+});
+
+// ------------------------------------------------------------------- modos
+describe("contrato final de modos", () => {
+  it("los cuatro modos generan automáticas y ninguno se activa sin mapa completo", () => {
+    expect(SALES_TASK_MODES).toHaveLength(4);
+    for (const m of SALES_TASK_MODES) {
+      expect(isModeConfigured(null)).toBe(false);
+      expect(modeConfigLabel(null)).toBe("no configurado");
+      expect(m.code).toBeTruthy();
+    }
+    const ok = { ...emptyWeights(), T1: 100 };
+    expect(isModeConfigured(ok)).toBe(true);
+    expect(modeConfigLabel(ok)).toBe("configurado");
+  });
+
+  it("p_weights inválido se rechaza sin reutilizar pesos anteriores", () => {
+    for (const bad of [null, undefined, [] as any, "T1:100" as any, { T1: 100 } as any, { ...emptyWeights(), T1: 99.5, T2_T3: 0.5 }]) {
+      expect(validateWeights(bad as any).valid).toBe(false);
+    }
+  });
+
+  it("la pausa es un flag separado, apagado y sin conectar al motor", () => {
+    expect(DEFAULT_GENERATION_STATE).toEqual({ paused: false, connected: false });
+  });
+
+  it("el panel muestra el estado de configuración y no afirma que ya afecte al motor", () => {
+    const src = readFileSync("src/components/gestor/ModosTareasCard.tsx", "utf8");
+    expect(src).toContain("modeConfigLabel(weights)");
+    expect(modeConfigLabel(emptyWeights())).toBe("no configurado");
+    expect(src).not.toMatch(/ya afecta al motor|el motor ya usa/i);
+    expect(src).toMatch(/sólo <strong>configura<\/strong>/);
   });
 });

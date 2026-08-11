@@ -146,10 +146,10 @@ CREATE TABLE IF NOT EXISTS public.sales_task_modes (
 );
 
 INSERT INTO public.sales_task_modes (code, label, description, follows_engine_default, requires_weights, sort_order) VALUES
-  ('equilibrado',           'Equilibrado',            'Reparto actual del motor V5. No define porcentajes propios.', true,  false, 1),
-  ('iniciar_conversaciones','Iniciar conversaciones', 'Requiere pesos completos y válidos antes de activarse.',      false, true,  2),
-  ('seguimiento',           'Seguimiento',            'Requiere pesos completos y válidos antes de activarse.',      false, true,  3),
-  ('manual',                'Manual',                 'Pesos definidos a mano. Requiere configuración válida.',      false, true,  4)
+  ('equilibrado',           'Equilibrado',            'Genera tareas automáticas. Porcentajes definidos en el panel.', false, true, 1),
+  ('iniciar_conversaciones','Iniciar conversaciones', 'Genera tareas automáticas. Requiere mapa completo y válido.',   false, true, 2),
+  ('seguimiento',           'Seguimiento',            'Genera tareas automáticas. Requiere mapa completo y válido.',   false, true, 3),
+  ('manual',                'Manual (personalizado)', 'Porcentajes a mano. TAMBIÉN genera automáticas: no es pausa.',  false, true, 4)
 ON CONFLICT (code) DO UPDATE
   SET label = EXCLUDED.label, description = EXCLUDED.description,
       follows_engine_default = EXCLUDED.follows_engine_default,
@@ -210,6 +210,13 @@ CREATE TABLE IF NOT EXISTS public.sales_task_mode_active (
 INSERT INTO public.sales_task_mode_active (singleton, mode_code)
 VALUES (true, 'equilibrado')
 ON CONFLICT (singleton) DO NOTHING;
+
+-- Pausa de generación automática: interruptor SEPARADO del modo, OFF y
+-- todavía NO consumido por el motor (Fase C).
+ALTER TABLE public.sales_task_mode_active
+  ADD COLUMN IF NOT EXISTS generation_paused boolean NOT NULL DEFAULT false;
+COMMENT ON COLUMN public.sales_task_mode_active.generation_paused IS
+  'Pausa de la generación automática. Independiente del modo. Modelo declarado, aún no conectado al motor.';
 
 CREATE TABLE IF NOT EXISTS public.sales_task_mode_overrides (
   user_id    uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -551,11 +558,15 @@ BEGIN
     RAISE EXCEPTION 'modo desconocido: %', p_mode_code USING ERRCODE = '22023';
   END IF;
 
-  IF p_weights IS NOT NULL AND jsonb_typeof(p_weights) = 'object' THEN
-    IF v_mode.follows_engine_default THEN
-      RAISE EXCEPTION 'el modo % sigue el reparto del motor y no admite pesos', p_mode_code USING ERRCODE = '22023';
-    END IF;
+  -- p_weights DEBE ser un objeto: null, array, string o escalar => rechazo.
+  -- Cada guardado o activación revalida el mapa SUMINISTRADO: nunca se
+  -- reutilizan en silencio pesos antiguos.
+  IF p_weights IS NULL OR jsonb_typeof(p_weights) <> 'object' THEN
+    RAISE EXCEPTION 'p_weights debe ser un objeto con los pesos completos (recibido: %)',
+      COALESCE(jsonb_typeof(p_weights), 'null') USING ERRCODE = '22023';
+  END IF;
 
+  IF true THEN
     FOR v_key, v_val IN SELECT * FROM jsonb_each(p_weights) LOOP
       SELECT enabled INTO v_enabled FROM public.sales_task_groups WHERE code = v_key;
       IF NOT FOUND THEN
@@ -666,6 +677,7 @@ AS $$
 DECLARE
   v_uid uuid := auth.uid();
   v_row public.building_tasks%ROWTYPE;
+  v_mode text;
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
@@ -675,8 +687,16 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'tarea inexistente' USING ERRCODE = 'P0002';
   END IF;
+  -- Ni siquiera un admin arranca tareas ajenas desde aquí: haría falta una
+  -- RPC administrativa separada.
   IF v_row.user_id IS DISTINCT FROM v_uid THEN
     RAISE EXCEPTION 'la tarea no te pertenece' USING ERRCODE = '42501';
+  END IF;
+
+  -- Sólo tareas de producción o manuales: legacy/demo NO son iniciables.
+  v_mode := COALESCE(to_jsonb(v_row) ->> 'generation_mode', 'production');
+  IF v_mode NOT IN ('production','manual') THEN
+    RAISE EXCEPTION 'modo de generación no iniciable: %', v_mode USING ERRCODE = '22023';
   END IF;
 
   IF v_row.status IN ('completed','skipped','no_procede','blocked') THEN
@@ -686,6 +706,11 @@ BEGIN
   IF v_row.status = 'in_progress' AND v_row.started_at IS NOT NULL THEN
     RETURN jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status,
                               'started_at', v_row.started_at, 'idempotent', true);
+  END IF;
+
+  -- in_progress HISTÓRICO sin started_at: no se inventa duración retroactiva.
+  IF v_row.status = 'in_progress' AND v_row.started_at IS NULL THEN
+    RAISE EXCEPTION 'tarea in_progress sin inicio registrado: requiere reapertura' USING ERRCODE = '22023';
   END IF;
 
   IF v_row.status NOT IN ('pending','in_progress') THEN
@@ -727,6 +752,11 @@ BEGIN
     RAISE EXCEPTION 'la tarea no te pertenece' USING ERRCODE = '42501';
   END IF;
 
+  -- Reapertura SÓLO desde estados terminales o bloqueados.
+  IF v_row.status IS NULL OR v_row.status NOT IN ('completed','skipped','no_procede','blocked') THEN
+    RAISE EXCEPTION 'estado no reabrible: %', COALESCE(v_row.status,'null') USING ERRCODE = '22023';
+  END IF;
+
   UPDATE public.building_tasks
      SET status = 'pending', started_at = NULL, completed_at = NULL, updated_at = now()
    WHERE id = p_task_id
@@ -760,8 +790,16 @@ DECLARE
   v_roles_borrados int := 0;
   v_altas          int := 0;
   v_desactivados   int := 0;
-  v_solicitados    int := COALESCE(array_length(p_members, 1), 0);
+  v_solicitados    int := 0;
+  v_members        uuid[];
 BEGIN
+  -- Deduplicación PREVIA: un UUID repetido no puede fallar ni falsear counts.
+  SELECT COALESCE(array_agg(DISTINCT m), '{}'::uuid[])
+    INTO v_members
+    FROM unnest(COALESCE(p_members, '{}'::uuid[])) AS m
+   WHERE m IS NOT NULL;
+  v_solicitados := COALESCE(array_length(v_members, 1), 0);
+
   IF v_uid IS NOT NULL AND NOT public.has_role(v_uid, 'admin') THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
   END IF;
@@ -783,7 +821,7 @@ BEGIN
 
   -- 2. Todos los miembros deben existir y ser comercial_zona (validación previa).
   IF v_solicitados > 0 THEN
-    FOREACH v_member IN ARRAY p_members LOOP
+    FOREACH v_member IN ARRAY v_members LOOP
       IF v_member = p_user_id THEN
         RAISE EXCEPTION 'el gestor no puede ser miembro de su propio equipo' USING ERRCODE = '22023';
       END IF;
@@ -818,14 +856,14 @@ BEGIN
        SET active = false, updated_at = now()
      WHERE manager_id = p_user_id
        AND active
-       AND NOT (member_id = ANY (COALESCE(p_members, '{}'::uuid[])))
+       AND NOT (member_id = ANY (v_members))
     RETURNING 1
   )
   SELECT COUNT(*) INTO v_desactivados FROM bajas;
 
   WITH altas AS (
     INSERT INTO public.sales_manager_team_members (manager_id, member_id, active)
-    SELECT p_user_id, m, true FROM unnest(COALESCE(p_members, '{}'::uuid[])) AS m
+    SELECT p_user_id, m, true FROM unnest(v_members) AS m
     ON CONFLICT (manager_id, member_id) DO UPDATE SET active = true, updated_at = now()
     RETURNING 1
   )
@@ -861,23 +899,18 @@ DROP FUNCTION IF EXISTS public.finalize_sales_manager_setup(uuid, text, uuid[]);
 DROP POLICY IF EXISTS profiles_select_authenticated   ON public.profiles;
 DROP POLICY IF EXISTS user_roles_select_authenticated ON public.user_roles;
 
--- profiles: propio perfil + admin + datos MÍNIMOS de miembros activos del equipo.
+-- profiles: SELECT DIRECTO sólo self + admin. El sales_manager NO recibe filas
+-- de perfil de sus miembros: el panel consume únicamente la RPC agregada.
 DROP POLICY IF EXISTS profiles_select_scoped ON public.profiles;
 CREATE POLICY profiles_select_scoped ON public.profiles
   FOR SELECT TO authenticated
   USING (
     id = auth.uid()
     OR public.has_role(auth.uid(), 'admin')
-    OR (
-      public.has_role(auth.uid(), 'sales_manager')
-      AND EXISTS (
-        SELECT 1 FROM public.sales_manager_team_members t
-        WHERE t.manager_id = auth.uid() AND t.member_id = public.profiles.id AND t.active
-      )
-    )
   );
 
--- user_roles: propio rol + admin + rol de los miembros activos del equipo.
+-- user_roles: propio rol + admin. Sin excepción para sales_manager (evita
+-- además cualquier recursión con las políticas de profiles).
 DROP POLICY IF EXISTS user_roles_self_read     ON public.user_roles;
 DROP POLICY IF EXISTS user_roles_select_scoped ON public.user_roles;
 CREATE POLICY user_roles_select_scoped ON public.user_roles
@@ -885,14 +918,30 @@ CREATE POLICY user_roles_select_scoped ON public.user_roles
   USING (
     user_id = auth.uid()
     OR public.has_role(auth.uid(), 'admin')
-    OR (
-      public.has_role(auth.uid(), 'sales_manager')
-      AND EXISTS (
-        SELECT 1 FROM public.sales_manager_team_members t
-        WHERE t.manager_id = auth.uid() AND t.member_id = public.user_roles.user_id AND t.active
-      )
-    )
   );
+
+-- ---------------------------------------------------------------------
+-- 7b. Atribución MÍNIMA de agentes para el panel de WhatsApp.
+--     Devuelve EXCLUSIVAMENTE id + nombre visible de los ids solicitados.
+--     Ni email, ni avatar, ni roles, ni timestamps, ni must_change_password.
+--     No permite enumerar la tabla base (exige lista de ids).
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.get_agent_display_names(p_ids uuid[])
+RETURNS TABLE (id uuid, display_name text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT p.id, NULLIF(btrim(COALESCE(p.full_name, '')), '') AS display_name
+  FROM public.profiles p
+  WHERE auth.uid() IS NOT NULL
+    AND (public.has_role(auth.uid(), 'whatsapp') OR public.has_role(auth.uid(), 'admin'))
+    AND p_ids IS NOT NULL
+    AND array_length(p_ids, 1) IS NOT NULL
+    AND array_length(p_ids, 1) <= 200
+    AND p.id = ANY (p_ids);
+$$;
+
+REVOKE ALL ON FUNCTION public.get_agent_display_names(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_agent_display_names(uuid[]) TO authenticated;
 
 -- El usuario normal NO puede quitarse must_change_password vía profiles.update.
 DROP POLICY IF EXISTS profiles_self_update_safe ON public.profiles;

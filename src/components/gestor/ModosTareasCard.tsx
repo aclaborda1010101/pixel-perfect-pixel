@@ -11,6 +11,8 @@ import {
   SALES_TASK_MODES,
   emptyWeights,
   validateWeights,
+  modeConfigLabel,
+  DEFAULT_GENERATION_STATE,
   type SalesTaskGroupCode,
   type SalesTaskModeCode,
   type WeightMap,
@@ -63,11 +65,16 @@ export function ModosTareasCard() {
       <CardHeader>
         <CardTitle className="text-base">Modo de reparto de tareas</CardTitle>
         <CardDescription>
-          El cambio afecta <strong>sólo a tareas futuras</strong>: las ya asignadas no se tocan.
-          Si la configuración es inválida o falta, se conserva el comportamiento actual del motor.
+          Los cuatro modos <strong>generan tareas automáticas</strong>; «Manual» significa porcentajes
+          personalizados, <strong>no</strong> una pausa. Esta pantalla sólo <strong>configura</strong>:
+          todavía <strong>no</strong> afecta al motor (pendiente de Fase C).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex items-center justify-between rounded-md border p-2 text-xs">
+          <span>Generación automática pausada (modelo, aún no conectado)</span>
+          <Badge variant="outline">{DEFAULT_GENERATION_STATE.paused ? "Sí" : "No"}</Badge>
+        </div>
         <div className="flex flex-wrap gap-2">
           {SALES_TASK_MODES.map((m) => (
             <Button
@@ -82,9 +89,12 @@ export function ModosTareasCard() {
           ))}
         </div>
 
-        <p className="text-xs text-muted-foreground">{modeDef.description}</p>
+        <p className="text-xs text-muted-foreground">
+          {modeDef.description}{" "}
+          <Badge variant={validation.valid ? "secondary" : "outline"}>{modeConfigLabel(weights)}</Badge>
+        </p>
 
-        {!modeDef.followsEngineDefault && (
+        {true && (
           <>
             <div className="grid gap-2 sm:grid-cols-2">
               {SALES_TASK_GROUPS.map((g) => (

@@ -60,33 +60,51 @@ export const SALES_TASK_MODES: readonly {
   {
     code: "equilibrado",
     label: "Equilibrado",
-    followsEngineDefault: true,
-    requiresWeights: false,
+    followsEngineDefault: false,
+    requiresWeights: true,
     description:
-      "Reparto actual del motor V5. No define porcentajes propios: no se inventa ninguna distribución.",
+      "Genera tareas automáticas. Sus porcentajes los define el panel: no se siembra ninguna distribución.",
   },
   {
     code: "iniciar_conversaciones",
     label: "Iniciar conversaciones",
     followsEngineDefault: false,
     requiresWeights: true,
-    description: "Requiere una configuración de pesos completa y válida antes de activarse.",
+    description: "Genera tareas automáticas. Requiere un mapa de pesos completo y válido antes de activarse.",
   },
   {
     code: "seguimiento",
     label: "Seguimiento",
     followsEngineDefault: false,
     requiresWeights: true,
-    description: "Requiere una configuración de pesos completa y válida antes de activarse.",
+    description: "Genera tareas automáticas. Requiere un mapa de pesos completo y válido antes de activarse.",
   },
   {
     code: "manual",
-    label: "Manual",
+    label: "Manual (personalizado)",
     followsEngineDefault: false,
     requiresWeights: true,
-    description: "Pesos definidos a mano. Requiere configuración completa y válida antes de activarse.",
+    description:
+      "Porcentajes definidos a mano. TAMBIÉN genera tareas automáticas: no es una pausa. Requiere mapa completo y válido.",
   },
 ] as const;
+
+/**
+ * Pausa de generación automática: interruptor SEPARADO del modo.
+ * Modelo declarado y apagado; NO está conectado al motor (Fase C).
+ */
+export type SalesTaskGenerationState = { paused: boolean; connected: false };
+export const DEFAULT_GENERATION_STATE: SalesTaskGenerationState = { paused: false, connected: false };
+
+/** Ningún modo (incluido manual) se activa sin mapa completo y válido. */
+export function isModeConfigured(weights: WeightMap | null | undefined): boolean {
+  return validateWeights(weights).valid;
+}
+
+/** Etiqueta autoritativa para el panel: nunca afirma que ya afecta al motor. */
+export function modeConfigLabel(weights: WeightMap | null | undefined): "configurado" | "no configurado" {
+  return isModeConfigured(weights) ? "configurado" : "no configurado";
+}
 
 export type WeightMap = Partial<Record<SalesTaskGroupCode, number>>;
 export type WeightValidation = { valid: boolean; total: number; errors: string[] };
