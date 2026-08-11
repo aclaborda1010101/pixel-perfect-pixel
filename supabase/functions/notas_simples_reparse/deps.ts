@@ -10,9 +10,9 @@ import type { CycleDeps, NotaResult } from "./orchestrator.ts";
 
 /** Cliente mínimo (supabase-js o equivalente) que el adaptador necesita. */
 export type SbLike = {
-  rpc(fn: string, args?: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }>;
+  rpc(fn: string, args?: Record<string, unknown>): PromiseLike<{ data: any; error: any }>;
   from(table: string): {
-    insert(row: unknown): Promise<{ error: { message?: string } | null }>;
+    insert(row: any): PromiseLike<{ error: any }>;
   };
 };
 
