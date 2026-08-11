@@ -7,6 +7,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
+# El servidor no puede arrancar como root: re-ejecuta como usuario local sin privilegios.
+if [ "$(id -u)" = "0" ]; then
+  RUNAS="${P05_LOCAL_USER:-}"
+  if [ -z "$RUNAS" ] || ! id "$RUNAS" >/dev/null 2>&1 || ! command -v setpriv >/dev/null 2>&1; then
+    echo "SKIP / NO VERIFICADO: define P05_LOCAL_USER con un usuario local sin privilegios." >&2
+    exit 3
+  fi
+  exec setpriv --reuid="$(id -u "$RUNAS")" --regid="$(id -g "$RUNAS")" --clear-groups \
+       env HOME=/tmp P05_LOCAL_USER= bash "${BASH_SOURCE[0]}" "$@"
+fi
 TMP="$(mktemp -d /tmp/p05cluster.XXXXXX)"
 DATA="$TMP/data"; SOCK="$TMP/sock"; mkdir -p "$SOCK"
 unset PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE PGSERVICE PGSSLMODE || true
