@@ -95,13 +95,13 @@ ALTER TABLE public.sales_manager_team_members ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS smtm_manager_reads_own ON public.sales_manager_team_members;
 CREATE POLICY smtm_manager_reads_own ON public.sales_manager_team_members
   FOR SELECT TO authenticated
-  USING (manager_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  USING (manager_id = auth.uid() OR public.current_user_has_role('admin'));
 
 DROP POLICY IF EXISTS smtm_admin_writes ON public.sales_manager_team_members;
 CREATE POLICY smtm_admin_writes ON public.sales_manager_team_members
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin'));
+  USING (public.current_user_has_role('admin'))
+  WITH CHECK (public.current_user_has_role('admin'));
 
 -- ---------------------------------------------------------------------
 -- 3. Modos de reparto
@@ -178,7 +178,7 @@ ALTER TABLE public.sales_task_mode_weights ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS stmw_read ON public.sales_task_mode_weights;
 CREATE POLICY stmw_read ON public.sales_task_mode_weights
   FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'sales_manager'));
+  USING (public.current_user_has_role('admin') OR public.current_user_has_role('sales_manager'));
 
 CREATE OR REPLACE FUNCTION public.sales_task_mode_weights_validate()
 RETURNS trigger
@@ -244,13 +244,13 @@ ALTER TABLE public.sales_task_mode_audit     ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS stma_read ON public.sales_task_mode_active;
 CREATE POLICY stma_read ON public.sales_task_mode_active FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'sales_manager'));
+  USING (public.current_user_has_role('admin') OR public.current_user_has_role('sales_manager'));
 DROP POLICY IF EXISTS stmo_read ON public.sales_task_mode_overrides;
 CREATE POLICY stmo_read ON public.sales_task_mode_overrides FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'sales_manager') OR user_id = auth.uid());
+  USING (public.current_user_has_role('admin') OR public.current_user_has_role('sales_manager') OR user_id = auth.uid());
 DROP POLICY IF EXISTS stmau_read ON public.sales_task_mode_audit;
 CREATE POLICY stmau_read ON public.sales_task_mode_audit FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'sales_manager'));
+  USING (public.current_user_has_role('admin') OR public.current_user_has_role('sales_manager'));
 
 -- ---------------------------------------------------------------------
 -- 4. current_user_role(): MANTIENE RETURNS public.app_role
@@ -294,8 +294,9 @@ GRANT EXECUTE ON FUNCTION public.current_user_role() TO authenticated;
 -- 4b. current_user_has_role(role): ÚNICO comprobador de rol para cliente y
 --     para políticas nuevas. Fija auth.uid() internamente y NO acepta
 --     user_id: es imposible preguntar por el rol de un tercero.
---     has_role(_user_id, _role) permanece intacto para no romper las
---     políticas históricas (ver migración de bloqueo BLOCKED_*_has_role_lockdown).
+--     has_role(_user_id, _role) queda cerrado en la migración
+--     20260813120000_sales_manager_p03_has_role_lockdown.sql, que porta
+--     además todas las políticas históricas a current_user_has_role.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.current_user_has_role(_role public.app_role)
 RETURNS boolean
@@ -341,14 +342,14 @@ CREATE OR REPLACE FUNCTION public.is_sales_manager_or_admin(_uid uuid)
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
 AS $$
-  SELECT public.has_role(_uid, 'admin') OR public.has_role(_uid, 'sales_manager');
+  SELECT public.internal_member_has_role(_uid, 'admin') OR public.internal_member_has_role(_uid, 'sales_manager');
 $$;
 
 CREATE OR REPLACE FUNCTION public.sales_manager_can_see(_manager uuid, _member uuid)
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
 AS $$
-  SELECT public.has_role(_manager, 'admin')
+  SELECT public.internal_member_has_role(_manager, 'admin')
       OR EXISTS (
         SELECT 1 FROM public.sales_manager_team_members t
         WHERE t.manager_id = _manager AND t.member_id = _member AND t.active
@@ -401,7 +402,7 @@ BEGIN
     UNION
     SELECT ur.user_id
     FROM public.user_roles ur
-    WHERE public.has_role(v_uid, 'admin')
+    WHERE public.internal_member_has_role(v_uid, 'admin')
       AND ur.role IN ('comercial_zona'::public.app_role,
                       'captacion'::public.app_role,
                       'prevalificacion'::public.app_role)
@@ -449,15 +450,25 @@ BEGIN
       COUNT(*) FILTER (WHERE status = 'pending')                     AS pending,
       COUNT(*) FILTER (WHERE status = 'in_progress')                 AS in_progress,
       COUNT(*) FILTER (WHERE status = 'blocked')                     AS blocked,
-      COUNT(*) FILTER (WHERE status IN ('skipped','no_procede'))     AS skipped,
+      COUNT(*) FILTER (WHERE status = 'skipped')                     AS skipped,
+      COUNT(*) FILTER (WHERE status = 'no_procede')                  AS no_procede,
+      COUNT(*) FILTER (WHERE status IN ('cancelled','superseded'))   AS terminadas_sin_cierre,
       COUNT(*) FILTER (WHERE status = 'completed')                   AS completed,
       COUNT(*) FILTER (WHERE status NOT IN
-        ('completed','pending','in_progress','blocked','skipped','no_procede')
+        ('completed','pending','in_progress','blocked','skipped',
+         'no_procede','cancelled','superseded')
         OR status IS NULL)                                           AS unknown,
+      -- SLA: sólo penalizan las tareas realmente accionables. blocked NO
+      -- cuenta (el comercial no puede avanzarla) y cancelled/superseded son
+      -- estados terminales: nunca vencen.
       COUNT(*) FILTER (
-        WHERE status NOT IN ('completed','skipped','no_procede')
+        WHERE status IN ('pending','in_progress')
           AND due_date IS NOT NULL AND due_date < v_now
-      )                                                              AS vencidas_ahora
+      )                                                              AS vencidas_ahora,
+      COUNT(*) FILTER (
+        WHERE status = 'blocked'
+          AND due_date IS NOT NULL AND due_date < v_now
+      )                                                              AS bloqueadas_vencidas
     FROM universo
     GROUP BY user_id
   ),
@@ -500,9 +511,12 @@ BEGIN
         'in_progress',  COALESCE(s.in_progress, 0),
         'blocked',      COALESCE(s.blocked, 0),
         'skipped',      COALESCE(s.skipped, 0),
+        'no_procede',   COALESCE(s.no_procede, 0),
+        'terminadas_sin_cierre', COALESCE(s.terminadas_sin_cierre, 0),
         'completed',    COALESCE(s.completed, 0),
         'unknown',      COALESCE(s.unknown, 0),
         'vencidas_ahora', COALESCE(s.vencidas_ahora, 0),
+        'bloqueadas_vencidas', COALESCE(s.bloqueadas_vencidas, 0),
         'as_of',        v_now
       ),
       'mezcla_creadas', COALESCE(m.mezcla, '{}'::jsonb)
@@ -790,7 +804,7 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'tarea inexistente' USING ERRCODE = 'P0002';
   END IF;
-  IF v_row.user_id IS DISTINCT FROM v_uid AND NOT public.has_role(v_uid, 'admin') THEN
+  IF v_row.user_id IS DISTINCT FROM v_uid AND NOT public.internal_member_has_role(v_uid, 'admin') THEN
     RAISE EXCEPTION 'la tarea no te pertenece' USING ERRCODE = '42501';
   END IF;
 
@@ -842,7 +856,7 @@ BEGIN
    WHERE m IS NOT NULL;
   v_solicitados := COALESCE(array_length(v_members, 1), 0);
 
-  IF v_uid IS NOT NULL AND NOT public.has_role(v_uid, 'admin') THEN
+  IF v_uid IS NOT NULL AND NOT public.internal_member_has_role(v_uid, 'admin') THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
   END IF;
   IF p_user_id IS NULL OR p_expected_email IS NULL OR btrim(p_expected_email) = '' THEN
@@ -870,7 +884,7 @@ BEGIN
       IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_member) THEN
         RAISE EXCEPTION 'el miembro % no existe', v_member USING ERRCODE = 'P0002';
       END IF;
-      IF NOT public.has_role(v_member, 'comercial_zona') THEN
+      IF NOT public.internal_member_has_role(v_member, 'comercial_zona') THEN
         RAISE EXCEPTION 'el miembro % no es comercial_zona', v_member USING ERRCODE = '22023';
       END IF;
     END LOOP;
@@ -948,7 +962,7 @@ CREATE POLICY profiles_select_scoped ON public.profiles
   FOR SELECT TO authenticated
   USING (
     id = auth.uid()
-    OR public.has_role(auth.uid(), 'admin')
+    OR public.current_user_has_role('admin')
   );
 
 -- user_roles: propio rol + admin. Sin excepción para sales_manager (evita
@@ -959,7 +973,7 @@ CREATE POLICY user_roles_select_scoped ON public.user_roles
   FOR SELECT TO authenticated
   USING (
     user_id = auth.uid()
-    OR public.has_role(auth.uid(), 'admin')
+    OR public.current_user_has_role('admin')
   );
 
 -- ---------------------------------------------------------------------
@@ -975,7 +989,7 @@ AS $$
   SELECT p.id, NULLIF(btrim(COALESCE(p.full_name, '')), '') AS display_name
   FROM public.profiles p
   WHERE auth.uid() IS NOT NULL
-    AND (public.has_role(auth.uid(), 'whatsapp') OR public.has_role(auth.uid(), 'admin'))
+    AND (public.current_user_has_role('whatsapp') OR public.current_user_has_role('admin'))
     AND p_ids IS NOT NULL
     AND array_length(p_ids, 1) IS NOT NULL
     AND array_length(p_ids, 1) <= 200
@@ -998,7 +1012,7 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public
 AS $$
 BEGIN
   IF auth.uid() IS NOT NULL
-     AND NOT public.has_role(auth.uid(), 'admin')
+     AND NOT public.current_user_has_role('admin')
      AND NEW.must_change_password IS DISTINCT FROM OLD.must_change_password THEN
     NEW.must_change_password := OLD.must_change_password;
   END IF;
