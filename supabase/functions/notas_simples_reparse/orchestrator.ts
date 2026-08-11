@@ -177,27 +177,30 @@ async function runReparseCycleInner(deps: CycleDeps, opts: { limit: number }): P
   }
 
   // 4) Marcar pendiente ANTES de tocar ninguna nota.
-  const mark = await deps.markPending();
+  //    Una vez adquiridos los claims, el catch global NO puede ser la única
+  //    barrera: tanto ok:false como una EXCEPCIÓN liberan cada claim por CAS.
+  let mark: MarkResult;
+  try {
+    mark = await deps.markPending();
+  } catch (e) {
+    const detalle = String((e as Error)?.message ?? e).slice(0, 300);
+    const rel = await releaseAllClaims(deps, notas);
+    return await fail(deps, t0, "state_mark_exception", detalle, {
+      match_pending: true,
+      notas_en_lote: notas.length,
+      release_errors: rel.errors,
+      released: rel.released,
+      release_ok: rel.errors.length === 0 && rel.released === notas.length,
+    });
+  }
   if (mark.ok === false) {
-    // Liberación CAS: exactamente una fila por nota. 0 filas o error se
-    // reportan; nunca se pisa el claim de otro worker.
-    const releaseErrors: string[] = [];
-    if (deps.releaseClaim) {
-      for (const n of notas) {
-        try {
-          const r = await deps.releaseClaim(n);
-          if (!r.ok) releaseErrors.push(`release_error:${String(r.error ?? "desconocido").slice(0, 120)}`);
-          else if (!r.released) releaseErrors.push("release_cas_miss");
-        } catch (e) {
-          releaseErrors.push(`release_exception:${String((e as Error)?.message ?? e).slice(0, 120)}`);
-        }
-      }
-    }
+    const rel = await releaseAllClaims(deps, notas);
     return await fail(deps, t0, "state_mark_fail", mark.error, {
       match_pending: true,
       notas_en_lote: notas.length,
-      release_errors: releaseErrors,
-      released: notas.length - releaseErrors.length,
+      release_errors: rel.errors,
+      released: rel.released,
+      release_ok: rel.errors.length === 0 && rel.released === notas.length,
     });
   }
   const token = mark.generation;
