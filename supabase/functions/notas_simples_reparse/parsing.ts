@@ -186,11 +186,17 @@ export function construirExtracto(src: string, opts?: { maxChars?: number; solap
       cursor = Math.max(cursor + 1, fin - solape);
     }
   }
+  const ordenados = chunks.slice().sort((a, b) => a.inicio - b.inicio);
+  let frontera = 0;
+  for (const c of ordenados) {
+    if (c.inicio > frontera) break;
+    frontera = Math.max(frontera, c.fin);
+  }
   return {
     chunks,
-    cubiertos,
+    cubiertos: frontera,
     total: texto.length,
-    truncado: texto.length > tope,
+    truncado: texto.length > tope || frontera < texto.length,
     paginas: paginas.length ? Math.max(...paginas.map((p) => p.page)) : 0,
   };
 }
