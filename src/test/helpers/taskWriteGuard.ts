@@ -1,144 +1,492 @@
 /**
- * Guarda de arquitectura: inventario REAL de operaciones de escritura de
- * creación (`insert`/`upsert`) sobre `building_tasks`.
+ * GUARDA DE ARQUITECTURA — escritores de `building_tasks`.
  *
- * No hay allowlist por archivo: cada operación encontrada se empareja con su
- * payload y se clasifica. Solo dos operaciones están autorizadas, y cada una
- * debe estar dentro de su helper dedicado y escribir la fila validada.
- * Los `update`/`delete` de ciclo de vida NO son creación y no cuentan.
+ * Inventario REAL por ANÁLISIS ESTRUCTURAL (AST TypeScript para TS/TSX,
+ * análisis léxico de sentencias para SQL). No hay allowlist por archivo:
+ *  - la unidad autorizada es la FUNCIÓN/RPC exacta y su CONTRATO;
+ *  - si el destino de `.from(x).insert/upsert` no puede resolverse, se falla
+ *    CERRADO (violación), nunca se ignora;
+ *  - `update`/`delete` de ciclo de vida NO son creación y no cuentan.
  */
+import ts from "typescript";
 
 export type WriteOp = {
   file: string;
   kind: "ts" | "sql";
-  op: "insert" | "upsert";
+  op: "insert" | "upsert" | "merge";
   /** Texto del payload emparejado con la operación (objeto TS o cuerpo SQL). */
   payload: string;
   line: number;
+  /** Función/RPC que contiene la operación (`null` si es de nivel superior). */
+  fn: string | null;
+  /** Tabla resuelta; `null` = no resoluble (fail-closed). */
+  table: string | null;
+  /** Motivo cuando el destino no se pudo resolver. */
+  unresolved?: string;
+  /** Posición absoluta en el fuente (para dominancia validador→escritura). */
+  pos: number;
+  /** Identificador del payload cuando es una variable (contrato TS). */
+  payloadIdent: string | null;
 };
 
 export type Violation = { file: string; line: number; reason: string };
 
-/** Los dos únicos escritores autorizados y el contrato que deben cumplir. */
-export const AUTHORIZED_WRITERS: Record<
-  string,
-  { id: "v5_call_queue" | "manual"; payload: RegExp; requires: RegExp }
-> = {
-  "supabase/functions/_shared/taskWriters.ts": {
-    id: "v5_call_queue",
-    payload: /^row$/,
-    requires: /assertV5CallQueueRow\(row\)/,
+type TsRule = {
+  id: string;
+  /** Validador que DEBE dominar la operación dentro de la MISMA función. */
+  validator: string;
+  /** `assert`: validator(row). `builder`: const row = validator(input). */
+  mode: "assert" | "builder";
+};
+
+/**
+ * Operaciones autorizadas: clave `<archivo>#<función exportada>`.
+ * Nada más puede crear filas en building_tasks.
+ */
+export const AUTHORIZED_WRITERS: Record<string, TsRule> = {
+  "supabase/functions/_shared/taskWriters.ts#insertV5CallQueueTask": {
+    id: "v5_call_queue_historico",
+    validator: "assertV5CallQueueRow",
+    mode: "assert",
   },
-  "src/lib/taskWriters.ts": {
-    id: "manual",
-    payload: /^row$/,
-    requires: /const row = buildManualTaskRow\(input\)/,
+  "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask": {
+    id: "v5_canonica_motor",
+    validator: "assertV5CanonicalTaskRow",
+    mode: "assert",
+  },
+  "src/lib/taskWriters.ts#insertManualBuildingTask": {
+    id: "manual_humana",
+    validator: "buildManualTaskRow",
+    mode: "builder",
   },
 };
+
+/** RPC SQL autorizadas: clave `<esquema>.<función>` + contrato exigido. */
+export const AUTHORIZED_SQL_WRITERS: Record<string, { id: string; requires: RegExp[] }> = {
+  "public.commit_v5_generation_plan": {
+    id: "v5_commit_plan",
+    requires: [/v5_assert_canonical_task_key\s*\(/i, /'production'/],
+  },
+  "public.create_manual_building_task": {
+    id: "manual_rpc",
+    requires: [/'manual'/, /manual_subtype/i],
+  },
+};
+
+const TABLE = "building_tasks";
 
 function lineOf(src: string, index: number): number {
   return src.slice(0, index).split("\n").length;
 }
 
-/** Captura el argumento equilibrado que sigue a un paréntesis de apertura. */
-function balancedArg(src: string, openParen: number): string {
-  let depth = 0;
-  for (let i = openParen; i < src.length; i++) {
-    const c = src[i];
-    if (c === "(") depth++;
-    else if (c === ")") {
-      depth--;
-      if (depth === 0) return src.slice(openParen + 1, i).trim();
+// ---------------------------------------------------------------------------
+// TS / TSX — AST
+// ---------------------------------------------------------------------------
+
+type Resolved = { table: string | null; sawFrom: boolean; reason?: string };
+
+/** Tabla resuelta a un valor distinto de building_tasks (no es objetivo). */
+
+function scanTs(file: string, source: string): WriteOp[] {
+  const sf = ts.createSourceFile(
+    file, source, ts.ScriptTarget.Latest, true,
+    /\.tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+
+  /** const NAME = "literal" */
+  const strings = new Map<string, string>();
+  /** const NAME = { a: "tabla_a", b: "tabla_b" } */
+  const objects = new Map<string, string[]>();
+  /** const NAME = db.from("x") — variable ya "anclada" a una tabla */
+  const boundTables = new Map<string, Resolved>();
+  /** alias: const A = B */
+  const aliases = new Map<string, string>();
+
+  /**
+   * Conjunto de valores posibles de una expresión de tabla.
+   * `null` = NO resoluble (fail-closed).
+   */
+  function literalsOf(n: ts.Node | undefined, seen = new Set<string>(), depth = 0): string[] | null {
+    if (!n || depth > 20) return null;
+    if (ts.isStringLiteralLike(n)) return [n.text];
+    if (ts.isAsExpression(n) || ts.isParenthesizedExpression(n) || ts.isNonNullExpression(n)) {
+      return literalsOf(n.expression, seen, depth + 1);
     }
+    if (ts.isConditionalExpression(n)) {
+      const a = literalsOf(n.whenTrue, seen, depth + 1);
+      const b = literalsOf(n.whenFalse, seen, depth + 1);
+      return a && b ? [...a, ...b] : null;
+    }
+    if (ts.isElementAccessExpression(n) || ts.isPropertyAccessExpression(n)) {
+      const root = n.expression;
+      // Acceso a un objeto constante de tablas: se consideran TODOS sus valores.
+      if (ts.isIdentifier(root) && objects.has(root.text)) return objects.get(root.text)!;
+      return null;
+    }
+    if (ts.isIdentifier(n)) {
+      const name = n.text;
+      if (seen.has(name)) return null;
+      seen.add(name);
+      if (strings.has(name)) return [strings.get(name)!];
+      const alias = aliases.get(name);
+      if (alias) {
+        if (strings.has(alias)) return [strings.get(alias)!];
+        if (objects.has(alias)) return objects.get(alias)!;
+        return null;
+      }
+      return resolveParameter(n, seen, depth + 1);
+    }
+    return null;
   }
-  return src.slice(openParen + 1).trim();
+
+  /**
+   * Parámetro de función: se resuelve por TODOS sus call-sites del fichero.
+   * Si algún call-site no es resoluble, el parámetro tampoco lo es.
+   */
+  function resolveParameter(id: ts.Identifier, seen: Set<string>, depth: number): string[] | null {
+    let cur: ts.Node | undefined = id.parent;
+    while (cur) {
+      const params = (cur as ts.SignatureDeclaration).parameters as
+        ts.NodeArray<ts.ParameterDeclaration> | undefined;
+      if (params) {
+        const i = params.findIndex((p) => ts.isIdentifier(p.name) && p.name.text === id.text);
+        if (i >= 0) {
+          const fnName =
+            (ts.isFunctionDeclaration(cur) && cur.name?.text) ||
+            ((ts.isArrowFunction(cur) || ts.isFunctionExpression(cur)) &&
+              cur.parent && ts.isVariableDeclaration(cur.parent) && ts.isIdentifier(cur.parent.name)
+              ? cur.parent.name.text : null);
+          if (!fnName) return null;
+          const out: string[] = [];
+          let ok = true;
+          let calls = 0;
+          const visitCalls = (node: ts.Node) => {
+            if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+                node.expression.text === fnName) {
+              calls++;
+              const vals = literalsOf(node.arguments[i], new Set(seen), depth + 1);
+              if (!vals) ok = false;
+              else out.push(...vals);
+            }
+            ts.forEachChild(node, visitCalls);
+          };
+          visitCalls(sf);
+          return ok && calls > 0 ? out : null;
+        }
+      }
+      cur = cur.parent;
+    }
+    return null;
+  }
+
+  // Paso 1: mapa de constantes/objetos/aliases.
+  const collect = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const name = node.name.text;
+      const init = ts.isAsExpression(node.initializer) ? node.initializer.expression : node.initializer;
+      if (ts.isStringLiteralLike(init)) strings.set(name, init.text);
+      else if (ts.isIdentifier(init)) aliases.set(name, init.text);
+      else if (ts.isObjectLiteralExpression(init)) {
+        const vals: string[] = [];
+        let ok = true;
+        for (const p of init.properties) {
+          if (ts.isPropertyAssignment(p) && ts.isStringLiteralLike(p.initializer)) vals.push(p.initializer.text);
+          else ok = false;
+        }
+        if (ok) objects.set(name, vals);
+      }
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(sf);
+
+  // Paso 2: resolución del receptor de la operación.
+  function resolveReceiver(node: ts.Expression, depth = 0): Resolved {
+    if (depth > 40) return { table: null, sawFrom: false };
+    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node)) {
+      return resolveReceiver(node.expression, depth + 1);
+    }
+    if (ts.isAwaitExpression(node)) return resolveReceiver(node.expression, depth + 1);
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (ts.isPropertyAccessExpression(callee) && callee.name.text === "from") {
+        const arg = node.arguments[0];
+        const lits = literalsOf(arg);
+        if (lits && lits.includes(TABLE)) return { table: TABLE, sawFrom: true };
+        if (lits) return { table: lits[0] ?? "", sawFrom: true };
+        return {
+          table: null, sawFrom: true,
+          reason: `destino de .from(${arg ? arg.getText(sf) : ""}) no resoluble`,
+        };
+      }
+      return resolveReceiver(callee, depth + 1);
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      return resolveReceiver(node.expression, depth + 1);
+    }
+    if (ts.isIdentifier(node)) {
+      const bound = boundTables.get(node.text);
+      if (bound) return bound;
+      const alias = aliases.get(node.text);
+      if (alias && boundTables.has(alias)) return boundTables.get(alias)!;
+    }
+    return { table: null, sawFrom: false };
+  }
+
+  // Paso 2b: variables ancladas a un `.from(...)` (posible multilínea/helper).
+  const bindTables = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const r = resolveReceiver(node.initializer as ts.Expression);
+      if (r.sawFrom) boundTables.set(node.name.text, r);
+    }
+    ts.forEachChild(node, bindTables);
+  };
+  bindTables(sf);
+  bindTables(sf); // segunda pasada: encadenamientos entre variables
+
+  function enclosingFn(node: ts.Node): string | null {
+    let cur: ts.Node | undefined = node.parent;
+    while (cur) {
+      if (ts.isFunctionDeclaration(cur) && cur.name) return cur.name.text;
+      if (ts.isMethodDeclaration(cur) && ts.isIdentifier(cur.name)) return cur.name.text;
+      if ((ts.isArrowFunction(cur) || ts.isFunctionExpression(cur)) &&
+          cur.parent && ts.isVariableDeclaration(cur.parent) && ts.isIdentifier(cur.parent.name)) {
+        return cur.parent.name.text;
+      }
+      cur = cur.parent;
+    }
+    return null;
+  }
+
+  const ops: WriteOp[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const name = node.expression.name.text;
+      if (name === "insert" || name === "upsert") {
+        const recv = resolveReceiver(node.expression.expression);
+        const isTarget = recv.table === TABLE || (recv.sawFrom && recv.table === null);
+        if (isTarget) {
+          const arg = node.arguments[0];
+          ops.push({
+            file, kind: "ts", op: name as "insert" | "upsert",
+            payload: arg ? arg.getText(sf) : "",
+            payloadIdent: arg && ts.isIdentifier(arg) ? arg.text : null,
+            line: lineOf(source, node.getStart(sf)),
+            pos: node.getStart(sf),
+            fn: enclosingFn(node),
+            table: recv.table,
+            unresolved: recv.table === null ? (recv.reason ?? "destino no resoluble") : undefined,
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return ops;
 }
 
-const TABLE_RX = /from\s*\(\s*["'`]([A-Za-z0-9_]+)["'`]/g;
-const OP_RX = /\.\s*(insert|upsert)\s*\(/g;
-const SQL_RX = /insert\s+into\s+(?:public\.)?building_tasks\b/gi;
+// ---------------------------------------------------------------------------
+// SQL
+// ---------------------------------------------------------------------------
 
-/** Escanea un fichero (TS/TSX o SQL) y devuelve sus operaciones de creación. */
-export function scanBuildingTaskWrites(file: string, source: string): WriteOp[] {
-  const ops: WriteOp[] = [];
-  if (/\.sql$/i.test(file)) {
-    SQL_RX.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = SQL_RX.exec(source))) {
-      const end = source.indexOf(";", m.index);
-      ops.push({
-        file,
-        kind: "sql",
-        op: /on\s+conflict/i.test(source.slice(m.index, end < 0 ? undefined : end)) ? "upsert" : "insert",
-        payload: source.slice(m.index, end < 0 ? source.length : end).trim(),
-        line: lineOf(source, m.index),
-      });
-    }
-    return ops;
-  }
+const SQL_WRITE_RX =
+  /\b(insert\s+into|merge\s+into|upsert\s+into)\s+((?:"?[A-Za-z_][A-Za-z0-9_]*"?\s*\.\s*)?"?[A-Za-z_][A-Za-z0-9_]*"?)/gi;
+const SQL_FN_RX =
+  /create\s+(?:or\s+replace\s+)?function\s+("?[A-Za-z_][A-Za-z0-9_]*"?\s*\.\s*)?("?[A-Za-z_][A-Za-z0-9_]*"?)/gi;
 
-  // TS/TSX: se empareja cada `.insert(`/`.upsert(` con la tabla del `from()`
-  // inmediatamente anterior, y con su payload real (argumento equilibrado).
-  OP_RX.lastIndex = 0;
+const unquote = (s: string) => s.replace(/"/g, "").trim().toLowerCase();
+
+function sqlEnclosingFn(source: string, index: number): string | null {
+  SQL_FN_RX.lastIndex = 0;
+  let last: string | null = null;
   let m: RegExpExecArray | null;
-  while ((m = OP_RX.exec(source))) {
-    const prefix = source.slice(0, m.index);
-    TABLE_RX.lastIndex = 0;
-    let table: string | null = null;
-    let t: RegExpExecArray | null;
-    while ((t = TABLE_RX.exec(prefix))) table = t[1];
-    if (table !== "building_tasks") continue;
-    const openParen = m.index + m[0].length - 1;
+  while ((m = SQL_FN_RX.exec(source))) {
+    if (m.index > index) break;
+    const schema = m[1] ? unquote(m[1].replace(/\.$/, "")) : "public";
+    last = `${schema}.${unquote(m[2])}`;
+  }
+  return last;
+}
+
+/** Definición completa de la función SQL que contiene `index`. */
+export function sqlFunctionBody(source: string, index: number): string {
+  SQL_FN_RX.lastIndex = 0;
+  let start = 0;
+  let m: RegExpExecArray | null;
+  while ((m = SQL_FN_RX.exec(source))) {
+    if (m.index > index) break;
+    start = m.index;
+  }
+  const tag = /\$([A-Za-z0-9_]*)\$/.exec(source.slice(start, index));
+  const end = tag ? source.indexOf(tag[0], index) : -1;
+  return source.slice(start, end < 0 ? source.length : end + (tag ? tag[0].length : 0));
+}
+
+function scanSql(file: string, source: string): WriteOp[] {
+  const ops: WriteOp[] = [];
+  SQL_WRITE_RX.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = SQL_WRITE_RX.exec(source))) {
+    const raw = m[2];
+    const parts = raw.split(".").map(unquote);
+    if (parts[parts.length - 1] !== TABLE) continue;
+    const end = source.indexOf(";", m.index);
+    const body = source.slice(m.index, end < 0 ? source.length : end);
     ops.push({
-      file,
-      kind: "ts",
-      op: m[1] as "insert" | "upsert",
-      payload: balancedArg(source, openParen),
+      file, kind: "sql",
+      op: /^merge/i.test(m[1]) ? "merge" : /on\s+conflict/i.test(body) ? "upsert" : "insert",
+      payload: body.trim(),
+      payloadIdent: null,
       line: lineOf(source, m.index),
+      pos: m.index,
+      fn: sqlEnclosingFn(source, m.index),
+      table: TABLE,
     });
   }
   return ops;
 }
 
-/**
- * Clasifica el inventario completo. Devuelve las violaciones: operación en un
- * archivo no autorizado, operación de más dentro de un helper autorizado, o
- * payload que no es la fila validada del helper.
- */
+export function scanBuildingTaskWrites(file: string, source: string): WriteOp[] {
+  return /\.sql$/i.test(file) ? scanSql(file, source) : scanTs(file, source);
+}
+
+// ---------------------------------------------------------------------------
+// Clasificación por función + contrato
+// ---------------------------------------------------------------------------
+
+type FnRange = { start: number; end: number };
+
+function fnRange(sf: ts.SourceFile, fnName: string): FnRange | null {
+  let range: FnRange | null = null;
+  const visit = (node: ts.Node) => {
+    const matches =
+      (ts.isFunctionDeclaration(node) && node.name?.text === fnName) ||
+      (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === fnName) ||
+      ((ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+        node.parent && ts.isVariableDeclaration(node.parent) &&
+        ts.isIdentifier(node.parent.name) && node.parent.name.text === fnName);
+    if (matches && !range) range = { start: node.getStart(sf), end: node.getEnd() };
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return range;
+}
+
+/** Verifica que el validador domine la operación dentro de la misma función. */
+function checkTsContract(
+  op: WriteOp, rule: TsRule, source: string,
+): string | null {
+  if (!op.payloadIdent) {
+    return `${rule.id}: el payload insertado debe ser la variable validada (${op.payload.slice(0, 60)})`;
+  }
+  const sf = ts.createSourceFile(
+    op.file, source, ts.ScriptTarget.Latest, true,
+    /\.tsx$/.test(op.file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const range = fnRange(sf, op.fn ?? "");
+  if (!range) return `${rule.id}: no se localiza la función ${op.fn}`;
+
+  let validatorPos: number | null = null;
+  let mutationPos: number | null = null;
+  const visit = (node: ts.Node) => {
+    const start = node.getStart(sf);
+    if (start >= range!.start && node.getEnd() <= range!.end) {
+      if (ts.isCallExpression(node) && node.expression.getText(sf) === rule.validator) {
+        if (rule.mode === "assert") {
+          const a = node.arguments[0];
+          if (a && ts.isIdentifier(a) && a.text === op.payloadIdent) validatorPos = start;
+        } else {
+          const decl = node.parent;
+          if (ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) &&
+              decl.name.text === op.payloadIdent) validatorPos = start;
+        }
+      }
+      // Mutación del payload (reasignación o escritura de propiedad).
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        const unwrap = (e: ts.Expression): ts.Expression =>
+          ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e)
+            ? unwrap(e.expression) : e;
+        let root = unwrap(node.left);
+        while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) {
+          root = unwrap(root.expression);
+        }
+        if (ts.isIdentifier(root) && root.text === op.payloadIdent) mutationPos = start;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+
+  if (validatorPos === null) {
+    return `${rule.id}: la operación no está dominada por ${rule.validator}(${op.payloadIdent})`;
+  }
+  if (validatorPos > op.pos) {
+    return `${rule.id}: ${rule.validator} no precede a la escritura`;
+  }
+  if (mutationPos !== null && mutationPos > validatorPos && mutationPos < op.pos) {
+    return `${rule.id}: ${op.payloadIdent} se muta después de validar y antes de escribir`;
+  }
+  return null;
+}
+
 export function classifyBuildingTaskWrites(
   ops: readonly WriteOp[],
   sources: Readonly<Record<string, string>>,
 ): { authorized: WriteOp[]; violations: Violation[] } {
   const authorized: WriteOp[] = [];
   const violations: Violation[] = [];
-  const perFile = new Map<string, number>();
+  const perUnit = new Map<string, number>();
 
   for (const op of ops) {
-    const rule = AUTHORIZED_WRITERS[op.file];
+    if (op.table === null) {
+      violations.push({
+        file: op.file, line: op.line,
+        reason: `fail-closed: ${op.unresolved ?? "destino no resoluble"}`,
+      });
+      continue;
+    }
+
+    if (op.kind === "sql") {
+      const rule = op.fn ? AUTHORIZED_SQL_WRITERS[op.fn] : undefined;
+      if (!rule) {
+        violations.push({
+          file: op.file, line: op.line,
+          reason: `${op.op} SQL no autorizado sobre building_tasks (fn: ${op.fn ?? "nivel superior"})`,
+        });
+        continue;
+      }
+      const body = sqlFunctionBody(sources[op.file] ?? "", op.pos);
+      const falta = rule.requires.find((rx) => !rx.test(body));
+      if (falta) {
+        violations.push({
+          file: op.file, line: op.line,
+          reason: `${rule.id}: la definición no cumple el contrato (${falta})`,
+        });
+        continue;
+      }
+      authorized.push(op);
+      continue;
+    }
+
+    const unit = `${op.file}#${op.fn ?? ""}`;
+    const rule = AUTHORIZED_WRITERS[unit];
     if (!rule) {
       violations.push({
-        file: op.file,
-        line: op.line,
-        reason: `${op.op} no clasificado sobre building_tasks (payload: ${op.payload.slice(0, 80)})`,
+        file: op.file, line: op.line,
+        reason: `${op.op} no autorizado sobre building_tasks en ${unit} (payload: ${op.payload.slice(0, 60)})`,
       });
       continue;
     }
-    const n = (perFile.get(op.file) ?? 0) + 1;
-    perFile.set(op.file, n);
+    const n = (perUnit.get(unit) ?? 0) + 1;
+    perUnit.set(unit, n);
     if (n > 1) {
-      violations.push({ file: op.file, line: op.line, reason: `escritura extra en el helper ${rule.id}` });
+      violations.push({ file: op.file, line: op.line, reason: `escritura extra en ${rule.id}` });
       continue;
     }
-    if (!rule.payload.test(op.payload)) {
-      violations.push({
-        file: op.file,
-        line: op.line,
-        reason: `payload no validado en ${rule.id}: ${op.payload.slice(0, 80)}`,
-      });
-      continue;
-    }
-    if (!rule.requires.test(sources[op.file] ?? "")) {
-      violations.push({ file: op.file, line: op.line, reason: `${rule.id} escribe sin validar la fila` });
+    const problema = checkTsContract(op, rule, sources[op.file] ?? "");
+    if (problema) {
+      violations.push({ file: op.file, line: op.line, reason: problema });
       continue;
     }
     authorized.push(op);

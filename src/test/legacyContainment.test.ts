@@ -6,7 +6,8 @@ import { fetchVisibleUserTasks } from "@/lib/dashboardTasks";
 import { handleTecnofindCore } from "../../supabase/functions/enrichment-agent/tecnofind";
 import { tecnofindIncidenciaTrasVerificacion } from "../../supabase/functions/enrichment-apply-verification/tasks";
 import { insertManualBuildingTask } from "@/lib/taskWriters";
-import { insertV5CallQueueTask } from "../../supabase/functions/_shared/taskWriters";
+import { insertV5CallQueueTask, insertV5CanonicalTask } from "../../supabase/functions/_shared/taskWriters";
+import { buildV5TaskKey } from "@/lib/v5/model";
 import {
   scanBuildingTaskWrites,
   classifyBuildingTaskWrites,
@@ -147,15 +148,17 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
 
   const ops = Object.entries(sources).flatMap(([f, src]) => scanBuildingTaskWrites(f, src));
 
-  it("inventaría TODAS las operaciones de creación y no hay ninguna sin clasificar", () => {
+  it("inventaría TODAS las operaciones y no hay ninguna sin clasificar", () => {
     expect(files.length).toBeGreaterThan(50);
     const { authorized, violations } = classifyBuildingTaskWrites(ops, sources);
     expect(violations.map((v) => `${v.file}:${v.line} ${v.reason}`)).toEqual([]);
-    // Exactamente dos escrituras autorizadas: cola V5 y creación manual.
-    expect(authorized.map((o) => o.file).sort()).toEqual([
-      "src/lib/taskWriters.ts",
-      "supabase/functions/_shared/taskWriters.ts",
+    // Autorizadas EXCLUSIVAMENTE por función, no por archivo.
+    expect(authorized.map((o) => `${o.file}#${o.fn}`).sort()).toEqual([
+      "src/lib/taskWriters.ts#insertManualBuildingTask",
+      "supabase/functions/_shared/taskWriters.ts#insertV5CallQueueTask",
+      "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask",
     ]);
+    expect(authorized.every((o) => AUTHORIZED_WRITERS[`${o.file}#${o.fn}`])).toBe(true);
   });
 
   it("los updates de ciclo de vida no cuentan como creación", () => {
@@ -168,37 +171,116 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     const v5 = sources["supabase/functions/assign_daily_call_queue/index.ts"];
     expect(v5).toContain("insertV5CallQueueTask(sb, row)");
     expect(v5).toContain("task_type: 'call_queue'");
-    expect(v5).toContain("task_key: c.task_key");
     expect(v5).toMatch(/const taskKey = `v5:\$\{hoy\}:\$\{c\.task_code\}:\$\{idKey\}`/);
     const manual = sources["src/components/comercial/BuildingTasksSection.tsx"];
     expect(manual).toContain("insertManualBuildingTask(supabase as any, {");
     expect(scanBuildingTaskWrites("x.tsx", manual)).toEqual([]);
   });
 
-  it("PRUEBA NEGATIVA: un insert automático colado en un archivo autorizado hace fallar la guarda", () => {
-    for (const file of Object.keys(AUTHORIZED_WRITERS)) {
+  it("PRUEBA NEGATIVA: insert colado en un archivo autorizado, pero fuera del helper", () => {
+    for (const unit of Object.keys(AUTHORIZED_WRITERS)) {
+      const file = unit.split("#")[0];
       const fixture = sources[file] +
-        `\nasync function colado(client: any) {\n` +
-        `  await client.from("building_tasks").insert({ task_type: "auto", task_key: "call_queue:x" });\n}\n`;
+        `\nexport async function colado(client: any) {\n` +
+        `  await client.from("building_tasks").insert({ task_type: "auto" });\n}\n`;
       const fixtureOps = scanBuildingTaskWrites(file, fixture);
-      expect(fixtureOps, file).toHaveLength(2);
       const { violations } = classifyBuildingTaskWrites(fixtureOps, { ...sources, [file]: fixture });
-      expect(violations.length, file).toBeGreaterThan(0);
+      expect(violations.map((v) => v.reason).join(" "), file).toContain("#colado");
     }
   });
 
-  it("PRUEBA NEGATIVA: insert nuevo en cualquier otro archivo (TS dinámico o SQL) se detecta", () => {
-    const dyn = `const t = "building_tasks";\nawait sb.from("building_tasks").upsert(filas, { onConflict: "task_key" });`;
-    const dynOps = scanBuildingTaskWrites("supabase/functions/nuevo/index.ts", dyn);
-    expect(dynOps).toHaveLength(1);
-    expect(dynOps[0].op).toBe("upsert");
-    const sqlOps = scanBuildingTaskWrites(
-      "supabase/pending_migrations/9999_x.sql",
-      "insert into public.building_tasks (id) select id from buildings;",
+  it("PRUEBA NEGATIVA: bypasses estructurales que la regex antigua no veía", () => {
+    const casos: Array<[string, string]> = [
+      ["const tabla = \"building_tasks\";\nawait db.from(tabla).insert({ a: 1 });", "const literal"],
+      ["const t = \"building_tasks\";\nconst alias = t;\nawait db.from(alias).upsert([{ a: 1 }]);", "alias"],
+      ["const tasks = db.from(\"building_tasks\");\nawait tasks.insert({ a: 1 });", "variable anclada"],
+      ["await db\n  .from(\"building_tasks\")\n  ?.insert({ a: 1 });", "multilínea + optional chaining"],
+      ["await client.from(TABLA_DESCONOCIDA).insert({ a: 1 });", "fail-closed"],
+    ];
+    for (const [src, etiqueta] of casos) {
+      const found = scanBuildingTaskWrites("supabase/functions/nuevo/index.ts", src);
+      expect(found.length, etiqueta).toBe(1);
+      const { violations } = classifyBuildingTaskWrites(found, {
+        "supabase/functions/nuevo/index.ts": src,
+      });
+      expect(violations.length, etiqueta).toBe(1);
+    }
+  });
+
+  it("PRUEBA NEGATIVA: mutación del payload después del assert invalida el contrato", () => {
+    const file = "supabase/functions/_shared/taskWriters.ts";
+    const mutado = sources[file].replace(
+      "  assertV5CallQueueRow(row);\n  return await client",
+      "  assertV5CallQueueRow(row);\n  (row as any).task_key = \"v5:2020-01-01:T-01:x\";\n  return await client",
     );
-    expect(sqlOps).toHaveLength(1);
-    const { violations } = classifyBuildingTaskWrites([...dynOps, ...sqlOps], sources);
-    expect(violations).toHaveLength(2);
+    expect(mutado).not.toBe(sources[file]);
+    const { violations } = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites(file, mutado), { ...sources, [file]: mutado },
+    );
+    expect(violations.map((v) => v.reason).join(" ")).toContain("se muta después de validar");
+  });
+
+  it("PRUEBA NEGATIVA: assert presente en OTRA función no autoriza la escritura", () => {
+    const file = "src/lib/taskWriters.ts";
+    const trucado = sources[file].replace(
+      "export async function insertManualBuildingTask(client: ClientLike, input: unknown) {\n  const row = buildManualTaskRow(input);",
+      "export function validarAparte(input: unknown) { return buildManualTaskRow(input); }\n" +
+      "export async function insertManualBuildingTask(client: ClientLike, input: unknown) {\n  const row = input as any;",
+    );
+    expect(trucado).not.toBe(sources[file]);
+    const { violations } = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites(file, trucado), { ...sources, [file]: trucado },
+    );
+    expect(violations.map((v) => v.reason).join(" ")).toContain("no está dominada");
+  });
+
+  it("SQL: schema/case/identificadores citados, INSERT/UPSERT/MERGE y cuerpos de RPC", () => {
+    const malicioso = [
+      'INSERT INTO public."building_tasks" (id) SELECT id FROM buildings;',
+      'insert into BUILDING_TASKS (id) values (1) on conflict (task_key) do nothing;',
+      'MERGE INTO public.building_tasks t USING x ON t.id = x.id;',
+      'CREATE OR REPLACE FUNCTION public.rpc_colado() RETURNS void AS $f$ BEGIN\n' +
+      '  INSERT INTO public.building_tasks (id) VALUES (gen_random_uuid());\nEND $f$ LANGUAGE plpgsql;',
+    ].join("\n");
+    const found = scanBuildingTaskWrites("supabase/pending_migrations/9999_x.sql", malicioso);
+    expect(found.map((o) => o.op)).toEqual(["insert", "upsert", "merge", "insert"]);
+    expect(found.at(-1)?.fn).toBe("public.rpc_colado");
+    const { violations, authorized } = classifyBuildingTaskWrites(found, {
+      "supabase/pending_migrations/9999_x.sql": malicioso,
+    });
+    expect(authorized).toEqual([]);
+    expect(violations).toHaveLength(4);
+  });
+
+  it("SQL: la RPC canónica de Fase C se autoriza por función y contrato, no por migración", () => {
+    const buena =
+      'CREATE OR REPLACE FUNCTION public.commit_v5_generation_plan(p jsonb) RETURNS uuid AS $f$\n' +
+      'BEGIN\n  PERFORM public.v5_assert_canonical_task_key(p->>\'task_key\');\n' +
+      "  INSERT INTO public.building_tasks (task_key, generation_mode) VALUES (p->>'task_key', 'production');\n" +
+      "  RETURN NULL;\nEND $f$ LANGUAGE plpgsql;";
+    const okOps = scanBuildingTaskWrites("supabase/pending_migrations/fase_c.sql", buena);
+    const okCls = classifyBuildingTaskWrites(okOps, { "supabase/pending_migrations/fase_c.sql": buena });
+    expect(okCls.violations).toEqual([]);
+    expect(okCls.authorized).toHaveLength(1);
+
+    // Misma migración, otra función: NO autorizada.
+    const mixta = buena + "\nCREATE OR REPLACE FUNCTION public.otra() RETURNS void AS $g$ BEGIN\n" +
+      "  INSERT INTO public.building_tasks (id) VALUES (gen_random_uuid());\nEND $g$ LANGUAGE plpgsql;";
+    const mixtaCls = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites("supabase/pending_migrations/fase_c.sql", mixta),
+      { "supabase/pending_migrations/fase_c.sql": mixta },
+    );
+    expect(mixtaCls.authorized).toHaveLength(1);
+    expect(mixtaCls.violations.map((v) => v.reason).join(" ")).toContain("public.otra");
+
+    // Contrato incompleto: la RPC autorizada sin validación canónica falla.
+    const floja = buena.replace("PERFORM public.v5_assert_canonical_task_key(p->>'task_key');", "");
+    const flojaCls = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites("supabase/pending_migrations/fase_c.sql", floja),
+      { "supabase/pending_migrations/fase_c.sql": floja },
+    );
+    expect(flojaCls.authorized).toEqual([]);
+    expect(flojaCls.violations.map((v) => v.reason).join(" ")).toContain("contrato");
   });
 
   it("el motor legacy sigue siendo no-op", async () => {
@@ -230,12 +312,16 @@ describe("writers autorizados · contrato de payload", () => {
     due_date: "2026-08-10T18:00:00.000Z",
   };
 
-  it("writer V5 escribe con payload válido (clave legacy y canónica)", async () => {
+  it("writer histórico (flag OFF) solo acepta el formato de fecha legacy", async () => {
     const repo = fakeRepo();
     await insertV5CallQueueTask(repo as any, v5Row);
-    await insertV5CallQueueTask(repo as any, { ...v5Row, task_key: "v5:2026-08-10:T2_T3:o1" });
-    expect(repo.rows).toHaveLength(2);
-    expect(repo.rows.map((r) => r.task_type)).toEqual(["call_queue", "call_queue"]);
+    expect(repo.rows).toHaveLength(1);
+    // Una clave canónica NO entra por el writer histórico.
+    await expect(insertV5CallQueueTask(repo as any, {
+      ...v5Row,
+      task_key: buildV5TaskKey({ taskCode: "T2_T3", buildingId: "b1", subjectId: "o1", triggerFingerprint: "fp" }),
+    })).rejects.toThrow(/task_key inválida/);
+    expect(repo.rows).toHaveLength(1);
   });
 
   it("writer V5 rechaza payload auto/legacy o incompleto", async () => {
@@ -247,6 +333,35 @@ describe("writers autorizados · contrato de payload", () => {
     const { due_date, ...sinDue } = v5Row as any;
     await expect(insertV5CallQueueTask(repo as any, sinDue)).rejects.toThrow(/due_date/);
     expect(repo.rows).toHaveLength(0);
+  });
+
+  it("writer canónico usa buildV5TaskKey real y exige todas las columnas Motor", async () => {
+    const repo = fakeRepo();
+    const taskKey = buildV5TaskKey({
+      taskCode: "T2_T3", buildingId: "b1", subjectId: "o1", triggerFingerprint: "fp-1",
+    });
+    expect(taskKey.split(":")).toHaveLength(6);
+    const canonical = {
+      building_id: "b1", user_id: "u1", task_type: "call_queue", task_key: taskKey,
+      title: "WhatsApp — Goya 4", description: "x", priority: "medium", status: "pending",
+      starts_at: "2026-08-10T08:00:00.000Z", due_date: "2026-08-10T18:00:00.000Z",
+      generation_mode: "production", rules_version: taskKey.split(":")[1],
+      task_code: "T2_T3", subject_type: "owner", subject_id: "o1",
+      trigger_fingerprint: "fp-1", eligibility_snapshot: {}, mode_snapshot: {},
+    };
+    await insertV5CanonicalTask(repo as any, canonical);
+    expect(repo.rows).toHaveLength(1);
+
+    // Falta una columna Motor -> rechazo.
+    const { mode_snapshot, ...sinSnapshot } = canonical as any;
+    await expect(insertV5CanonicalTask(repo as any, sinSnapshot)).rejects.toThrow(/snapshots/);
+    // Discordancia clave/columna -> rechazo.
+    await expect(insertV5CanonicalTask(repo as any, { ...canonical, task_code: "T4" }))
+      .rejects.toThrow(/task_code no concuerda/);
+    // Clave histórica disfrazada de canónica -> rechazo.
+    await expect(insertV5CanonicalTask(repo as any, { ...canonical, task_key: "v5:2026-08-10:T-04:o1" }))
+      .rejects.toThrow(/task_key inválida/);
+    expect(repo.rows).toHaveLength(1);
   });
 
   it("writer manual escribe task_type manual sin task_key", async () => {
@@ -265,7 +380,7 @@ describe("writers autorizados · contrato de payload", () => {
       building_id: "b1", user_id: "u1", title: "x", priority: "high", task_type: "call_queue",
     })).rejects.toThrow(/manual/);
     await expect(insertManualBuildingTask(repo as any, {
-      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_key: "v5:2026-08-10:T4:o1",
+      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_key: "v5:v5a.1:T4:b1:o1:fp",
     })).rejects.toThrow(/task_key/);
     expect(repo.rows).toHaveLength(0);
   });
@@ -276,7 +391,7 @@ describe("writers autorizados · contrato de payload", () => {
 // ---------------------------------------------------------------------------
 describe("badge de origen de tarea", () => {
   it("una task_key v5 con task_type=call_queue se etiqueta V5, nunca Manual", () => {
-    const badge = operationalTaskBadge({ task_type: "call_queue", task_key: "v5:2026-08-10:T4:abc" });
+    const badge = operationalTaskBadge({ task_type: "call_queue", task_key: "v5:2026-08-10:T-04:abc" });
     expect(badge.label).toBe("V5 · T4");
     expect(badge.label).not.toContain("Manual");
     expect(operationalTaskBadge({ task_type: "call_queue", task_key: "v5:v5a.1:T2_T3:b:o:f" }).label)
@@ -308,7 +423,7 @@ describe("dashboard comercial · tareas visibles sin edificios", () => {
 
   it("devuelve tareas V5 y manuales aunque el comercial tenga cero edificios", async () => {
     const client = fakeClient([
-      { id: "1", task_type: "call_queue", task_key: "v5:2026-08-10:T4:o1" },
+      { id: "1", task_type: "call_queue", task_key: "v5:2026-08-10:T-04:o1" },
       { id: "2", task_type: "manual", task_key: null },
       { id: "3", task_type: "auto", task_key: "call_queue:2026-01-01:o9" },
     ]);
