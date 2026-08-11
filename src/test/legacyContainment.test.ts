@@ -6,13 +6,22 @@ import { fetchVisibleUserTasks } from "@/lib/dashboardTasks";
 import { handleTecnofindCore } from "../../supabase/functions/enrichment-agent/tecnofind";
 import { tecnofindIncidenciaTrasVerificacion } from "../../supabase/functions/enrichment-apply-verification/tasks";
 import { insertManualBuildingTask } from "@/lib/taskWriters";
-import { insertV5CallQueueTask, insertV5CanonicalTask } from "../../supabase/functions/_shared/taskWriters";
+import {
+  insertV5CanonicalTask,
+  assertLegacyHistoricTaskRow,
+  parseLegacyHistoricTaskKey,
+  LEGACY_GENERABLE_TASK_CODES,
+  LEGACY_CALL_QUEUE_WRITER_RETIRED,
+} from "../../supabase/functions/_shared/taskWriters";
 import { buildV5TaskKey } from "@/lib/v5/model";
 import {
   scanBuildingTaskWrites,
   classifyBuildingTaskWrites,
+  scanRetiredWriterUsage,
+  sqlFunctionRanges,
   AUTHORIZED_WRITERS,
   AUTHORIZED_SQL_WRITERS,
+  AUTHORIZED_TASK_RPCS,
 } from "./helpers/taskWriteGuard";
 
 const ROOT = process.cwd();
@@ -154,14 +163,16 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     const { authorized, violations } = classifyBuildingTaskWrites(ops, sources);
     expect(violations.map((v) => `${v.file}:${v.line} ${v.reason}`)).toEqual([]);
     // Autorizadas EXCLUSIVAMENTE por función, no por archivo.
-    expect(authorized.map((o) => `${o.file}#${o.fn}`).sort()).toEqual([
+    const creaciones = authorized.filter((o) => o.op === "insert" || o.op === "upsert" || o.op === "merge");
+    expect([...new Set(creaciones.map((o) => `${o.file}#${o.fn}`))].sort()).toEqual([
       "src/lib/taskWriters.ts#insertManualBuildingTask",
-      "supabase/functions/_shared/taskWriters.ts#insertV5CallQueueTask",
       "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask",
       "supabase/pending_migrations/20260815000000_v5_engine_p03_runtime_connect.sql#public.commit_v5_generation_plan",
     ]);
+    // El inventario NO se congela en "3 writers": incluye ciclo de vida y RPC.
+    expect(new Set(authorized.map((o) => o.op)).size).toBeGreaterThan(1);
     expect(
-      authorized.every((o) =>
+      creaciones.every((o) =>
         o.kind === "sql"
           ? Boolean(AUTHORIZED_SQL_WRITERS[o.fn ?? ""])
           : Boolean(AUTHORIZED_WRITERS[`${o.file}#${o.fn}`]),
@@ -169,19 +180,59 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     ).toBe(true);
   });
 
-  it("los updates de ciclo de vida no cuentan como creación", () => {
+  it("la UI no puede hacer DML directa: update/delete se inventarían y fallan", () => {
     const ciclo =
       'await db.from("building_tasks").update({ status: "completed" }).eq("id", id);\n' +
       'await db.from("building_tasks").delete().eq("id", id);';
-    expect(scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", ciclo)).toEqual([]);
-    // Y además las pantallas reales ya no escriben: cierran vía RPC.
+    const found = scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", ciclo);
+    expect(found.map((o) => o.op)).toEqual(["update", "delete"]);
+    const { violations, authorized } = classifyBuildingTaskWrites(found, {
+      "src/pages/comercial/Tareas.tsx": ciclo,
+    });
+    expect(authorized).toEqual([]);
+    expect(violations).toHaveLength(2);
+    expect(violations.map((v) => v.reason).join(" ")).toContain("DML directa");
+    // Y las pantallas reales cierran vía RPC.
     expect(sources["src/pages/comercial/Tareas.tsx"]).toContain("resolveBuildingTask(");
     expect(sources["src/pages/comercial/Tareas.tsx"]).not.toContain(".update({");
   });
 
+  it("las RPC de tareas están clasificadas por nombre y callsite", () => {
+    const malo = 'await supabase.rpc("borrar_building_tasks_todas", {});';
+    const { violations } = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", malo),
+      { "src/pages/comercial/Tareas.tsx": malo },
+    );
+    expect(violations.map((v) => v.reason).join(" ")).toContain("RPC de tareas no autorizada");
+
+    const desdeUI = 'export function x() { return supabase.rpc("start_building_task", { p_task_id: 1 }); }';
+    const { violations: v2 } = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", desdeUI),
+      { "src/pages/comercial/Tareas.tsx": desdeUI },
+    );
+    expect(v2.map((v) => v.reason).join(" ")).toContain("callsite no autorizado");
+
+    // Todas las RPC reales de ciclo/manual/runtime están declaradas.
+    for (const n of ["start_building_task", "reopen_building_task", "resolve_building_task",
+      "commit_v5_generation_plan", "claim_v5_generation_requests"]) {
+      expect(AUTHORIZED_TASK_RPCS[n], n).toBeTruthy();
+    }
+  });
+
+  it("el writer legacy está RETIRADO y ningún módulo lo importa o llama", () => {
+    expect(LEGACY_CALL_QUEUE_WRITER_RETIRED).toBe(true);
+    const usos = Object.entries(sources).flatMap(([f, src]) => scanRetiredWriterUsage(f, src));
+    expect(usos.map((u) => `${u.file}:${u.line}`)).toEqual([]);
+    // Un edge que intente resucitarlo falla cerrado.
+    const edge = 'import { insertV5CallQueueTask } from "../_shared/taskWriters.ts";\n' +
+      'await insertV5CallQueueTask(sb, row);';
+    expect(scanRetiredWriterUsage("supabase/functions/nuevo/index.ts", edge)).toHaveLength(2);
+  });
+
   it("los callsites autorizados pasan por su helper con payload válido", () => {
     const v5 = sources["supabase/functions/assign_daily_call_queue/index.ts"];
-    expect(v5).toContain("insertV5CallQueueTask(sb, row)");
+    expect(v5).not.toContain("insertV5CallQueueTask");
+    expect(v5).toContain("const dryRun = true;");
     expect(v5).toContain("task_type: 'call_queue'");
     expect(v5).toMatch(/const taskKey = `v5:\$\{hoy\}:\$\{c\.task_code\}:\$\{idKey\}`/);
     const manual = sources["src/components/comercial/BuildingTasksSection.tsx"];
@@ -222,8 +273,8 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
   it("PRUEBA NEGATIVA: mutación del payload después del assert invalida el contrato", () => {
     const file = "supabase/functions/_shared/taskWriters.ts";
     const mutado = sources[file].replace(
-      "  assertV5CallQueueRow(row);\n  return await client",
-      "  assertV5CallQueueRow(row);\n  (row as any).task_key = \"v5:2020-01-01:T-01:x\";\n  return await client",
+      "  assertV5CanonicalTaskRow(row, opts);\n  return await client",
+      "  assertV5CanonicalTaskRow(row, opts);\n  (row as any).task_key = \"v5:2020-01-01:T-01:x\";\n  return await client",
     );
     expect(mutado).not.toBe(sources[file]);
     const { violations } = classifyBuildingTaskWrites(
@@ -295,6 +346,60 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     expect(flojaCls.violations.map((v) => v.reason).join(" ")).toContain("contrato");
   });
 
+  it("SQL: un INSERT top-level tras cerrar la RPC autorizada NO se le atribuye", () => {
+    const src =
+      "CREATE OR REPLACE FUNCTION public.commit_v5_generation_plan(p jsonb) RETURNS void AS $f$\n" +
+      "BEGIN\n  PERFORM public.v5_assert_canonical_task_key(p->>'task_key');\n" +
+      "  -- lease verificado\n" +
+      "  INSERT INTO public.building_tasks (task_key, generation_mode) VALUES (p->>'task_key', 'production');\n" +
+      "END $f$ LANGUAGE plpgsql;\n" +
+      "INSERT INTO public.building_tasks (id) VALUES (gen_random_uuid());";
+    const file = "supabase/pending_migrations/bypass.sql";
+    const ops = scanBuildingTaskWrites(file, src);
+    expect(ops.map((o) => o.fn)).toEqual(["public.commit_v5_generation_plan", null]);
+    const { authorized, violations } = classifyBuildingTaskWrites(ops, { [file]: src });
+    expect(authorized).toHaveLength(1);
+    expect(violations.map((v) => v.reason).join(" ")).toContain("NIVEL SUPERIOR");
+    // Rangos dollar-quoted reales.
+    const [r] = sqlFunctionRanges(src);
+    expect(src.slice(r.bodyStart, r.bodyEnd)).toContain("INSERT INTO public.building_tasks");
+    expect(src.slice(r.bodyEnd)).toContain("$f$ LANGUAGE");
+  });
+
+  it("SQL: validación después del INSERT o en rama muerta invalida la RPC", () => {
+    const file = "supabase/pending_migrations/bypass2.sql";
+    const despues =
+      "CREATE OR REPLACE FUNCTION public.commit_v5_generation_plan(p jsonb) RETURNS void AS $f$\n" +
+      "BEGIN\n  INSERT INTO public.building_tasks (task_key, generation_mode) VALUES (p->>'task_key', 'production');\n" +
+      "  PERFORM public.v5_assert_canonical_task_key(p->>'task_key');\n  -- lease\nEND $f$ LANGUAGE plpgsql;";
+    expect(
+      classifyBuildingTaskWrites(scanBuildingTaskWrites(file, despues), { [file]: despues })
+        .violations.map((v) => v.reason).join(" "),
+    ).toContain("contrato antes de escribir");
+
+    const ramaMuerta =
+      "CREATE OR REPLACE FUNCTION public.commit_v5_generation_plan(p jsonb) RETURNS void AS $f$\n" +
+      "BEGIN\n  IF false THEN\n    PERFORM public.v5_assert_canonical_task_key(p->>'task_key');\n  END IF;\n" +
+      "  IF true THEN\n" +
+      "  INSERT INTO public.building_tasks (task_key, generation_mode) VALUES (p->>'task_key', 'production');\n" +
+      "  -- lease\n  END IF;\nEND $f$ LANGUAGE plpgsql;";
+    const cls = classifyBuildingTaskWrites(scanBuildingTaskWrites(file, ramaMuerta), { [file]: ramaMuerta });
+    expect(cls.authorized).toEqual([]);
+    expect(cls.violations.map((v) => v.reason).join(" ")).toMatch(/rama condicional|contrato/);
+  });
+
+  it("SQL: UPDATE/DELETE fuera de las RPC de ciclo de vida se bloquean", () => {
+    const file = "supabase/pending_migrations/bypass3.sql";
+    const src =
+      "CREATE OR REPLACE FUNCTION public.limpieza() RETURNS void AS $z$\nBEGIN\n" +
+      "  DELETE FROM public.building_tasks WHERE status = 'pending';\nEND $z$ LANGUAGE plpgsql;";
+    const { authorized, violations } = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites(file, src), { [file]: src },
+    );
+    expect(authorized).toEqual([]);
+    expect(violations.map((v) => v.reason).join(" ")).toContain("delete SQL no autorizado");
+  });
+
   it("el motor legacy sigue siendo no-op", async () => {
     const mod = await import("@/lib/buildingTasks");
     expect(mod.LEGACY_TASK_ENGINE_RETIRED).toBe(true);
@@ -324,27 +429,22 @@ describe("writers autorizados · contrato de payload", () => {
     due_date: "2026-08-10T18:00:00.000Z",
   };
 
-  it("writer histórico (flag OFF) solo acepta el formato de fecha legacy", async () => {
-    const repo = fakeRepo();
-    await insertV5CallQueueTask(repo as any, v5Row);
-    expect(repo.rows).toHaveLength(1);
-    // Una clave canónica NO entra por el writer histórico.
-    await expect(insertV5CallQueueTask(repo as any, {
-      ...v5Row,
-      task_key: buildV5TaskKey({ taskCode: "T2_T3", buildingId: "b1", subjectId: "o1", triggerFingerprint: "fp" }),
-    })).rejects.toThrow(/task_key inválida/);
-    expect(repo.rows).toHaveLength(1);
-  });
-
-  it("writer V5 rechaza payload auto/legacy o incompleto", async () => {
-    const repo = fakeRepo();
-    await expect(insertV5CallQueueTask(repo as any, { ...v5Row, task_key: "call_queue:2026-01-01:o1" }))
-      .rejects.toThrow(/task_key inválida/);
-    await expect(insertV5CallQueueTask(repo as any, { ...v5Row, task_type: "auto" }))
-      .rejects.toThrow(/call_queue/);
-    const { due_date, ...sinDue } = v5Row as any;
-    await expect(insertV5CallQueueTask(repo as any, sinDue)).rejects.toThrow(/due_date/);
-    expect(repo.rows).toHaveLength(0);
+  it("el histórico sólo se LEE: fecha real, 4 segmentos, id sin ':' y catálogo", () => {
+    expect(parseLegacyHistoricTaskKey("v5:2026-08-10:T-04:o1")).toMatchObject({
+      fecha: "2026-08-10", code: "T-04", id: "o1", legacyOnly: false,
+    });
+    // T-07 es LEGIBLE pero jamás generable.
+    expect(parseLegacyHistoricTaskKey("v5:2026-08-10:T-07:o1")?.legacyOnly).toBe(true);
+    expect(LEGACY_GENERABLE_TASK_CODES).not.toContain("T-07");
+    // Fecha imposible, segmentos de más, id vacío o con ':'.
+    expect(parseLegacyHistoricTaskKey("v5:2026-02-31:T-04:o1")).toBeNull();
+    expect(parseLegacyHistoricTaskKey("v5:2026-13-01:T-04:o1")).toBeNull();
+    expect(parseLegacyHistoricTaskKey("v5:2026-08-10:T-04:o1:extra")).toBeNull();
+    expect(parseLegacyHistoricTaskKey("v5:2026-08-10:T-04:")).toBeNull();
+    expect(parseLegacyHistoricTaskKey("v5:v5a.1:T2_T3:b:o:f")).toBeNull();
+    expect(() => assertLegacyHistoricTaskRow({ ...v5Row, task_key: "v5:2026-02-30:T-04:o1" }))
+      .toThrow(/task_key inválida/);
+    assertLegacyHistoricTaskRow(v5Row);
   });
 
   it("writer canónico usa buildV5TaskKey real y exige todas las columnas Motor", async () => {
@@ -361,17 +461,27 @@ describe("writers autorizados · contrato de payload", () => {
       task_code: "T2_T3", subject_type: "owner", subject_id: "o1",
       trigger_fingerprint: "fp-1", eligibility_snapshot: {}, mode_snapshot: {},
     };
-    await insertV5CanonicalTask(repo as any, canonical);
+    const now = Date.parse("2026-08-10T07:00:00.000Z");
+    await insertV5CanonicalTask(repo as any, canonical, { now });
+    expect(repo.rows).toHaveLength(1);
+
+    // Fechas: due < starts, instantes inválidos y tareas nacidas vencidas.
+    await expect(insertV5CanonicalTask(repo as any,
+      { ...canonical, due_date: "2026-08-10T07:30:00.000Z" }, { now })).rejects.toThrow(/anterior a starts_at/);
+    await expect(insertV5CanonicalTask(repo as any,
+      { ...canonical, due_date: "no-es-fecha" }, { now })).rejects.toThrow(/instante válido/);
+    await expect(insertV5CanonicalTask(repo as any, canonical,
+      { now: Date.parse("2026-08-11T00:00:00.000Z") })).rejects.toThrow(/nacería vencida/);
     expect(repo.rows).toHaveLength(1);
 
     // Falta una columna Motor -> rechazo.
     const { mode_snapshot, ...sinSnapshot } = canonical as any;
-    await expect(insertV5CanonicalTask(repo as any, sinSnapshot)).rejects.toThrow(/snapshots/);
+    await expect(insertV5CanonicalTask(repo as any, sinSnapshot, { now })).rejects.toThrow(/snapshots/);
     // Discordancia clave/columna -> rechazo.
-    await expect(insertV5CanonicalTask(repo as any, { ...canonical, task_code: "T4" }))
+    await expect(insertV5CanonicalTask(repo as any, { ...canonical, task_code: "T4" }, { now }))
       .rejects.toThrow(/task_code no concuerda/);
     // Clave histórica disfrazada de canónica -> rechazo.
-    await expect(insertV5CanonicalTask(repo as any, { ...canonical, task_key: "v5:2026-08-10:T-04:o1" }))
+    await expect(insertV5CanonicalTask(repo as any, { ...canonical, task_key: "v5:2026-08-10:T-04:o1" }, { now }))
       .rejects.toThrow(/task_key inválida/);
     expect(repo.rows).toHaveLength(1);
   });

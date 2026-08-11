@@ -385,7 +385,10 @@ describe("V5 P0.2 — compatibilidad UI y escritores", () => {
   it("el productor legacy queda contenido con el flag OFF", () => {
     const src = readFileSync(resolve("supabase/functions/assign_daily_call_queue/index.ts"), "utf8");
     expect(src).toContain("decideRuntimeMode");
-    expect(src).toMatch(/dryRun\s*=\s*body\.dry_run === true \|\| !runtime\.legacyWritesAllowed/);
+    // P0.4: la cola legacy es PREVISUALIZACIÓN pura con el flag ON u OFF.
+    expect(src).toMatch(/const dryRun = true;/);
+    expect(src).not.toContain("insertV5CallQueueTask");
+    expect(src).not.toMatch(/\.delete\(\)/);
     const shared = readFileSync(resolve("supabase/functions/_shared/v5Runtime.ts"), "utf8");
     expect(shared).toContain("FEATURE_V5_RUNTIME_ADAPTER = false");
     expect(shared).toMatch(/legacyWritesAllowed: false/);

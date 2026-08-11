@@ -274,6 +274,18 @@ BEGIN
   END IF;
   PERFORM public.v5_assert_canonical_task_key(v_key, v_code, v_building, v_subject, v_fp);
 
+  -- 5.3.b FECHAS (la BD revalida lo que ya validó el writer): instantes
+  -- válidos, ventana coherente y jamás una tarea nacida vencida.
+  IF (p_plan->>'starts_at') IS NULL OR (p_plan->>'due_date') IS NULL THEN
+    RAISE EXCEPTION 'commit_v5_generation_plan: ventana temporal obligatoria';
+  END IF;
+  IF (p_plan->>'due_date')::timestamptz < (p_plan->>'starts_at')::timestamptz THEN
+    RAISE EXCEPTION 'commit_v5_generation_plan: due_date anterior a starts_at';
+  END IF;
+  IF (p_plan->>'due_date')::timestamptz <= now() THEN
+    RAISE EXCEPTION 'commit_v5_generation_plan: la tarea nacería vencida';
+  END IF;
+
   -- 5.4 Slot: como mucho UNA production abierta por comercial.
   PERFORM 1 FROM public.building_tasks
    WHERE user_id = v_com AND generation_mode = 'production'

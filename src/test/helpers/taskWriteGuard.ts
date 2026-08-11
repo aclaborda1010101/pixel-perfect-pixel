@@ -13,13 +13,13 @@ import ts from "typescript";
 export type WriteOp = {
   file: string;
   kind: "ts" | "sql";
-  op: "insert" | "upsert" | "merge";
+  op: "insert" | "upsert" | "merge" | "update" | "delete" | "rpc";
   /** Texto del payload emparejado con la operación (objeto TS o cuerpo SQL). */
   payload: string;
   line: number;
   /** Función/RPC que contiene la operación (`null` si es de nivel superior). */
   fn: string | null;
-  /** Tabla resuelta; `null` = no resoluble (fail-closed). */
+  /** Tabla resuelta (o nombre de RPC si op="rpc"); `null` = no resoluble. */
   table: string | null;
   /** Motivo cuando el destino no se pudo resolver. */
   unresolved?: string;
@@ -44,11 +44,6 @@ type TsRule = {
  * Nada más puede crear filas en building_tasks.
  */
 export const AUTHORIZED_WRITERS: Record<string, TsRule> = {
-  "supabase/functions/_shared/taskWriters.ts#insertV5CallQueueTask": {
-    id: "v5_call_queue_historico",
-    validator: "assertV5CallQueueRow",
-    mode: "assert",
-  },
   "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask": {
     id: "v5_canonica_motor",
     validator: "assertV5CanonicalTaskRow",
@@ -62,14 +57,85 @@ export const AUTHORIZED_WRITERS: Record<string, TsRule> = {
 };
 
 /** RPC SQL autorizadas: clave `<esquema>.<función>` + contrato exigido. */
-export const AUTHORIZED_SQL_WRITERS: Record<string, { id: string; requires: RegExp[] }> = {
+export type SqlRule = {
+  id: string;
+  /** Deben aparecer ANTES de la escritura y a profundidad 0 (dominancia). */
+  requiresBefore: RegExp[];
+  /** Deben aparecer en el cuerpo (contrato de la fila escrita). */
+  requires: RegExp[];
+};
+
+export const AUTHORIZED_SQL_WRITERS: Record<string, SqlRule> = {
   "public.commit_v5_generation_plan": {
     id: "v5_commit_plan",
-    requires: [/v5_assert_canonical_task_key\s*\(/i, /'production'/],
+    requiresBefore: [/v5_assert_canonical_task_key\s*\(/i],
+    requires: [/'production'/],
   },
   "public.create_manual_building_task": {
     id: "manual_rpc",
-    requires: [/'manual'/, /manual_subtype/i],
+    requiresBefore: [/manual_subtype/i],
+    requires: [/'manual'/],
+  },
+};
+
+/**
+ * Writers RETIRADOS: importarlos o llamarlos desde cualquier módulo es una
+ * violación. El histórico sólo se LEE (parseLegacyHistoricTaskKey).
+ */
+export const RETIRED_WRITERS = ["insertV5CallQueueTask", "insertBuildingTaskLegacy"] as const;
+
+/** Mutaciones DML directas autorizadas en TS/TSX: NINGUNA (la UI usa RPC). */
+export const AUTHORIZED_TS_MUTATIONS: Record<string, string> = {};
+
+/** RPC de mutación de tareas autorizadas: nombre -> unidad(es) de llamada. */
+export const AUTHORIZED_TASK_RPCS: Record<string, { id: string; units: string[] }> = {
+  start_building_task: { id: "lifecycle_start", units: ["src/lib/taskStart.ts#startBuildingTask"] },
+  reopen_building_task: { id: "lifecycle_reopen", units: ["src/lib/taskStart.ts#reopenBuildingTask"] },
+  resolve_building_task: { id: "lifecycle_resolve", units: ["src/lib/taskStart.ts#resolveBuildingTask"] },
+  create_manual_building_task: { id: "manual_rpc", units: [] },
+  commit_v5_generation_plan: {
+    id: "v5_runtime_commit",
+    units: ["supabase/functions/v5_task_runtime/index.ts#commitPlan"],
+  },
+  claim_v5_generation_requests: {
+    id: "v5_runtime_claim",
+    units: ["supabase/functions/v5_task_runtime/index.ts#claimRequests"],
+  },
+  release_v5_generation_request: {
+    id: "v5_runtime_release",
+    units: ["supabase/functions/v5_task_runtime/index.ts#releaseRequest"],
+  },
+  reap_v5_generation_leases: {
+    id: "v5_runtime_reap",
+    units: ["supabase/functions/v5_task_runtime/index.ts#reapExpiredLeases"],
+  },
+  request_v5_generation: { id: "v5_request", units: [] },
+};
+
+/** Nombres de RPC que el inventario considera "de tareas" (no toda la app). */
+export const TASK_RPC_RX = /(building_task|_v5_generation|task_runtime)/i;
+
+/** Mutaciones SQL (update/delete) autorizadas por función + contrato. */
+export const AUTHORIZED_SQL_MUTATORS: Record<string, SqlRule> = {
+  "public.start_building_task": {
+    id: "lifecycle_start", requiresBefore: [/FOR UPDATE/i], requires: [/auth\.uid\(\)/i],
+  },
+  "public.reopen_building_task": {
+    id: "lifecycle_reopen", requiresBefore: [/FOR UPDATE/i], requires: [/auth\.uid\(\)/i],
+  },
+  "public.resolve_building_task": {
+    id: "lifecycle_resolve", requiresBefore: [/FOR UPDATE/i], requires: [/auth\.uid\(\)/i],
+  },
+  "public.commit_v5_generation_plan": {
+    id: "v5_commit_plan", requiresBefore: [/lease/i], requires: [],
+  },
+};
+
+/** DML de nivel superior autorizada en migraciones (clasificación histórica). */
+export const AUTHORIZED_SQL_TOPLEVEL: Record<string, { id: string; requires: RegExp[] }> = {
+  "supabase/pending_migrations/20260811230000_v5_engine_phase_a.sql#update": {
+    id: "clasificacion_historico_legacy",
+    requires: [/generation_mode\s*=\s*'legacy'/i],
   },
 };
 
@@ -101,6 +167,8 @@ function scanTs(file: string, source: string): WriteOp[] {
   const boundTables = new Map<string, Resolved>();
   /** alias: const A = B */
   const aliases = new Map<string, string>();
+  /** const NAME = new Set(["a","b"]) */
+  const sets = new Map<string, string[]>();
 
   /**
    * Conjunto de valores posibles de una expresión de tabla.
@@ -134,9 +202,38 @@ function scanTs(file: string, source: string): WriteOp[] {
         if (objects.has(alias)) return objects.get(alias)!;
         return null;
       }
+      const guarded = guardedLiterals(name);
+      if (guarded) return guarded;
       return resolveParameter(n, seen, depth + 1);
     }
     return null;
+  }
+
+  /**
+   * Allowlist dominante: `if (!SET.has(x)) throw ...` con SET literal acota
+   * los valores posibles de `x` a ese conjunto (nada dinámico se cuela).
+   */
+  function guardedLiterals(name: string): string[] | null {
+    let found: string[] | null = null;
+    const visit = (node: ts.Node) => {
+      if (ts.isIfStatement(node) &&
+          ts.isPrefixUnaryExpression(node.expression) &&
+          node.expression.operator === ts.SyntaxKind.ExclamationToken) {
+        const call = node.expression.operand;
+        if (ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression) &&
+            call.expression.name.text === "has" &&
+            ts.isIdentifier(call.expression.expression) &&
+            sets.has(call.expression.expression.text) &&
+            call.arguments[0] && ts.isIdentifier(call.arguments[0]) &&
+            (call.arguments[0] as ts.Identifier).text === name &&
+            node.thenStatement.getText(sf).includes("throw")) {
+          found = sets.get(call.expression.expression.text)!;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    return found;
   }
 
   /**
@@ -184,6 +281,17 @@ function scanTs(file: string, source: string): WriteOp[] {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const name = node.name.text;
       const init = ts.isAsExpression(node.initializer) ? node.initializer.expression : node.initializer;
+      if (ts.isNewExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === "Set") {
+        const arg = init.arguments?.[0];
+        if (arg && ts.isArrayLiteralExpression(arg)) {
+          const vals: string[] = [];
+          let ok = true;
+          for (const el of arg.elements) {
+            if (ts.isStringLiteralLike(el)) vals.push(el.text); else ok = false;
+          }
+          if (ok) sets.set(name, vals);
+        }
+      }
       if (ts.isStringLiteralLike(init)) strings.set(name, init.text);
       else if (ts.isIdentifier(init)) aliases.set(name, init.text);
       else if (ts.isObjectLiteralExpression(init)) {
@@ -262,13 +370,30 @@ function scanTs(file: string, source: string): WriteOp[] {
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const name = node.expression.name.text;
-      if (name === "insert" || name === "upsert") {
+      if (name === "rpc") {
+        const lits = literalsOf(node.arguments[0]);
+        const nombres = lits ?? [null];
+        for (const rpcName of nombres) {
+          if (rpcName !== null && !TASK_RPC_RX.test(rpcName)) continue;
+          ops.push({
+            file, kind: "ts", op: "rpc",
+            payload: node.getText(sf).slice(0, 120),
+            payloadIdent: null,
+            line: lineOf(source, node.getStart(sf)),
+            pos: node.getStart(sf),
+            fn: enclosingFn(node),
+            table: rpcName,
+            unresolved: rpcName === null ? "nombre de RPC no resoluble" : undefined,
+          });
+        }
+      }
+      if (name === "insert" || name === "upsert" || name === "update" || name === "delete") {
         const recv = resolveReceiver(node.expression.expression);
         const isTarget = recv.table === TABLE || (recv.sawFrom && recv.table === null);
         if (isTarget) {
           const arg = node.arguments[0];
           ops.push({
-            file, kind: "ts", op: name as "insert" | "upsert",
+            file, kind: "ts", op: name as WriteOp["op"],
             payload: arg ? arg.getText(sf) : "",
             payloadIdent: arg && ts.isIdentifier(arg) ? arg.text : null,
             line: lineOf(source, node.getStart(sf)),
@@ -291,36 +416,73 @@ function scanTs(file: string, source: string): WriteOp[] {
 // ---------------------------------------------------------------------------
 
 const SQL_WRITE_RX =
-  /\b(insert\s+into|merge\s+into|upsert\s+into)\s+((?:"?[A-Za-z_][A-Za-z0-9_]*"?\s*\.\s*)?"?[A-Za-z_][A-Za-z0-9_]*"?)/gi;
+  /\b(insert\s+into|merge\s+into|upsert\s+into|update|delete\s+from)\s+((?:"?[A-Za-z_][A-Za-z0-9_]*"?\s*\.\s*)?"?[A-Za-z_][A-Za-z0-9_]*"?)/gi;
 const SQL_FN_RX =
   /create\s+(?:or\s+replace\s+)?function\s+("?[A-Za-z_][A-Za-z0-9_]*"?\s*\.\s*)?("?[A-Za-z_][A-Za-z0-9_]*"?)/gi;
 
 const unquote = (s: string) => s.replace(/"/g, "").trim().toLowerCase();
 
-function sqlEnclosingFn(source: string, index: number): string | null {
+export type SqlFnRange = {
+  name: string;
+  headerStart: number;
+  bodyStart: number;
+  bodyEnd: number;
+  /** true si el cuerpo dollar-quoted no se pudo delimitar (fail-closed). */
+  unterminated: boolean;
+};
+
+/**
+ * Rangos REALES de cuerpo de función: se localiza la etiqueta dollar-quote
+ * (`$$`, `$fn$`, …) de apertura y su cierre EXACTO. Nada que caiga fuera de
+ * [bodyStart, bodyEnd] pertenece a la función, por muy cerca que esté.
+ */
+export function sqlFunctionRanges(source: string): SqlFnRange[] {
+  const out: SqlFnRange[] = [];
   SQL_FN_RX.lastIndex = 0;
-  let last: string | null = null;
   let m: RegExpExecArray | null;
   while ((m = SQL_FN_RX.exec(source))) {
-    if (m.index > index) break;
-    const schema = m[1] ? unquote(m[1].replace(/\.$/, "")) : "public";
-    last = `${schema}.${unquote(m[2])}`;
+    const schema = m[1] ? unquote(m[1].replace(/\.\s*$/, "")) : "public";
+    const name = `${schema}.${unquote(m[2])}`;
+    const tagRx = /\$([A-Za-z0-9_]*)\$/g;
+    tagRx.lastIndex = m.index + m[0].length;
+    const open = tagRx.exec(source);
+    if (!open) {
+      out.push({ name, headerStart: m.index, bodyStart: m.index, bodyEnd: m.index, unterminated: true });
+      continue;
+    }
+    const closeIdx = source.indexOf(open[0], open.index + open[0].length);
+    out.push({
+      name,
+      headerStart: m.index,
+      bodyStart: open.index + open[0].length,
+      bodyEnd: closeIdx < 0 ? source.length : closeIdx,
+      unterminated: closeIdx < 0,
+    });
+    if (closeIdx > 0) SQL_FN_RX.lastIndex = Math.max(SQL_FN_RX.lastIndex, closeIdx);
   }
-  return last;
+  return out;
 }
 
-/** Definición completa de la función SQL que contiene `index`. */
-export function sqlFunctionBody(source: string, index: number): string {
-  SQL_FN_RX.lastIndex = 0;
-  let start = 0;
-  let m: RegExpExecArray | null;
-  while ((m = SQL_FN_RX.exec(source))) {
-    if (m.index > index) break;
-    start = m.index;
+function sqlEnclosing(source: string, index: number): SqlFnRange | null {
+  for (const r of sqlFunctionRanges(source)) {
+    if (index > r.bodyStart && index < r.bodyEnd) return r;
   }
-  const tag = /\$([A-Za-z0-9_]*)\$/.exec(source.slice(start, index));
-  const end = tag ? source.indexOf(tag[0], index) : -1;
-  return source.slice(start, end < 0 ? source.length : end + (tag ? tag[0].length : 0));
+  return null;
+}
+
+/** Cuerpo de la función que CONTIENE `index`; cadena vacía si es top-level. */
+export function sqlFunctionBody(source: string, index: number): string {
+  const r = sqlEnclosing(source, index);
+  return r ? source.slice(r.bodyStart, r.bodyEnd) : "";
+}
+
+/** Profundidad de bloques (IF/LOOP/CASE) en un fragmento de PL/pgSQL. */
+export function plpgsqlDepth(fragment: string): number {
+  const abre = (fragment.match(/\bif\b[^;]*?\bthen\b/gi) ?? []).length +
+    (fragment.match(/\bloop\b/gi) ?? []).length -
+    (fragment.match(/\bend\s+loop\b/gi) ?? []).length * 2;
+  const cierra = (fragment.match(/\bend\s+if\b/gi) ?? []).length;
+  return abre - cierra;
 }
 
 function scanSql(file: string, source: string): WriteOp[] {
@@ -333,18 +495,44 @@ function scanSql(file: string, source: string): WriteOp[] {
     if (parts[parts.length - 1] !== TABLE) continue;
     const end = source.indexOf(";", m.index);
     const body = source.slice(m.index, end < 0 ? source.length : end);
+    const verbo = m[1].toLowerCase();
+    const op: WriteOp["op"] = /^merge/.test(verbo)
+      ? "merge"
+      : /^update/.test(verbo)
+        ? "update"
+        : /^delete/.test(verbo)
+          ? "delete"
+          : /on\s+conflict/i.test(body) ? "upsert" : "insert";
+    const encl = sqlEnclosing(source, m.index);
     ops.push({
-      file, kind: "sql",
-      op: /^merge/i.test(m[1]) ? "merge" : /on\s+conflict/i.test(body) ? "upsert" : "insert",
+      file, kind: "sql", op,
       payload: body.trim(),
       payloadIdent: null,
       line: lineOf(source, m.index),
       pos: m.index,
-      fn: sqlEnclosingFn(source, m.index),
+      fn: encl && !encl.unterminated ? encl.name : null,
       table: TABLE,
+      unresolved: encl?.unterminated ? "cuerpo dollar-quoted sin cierre" : undefined,
     });
   }
   return ops;
+}
+
+/** Usos (import o llamada) de writers retirados: siempre violación. */
+export function scanRetiredWriterUsage(file: string, source: string): Violation[] {
+  if (/\.sql$/i.test(file)) return [];
+  const out: Violation[] = [];
+  for (const name of RETIRED_WRITERS) {
+    const rx = new RegExp(`\\b${name}\\b`, "g");
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(source))) {
+      out.push({
+        file, line: lineOf(source, m.index),
+        reason: `writer legacy retirado en uso: ${name}`,
+      });
+    }
+  }
+  return out;
 }
 
 export function scanBuildingTaskWrites(file: string, source: string): WriteOp[] {
@@ -430,6 +618,38 @@ function checkTsContract(
   return null;
 }
 
+/**
+ * Contrato SQL: la operación debe estar DENTRO del cuerpo de la función
+ * autorizada, la validación debe precederla en el mismo cuerpo y a
+ * profundidad 0 (no rama muerta), sobre las mismas variables escritas, y no
+ * puede haber mutaciones posteriores de la tabla en el mismo cuerpo.
+ */
+function checkSqlContract(
+  op: WriteOp, rule: SqlRule, source: string,
+): string | null {
+  const range = sqlFunctionRanges(source).find((r) => r.name === op.fn && op.pos > r.bodyStart && op.pos < r.bodyEnd);
+  if (!range) return `${rule.id}: la operación no está dentro del cuerpo de ${op.fn}`;
+  const antes = source.slice(range.bodyStart, op.pos);
+  const cuerpo = source.slice(range.bodyStart, range.bodyEnd);
+  for (const rx of rule.requires) {
+    if (!rx.test(cuerpo)) return `${rule.id}: la definición no cumple el contrato (${rx})`;
+  }
+  for (const rx of rule.requiresBefore) {
+    const local = new RegExp(rx.source, rx.flags.replace("g", "") + "g");
+    let ok = false;
+    let m: RegExpExecArray | null;
+    while ((m = local.exec(antes))) {
+      // Validación a profundidad 0: nunca en una rama que pueda no ejecutarse.
+      if (plpgsqlDepth(antes.slice(0, m.index)) <= 0) { ok = true; break; }
+    }
+    if (!ok) return `${rule.id}: la definición no cumple el contrato antes de escribir (${rx})`;
+  }
+  if (plpgsqlDepth(antes) > 0) {
+    return `${rule.id}: la escritura está en una rama condicional no dominada`;
+  }
+  return null;
+}
+
 export function classifyBuildingTaskWrites(
   ops: readonly WriteOp[],
   sources: Readonly<Record<string, string>>,
@@ -448,20 +668,66 @@ export function classifyBuildingTaskWrites(
     }
 
     if (op.kind === "sql") {
-      const rule = op.fn ? AUTHORIZED_SQL_WRITERS[op.fn] : undefined;
-      if (!rule) {
+      const src = sources[op.file] ?? "";
+      if (!op.fn) {
+        const rule = AUTHORIZED_SQL_TOPLEVEL[`${op.file}#${op.op}`];
+        if (rule && rule.requires.every((rx) => rx.test(op.payload))) {
+          authorized.push(op);
+          continue;
+        }
         violations.push({
           file: op.file, line: op.line,
-          reason: `${op.op} SQL no autorizado sobre building_tasks (fn: ${op.fn ?? "nivel superior"})`,
+          reason: `${op.op} SQL de NIVEL SUPERIOR sobre building_tasks (fuera de toda función autorizada)`,
         });
         continue;
       }
-      const body = sqlFunctionBody(sources[op.file] ?? "", op.pos);
-      const falta = rule.requires.find((rx) => !rx.test(body));
-      if (falta) {
+      const rule =
+        op.op === "update" || op.op === "delete"
+          ? AUTHORIZED_SQL_MUTATORS[op.fn]
+          : AUTHORIZED_SQL_WRITERS[op.fn];
+      if (!rule) {
         violations.push({
           file: op.file, line: op.line,
-          reason: `${rule.id}: la definición no cumple el contrato (${falta})`,
+          reason: `${op.op} SQL no autorizado sobre building_tasks (fn: ${op.fn})`,
+        });
+        continue;
+      }
+      const problema = checkSqlContract(op, rule, src);
+      if (problema) {
+        violations.push({ file: op.file, line: op.line, reason: problema });
+        continue;
+      }
+      authorized.push(op);
+      continue;
+    }
+
+    if (op.op === "rpc") {
+      const rpc = AUTHORIZED_TASK_RPCS[String(op.table)];
+      const unit = `${op.file}#${op.fn ?? ""}`;
+      if (!rpc) {
+        violations.push({
+          file: op.file, line: op.line,
+          reason: `RPC de tareas no autorizada: ${op.table} en ${unit}`,
+        });
+        continue;
+      }
+      if (rpc.units.length > 0 && !rpc.units.includes(unit)) {
+        violations.push({
+          file: op.file, line: op.line,
+          reason: `${rpc.id}: callsite no autorizado (${unit})`,
+        });
+        continue;
+      }
+      authorized.push(op);
+      continue;
+    }
+
+    if (op.op === "update" || op.op === "delete") {
+      const unit = `${op.file}#${op.fn ?? ""}`;
+      if (!AUTHORIZED_TS_MUTATIONS[unit]) {
+        violations.push({
+          file: op.file, line: op.line,
+          reason: `DML directa (${op.op}) sobre building_tasks prohibida en ${unit}: usa el RPC de ciclo de vida`,
         });
         continue;
       }
