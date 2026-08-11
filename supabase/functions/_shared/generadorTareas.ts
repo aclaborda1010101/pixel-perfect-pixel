@@ -54,8 +54,11 @@ export function elegirTipo(input: {
   historico: string[];
   disponibles: readonly Tipo[];
 }): Tipo {
-  const disponibles = input.disponibles.length > 0 ? input.disponibles : TIPOS;
   const mix = input.mix && Object.keys(input.mix).length > 0 ? input.mix : MIX_POR_DEFECTO;
+  const todos = input.disponibles.length > 0 ? input.disponibles : TIPOS;
+  // Los tipos con porcentaje 0 sólo entran si no hay ninguno con porcentaje.
+  const conPeso = todos.filter((t) => porcentajeDeTipo(mix, t) > 0);
+  const disponibles = conPeso.length > 0 ? conPeso : todos;
   const totalMix = Object.values(mix).reduce((a, b) => a + (Number(b) || 0), 0) || 100;
   const n = input.historico.length;
   let mejor: Tipo = disponibles[0];
