@@ -473,7 +473,45 @@ describe("inicio, reapertura y cierre", () => {
     const t = mk({ status: "completed", started_at: "2026-03-01T09:00:00Z", completed_at: "2026-03-02T09:00:00Z" });
     reopenBuildingTaskSim(dav, t);
     expect(t).toMatchObject({ status: "pending", started_at: null, completed_at: null });
-    expect(reopenPatch()).toEqual({ status: "pending", started_at: null, completed_at: null });
+    // Reapertura sólo desde estados terminales/bloqueados.
+    for (const s of ["completed", "skipped", "no_procede", "blocked"]) {
+      expect(canReopenTask({ status: s })).toBe(true);
+    }
+    for (const s of ["pending", "in_progress"]) {
+      expect(decideTaskReopen({ status: s })).toMatchObject({ action: "reject" });
+      expect(reopenBuildingTaskSim(dav, mk({ status: s }))).toMatchObject({ ok: false });
+    }
+  });
+
+  it("in_progress histórico sin started_at no inventa duración: exige reapertura", () => {
+    expect(decideTaskStart({ status: "in_progress", started_at: null })).toMatchObject({
+      action: "reject", reason: "requiere_reapertura",
+    });
+    expect(startBuildingTaskSim(dav, mk({ status: "in_progress", started_at: null }), now)).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("los modos de generación no productivos no son iniciables", () => {
+    for (const m of ["legacy", "demo"]) {
+      expect(decideTaskStart({ status: "pending", generation_mode: m })).toMatchObject({
+        action: "reject", reason: "modo_no_iniciable",
+      });
+    }
+    for (const m of ["production", "manual"]) {
+      expect(decideTaskStart({ status: "pending", generation_mode: m }).action).toBe("start");
+    }
+  });
+
+  it("ninguna pantalla reabre tareas con UPDATE directo: todas usan el RPC", () => {
+    for (const f of [
+      "src/pages/comercial/Tareas.tsx",
+      "src/components/comercial/BuildingTasksSection.tsx",
+    ]) {
+      const src = readFileSync(f, "utf8");
+      expect(src).toContain("reopenBuildingTask");
+      expect(src).not.toMatch(/from\("building_tasks"\)\s*\.update/);
+    }
   });
 
   it("completar sin inicio está permitido pero no computa duración", () => {
