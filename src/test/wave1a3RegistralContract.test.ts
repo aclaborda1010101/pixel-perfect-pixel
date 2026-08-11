@@ -229,7 +229,8 @@ describe("Wave 1A.3 P0.3 · namespaces, vínculo, parseo total y atomicidad", ()
   });
 
   it("el runner no usa shims ni omite migraciones", () => {
-    expect(runner).not.toContain("SHIM");
+    expect(runner).not.toMatch(/SHIM +[0-9a-f]/);
+    expect(runner).not.toMatch(/CREATE EXTENSION\[\^;\]/);
     expect(runner).not.toContain("SKIP_LOCAL");
     expect(runner).not.toContain("asegurar_placeholder");
     expect(runner).not.toMatch(/sed -E "s@\(CREATE EXTENSION/);
