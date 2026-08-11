@@ -140,7 +140,7 @@ HDR
 COMMIT="$(cd "$ROOT" && git -c safe.directory="$ROOT" rev-parse HEAD)"
 case "$COMMIT" in
   [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-  *) echo "NO_VERIFICADO: git no devuelve un commit de 40 hex ($COMMIT); la procedencia no sería verificable." >&2; exit 4;;
+  *) no_verificado "git no devuelve un commit de 40 hex ($COMMIT); la procedencia no sería verificable.";;
 esac
 PRIMERA="$(basename "${MIGS[0]}")"; ULTIMA="$(basename "${MIGS[$((${#MIGS[@]}-1))]}")"
 {
@@ -163,5 +163,6 @@ PRIMERA="$(basename "${MIGS[0]}")"; ULTIMA="$(basename "${MIGS[$((${#MIGS[@]}-1)
 # alterar la procedencia a mano rompe el checksum.
 ( cd "$HERE" && sha256sum "$(basename "$OUT")" "$(basename "$OUT").extensions" "$(basename "$OUT").roles" "$(basename "$OUT").provenance" > "$(basename "$OUT").sha256" )
 
+rm -f "$OUT.NO_VERIFICADO"
 echo "SNAPSHOT OK  aplicadas=$APPLIED  no_aplicables=0  commit=$COMMIT"
 cat "$OUT.sha256"
