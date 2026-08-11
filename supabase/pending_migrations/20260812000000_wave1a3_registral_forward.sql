@@ -1003,6 +1003,8 @@ WITH notas AS (
          count(*) FILTER (WHERE dh)                                   AS capa_dh,
          count(*) FILTER (WHERE role_conflict OR regime_conflict
                              OR conflicto_ids OR date_conflict
+                             OR unidad_key_conflict OR identity_conflict
+                             OR building_block OR structured_unverified
                              OR unidad_contradictoria
                              OR unidad_con_lista_sin_titulares)       AS capa_conflictos,
          count(*) FILTER (WHERE NOT coalesce(evidence_ok,false))      AS capa_sin_evidencia
@@ -1026,46 +1028,63 @@ WITH notas AS (
   FROM capa
 ), e AS (
   SELECT f.*, k.capa_suma, k.capa_filas, k.capa_pct_malos AS capa_nulos,
-         coalesce(k.layer_safe, false) AS layer_safe,
-         coalesce(k.layer_safe, false) AS layer_complete
+         coalesce(ue.unidad_segura, false)  AS unidad_segura,
+         coalesce(ue.unidad_filas_problematicas, 0) AS unidad_filas_problematicas,
+         coalesce(ue.unidad_filas_no_pleno, 0)      AS unidad_filas_no_pleno,
+         -- (3) layer_safe SÓLO es cierto si la capa cierra Y la UNIDAD
+         -- entera es segura. Nunca se calcula "dentro de pleno_dominio"
+         -- ignorando filas problemáticas de la misma unidad.
+         (coalesce(k.layer_safe, false) AND coalesce(ue.unidad_segura, false)) AS layer_safe,
+         (coalesce(k.layer_safe, false) AND coalesce(ue.unidad_segura, false)) AS layer_complete
   FROM fila f
+  LEFT JOIN unidad_eval ue ON ue.unit_key = f.unit_key AND f.is_canonical
   LEFT JOIN capa_eval k
     ON k.unit_key = f.unit_key AND k.nota_id = f.nota_id AND k.right_type = f.right_type
    AND f.is_canonical
 )
+-- =====================================================================
+-- CONTRATO DE FIRMA (P0.1): las 39 primeras columnas son EXACTAMENTE las
+-- de 1A.2 (mismo nombre, mismo orden, mismo tipo). Las columnas nuevas de
+-- 1A.3 van SIEMPRE al final. Cualquier desplazamiento rompe
+-- CREATE OR REPLACE VIEW y a los consumidores existentes.
+-- =====================================================================
 SELECT
   e.titular_id, e.nota_id AS note_simple_id, e.building_id,
-  e.unit_key AS ownership_unit_key, e.is_canonical,
-  e.nota_signature, e.nota_signature AS ownership_signature,
+  e.unit_key AS ownership_unit_key, e.is_canonical, e.nota_signature,
   e.fecha_registral AS nota_fecha_registral,
-  e.date_conflict, e.unidad_date_conflict, e.regime_conflict,
   e.nombre_extraido AS titular_nombre, e.dni AS titular_dni,
   e.right_type, e.porcentaje AS percentage,
-  e.coownership_regime, e.role_conflict,
+  e.coownership_regime,
+  e.role_conflict,
   e.f_owner_id AS owner_id, e.f_company_id AS company_id,
-  e.conflicto_ids, e.identidad_ambigua, e.identity_match, e.confidence,
+  e.conflicto_ids, e.identity_match, e.confidence,
   e.evidence_ok, e.evidence_ambiguous, e.bad_evidence,
   e.ev AS evidence_ref, e.audit_ids,
   e.rol_literal AS right_literal,
   e.es_sociedad, e.dh AS division_horizontal, e.dh, e.nota_status,
-  e.unidad_contradictoria, e.unidad_resuelta_por_fecha,
-  e.unidad_con_lista_sin_titulares, e.invalid_pct,
-  e.capa_suma, e.capa_nulos, e.capa_filas,
-  e.row_safe_pre_layer, e.layer_safe, e.layer_complete,
+  e.unidad_contradictoria, e.unidad_resuelta_por_fecha, e.invalid_pct,
+  e.capa_suma, e.capa_nulos, coalesce(e.layer_complete, false) AS layer_complete,
   CASE
+    WHEN e.building_block THEN 'bloqueo_edificio'
     WHEN e.unidad_con_lista_sin_titulares THEN 'nota_lista_sin_titulares'
+    WHEN e.unidad_key_conflict THEN 'unit_key_conflict'
     WHEN e.unit_key IS NULL AND e.dh THEN 'dh_sin_unidad_registral'
     WHEN e.dh THEN 'dh_no_proyectable_a_cuota_edificio'
     WHEN e.unidad_date_conflict THEN 'date_conflict'
   END AS unit_block_reason,
   CASE
     WHEN e.unidad_contradictoria OR e.unidad_con_lista_sin_titulares
-         OR e.unidad_date_conflict THEN 'blocked_conflict'
+         OR e.unidad_date_conflict OR e.unidad_key_conflict
+         OR e.building_block THEN 'blocked_conflict'
     WHEN e.is_canonical THEN 'active'
     ELSE 'superseded'
   END AS status,
-  (NOT (e.row_safe_pre_layer AND e.layer_safe)) AS review_flag,
+  (NOT (e.row_safe_pre_layer AND e.layer_safe AND e.unidad_segura)) AS review_flag,
   nullif(concat_ws(' · ',
+    CASE WHEN e.building_block
+         THEN 'bloqueo a nivel de edificio: hay una nota cuya unidad no puede identificarse; cero canónicas y cero cuota en TODO el edificio' END,
+    CASE WHEN e.unidad_key_conflict
+         THEN 'dos localizadores registrales válidos y distintos (IDUFIR/finca/refcat): la unidad no es inequívoca (unit_key_conflict)' END,
     CASE WHEN e.unidad_con_lista_sin_titulares
          THEN 'la unidad tiene una nota "listo" sin titulares: bloquea cuota, unidad y nota anterior (nota_lista_sin_titulares)' END,
     CASE WHEN e.date_conflict OR e.unidad_date_conflict
@@ -1073,7 +1092,11 @@ SELECT
     CASE WHEN e.regime_conflict
          THEN 'régimen contradictorio en los campos registrales (regime_conflict)' END,
     CASE WHEN e.conflicto_ids THEN 'el titular trae owner_id y company_id a la vez' END,
+    CASE WHEN e.identity_conflict
+         THEN 'discrepancia entre el vínculo preexistente y lo que dice el documento (identity_conflict)' END,
     CASE WHEN e.identidad_ambigua THEN 'identidad ambigua: varios candidatos en el CRM' END,
+    CASE WHEN e.structured_unverified
+         THEN 'structured_json/ruta/página/offset sin cita anclada: auditoría, nunca evidencia (structured_unverified)' END,
     CASE WHEN e.role_conflict THEN 'conflicto de fuentes de derecho: se clasifica como "otro"' END,
     CASE WHEN e.right_type = 'otro' THEN 'derecho no reconocido: nunca es pleno dominio' END,
     CASE WHEN e.coownership_regime = 'gananciales' THEN 'carácter ganancial: no alimenta cuota personal' END,
@@ -1089,11 +1112,31 @@ SELECT
     CASE WHEN e.unit_key IS NULL THEN 'sin unidad de titularidad resoluble o localizador registral inválido' END,
     CASE WHEN e.unidad_contradictoria THEN 'contradicción de contenido sin cronología registral inequívoca: cero notas canónicas' END,
     CASE WHEN NOT e.is_canonical THEN 'nota no canónica de la unidad: se conserva para auditoría, no opera' END,
+    CASE WHEN e.is_canonical AND NOT coalesce(e.unidad_segura,false) AND NOT e.fila_problematica
+         THEN 'otra fila canónica de la MISMA unidad es insegura o no es pleno operativo: la unidad completa no proyecta' END,
     CASE WHEN e.row_safe_pre_layer AND NOT e.layer_safe
          THEN 'capa no segura: otra fila de la misma capa falla, la capa es indivisible' END
   ), '') AS review_reason,
-  -- (1) feeds_cuota = fila segura Y capa segura.
-  (e.row_safe_pre_layer AND e.layer_safe) AS feeds_cuota
+  -- (1)(3) feeds_cuota = fila segura Y capa segura Y unidad completa segura.
+  (e.row_safe_pre_layer AND e.layer_safe AND e.unidad_segura) AS feeds_cuota,
+  -- ---------------- COLUMNAS NUEVAS DE 1A.3 (siempre al final) --------
+  e.nota_signature AS ownership_signature,
+  e.date_conflict,
+  e.unidad_date_conflict,
+  e.regime_conflict,
+  e.unidad_key_conflict,
+  e.identidad_ambigua,
+  e.identity_conflict,
+  e.structured_unverified,
+  e.building_block,
+  e.unidad_con_lista_sin_titulares,
+  e.fila_problematica,
+  e.unidad_segura,
+  e.unidad_filas_problematicas,
+  e.unidad_filas_no_pleno,
+  e.capa_filas,
+  e.row_safe_pre_layer,
+  e.layer_safe
 FROM e;
 
 REVOKE ALL ON public.v_p0_rights_staging FROM PUBLIC, anon, authenticated;
