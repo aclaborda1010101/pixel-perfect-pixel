@@ -12,6 +12,7 @@ import {
   scanBuildingTaskWrites,
   classifyBuildingTaskWrites,
   AUTHORIZED_WRITERS,
+  AUTHORIZED_SQL_WRITERS,
 } from "./helpers/taskWriteGuard";
 
 const ROOT = process.cwd();
@@ -159,7 +160,13 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
       "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask",
       "supabase/pending_migrations/20260815000000_v5_engine_p03_runtime_connect.sql#public.commit_v5_generation_plan",
     ]);
-    expect(authorized.every((o) => AUTHORIZED_WRITERS[`${o.file}#${o.fn}`])).toBe(true);
+    expect(
+      authorized.every((o) =>
+        o.kind === "sql"
+          ? Boolean(AUTHORIZED_SQL_WRITERS[o.fn ?? ""])
+          : Boolean(AUTHORIZED_WRITERS[`${o.file}#${o.fn}`]),
+      ),
+    ).toBe(true);
   });
 
   it("los updates de ciclo de vida no cuentan como creación", () => {
