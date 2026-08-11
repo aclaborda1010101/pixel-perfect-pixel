@@ -12,6 +12,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { execFileSync, execFile } from "node:child_process";
 import { handleReparseRequest, processNotaWithClaim } from "../../supabase/functions/notas_simples_reparse/handler";
 
+// P0.8: el endpoint exige credencial verificable también en las pruebas live.
+const SECRET = "p06-live-internal-secret";
 const LIVE = process.env.P06_LIVE === "1";
 const d = LIVE ? describe : describe.skip;
 
@@ -239,9 +241,8 @@ d("P0.6 · lease vigente, roles reales y rollback verificado", () => {
       return r.error ? { id: nota.id, ok: false, reason: r.error.message } : { id: nota.id, ok: true };
     };
     const res = await handleReparseRequest(
-      new Request("http://local/reparse", { method: "POST", body: JSON.stringify({ limit: 3 }) }),
-      sb as any, processOne as any,
-    );
+      new Request("http://local/reparse", { method: "POST", headers: { "x-internal-secret": SECRET }, body: JSON.stringify({ limit: 3 }) }),
+      sb as any, processOne as any, { internalSecret: SECRET });
     const body = await res.json();
     expect([res.status, body.status, body.match_pending]).toEqual([200, "ok", false]);
     expect(titulares(id)).toBe(1);
@@ -270,8 +271,7 @@ d("P0.6 · lease vigente, roles reales y rollback verificado", () => {
       return { id: nota.id, ok: true };
     };
     const res = await handleReparseRequest(
-      new Request("http://local/reparse", { method: "POST", body: "{}" }), sb as any, processOne as any,
-    );
+      new Request("http://local/reparse", { method: "POST", headers: { "x-internal-secret": SECRET }, body: "{}" }), sb as any, processOne as any, { internalSecret: SECRET });
     const body = await res.json();
     expect([res.status, body.status, body.match_pending]).toEqual([500, "partial", true]);
     expect(titulares(id)).toBe(1);
