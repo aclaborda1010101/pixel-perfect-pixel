@@ -46,7 +46,8 @@ describe("P0.9 · morfología real del canario", () => {
       expect(h.page).toBeGreaterThanOrEqual(1);
       expect(h.page).toBeLessThanOrEqual(CANARY_PAGINAS);
       expect(TEXTO.slice(h.range[0], h.range[1])).toContain(h.cita.slice(0, 40));
-      expect(h.offset).toBe(h.range[0]);
+      expect(h.offset).toBeGreaterThanOrEqual(h.range[0]);
+      expect(h.offset).toBeLessThan(h.range[1]);
     }
     const esperados = HECHOS_CANARY.map((h) => `${h.nombre}|${h.derecho}|${h.porcentaje.toFixed(6)}`).sort();
     const reales = inv.hechos.map((h) => `${h.nombre}|${h.right_type}|${h.porcentaje.toFixed(6)}`).sort();

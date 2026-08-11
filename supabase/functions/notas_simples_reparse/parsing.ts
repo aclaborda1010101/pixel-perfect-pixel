@@ -29,6 +29,156 @@ const RE_CARGAS_HEADER = /CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?\s*:?/g;
 
 export const RE_PARTICIPACION_G = /PARTICIPACI[ÓO]N/gi;
 
+/** Cabecera del título de adquisición: cierra el tramo del hecho (P0.11). */
+export const RE_TITULO_G = /TITULO\s*:|T[ÍI]TULO\s*:/gi;
+
+/**
+ * P0.11 · TRAMO DEL HECHO. Para cada token PARTICIPACION el hecho vive desde
+ * el propio token hasta el primer "TITULO:" o el siguiente PARTICIPACION, lo
+ * que ocurra ANTES. Nunca una ventana de N caracteres arbitraria: eso alcanza
+ * porcentajes históricos del título de adquisición o del titular siguiente.
+ */
+export type Anclaje = {
+  /** Offset absoluto del token PARTICIPACION. */
+  token: number;
+  /** [inicio,fin) del tramo del hecho (arranca en el token). */
+  hecho: [number, number];
+  /** [inicio,fin) del tramo de identidad, SIEMPRE anterior al token. */
+  identidad: [number, number];
+  page: number;
+  seccion: SeccionTipo;
+  /** Motivo del corte del tramo del hecho. */
+  corte: "titulo" | "siguiente_participacion" | "fin_zona";
+};
+
+function indices(re: RegExp, src: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  re.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) out.push([m.index, m.index + m[0].length]);
+  return out;
+}
+
+/** Anclajes de una zona: uno por token PARTICIPACION, en orden documental. */
+export function anclarParticipaciones(src: string, zona: Zona, paginas: Pagina[]): Anclaje[] {
+  const trozo = src.slice(zona.inicio, zona.fin);
+  const tokens = indices(RE_PARTICIPACION_G, trozo);
+  const titulos = indices(RE_TITULO_G, trozo);
+  const out: Anclaje[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const [tIni, tFin] = tokens[i];
+    const siguiente = i + 1 < tokens.length ? tokens[i + 1][0] : trozo.length;
+    const tituloDespues = titulos.find(([a]) => a > tIni)?.[0] ?? Infinity;
+    const fin = Math.min(siguiente, tituloDespues === Infinity ? trozo.length : tituloDespues);
+    const corte: Anclaje["corte"] =
+      fin === tituloDespues ? "titulo" : (i + 1 < tokens.length && fin === siguiente ? "siguiente_participacion" : "fin_zona");
+
+    // Identidad: hacia ATRÁS hasta el final del TITULO anterior, el token
+    // PARTICIPACION anterior o el arranque de la página, lo que esté más cerca.
+    const tituloAntes = titulos.filter(([, b]) => b <= tIni).map(([, b]) => b).pop() ?? 0;
+    const tokenAntes = i > 0 ? tokens[i - 1][1] : 0;
+    const absToken = zona.inicio + tIni;
+    const pag = paginas.find((p) => absToken >= p.inicio && absToken < p.fin);
+    const pagInicio = pag ? Math.max(0, pag.inicio - zona.inicio) : 0;
+    const idIni = Math.max(tituloAntes, tokenAntes, pagInicio, 0);
+    out.push({
+      token: absToken,
+      hecho: [absToken, zona.inicio + fin],
+      identidad: [zona.inicio + Math.min(idIni, tIni), absToken],
+      page: paginaDe(paginas, absToken),
+      seccion: zona.seccion,
+      corte,
+    });
+    void tFin;
+  }
+  return out;
+}
+
+/** Todos los anclajes del documento (todas las zonas), en orden. */
+export function anclarDocumento(src: string): { paginas: Pagina[]; zonas: Zona[]; anclajes: Anclaje[] } {
+  const paginas = segmentarPaginas(src);
+  const zonas = segmentarSecciones(src);
+  const anclajes: Anclaje[] = [];
+  for (const z of zonas) anclajes.push(...anclarParticipaciones(src, z, paginas));
+  anclajes.sort((a, b) => a.token - b.token);
+  return { paginas, zonas, anclajes };
+}
+
+// ---------- identidad ANTES del token ----------
+
+const RE_DOC_G = /\b(\d{8}[A-Za-z]|[A-Za-z]\d{7}[A-Za-z0-9]|[A-Za-z]-?\d{8})\b/g;
+const RUIDO = new Set([
+  "TOMO", "LIBRO", "FOLIO", "INSCRIPCION", "INSCRIPCIÓN", "FINCA", "PAGINA", "PÁGINA",
+  "NUMERO", "NÚMERO", "NUM", "Nº", "N", "REGISTRO", "IDUFIR",
+  "CRU", "SECCION", "SECCIÓN", "ALTA", "DNI", "NIF", "CIF", "NIE", "DON", "DOÑA",
+  "TITULAR", "TITULARES", "HOJA", "ASIENTO", "DIARIO",
+]);
+const RE_PALABRA_NOMBRE = /^[A-ZÁÉÍÓÚÑÜÇ][A-ZÁÉÍÓÚÑÜÇ'’\-\.]*,?$/;
+
+export type Identidad = { nombre: string | null; doc: string | null; motivo?: string };
+
+/**
+ * Última identidad válida ANTES del token: se toma el último DNI/CIF del tramo
+ * y el nombre inmediatamente precedente, ignorando el ruido numérico registral
+ * (tomo/libro/folio/inscripción). Sin DNI se admite el nombre en mayúsculas
+ * inmediatamente anterior (sociedades incluidas).
+ */
+export function identidadAntesDelToken(tramo: string): Identidad {
+  const docs: Array<{ doc: string; index: number }> = [];
+  RE_DOC_G.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = RE_DOC_G.exec(tramo))) docs.push({ doc: m[1], index: m.index });
+  const ultimo = docs.length ? docs[docs.length - 1] : null;
+  const zona = ultimo ? tramo.slice(0, ultimo.index) : tramo;
+  const nombre = nombreTrasMarcador(zona) ?? nombreAlFinal(zona);
+  if (!nombre && !ultimo) return { nombre: null, doc: null, motivo: "identidad_no_localizada" };
+  return { nombre, doc: ultimo?.doc ?? null, motivo: nombre ? undefined : "nombre_no_localizado" };
+}
+
+/**
+ * Notas con marcador explícito "TITULAR:" (morfología legacy): la identidad es
+ * el texto entre el último marcador y el documento, sin conectores ni DNI/NIF.
+ */
+function nombreTrasMarcador(zona: string): string | null {
+  const idx = zona.toUpperCase().lastIndexOf("TITULAR:");
+  if (idx < 0) return null;
+  const bruto = zona
+    .slice(idx + "TITULAR:".length)
+    .replace(/\b(con|y|el|la|los|las|de|del)\b/g, " ")
+    .replace(/\b(DNI|NIF|CIF|NIE|N\.I\.F\.|D\.N\.I\.)\b/gi, " ")
+    .replace(/[,;:]+\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (bruto.replace(/[^A-ZÁÉÍÓÚÑÜÇ]/gi, "").length < 3) return null;
+  return bruto;
+}
+
+function nombreAlFinal(zona: string): string | null {
+  const tokens = zona.trim().split(/\s+/).filter(Boolean);
+  let i = tokens.length - 1;
+  // Se salta el ruido registral pegado al final (números y palabras de ruido).
+  let saltos = 0;
+  while (i >= 0 && saltos < 8) {
+    const t = tokens[i].replace(/[.,;:]+$/, "");
+    if (/^[\d.\-\/]+$/.test(t) || RUIDO.has(t.toUpperCase()) && !RE_PALABRA_NOMBRE.test(t)) {
+      i--; saltos++; continue;
+    }
+    break;
+  }
+  const partes: string[] = [];
+  while (i >= 0 && partes.length < 8) {
+    const t = tokens[i];
+    const limpio = t.replace(/^[^A-ZÁÉÍÓÚÑÜÇ0-9]+/, "");
+    if (!RE_PALABRA_NOMBRE.test(limpio)) break;
+    if (RUIDO.has(limpio.replace(/[.,]/g, "").toUpperCase())) break;
+    partes.unshift(limpio);
+    i--;
+  }
+  const nombre = partes.join(" ").replace(/\s+/g, " ").replace(/^[,\s]+|[,\s]+$/g, "").trim();
+  if (nombre.replace(/[^A-ZÁÉÍÓÚÑÜÇ]/g, "").length < 3) return null;
+  return nombre;
+}
+
 export type VentanaRegistral = {
   inicio: number;
   fin: number;

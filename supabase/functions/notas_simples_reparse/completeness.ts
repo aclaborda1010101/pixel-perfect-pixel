@@ -13,15 +13,16 @@ import { candidatosPorcentaje, parsePorcentajeFuente, redondearExacto, type Porc
 import {
   contarTokensParticipacion,
   localizarVentanaRegistral,
-  tokenizarDocumento,
+  anclarDocumento,
+  identidadAntesDelToken,
   type SeccionTipo,
 } from "./parsing.ts";
 
 export type { SeccionTipo };
 
 export type HechoEsperado = {
-  /** Nombre literal tal y como aparece en la nota. */
-  nombre: string;
+  /** Nombre literal tal y como aparece en la nota (null si es ambiguo). */
+  nombre: string | null;
   nombre_norm: string;
   doc: string | null;
   right_type: Extract<RolCanonico, "pleno" | "usufructo" | "nuda_propiedad">;
@@ -38,6 +39,9 @@ export type HechoEsperado = {
   cita: string;
   seccion: SeccionTipo;
   section_reason: string;
+  /** true si la identidad textual no se pudo resolver: bloquea el VÍNCULO,
+   *  jamás borra el hecho del inventario (P0.11). */
+  identidad_ambigua: boolean;
 };
 
 export type Inventario = {
@@ -89,17 +93,6 @@ export function derechoDe(texto: string): HechoEsperado["right_type"] | null {
   return null;
 }
 
-const RE_NOMBRE = /(?:titular(?:es)?\b|a\s+favor\s+de\b|adquirente\b|due[ñn][oa]\b)\s*:?\s*([^;,.]{3,120}?)(?=\s*(?:,|\.|;|\s+con\s+|\s*(?:d\.?n\.?i|n\.?i\.?f|c\.?i\.?f)\b|\s*participaci[oó]n\b|$))/i;
-const RE_DOC = /\b(\d{8}[A-Za-z]|[A-Za-z]\d{7}[A-Za-z0-9]|[A-Za-z]-?\d{8})\b/;
-
-function extraerNombre(texto: string): string | null {
-  const m = texto.match(RE_NOMBRE);
-  if (m && m[1]) {
-    const n = m[1].replace(/\s+/g, " ").trim();
-    if (n.length >= 3) return n;
-  }
-  return null;
-}
 
 /**
  * INVENTARIO DETERMINISTA de hechos registrales desde el texto crudo.
@@ -127,76 +120,70 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
   };
   if (!src.trim()) return inv;
 
-  // TOKENIZACIÓN POR OFFSETS: funciona con el documento en una sola línea.
-  const { paginas, zonas, bloques } = tokenizarDocumento(src);
+  // ANCLAJE POR TOKEN (P0.11): cada PARTICIPACION es el ancla de un hecho.
+  const { paginas, zonas, anclajes } = anclarDocumento(src);
   const ventana = localizarVentanaRegistral(src);
   inv.paginas = paginas.length ? Math.max(...paginas.map((p) => p.page)) : 0;
   inv.diagnostico.zonas_titularidad = zonas.filter((z) => z.seccion === "titularidad").length;
   inv.diagnostico.zonas_cargas = zonas.filter((z) => z.seccion === "cargas").length;
-  inv.diagnostico.bloques = bloques.length;
+  inv.diagnostico.bloques = anclajes.length;
 
-  let ultimoNombre: string | null = null;
-  let ultimoDoc: string | null = null;
-
-  for (const bloque of bloques) {
-    const linea = bloque.texto;
-    const inicio = bloque.inicio;
-    const page = bloque.page;
-    const seccion = bloque.seccion;
-
-    const tokenLocal = linea.toUpperCase().lastIndexOf("PARTICIPACION");
-    const contextoIdentidad = tokenLocal >= 0 ? linea.slice(Math.max(0, tokenLocal - 260), tokenLocal) : linea;
-    const nombreLinea = extraerNombre(contextoIdentidad);
-    if (nombreLinea) {
-      ultimoNombre = nombreLinea;
-      ultimoDoc = (contextoIdentidad.match(RE_DOC)?.[1] ?? null);
-    }
-
-    if (!RE_PARTICIPACION.test(linea)) continue;
+  const vistos = new Set<number>();
+  for (const a of anclajes) {
+    const page = a.page;
+    const offset = a.token;
 
     // Una participación fuera de titularidad es carga/afección: NO es titular.
-    if (seccion !== "titularidad") {
-      inv.cargas += (linea.match(/participaci[oó]n/gi) ?? []).length;
+    if (a.seccion !== "titularidad") {
+      inv.cargas += 1;
       continue;
     }
+    if (vistos.has(offset)) {
+      inv.ambiguos.push({ page, offset, cita: "", motivo: "offset_duplicado" });
+      continue;
+    }
+    vistos.add(offset);
 
-    const tramoInmediato = tokenLocal >= 0 ? linea.slice(tokenLocal, Math.min(linea.length, tokenLocal + 260)) : linea;
-    const cita = linea.trim().slice(0, 700);
-    const candidatos = candidatosPorcentaje(tramoInmediato);
+    const tramo = src.slice(a.hecho[0], a.hecho[1]);
+    const tramoIdentidad = src.slice(a.identidad[0], a.identidad[1]);
+    const cita = `${tramoIdentidad.slice(-160).trim()} ${tramo.trim()}`.replace(/\s+/g, " ").slice(0, 700);
+
+    const candidatos = candidatosPorcentaje(tramo);
     if (candidatos.length === 0) {
-      inv.ambiguos.push({ page, offset: inicio, cita, motivo: "participacion_sin_porcentaje" });
+      inv.ambiguos.push({ page, offset, cita, motivo: "participacion_sin_porcentaje" });
       continue;
     }
+    // Varios porcentajes DENTRO del tramo del hecho (antes de TITULO:) es
+    // ambigüedad real: no se elige por conveniencia, bloquea.
     if (candidatos.length > 1) {
-      inv.ambiguos.push({ page, offset: inicio, cita, motivo: "participacion_con_varios_porcentajes" });
+      inv.ambiguos.push({ page, offset, cita, motivo: "participacion_con_varios_porcentajes" });
       continue;
     }
-    const derecho = derechoDe(tramoInmediato);
+    const derecho = derechoDe(tramo);
     if (!derecho) {
-      inv.ambiguos.push({ page, offset: inicio, cita, motivo: "participacion_sin_derecho" });
+      inv.ambiguos.push({ page, offset, cita, motivo: "participacion_sin_derecho" });
       continue;
     }
-    const nombre = nombreLinea ?? ultimoNombre;
-    if (!nombre) {
-      inv.ambiguos.push({ page, offset: inicio, cita, motivo: "participacion_sin_titular" });
-      continue;
-    }
-    const doc = (contextoIdentidad.match(RE_DOC)?.[1] ?? ultimoDoc) ?? null;
+    // El porcentaje del hecho es el literal INMEDIATAMENTE posterior al token.
+    const elegido = candidatos[0];
+    const ident = identidadAntesDelToken(tramoIdentidad);
+    const nombre = ident.nombre;
     inv.hechos.push({
       nombre,
-      nombre_norm: normalizeNombre(nombre),
-      doc: doc ? normalizeDoc(doc) : null,
+      nombre_norm: nombre ? normalizeNombre(nombre) : "",
+      doc: ident.doc ? normalizeDoc(ident.doc) : null,
       right_type: derecho,
-      porcentaje_literal: candidatos[0].literal,
-      porcentaje: candidatos[0].valor,
-      forma: candidatos[0].forma,
+      porcentaje_literal: elegido.literal,
+      porcentaje: elegido.valor,
+      forma: elegido.forma,
       page,
-      offset: inicio,
-      range: [inicio, bloque.fin],
-      locator: `p${page}:o${inicio}`,
+      offset,
+      range: [a.identidad[0], a.hecho[1]],
+      locator: `p${page}:o${offset}`,
       cita,
-      seccion,
+      seccion: a.seccion,
       section_reason: ventana?.razon_fin ?? "ventana_registral_ausente",
+      identidad_ambigua: !nombre,
     });
   }
 
@@ -231,7 +218,7 @@ export function contarCapas(items: Array<{ right_type?: string; rol?: string }>)
 }
 
 /** Clave 1:1 de un hecho: identidad + derecho + porcentaje EXACTO (6 dec.). */
-export function hechoKey(h: { nombre_norm?: string; nombre?: string; right_type?: string; rol?: string; porcentaje?: number | null }): string {
+export function hechoKey(h: { nombre_norm?: string; nombre?: string | null; right_type?: string; rol?: string; porcentaje?: number | null }): string {
   const nombre = h.nombre_norm ?? normalizeNombre(h.nombre ?? "");
   const derecho = String(h.right_type ?? h.rol ?? "");
   const pct = typeof h.porcentaje === "number" ? redondearExacto(h.porcentaje).toFixed(6) : "null";
