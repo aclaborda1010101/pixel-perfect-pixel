@@ -4,26 +4,62 @@ export type ScoreTier = "high" | "mid" | "low";
 export type ScoreMode = "total" | "activo";
 
 /**
+ * GATE DE TITULARIDAD (Wave 1B).
+ *
+ * Sin titularidad registral demostrada NO se usa el score de propietarios ni
+ * se presenta el total como fiable: se etiqueta "pendiente de titularidad".
+ * Fail-closed: si el edificio no trae señal de gate, se considera pendiente.
+ * Jamás se cae al porcentaje crudo de HubSpot ni a la suma plana de
+ * building_owners.
+ */
+export type OwnershipGate = {
+  titularidad_segura: boolean;
+  derechos_operativos: number;
+  etiqueta: string;
+};
+
+export function ownershipGate(
+  b: { titularidad_segura?: any; derechos_operativos?: any } | null | undefined,
+): OwnershipGate {
+  const n = Number(b?.derechos_operativos);
+  const operativos = Number.isFinite(n) && n > 0 ? n : 0;
+  const segura = b?.titularidad_segura === true || operativos > 0;
+  return {
+    titularidad_segura: segura,
+    derechos_operativos: operativos,
+    etiqueta: segura ? "operativa" : "pendiente de titularidad",
+  };
+}
+
+/** El score total sólo es fiable si la titularidad está demostrada. */
+export function isScoreFiable(b: any, mode: ScoreMode = "total"): boolean {
+  return mode === "activo" || ownershipGate(b).titularidad_segura;
+}
+
+/**
  * Fuente única para pintar EL score del edificio en cualquier superficie
  * (card del listado, gauge de la ficha, orden, tier, tooltip, etc.).
  *
  * Regla de oro:
- *  - Modo "total" (por defecto): usa `score_total` (activo × propietarios).
+ *  - Modo "total" (por defecto): usa `score_total` (activo × propietarios),
+ *    pero SÓLO si el gate de titularidad está abierto; si no, degrada a
+ *    `score_activo` para no propagar un score de propietarios sin respaldo.
  *  - Modo "activo" (toggle "Sin propietarios"): usa `score_activo`.
  *  - Fallback: campo legacy `score`.
  *
  * Todas las superficies DEBEN llamar aquí — nunca leer `b.score` a pelo.
  */
 export function getDisplayScore(
-  b: { score_total?: any; score_activo?: any; score?: any } | null | undefined,
+  b: { score_total?: any; score_activo?: any; score?: any; titularidad_segura?: any; derechos_operativos?: any } | null | undefined,
   mode: ScoreMode = "total",
 ): number {
   if (!b) return 0;
-  const pick = mode === "activo" ? b.score_activo : b.score_total;
+  const efectivo: ScoreMode = isScoreFiable(b, mode) ? mode : "activo";
+  const pick = efectivo === "activo" ? b.score_activo : b.score_total;
   const n = Number(pick);
   if (Number.isFinite(n)) return n;
   // Fallback secundario: si en modo total no hay score_total, prueba score_activo
-  if (mode === "total") {
+  if (efectivo === "total") {
     const na = Number(b.score_activo);
     if (Number.isFinite(na)) return na;
   }
