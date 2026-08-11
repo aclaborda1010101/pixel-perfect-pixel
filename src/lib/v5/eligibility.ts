@@ -145,7 +145,8 @@ export function hasUsableChannel(owner: V5OwnerContext): boolean {
 }
 
 /** Acciones vivas de la familia T2_T3 (una tarjeta, varias acciones). */
-export function t2t3Actions(owner: V5OwnerContext): V5T2T3Action[] {
+export function t2t3Actions(owner: V5OwnerContext, opts: { now?: Date } = {}): V5T2T3Action[] {
+  const now = opts.now ?? new Date();
   const wa = owner.whatsapp ?? {};
   const sig = effectiveSignal(owner).signal;
   const sent = new Set((wa.sentMessageIds ?? []).filter(Boolean) as string[]);
@@ -162,40 +163,51 @@ export function t2t3Actions(owner: V5OwnerContext): V5T2T3Action[] {
     });
   }
 
-  if (wa.consentPending === true && wa.consent !== true) {
+  // Registrar consentimiento EXIGE un evento de consentimiento real y trazable.
+  if (wa.consentPending === true && wa.consent !== true && isTraceableId(wa.consentEventId)) {
     actions.push({
       kind: "registrar_consentimiento",
       reason: "Falta registrar el consentimiento de WhatsApp.",
-      refs: { signalId: sig?.id ?? null, eventId: wa.consentEventId ?? null },
+      refs: { signalId: sig?.id ?? null, eventId: wa.consentEventId!.trim() },
       evidence: [
         {
           field: "consentimiento_whatsapp",
           observed: wa.consent ?? null,
           expected: true,
           source: "wa_consent_signals",
-          reference: wa.consentEventId ?? `owner:${owner.ownerId}`,
+          reference: wa.consentEventId!.trim(),
         },
       ],
     });
   }
 
+  // Enviar WhatsApp EXIGE pendingMessageId o contentEventId real.
+  const pendingId = isTraceableId(wa.pendingMessageId) ? wa.pendingMessageId.trim() : null;
+  const contentId = isTraceableId(wa.contentEventId) ? wa.contentEventId.trim() : null;
+  const msgRef = pendingId ?? contentId;
+  // `wa.sent` global SÓLO suprime como fallback legado explícito y NUNCA
+  // tapa un pendingMessageId/contentEventId nuevo.
+  const legacySuppression = wa.sent === true && wa.legacySentFallback === true && !msgRef;
+  const alreadySent = pendingId !== null && sent.has(pendingId);
   if (
     wa.consent === true &&
     wa.authorizedNumber === true &&
     wa.pendingContentAfterSignal === true &&
-    !(wa.pendingMessageId && sent.has(wa.pendingMessageId)) &&
-    wa.sent !== true
+    msgRef !== null &&
+    !alreadySent &&
+    !legacySuppression
   ) {
     actions.push({
       kind: "enviar_whatsapp",
       reason: "Consentimiento válido, número autorizado y contenido pendiente tras la señal.",
-      refs: { signalId: sig?.id ?? null, messageId: wa.pendingMessageId ?? null },
+      refs: { signalId: sig?.id ?? null, messageId: pendingId, eventId: contentId },
       evidence: [
         {
           field: "contenido_pendiente",
           observed: true,
           source: "wa_conversations",
-          reference: wa.pendingMessageId ?? `owner:${owner.ownerId}`,
+          reference: msgRef,
+          at: isValidPastTimestamp(sig?.at, now) ? sig!.at : null,
         },
       ],
     });
