@@ -146,10 +146,10 @@ CREATE TABLE IF NOT EXISTS public.sales_task_modes (
 );
 
 INSERT INTO public.sales_task_modes (code, label, description, follows_engine_default, requires_weights, sort_order) VALUES
-  ('equilibrado',           'Equilibrado',            'Reparto actual del motor V5. No define porcentajes propios.', true,  false, 1),
-  ('iniciar_conversaciones','Iniciar conversaciones', 'Requiere pesos completos y válidos antes de activarse.',      false, true,  2),
-  ('seguimiento',           'Seguimiento',            'Requiere pesos completos y válidos antes de activarse.',      false, true,  3),
-  ('manual',                'Manual',                 'Pesos definidos a mano. Requiere configuración válida.',      false, true,  4)
+  ('equilibrado',           'Equilibrado',            'Genera tareas automáticas. Porcentajes definidos en el panel.', false, true, 1),
+  ('iniciar_conversaciones','Iniciar conversaciones', 'Genera tareas automáticas. Requiere mapa completo y válido.',   false, true, 2),
+  ('seguimiento',           'Seguimiento',            'Genera tareas automáticas. Requiere mapa completo y válido.',   false, true, 3),
+  ('manual',                'Manual (personalizado)', 'Porcentajes a mano. TAMBIÉN genera automáticas: no es pausa.',  false, true, 4)
 ON CONFLICT (code) DO UPDATE
   SET label = EXCLUDED.label, description = EXCLUDED.description,
       follows_engine_default = EXCLUDED.follows_engine_default,
@@ -210,6 +210,13 @@ CREATE TABLE IF NOT EXISTS public.sales_task_mode_active (
 INSERT INTO public.sales_task_mode_active (singleton, mode_code)
 VALUES (true, 'equilibrado')
 ON CONFLICT (singleton) DO NOTHING;
+
+-- Pausa de generación automática: interruptor SEPARADO del modo, OFF y
+-- todavía NO consumido por el motor (Fase C).
+ALTER TABLE public.sales_task_mode_active
+  ADD COLUMN IF NOT EXISTS generation_paused boolean NOT NULL DEFAULT false;
+COMMENT ON COLUMN public.sales_task_mode_active.generation_paused IS
+  'Pausa de la generación automática. Independiente del modo. Modelo declarado, aún no conectado al motor.';
 
 CREATE TABLE IF NOT EXISTS public.sales_task_mode_overrides (
   user_id    uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
