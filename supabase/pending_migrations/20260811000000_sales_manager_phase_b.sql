@@ -790,8 +790,16 @@ DECLARE
   v_roles_borrados int := 0;
   v_altas          int := 0;
   v_desactivados   int := 0;
-  v_solicitados    int := COALESCE(array_length(p_members, 1), 0);
+  v_solicitados    int := 0;
+  v_members        uuid[];
 BEGIN
+  -- Deduplicación PREVIA: un UUID repetido no puede fallar ni falsear counts.
+  SELECT COALESCE(array_agg(DISTINCT m), '{}'::uuid[])
+    INTO v_members
+    FROM unnest(COALESCE(p_members, '{}'::uuid[])) AS m
+   WHERE m IS NOT NULL;
+  v_solicitados := COALESCE(array_length(v_members, 1), 0);
+
   IF v_uid IS NOT NULL AND NOT public.has_role(v_uid, 'admin') THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
   END IF;
@@ -813,7 +821,7 @@ BEGIN
 
   -- 2. Todos los miembros deben existir y ser comercial_zona (validación previa).
   IF v_solicitados > 0 THEN
-    FOREACH v_member IN ARRAY p_members LOOP
+    FOREACH v_member IN ARRAY v_members LOOP
       IF v_member = p_user_id THEN
         RAISE EXCEPTION 'el gestor no puede ser miembro de su propio equipo' USING ERRCODE = '22023';
       END IF;
@@ -848,14 +856,14 @@ BEGIN
        SET active = false, updated_at = now()
      WHERE manager_id = p_user_id
        AND active
-       AND NOT (member_id = ANY (COALESCE(p_members, '{}'::uuid[])))
+       AND NOT (member_id = ANY (v_members))
     RETURNING 1
   )
   SELECT COUNT(*) INTO v_desactivados FROM bajas;
 
   WITH altas AS (
     INSERT INTO public.sales_manager_team_members (manager_id, member_id, active)
-    SELECT p_user_id, m, true FROM unnest(COALESCE(p_members, '{}'::uuid[])) AS m
+    SELECT p_user_id, m, true FROM unnest(v_members) AS m
     ON CONFLICT (manager_id, member_id) DO UPDATE SET active = true, updated_at = now()
     RETURNING 1
   )
