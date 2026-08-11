@@ -342,7 +342,8 @@ BEGIN
   SELECT public.p0_property_rights_dry_run() INTO d;
   ASSERT (d ->> 'safety_invariants_ok')::boolean, 'safety_invariants_ok debe ser true: '|| d::text;
   ASSERT NOT (d ->> 'readiness_ok')::boolean, 'readiness_ok debe ser false con bloqueos presentes';
-  ASSERT (d ->> 'feeds_cuota')::int = 0, 'ninguna fila insegura se proyecta';
+  ASSERT (d ->> 'feeds_cuota')::int = 3,
+    'solo alimentan las 3 filas seguras de los casos positivos: ' || (d ->> 'feeds_cuota');
   ASSERT (d ->> 'paridad_1a1')::boolean, 'paridad titulares + notas 1:1';
   ASSERT (d ->> 'notas_listo_sin_titulares')::int = 2, 'contador de listas sin titulares (no-DH y DH)';
   ASSERT (d ->> 'date_conflicts')::int >= 1, 'contador de date_conflicts';
@@ -396,6 +397,41 @@ BEGIN
   ASSERT (d ->> 'structured_unverified')::int >= 1, 'contador de structured_unverified';
   ASSERT (d ->> 'identidades_ambiguas')::int >= 1, 'contador de identidades ambiguas';
   ASSERT (d ->> 'filas_bloqueadas_por_edificio')::int >= 1, 'contador de bloqueos de edificio';
+
+  -- 13) POSITIVO 100 %: exactamente una fila segura que alimenta cuota.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  ASSERT n = 1, 'el caso positivo produce exactamente una fila';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+     AND feeds_cuota AND row_safe_pre_layer AND layer_safe AND unidad_segura
+     AND is_canonical AND evidence_ok AND NOT structured_unverified
+     AND right_type = 'pleno_dominio' AND porcentaje = 100
+     AND owner_id = 'a0000000-0000-0000-0000-000000000010'
+     AND company_id IS NULL AND NOT identidad_ambigua;
+  ASSERT n = 1, 'pleno 100 % con cita anclada y DNI único DEBE alimentar cuota';
+  SELECT coalesce(sum(porcentaje), 0) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND feeds_cuota;
+  ASSERT n = 100, 'la capa segura suma 100';
+
+  -- 14) POSITIVO 60/40: ambas filas seguras alimentan y suman 100.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+     AND feeds_cuota AND row_safe_pre_layer AND layer_safe AND unidad_segura;
+  ASSERT n = 2, '60/40 seguros: ambas filas alimentan cuota';
+  SELECT coalesce(sum(porcentaje), 0) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota;
+  ASSERT n = 100, '60 + 40 = 100 en la capa segura';
+
+  -- 15) El motor NO es un "siempre false": hay proyección real y el
+  --     conjunto de filas seguras es exactamente el de los positivos.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging WHERE feeds_cuota;
+  ASSERT n = 3, 'exactamente 3 filas alimentan cuota en todo el fixture';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE feeds_cuota
+     AND building_id NOT IN ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                             'cccccccc-cccc-cccc-cccc-cccccccccccc');
+  ASSERT n = 0, 'ningún caso negativo alimenta cuota';
 
   RAISE NOTICE 'WAVE 1A.3 · regresiones de integración: OK';
 END $$;
