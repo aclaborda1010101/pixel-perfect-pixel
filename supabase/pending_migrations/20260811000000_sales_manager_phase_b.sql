@@ -291,6 +291,48 @@ REVOKE ALL ON FUNCTION public.current_user_role() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.current_user_role() TO authenticated;
 
 -- ---------------------------------------------------------------------
+-- 4b. current_user_has_role(role): ÚNICO comprobador de rol para cliente y
+--     para políticas nuevas. Fija auth.uid() internamente y NO acepta
+--     user_id: es imposible preguntar por el rol de un tercero.
+--     has_role(_user_id, _role) permanece intacto para no romper las
+--     políticas históricas (ver migración de bloqueo BLOCKED_*_has_role_lockdown).
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.current_user_has_role(_role public.app_role)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT auth.uid() IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM public.user_roles ur
+       WHERE ur.user_id = auth.uid() AND ur.role = _role
+     );
+$$;
+
+REVOKE ALL ON FUNCTION public.current_user_has_role(public.app_role) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.current_user_has_role(public.app_role) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.current_user_has_role(public.app_role) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 4c. Validación de OTROS usuarios desde RPC SECURITY DEFINER:
+--     consulta interna a user_roles con permisos fijos. No devuelve listas
+--     ni permite enumerar: responde sólo sí/no sobre un miembro concreto
+--     y exige que el llamante sea admin o su gestor.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.internal_member_has_role(_member uuid, _role public.app_role)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_roles ur
+    WHERE ur.user_id = _member AND ur.role = _role
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.internal_member_has_role(uuid, public.app_role)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.internal_member_has_role(uuid, public.app_role) TO service_role;
+
+-- ---------------------------------------------------------------------
 -- 5. Helpers INTERNOS: sólo los usan las RPC SECURITY DEFINER.
 --    Nadie más puede ejecutarlos (ni PUBLIC, ni anon, ni authenticated).
 --    Por eso las políticas RLS NO los invocan: usan EXISTS en línea.
