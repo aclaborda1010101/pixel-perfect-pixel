@@ -236,7 +236,7 @@ describe("alta de gestor y equipo", () => {
 
   it("conserva el prerrequisito versionado del enum sales_manager con preflight claro", () => {
     const prereq = readFileSync(
-      "supabase/migrations/20260810135324_sales_manager_role_enum.sql",
+      "supabase/migrations/20260810135324_eb4eb19d-b6ad-43ed-8594-0b9ce132c348.sql",
       "utf8",
     );
     expect(prereq).toMatch(/sales_manager/);
@@ -383,10 +383,11 @@ describe("modos de reparto", () => {
     expect(SALES_TASK_GROUPS.every((g) => g.label.includes("pendiente validar"))).toBe(true);
   });
 
-  it("equilibrado no define porcentajes propios", () => {
-    const eq = SALES_TASK_MODES.find((m) => m.code === "equilibrado")!;
-    expect(eq.followsEngineDefault).toBe(true);
-    expect(eq.requiresWeights).toBe(false);
+  it("todos los modos, incluido equilibrado, exigen pesos explícitos del usuario", () => {
+    for (const m of SALES_TASK_MODES) {
+      expect(m.requiresWeights).toBe(true);
+      expect(m.followsEngineDefault).toBe(false);
+    }
   });
 
   it("exige TODOS los grupos: faltantes, extras y T7 != 0 fallan", () => {
