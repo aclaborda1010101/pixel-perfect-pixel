@@ -66,17 +66,23 @@ Deno.serve(async (req) => {
     // 1. Cartera del comercial limitada a edificios con porcentajes verificados.
     const { data: asigs, error: aErr } = await admin
       .from('building_assignments')
-      .select('building_id,buildings!inner(id,direccion,ciudad,porcentajes_estado)')
+      .select('building_id')
       .eq('user_id', userId)
-      .eq('status', 'active')
-      .eq('buildings.porcentajes_estado', 'verificado');
+      .eq('status', 'active');
     if (aErr) throw aErr;
-    const porId = new Map<string, any>();
-    for (const a of asigs ?? []) {
-      const b = (a as any).buildings;
-      if (b?.id && b.porcentajes_estado === 'verificado') porId.set(b.id, b);
+    const ids = [...new Set((asigs ?? []).map((a: any) => a.building_id).filter(Boolean))];
+    if (ids.length === 0) return json(200, { ok: true, created: null, reason: 'sin_cartera' });
+
+    const edificios: any[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data, error } = await admin
+        .from('buildings')
+        .select('id,direccion,ciudad,porcentajes_estado')
+        .eq('porcentajes_estado', 'verificado')
+        .in('id', ids.slice(i, i + 100));
+      if (error) throw error;
+      edificios.push(...(data ?? []));
     }
-    const edificios = [...porId.values()];
     if (edificios.length === 0) return json(200, { ok: true, created: null, reason: 'sin_edificios_verificados' });
 
     // 2. Tareas abiertas del comercial: bloquean el mismo tipo en el mismo edificio.
