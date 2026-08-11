@@ -144,10 +144,12 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
     const page = bloque.page;
     const seccion = bloque.seccion;
 
-    const nombreLinea = extraerNombre(linea);
+    const tokenLocal = linea.toUpperCase().lastIndexOf("PARTICIPACION");
+    const contextoIdentidad = tokenLocal >= 0 ? linea.slice(Math.max(0, tokenLocal - 260), tokenLocal) : linea;
+    const nombreLinea = extraerNombre(contextoIdentidad);
     if (nombreLinea) {
       ultimoNombre = nombreLinea;
-      ultimoDoc = (linea.match(RE_DOC)?.[1] ?? null);
+      ultimoDoc = (contextoIdentidad.match(RE_DOC)?.[1] ?? null);
     }
 
     if (!RE_PARTICIPACION.test(linea)) continue;
@@ -158,7 +160,6 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       continue;
     }
 
-    const tokenLocal = linea.toUpperCase().lastIndexOf("PARTICIPACION");
     const tramoInmediato = tokenLocal >= 0 ? linea.slice(tokenLocal, Math.min(linea.length, tokenLocal + 260)) : linea;
     const cita = linea.trim().slice(0, 700);
     const candidatos = candidatosPorcentaje(tramoInmediato);
@@ -180,7 +181,7 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       inv.ambiguos.push({ page, offset: inicio, cita, motivo: "participacion_sin_titular" });
       continue;
     }
-    const doc = (linea.match(RE_DOC)?.[1] ?? ultimoDoc) ?? null;
+    const doc = (contextoIdentidad.match(RE_DOC)?.[1] ?? ultimoDoc) ?? null;
     inv.hechos.push({
       nombre,
       nombre_norm: normalizeNombre(nombre),

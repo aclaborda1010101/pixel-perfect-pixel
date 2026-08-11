@@ -33,9 +33,9 @@ export type VentanaRegistral = {
   inicio: number;
   fin: number;
   titularidades_header: [number, number];
-  cargas_header: [number, number];
+  cargas_header: [number, number] | null;
   razon_inicio: "cabecera_titularidades";
-  razon_fin: "cabecera_cargas_estructural";
+  razon_fin: "cabecera_cargas_estructural" | "fin_documento_sin_cargas";
 };
 
 function primera(re: RegExp, src: string, desde = 0): RegExpExecArray | null {
@@ -48,14 +48,13 @@ export function localizarVentanaRegistral(src: string): VentanaRegistral | null 
   const titular = primera(RE_TITULARIDADES_HEADER, src);
   if (!titular) return null;
   const cargas = primera(RE_CARGAS_HEADER, src, titular.index + titular[0].length);
-  if (!cargas) return null;
   return {
     inicio: titular.index + titular[0].length,
-    fin: cargas.index,
+    fin: cargas?.index ?? src.length,
     titularidades_header: [titular.index, titular.index + titular[0].length],
-    cargas_header: [cargas.index, cargas.index + cargas[0].length],
+    cargas_header: cargas ? [cargas.index, cargas.index + cargas[0].length] : null,
     razon_inicio: "cabecera_titularidades",
-    razon_fin: "cabecera_cargas_estructural",
+    razon_fin: cargas ? "cabecera_cargas_estructural" : "fin_documento_sin_cargas",
   };
 }
 
@@ -102,7 +101,9 @@ export function segmentarSecciones(src: string): Zona[] {
   const out: Zona[] = [];
   if (v.titularidades_header[0] > 0) out.push({ seccion: "otro", inicio: 0, fin: v.titularidades_header[0], encabezado: "", razon: "antes_titularidades" });
   out.push({ seccion: "titularidad", inicio: v.inicio, fin: v.fin, encabezado: src.slice(...v.titularidades_header), razon: v.razon_fin });
-  out.push({ seccion: "cargas", inicio: v.cargas_header[1], fin: src.length, encabezado: src.slice(...v.cargas_header), razon: v.razon_fin });
+  if (v.cargas_header) {
+    out.push({ seccion: "cargas", inicio: v.cargas_header[1], fin: src.length, encabezado: src.slice(...v.cargas_header), razon: v.razon_fin });
+  }
   return out;
 }
 
