@@ -35,17 +35,42 @@ function isActiveTeamMember(team: TeamMember[], managerId: string, memberId: str
   return team.some((t) => t.manager_id === managerId && t.member_id === memberId && t.active);
 }
 
-/** profiles_select_scoped */
-export function canSelectProfile(viewer: Claims, profileId: string, team: TeamMember[]): boolean {
+/**
+ * profiles_select_self_admin: SELECT DIRECTO sólo self + admin.
+ * El sales_manager NO recibe filas de perfil de sus miembros: el panel
+ * consume exclusivamente la RPC agregada.
+ */
+export function canSelectProfile(viewer: Claims, profileId: string, _team: TeamMember[] = []): boolean {
   if (!viewer.uid) return false;
   if (viewer.uid === profileId) return true;
-  if (hasRole(viewer, "admin")) return true;
-  return hasRole(viewer, "sales_manager") && isActiveTeamMember(team, viewer.uid, profileId);
+  return hasRole(viewer, "admin");
 }
 
-/** user_roles_select_scoped */
-export function canSelectUserRole(viewer: Claims, targetUserId: string, team: TeamMember[]): boolean {
+/** user_roles_select_self_admin: mismas reglas que profiles. */
+export function canSelectUserRole(viewer: Claims, targetUserId: string, team: TeamMember[] = []): boolean {
   return canSelectProfile(viewer, targetUserId, team);
+}
+
+/** Campos MÁXIMOS que puede devolver la RPC de atribución de WhatsApp. */
+export const AGENT_DISPLAY_FIELDS = ["id", "display_name"] as const;
+
+/**
+ * get_agent_display_names: sólo rol whatsapp o admin; devuelve id + nombre
+ * visible de los ids solicitados. Nunca email, avatar, roles, timestamps
+ * ni must_change_password, y no permite enumerar la tabla base.
+ */
+export function getAgentDisplayNamesSim(
+  caller: Claims,
+  ids: string[],
+  profiles: { id: string; full_name: string | null; email?: string | null }[],
+): { id: string; display_name: string }[] {
+  if (!caller.uid) return [];
+  if (!hasRole(caller, "whatsapp") && !hasRole(caller, "admin")) return [];
+  const wanted = new Set((ids ?? []).filter(Boolean));
+  if (!wanted.size) return [];
+  return profiles
+    .filter((p) => wanted.has(p.id))
+    .map((p) => ({ id: p.id, display_name: (p.full_name ?? "").trim() || "agente" }));
 }
 
 /** No existe política de SELECT sobre building_tasks para el gestor. */
@@ -67,6 +92,7 @@ export const PUBLIC_RPCS = [
   "start_building_task",
   "reopen_building_task",
   "finalize_sales_manager_setup",
+  "get_agent_display_names",
 ] as const;
 
 export function canExecute(fn: string, grantee: "anon" | "authenticated" | "service_role"): boolean {
@@ -87,6 +113,7 @@ export type TaskRow = {
   created_at: string;
   due_date?: string | null;
   task_key?: string | null;
+  generation_mode?: string | null;
 };
 
 export type StartResult =
@@ -100,8 +127,13 @@ export function startBuildingTaskSim(
 ): StartResult {
   if (!claims.uid) return { ok: false, error: "no autorizado" };
   if (!task) return { ok: false, error: "tarea inexistente" };
-  if (task.user_id !== claims.uid && !hasRole(claims, "admin")) {
+  // Ni siquiera admin arranca tareas ajenas: eso exigiría una RPC administrativa aparte.
+  if (task.user_id !== claims.uid) {
     return { ok: false, error: "la tarea no te pertenece" };
+  }
+  const mode = task.generation_mode ?? "production";
+  if (mode !== "production" && mode !== "manual") {
+    return { ok: false, error: `modo de generación no iniciable: ${mode}` };
   }
   if (task.status === "pending") {
     const started = task.started_at ?? now.toISOString();
@@ -112,13 +144,22 @@ export function startBuildingTaskSim(
   if (task.status === "in_progress" && task.started_at) {
     return { ok: true, started_at: task.started_at, written: false }; // idempotente
   }
+  if (task.status === "in_progress" && !task.started_at) {
+    // Histórico: no se inventa una duración retroactiva.
+    return { ok: false, error: "in_progress histórico sin inicio: requiere reapertura" };
+  }
   return { ok: false, error: `estado no iniciable: ${task.status}` };
 }
+
+export const REOPENABLE_STATUSES = ["completed", "skipped", "no_procede", "blocked"] as const;
 
 export function reopenBuildingTaskSim(claims: Claims, task: TaskRow | undefined): StartResult {
   if (!task) return { ok: false, error: "tarea inexistente" };
   if (task.user_id !== claims.uid && !hasRole(claims, "admin")) {
     return { ok: false, error: "la tarea no te pertenece" };
+  }
+  if (!(REOPENABLE_STATUSES as readonly string[]).includes(task.status)) {
+    return { ok: false, error: `estado no reabrible: ${task.status}` };
   }
   task.status = "pending";
   task.started_at = null;
@@ -149,7 +190,10 @@ export function finalizeSalesManagerSetupSim(
   }
   if (!args.full_name.trim()) return { ok: false, error: "nombre obligatorio" };
 
-  for (const m of args.members) {
+  // Deduplicación PREVIA: un UUID repetido no falla ni falsea los contadores.
+  const members = Array.from(new Set(args.members ?? []));
+  for (const m of members) {
+    if (m === args.user_id) return { ok: false, error: "el gestor no puede ser miembro de su propio equipo" };
     if (!db.authUsers.some((x) => x.id === m)) return { ok: false, error: `miembro inexistente: ${m}` };
     if (!db.roles.some((r) => r.user_id === m && r.role === "comercial_zona")) {
       return { ok: false, error: `el miembro ${m} no es comercial_zona` };
@@ -165,10 +209,10 @@ export function finalizeSalesManagerSetupSim(
   db.team.length = 0;
   db.team.push(
     ...resto,
-    ...args.members.map((m) => ({ manager_id: args.user_id, member_id: m, active: true })),
+    ...members.map((m) => ({ manager_id: args.user_id, member_id: m, active: true })),
   );
 
-  return { ok: true, roles_borrados: previos, rol: "sales_manager", miembros: args.members.length };
+  return { ok: true, roles_borrados: previos, rol: "sales_manager", miembros: members.length };
 }
 
 // ------------------------------------------------------------------
