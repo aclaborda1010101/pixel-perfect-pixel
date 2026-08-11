@@ -752,7 +752,8 @@ describe("V5 migración pendiente (estructural)", () => {
   it("generation_mode usa legacy como default y dominio con legacy", () => {
     expect(sql).toMatch(/generation_mode\s+text NOT NULL DEFAULT 'legacy'/);
     expect(sql).toMatch(/ALTER COLUMN generation_mode SET DEFAULT 'legacy'/);
-    expect(sql).toMatch(/generation_mode IN \('legacy','production','demo','manual'\)/);
+    expect(sql).toMatch(/generation_mode IN \('legacy','production','manual'\)/);
+    expect(sql).not.toMatch(/generation_mode IN \([^)]*'demo'/);
     expect(sql).not.toMatch(/DEFAULT 'manual'/);
     expect(sql).not.toMatch(/UPDATE public\.building_tasks/);
     expect(sql).not.toMatch(/DELETE FROM public\.building_tasks/);
@@ -791,11 +792,29 @@ describe("V5 migración pendiente (estructural)", () => {
     expect(sql).toMatch(/building_tasks_one_active_production_uidx[\s\S]*?user_id IS NOT NULL/);
   });
 
-  it("manual y demo tienen contrato propio y hay preflight fail-closed", () => {
+  it("manual tiene contrato propio y la demo está PROHIBIDA en la tabla", () => {
     expect(sql).toMatch(/building_tasks_manual_contract_chk/);
     expect(sql).toMatch(/created_by\s+IS NOT NULL/);
-    expect(sql).toMatch(/generation_mode <> 'demo' OR simulation_run_id IS NOT NULL/);
+    expect(sql).toMatch(/manual_subtype IN \('posible_interes','otro'\)/);
+    // manual exige ventana coherente; production prohíbe manual_subtype.
+    expect(sql).toMatch(/AND due_date >= starts_at/);
+    expect(sql).toMatch(/AND manual_subtype IS NULL/);
+    // demo fuera del dominio persistible.
+    expect(sql).toMatch(/CHECK \(generation_mode <> 'demo'\)/);
+    expect(sql).toMatch(/DROP CONSTRAINT building_tasks_demo_contract_chk/);
+    expect(sql).not.toMatch(/generation_mode = 'demo'/);
     expect((sql.match(/RAISE EXCEPTION/g) ?? []).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("la migración usa el MISMO vocabulario de status y la misma definición de slot", () => {
+    const canon = V5_TASK_STATUSES.map((s) => `'${s}'`).join(",");
+    expect(sql).toContain(canon);
+    expect(sql).toMatch(/building_tasks_v5_status_chk/);
+    // Slot = production pending|in_progress; blocked NO entra.
+    const slotIdx = sql.indexOf("building_tasks_one_active_production_uidx");
+    const slot = sql.slice(slotIdx, slotIdx + 400);
+    expect(slot).toMatch(/status IN \('pending','in_progress'\)/);
+    expect(slot).not.toMatch(/'blocked'/);
   });
 });
 
