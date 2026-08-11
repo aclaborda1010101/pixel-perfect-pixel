@@ -38,9 +38,13 @@ Deno.serve(async (req) => {
   try { body = (await req.json()) ?? {}; } catch { body = {}; }
 
   const isServiceRole = token !== '' && token === service;
+  // Llamada interna (cron / verificación operativa) con clave compartida.
+  const internalKey = Deno.env.get('GENERATE_TASK_INTERNAL_KEY') ?? '';
+  const isInternal =
+    internalKey !== '' && (req.headers.get('x-internal-key') ?? '') === internalKey;
   let callerId: string | null = null;
   let roles: string[] = [];
-  if (!isServiceRole && token) {
+  if (!isServiceRole && !isInternal && token) {
     const authed = createClient(url, anon, { global: { headers: { Authorization: authHeader } } });
     const { data, error } = await authed.auth.getClaims(token);
     if (!error && data?.claims?.sub) {
@@ -49,10 +53,12 @@ Deno.serve(async (req) => {
       roles = (rows ?? []).map((r: any) => String(r.role));
     }
   }
-  if (!isServiceRole && !callerId) return json(401, { ok: false, error: 'no_autenticado' });
+  if (!isServiceRole && !isInternal && !callerId) return json(401, { ok: false, error: 'no_autenticado' });
 
   const pedido = typeof body.p_user_id === 'string' ? body.p_user_id : null;
-  const puedeDelegar = isServiceRole || roles.includes('admin') || roles.includes('sales_manager') || roles.includes('manager');
+  const puedeDelegar =
+    isServiceRole || isInternal || roles.includes('admin') ||
+    roles.includes('sales_manager') || roles.includes('manager');
   const userId = pedido && (puedeDelegar || pedido === callerId) ? pedido : callerId;
   if (!userId) return json(400, { ok: false, error: 'falta_p_user_id' });
 
