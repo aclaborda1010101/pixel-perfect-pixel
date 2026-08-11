@@ -120,7 +120,7 @@ echo "ADMIN    $(sha256sum "$BASELINE" | cut -c1-16)  $(basename "$BASELINE") (p
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q -f "$BASELINE" >"$WORK/baseline.log" 2>&1 \
   || { sed -n '1,40p' "$WORK/baseline.log" >&2; die "el baseline de plataforma no aplica en el clúster efímero."; }
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
-  -c "GRANT ALL ON SCHEMA public, auth, storage, extensions TO \"$ROLE\";" >/dev/null 2>&1 || true
+  -c "GRANT ALL ON SCHEMA public, auth, storage, extensions, cron, net TO \"$ROLE\";" >/dev/null 2>&1 || true
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
   -c "GRANT ALL ON ALL TABLES IN SCHEMA public, auth, storage TO \"$ROLE\";" >/dev/null 2>&1 || true
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
@@ -130,16 +130,16 @@ psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q -c "DO \$own\$
 DECLARE r record;
 BEGIN
-  FOR r IN SELECT nspname FROM pg_namespace WHERE nspname IN ('public','auth','storage','extensions') LOOP
+  FOR r IN SELECT nspname FROM pg_namespace WHERE nspname IN ('public','auth','storage','extensions','cron','net') LOOP
     EXECUTE format('ALTER SCHEMA %I OWNER TO %I', r.nspname, '$ROLE');
   END LOOP;
   FOR r IN SELECT schemaname, tablename FROM pg_tables
-           WHERE schemaname IN ('public','auth','storage') LOOP
+           WHERE schemaname IN ('public','auth','storage','cron','net') LOOP
     EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', r.schemaname, r.tablename, '$ROLE');
   END LOOP;
   FOR r IN SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname IN ('public','auth','storage')
+           WHERE n.nspname IN ('public','auth','storage','cron','net')
              AND p.oid NOT IN (SELECT objid FROM pg_depend WHERE deptype = 'e' AND classid = 'pg_proc'::regclass) LOOP
     EXECUTE format('ALTER FUNCTION %I.%I(%s) OWNER TO %I', r.nspname, r.proname, r.args, '$ROLE');
   END LOOP;
