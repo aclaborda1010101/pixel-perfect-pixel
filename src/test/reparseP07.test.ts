@@ -100,7 +100,6 @@ describe("P0.7 · LLM", () => {
     expect(calls.filter((c) => c === PRIMARY_MODEL)).toHaveLength(1); // 400 sin reintento ciego
     expect(calls.filter((c) => c === FALLBACK_MODEL)).toHaveLength(2); // 429 reintentado
   });
-});
 
   it("una respuesta TRUNCADA no se reintenta a ciegas: pasa al siguiente modelo", async () => {
     const calls: string[] = [];
