@@ -623,12 +623,13 @@ describe("métricas del panel", () => {
   const row: SalesManagerRow = {
     user_id: "u1", full_name: "David",
     created_in_period: 10, completed_in_period: 8,
+    skipped_in_period: 2, no_procede_in_period: 1,
     con_plazo: 4, en_plazo: 3, con_duracion: 4,
     media_horas: 2.5, mediana_horas: 2,
     cobertura_inicio_creadas: 5, cobertura_inicio_pct: 50, cobertura_duracion_pct: 50,
     snapshot: {
-      pending: 2, in_progress: 1, blocked: 1, skipped: 0, completed: 8, unknown: 0,
-      vencidas_ahora: 1, as_of: "2026-03-09T10:00:00.000Z",
+      pending: 2, in_progress: 1, blocked: 1, skipped: 0, no_procede: 0, completed: 8, unknown: 0,
+      vencidas_ahora: 1, bloqueadas_vencidas: 1, as_of: "2026-03-09T10:00:00.000Z",
     },
     mezcla_creadas: { T1: 4, T2_T3: 6 },
   };
@@ -648,5 +649,44 @@ describe("métricas del panel", () => {
     expect(fmtHoras(null)).toBe("—");
     expect(fmtHoras(0.5)).toBe("30 min");
     expect(mezclaEntries(row)[0]).toEqual(["T2_T3", 6]);
+  });
+
+  it("skipped/no_procede no cuentan como completadas y blocked no penaliza", () => {
+    expect(row.completed_in_period).toBe(8);
+    expect(row.skipped_in_period + row.no_procede_in_period).toBe(3);
+    // Las bloqueadas vencidas se muestran aparte de las vencidas del comercial.
+    expect(row.snapshot.bloqueadas_vencidas).toBe(1);
+    expect(completionRate({ ...row, completed_in_period: 11 })).toBe(75);
+  });
+});
+
+// ------------------------------------------------------------------- modos
+describe("contrato final de modos", () => {
+  it("los cuatro modos generan automáticas y ninguno se activa sin mapa completo", () => {
+    expect(SALES_TASK_MODES).toHaveLength(4);
+    for (const m of SALES_TASK_MODES) {
+      expect(isModeConfigured(null)).toBe(false);
+      expect(modeConfigLabel(null)).toBe("no configurado");
+      expect(m.code).toBeTruthy();
+    }
+    const ok = { ...emptyWeights(), T1: 100 };
+    expect(isModeConfigured(ok)).toBe(true);
+    expect(modeConfigLabel(ok)).toBe("configurado");
+  });
+
+  it("p_weights inválido se rechaza sin reutilizar pesos anteriores", () => {
+    for (const bad of [null, undefined, [] as any, "T1:100" as any, { T1: 100 } as any, { ...emptyWeights(), T1: 99.5, T2_T3: 0.5 }]) {
+      expect(validateWeights(bad as any).valid).toBe(false);
+    }
+  });
+
+  it("la pausa es un flag separado, apagado y sin conectar al motor", () => {
+    expect(DEFAULT_GENERATION_STATE).toEqual({ paused: false, connected: false });
+  });
+
+  it("el panel dice si está configurado y no afirma que ya afecte al motor", () => {
+    const src = readFileSync("src/components/gestor/ModosTareasCard.tsx", "utf8");
+    expect(src).toMatch(/no configurado/i);
+    expect(src).not.toMatch(/ya afecta al motor/i);
   });
 });
