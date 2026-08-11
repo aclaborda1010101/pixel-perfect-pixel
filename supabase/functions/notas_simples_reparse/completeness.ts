@@ -89,7 +89,7 @@ export function derechoDe(texto: string): HechoEsperado["right_type"] | null {
   return null;
 }
 
-const RE_NOMBRE = /(?:titular(?:es)?|a\s+favor\s+de|adquirente|due[ñn][oa])\s*:?\s*([^;,.]{3,120}?)(?=\s*(?:,|\.|;|\s+con\s+|\s*(?:d\.?n\.?i|n\.?i\.?f|c\.?i\.?f)\b|\s*participaci[oó]n\b|$))/i;
+const RE_NOMBRE = /(?:titular(?:es)?\b|a\s+favor\s+de\b|adquirente\b|due[ñn][oa]\b)\s*:?\s*([^;,.]{3,120}?)(?=\s*(?:,|\.|;|\s+con\s+|\s*(?:d\.?n\.?i|n\.?i\.?f|c\.?i\.?f)\b|\s*participaci[oó]n\b|$))/i;
 const RE_DOC = /\b(\d{8}[A-Za-z]|[A-Za-z]\d{7}[A-Za-z0-9]|[A-Za-z]-?\d{8})\b/;
 
 function extraerNombre(texto: string): string | null {
@@ -297,6 +297,7 @@ export function reconciliarCompletitud(args: {
   if (inv.documento === "NON_REGISTRY_DOCUMENT") motivo = "NON_REGISTRY_DOCUMENT";
   else if (inv.ambiguos.length) motivo = `inventario_ambiguo:${inv.ambiguos[0].motivo}`;
   else if (esperados.length === 0) motivo = "inventario_vacio";
+  else if (sobrantes.length && args.materializados.length > esperados.length) motivo = `completeness_filas_extra:${sobrantes.length}`;
   else if (faltantes.length) motivo = `completeness_incompleta:faltan_${faltantes.length}`;
   else if (sobrantes.length) motivo = `completeness_filas_extra:${sobrantes.length}`;
   else if (duplicados.length) motivo = `completeness_duplicados:${duplicados.length}`;
