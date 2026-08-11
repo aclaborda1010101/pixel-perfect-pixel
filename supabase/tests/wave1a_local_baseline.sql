@@ -94,10 +94,22 @@ DO $$ BEGIN
   ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
   ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS confirmed_at timestamptz;
 END $$;
-DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_cron') THEN
-  EXECUTE $f$CREATE OR REPLACE FUNCTION cron.unschedule(job_name text) RETURNS boolean LANGUAGE sql AS 'SELECT true'$f$;
-  EXECUTE $f$CREATE OR REPLACE FUNCTION cron.schedule(job_name text, schedule text, command text) RETURNS bigint LANGUAGE sql AS 'SELECT 0::bigint'$f$;
-END IF; END $$;
+-- pg_cron y pg_net son extensiones de la PLATAFORMA gestionada que no
+-- existen en un clúster efímero local. Se reproducen como stubs inertes
+-- (nunca programan ni llaman a nada) para poder aplicar la cadena EXACTA.
+CREATE SCHEMA IF NOT EXISTS cron;
+CREATE SCHEMA IF NOT EXISTS net;
+CREATE TABLE IF NOT EXISTS cron.job(
+  jobid bigserial primary key, schedule text, command text,
+  jobname text, active boolean default true);
+CREATE OR REPLACE FUNCTION cron.unschedule(job_name text) RETURNS boolean LANGUAGE sql AS 'SELECT true';
+CREATE OR REPLACE FUNCTION cron.unschedule(job_id bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';
+CREATE OR REPLACE FUNCTION cron.schedule(job_name text, schedule text, command text) RETURNS bigint LANGUAGE sql AS 'SELECT 0::bigint';
+CREATE OR REPLACE FUNCTION cron.schedule(schedule text, command text) RETURNS bigint LANGUAGE sql AS 'SELECT 0::bigint';
+CREATE OR REPLACE FUNCTION net.http_post(url text, body jsonb DEFAULT '{}'::jsonb, params jsonb DEFAULT '{}'::jsonb, headers jsonb DEFAULT '{}'::jsonb, timeout_milliseconds integer DEFAULT 5000)
+  RETURNS bigint LANGUAGE sql AS 'SELECT 0::bigint';
+CREATE OR REPLACE FUNCTION net.http_get(url text, params jsonb DEFAULT '{}'::jsonb, headers jsonb DEFAULT '{}'::jsonb, timeout_milliseconds integer DEFAULT 5000)
+  RETURNS bigint LANGUAGE sql AS 'SELECT 0::bigint';
 DO $$
 DECLARE cols text; vals text;
 BEGIN

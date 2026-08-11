@@ -37,6 +37,11 @@ INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Positivo 100', 'Madrid', false),
   ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Positivo 60/40', 'Madrid', false);
 
+-- Edificios de los casos de CONVERGENCIA DE IDENTIDAD (negativos).
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Identidad Divergente 1', 'Madrid', false),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Identidad Divergente 2', 'Madrid', false);
+
 INSERT INTO public.owners (id, nombre, metadatos) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'ANA LOPEZ',  '{"dni__nif__cif":"00000001A"}'::jsonb),
   ('a0000000-0000-0000-0000-000000000002', 'LUIS PEREZ', '{"dni__nif__cif":"00000002B"}'::jsonb);
@@ -294,6 +299,51 @@ INSERT INTO public.nota_simple_titulares
    'ELENA RUIZ', '00000012E', 40, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
    '{"cita":"ELENA RUIZ es titular del 40 % del pleno dominio","pagina":"1"}'::jsonb);
 
+-- ---------------------------------------------------------------------
+-- CASO 13 (Identidad Divergente 1): el DOCUMENTO casa con un owner y el
+-- NOMBRE con otro owner distinto, cada uno con un único candidato. La
+-- evidencia es impecable: lo único que falla es la convergencia de
+-- identidad => identity_conflict y CERO feeds.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000013', 'JULIA MAR',   '{"dni__nif__cif":"00000013F"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000014', 'SOFIA RUBIO', '{"dni__nif__cif":"00000014G"}'::jsonb);
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('dddddddd-0000-0000-0000-0000000000a1',
+   'dddddddd-dddd-dddd-dddd-dddddddddddd', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'SOFIA RUBIO es titular del 100 % del pleno dominio de la finca.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('dddddddd-0000-0000-0000-0000000000b1', 'dddddddd-0000-0000-0000-0000000000a1',
+   'SOFIA RUBIO', '00000013F', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"SOFIA RUBIO es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- CASO 14 (Identidad Divergente 2): el MISMO documento casa a la vez con
+-- un owner y con una company => no se puede decidir la naturaleza del
+-- titular: identity_conflict y CERO feeds.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000015', 'CARLOS VIA', '{"dni__nif__cif":"B77777777"}'::jsonb);
+
+INSERT INTO public.companies (id, nombre, cif) VALUES
+  ('c0000000-0000-0000-0000-000000000004', 'VIA PATRIMONIO SL', 'B77777777');
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('eeeeeeee-0000-0000-0000-0000000000a1',
+   'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'CARLOS VIA es titular del 100 % del pleno dominio de la finca.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('eeeeeeee-0000-0000-0000-0000000000b1', 'eeeeeeee-0000-0000-0000-0000000000a1',
+   'CARLOS VIA', 'B77777777', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"CARLOS VIA es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
 -- =====================================================================
 -- ASERCIONES DE REGRESIÓN
 -- =====================================================================
@@ -397,6 +447,17 @@ BEGIN
   ASSERT (d ->> 'structured_unverified')::int >= 1, 'contador de structured_unverified';
   ASSERT (d ->> 'identidades_ambiguas')::int >= 1, 'contador de identidades ambiguas';
   ASSERT (d ->> 'filas_bloqueadas_por_edificio')::int >= 1, 'contador de bloqueos de edificio';
+
+  -- 12 bis) CASOS 13 y 14: convergencia de identidad.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+     AND identity_conflict AND owner_id IS NULL AND company_id IS NULL AND NOT feeds_cuota;
+  ASSERT n = 1, 'documento y nombre apuntan a owners distintos => identity_conflict y cero feeds';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+     AND identity_conflict AND owner_id IS NULL AND company_id IS NULL AND NOT feeds_cuota;
+  ASSERT n = 1, 'documento que casa con owner y company a la vez => identity_conflict y cero feeds';
+  ASSERT (d ->> 'identity_conflicts')::int >= 2, 'contador de identity_conflicts';
 
   -- 13) POSITIVO 100 %: exactamente una fila segura que alimenta cuota.
   SELECT count(*) INTO n FROM public.v_p0_rights_staging

@@ -232,6 +232,116 @@ $$;
 COMMENT ON FUNCTION public.p0_locator_valid(text, text, text) IS
   'Localizador válido: página entero >=1, offset entero >=0 o ruta con sintaxis cerrada. "x", "foo", "0" como página y negativos se rechazan.';
 
+-- P0.2: el OR anterior permitía que UNA página válida tapase una ruta u
+-- offset mal formados. Ahora CADA localizador aportado debe ser válido por
+-- separado, y debe haber al menos uno.
+CREATE OR REPLACE FUNCTION public.p0_locator_all_valid(p_pagina text, p_offset text, p_ruta text)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+  SELECT
+    (nullif(btrim(coalesce(p_pagina,'')),'') IS NOT NULL
+     OR nullif(btrim(coalesce(p_offset,'')),'') IS NOT NULL
+     OR nullif(btrim(coalesce(p_ruta,'')),'') IS NOT NULL)
+    AND (nullif(btrim(coalesce(p_pagina,'')),'') IS NULL
+         OR (btrim(p_pagina) ~ '^[0-9]+$' AND btrim(p_pagina)::numeric >= 1))
+    AND (nullif(btrim(coalesce(p_offset,'')),'') IS NULL
+         OR btrim(p_offset) ~ '^[0-9]+$')
+    AND (nullif(btrim(coalesce(p_ruta,'')),'') IS NULL
+         OR btrim(p_ruta) ~ '^(\$\.)?[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?)*$');
+$$;
+
+COMMENT ON FUNCTION public.p0_locator_all_valid(text, text, text) IS
+  'Wave 1A.3 P0.2: TODOS los localizadores aportados deben ser sintácticamente válidos; una página correcta NO rescata una ruta u offset erróneos.';
+
+-- Resolución REAL de una ruta JSON dentro de structured_json. Devuelve el
+-- nodo apuntado o NULL si la ruta no existe. Sin json_path para no depender
+-- de la versión del servidor y para rechazar sintaxis abierta.
+CREATE OR REPLACE FUNCTION public.p0_json_path_resolve(p_sj jsonb, p_ruta text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE s text; seg text; cur jsonb; m text[];
+BEGIN
+  IF p_sj IS NULL THEN RETURN NULL; END IF;
+  s := btrim(coalesce(p_ruta,''));
+  IF s = '' THEN RETURN NULL; END IF;
+  s := regexp_replace(s, '^\$\.?', '');
+  IF s = '' THEN RETURN p_sj; END IF;
+  cur := p_sj;
+  FOREACH seg IN ARRAY string_to_array(s, '.') LOOP
+    m := regexp_match(seg, '^([A-Za-z_][A-Za-z0-9_]*)(\[([0-9]+)\])?$');
+    IF m IS NULL THEN RETURN NULL; END IF;
+    IF cur IS NULL OR jsonb_typeof(cur) <> 'object' THEN RETURN NULL; END IF;
+    cur := cur -> m[1];
+    IF cur IS NULL THEN RETURN NULL; END IF;
+    IF m[3] IS NOT NULL THEN
+      IF jsonb_typeof(cur) <> 'array' THEN RETURN NULL; END IF;
+      cur := cur -> (m[3]::int);
+      IF cur IS NULL THEN RETURN NULL; END IF;
+    END IF;
+  END LOOP;
+  RETURN cur;
+END $$;
+
+-- Elemento (objeto titular) al que pertenece la ruta: si la ruta apunta a
+-- un escalar (p. ej. ".porcentaje") se sube al objeto contenedor.
+CREATE OR REPLACE FUNCTION public.p0_ruta_elemento(p_sj jsonb, p_ruta text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE nodo jsonb; padre text;
+BEGIN
+  nodo := public.p0_json_path_resolve(p_sj, p_ruta);
+  IF nodo IS NOT NULL AND jsonb_typeof(nodo) = 'object' THEN RETURN nodo; END IF;
+  padre := regexp_replace(btrim(coalesce(p_ruta,'')), '\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?$', '');
+  IF padre = btrim(coalesce(p_ruta,'')) THEN RETURN NULL; END IF;
+  nodo := public.p0_json_path_resolve(p_sj, padre);
+  IF nodo IS NOT NULL AND jsonb_typeof(nodo) = 'object' THEN RETURN nodo; END IF;
+  RETURN NULL;
+END $$;
+
+-- VÍNCULO EXACTO: si se aporta ruta u offset, debe resolver al MISMO
+-- titular / derecho / porcentaje que la cita. La página no es demostrable
+-- en SQL: es auditoría neutra (nunca rescata, nunca inventa vínculo).
+CREATE OR REPLACE FUNCTION public.p0_locator_link_ok(
+  p_sj jsonb, p_raw text, p_cita text,
+  p_pagina text, p_offset text, p_ruta text,
+  p_nn text, p_right text, p_pct numeric)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE el jsonb; off int; frag text;
+BEGIN
+  -- RUTA: debe existir y describir exactamente a este titular.
+  IF nullif(btrim(coalesce(p_ruta,'')),'') IS NOT NULL THEN
+    el := public.p0_ruta_elemento(p_sj, p_ruta);
+    IF el IS NULL THEN RETURN false; END IF;
+    IF p_nn IS NULL OR public.norm_person_name(el ->> 'nombre') IS DISTINCT FROM p_nn THEN
+      RETURN false;
+    END IF;
+    IF p_right IS NULL
+       OR public.p0_right_type_canonico(NULL, coalesce(el ->> 'derecho', el ->> 'rol'))
+          IS DISTINCT FROM p_right THEN
+      RETURN false;
+    END IF;
+    IF p_pct IS NULL
+       OR public.p0_parse_pct(el ->> 'porcentaje') IS NULL
+       OR abs(public.p0_parse_pct(el ->> 'porcentaje') - p_pct) > 0.01 THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  -- OFFSET: debe apuntar al arranque real de la cita en raw_pdf_text.
+  IF nullif(btrim(coalesce(p_offset,'')),'') IS NOT NULL THEN
+    IF p_cita IS NULL OR p_raw IS NULL OR btrim(p_offset) !~ '^[0-9]+$' THEN RETURN false; END IF;
+    off := btrim(p_offset)::int;
+    frag := substr(p_raw, off + 1, char_length(p_cita) + 40);
+    IF frag IS NULL OR public.p0_norm_text(frag) IS NULL
+       OR public.p0_norm_text(p_cita) IS NULL
+       OR position(public.p0_norm_text(p_cita) IN public.p0_norm_text(frag)) <> 1 THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  RETURN true;
+END $$;
+
+COMMENT ON FUNCTION public.p0_locator_link_ok(jsonb, text, text, text, text, text, text, text, numeric) IS
+  'Wave 1A.3 P0.2: ruta y offset deben resolver EXACTAMENTE al mismo titular/derecho/porcentaje de la cita. Si no se puede probar el vínculo, la evidencia estructurada es solo auditoría (structured_unverified).';
+
 -- ---------------------------------------------------------------------
 -- 6) EVIDENCIA CONSERVADORA
 -- ---------------------------------------------------------------------
@@ -332,9 +442,16 @@ BEGIN
       v_anclada := v_raw_norm IS NOT NULL
                    AND public.p0_norm_text(v_cita) IS NOT NULL
                    AND position(public.p0_norm_text(v_cita) IN v_raw_norm) > 0;
-      -- El localizador, si viene, debe ser válido; si no viene, el anclaje es la traza.
-      IF v_ref IS NOT NULL AND NOT public.p0_locator_valid(v_pagina, v_offset, v_ruta) THEN
-        v_bad := true;
+      -- El localizador, si viene, debe ser válido EN TODAS sus partes y
+      -- resolver al MISMO elemento que la cita. Una página válida no tapa
+      -- una ruta u offset erróneos.
+      IF v_ref IS NOT NULL THEN
+        IF NOT public.p0_locator_all_valid(v_pagina, v_offset, v_ruta) THEN
+          v_bad := true; v_struct_unv := true;
+        ELSIF NOT public.p0_locator_link_ok(v_sj, v_raw, v_cita, v_pagina, v_offset, v_ruta,
+                                            v_nn, v_right, v_pct) THEN
+          v_bad := true; v_struct_unv := true;
+        END IF;
       END IF;
       v_traz := v_anclada;
 
@@ -436,6 +553,12 @@ BEGIN
         AND v_raw_norm IS NOT NULL
         AND public.p0_norm_text(cita) IS NOT NULL
         AND position(public.p0_norm_text(cita) IN v_raw_norm) > 0
+        -- Y si el elemento aporta ruta/offset, deben resolver a ESTE titular.
+        AND (
+          (pagina IS NULL AND off IS NULL AND ruta IS NULL)
+          OR (public.p0_locator_all_valid(pagina, off, ruta)
+              AND public.p0_locator_link_ok(v_sj, v_raw, cita, pagina, off, ruta, v_nn, v_right, v_pct))
+        )
     )
     SELECT count(*),
            jsonb_build_object('cita', min(cita), 'ruta', coalesce(min(pagina), min(off), min(ruta)))
@@ -605,19 +728,21 @@ $$;
 
 -- (5) DOS localizadores VÁLIDOS y DISTINTOS de la misma clase (dos IDUFIR,
 -- dos fincas, dos refcat) => unit_key_conflict. NO se elige el primero.
+-- P0.2: el CONJUNTO COMPLETO de localizadores jurídicos de la nota se trata
+-- como un todo. Dos valores inequívocos distintos son conflicto AUNQUE sean
+-- de tipos distintos (IDUFIR vs finca, IDUFIR vs refcat). No se agrupa por
+-- tipo ni se elige el primero. Un mismo valor repetido/sinónimo es válido.
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key_conflict(p_nota_id uuid)
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
-  SELECT EXISTS (
-    SELECT 1
+  SELECT coalesce((
+    SELECT count(DISTINCT split_part(c.v, ':', 2))
     FROM unnest(public.p0_nota_unit_claves(p_nota_id)) AS c(v)
-    GROUP BY split_part(c.v, ':', 1)
-    HAVING count(DISTINCT split_part(c.v, ':', 2)) > 1
-  );
+  ), 0) > 1;
 $$;
 
 COMMENT ON FUNCTION public.p0_nota_unit_key_conflict(uuid) IS
-  'true si la nota declara dos IDUFIR / dos fincas / dos refcat válidos y distintos: la unidad NO puede identificarse y no se elige el primero.';
+  'true si la nota declara DOS localizadores registrales válidos y distintos, del tipo que sean (IDUFIR, finca o refcat): la unidad NO puede identificarse y jamás se elige el primero.';
 
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key(p_nota_id uuid)
 RETURNS text
@@ -834,6 +959,43 @@ WITH notas AS (
   JOIN public.companies k ON public.norm_person_name(k.nombre) = s.nn
   WHERE s.es_sociedad AND s.nn IS NOT NULL
   GROUP BY s.titular_id
+), x_own AS (
+  -- Coincidencias por DOCUMENTO contra owners, sin filtrar por es_sociedad.
+  SELECT s.titular_id, count(*) AS n
+  FROM soc s
+  JOIN public.owners o
+    ON nullif(upper(regexp_replace(coalesce(o.metadatos ->> 'dni__nif__cif',''), '[^A-Za-z0-9]', '', 'g')), '') = s.dni
+  WHERE s.dni IS NOT NULL AND o.merged_into IS NULL
+  GROUP BY s.titular_id
+), x_com AS (
+  -- Coincidencias por DOCUMENTO contra companies, sin filtrar por es_sociedad.
+  SELECT s.titular_id, count(*) AS n
+  FROM soc s
+  JOIN public.companies k
+    ON nullif(upper(regexp_replace(coalesce(to_jsonb(k) ->> 'cif',''), '[^A-Za-z0-9]', '', 'g')), '') = s.dni
+  WHERE s.dni IS NOT NULL
+  GROUP BY s.titular_id
+), conv AS (
+  -- (P0.2) CONVERGENCIA DE IDENTIDAD: documento, nombre y preasociación
+  -- deben apuntar al MISMO id. Si cada método devuelve un único id distinto,
+  -- o el documento casa a la vez con owner y company, hay identity_conflict.
+  SELECT s.titular_id,
+    (
+         (coalesce(md.n,0) = 1 AND coalesce(mn.n,0) = 1 AND md.owner_id IS DISTINCT FROM mn.owner_id)
+      OR (coalesce(mf.n,0) = 1 AND coalesce(mc.n,0) = 1 AND mf.company_id IS DISTINCT FROM mc.company_id)
+      OR (coalesce(xo.n,0) >= 1 AND coalesce(xc.n,0) >= 1)
+      OR (s.pre_owner_id IS NOT NULL AND coalesce(md.n,0) = 0 AND coalesce(mn.n,0) = 1
+          AND mn.owner_id IS DISTINCT FROM s.pre_owner_id)
+      OR (s.pre_company_id IS NOT NULL AND coalesce(mf.n,0) = 0 AND coalesce(mc.n,0) = 1
+          AND mc.company_id IS DISTINCT FROM s.pre_company_id)
+    ) AS identity_divergent
+  FROM soc s
+  LEFT JOIN m_dni  md ON md.titular_id = s.titular_id
+  LEFT JOIN m_nom  mn ON mn.titular_id = s.titular_id
+  LEFT JOIN m_cif  mf ON mf.titular_id = s.titular_id
+  LEFT JOIN m_comp mc ON mc.titular_id = s.titular_id
+  LEFT JOIN x_own  xo ON xo.titular_id = s.titular_id
+  LEFT JOIN x_com  xc ON xc.titular_id = s.titular_id
 ), base AS (
   SELECT s.*,
     (c.nota_id IS NOT NULL) AS is_canonical,
@@ -860,8 +1022,10 @@ WITH notas AS (
       OR (s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id)
       OR (s.es_sociedad AND s.pre_owner_id IS NOT NULL)
       OR (NOT s.es_sociedad AND s.pre_company_id IS NOT NULL)
+      OR coalesce(cv.identity_divergent, false)
     )                                                                    AS identity_conflict,
     CASE
+      WHEN coalesce(cv.identity_divergent, false) THEN NULL
       WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
         OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN NULL
       WHEN s.pre_owner_id IS NOT NULL AND md.n = 1 AND md.owner_id IS DISTINCT FROM s.pre_owner_id THEN NULL
@@ -873,6 +1037,7 @@ WITH notas AS (
         CASE WHEN md.n = 1 THEN md.owner_id WHEN mn.n = 1 THEN mn.owner_id END
     END AS f_owner_id,
     CASE
+      WHEN coalesce(cv.identity_divergent, false) THEN NULL
       WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
         OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN NULL
       WHEN s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id THEN NULL
@@ -884,9 +1049,11 @@ WITH notas AS (
         CASE WHEN mf.n = 1 THEN mf.company_id WHEN mc.n = 1 THEN mc.company_id END
     END AS f_company_id,
     (md.n = 1 AND s.pre_company_id IS NULL
+     AND NOT coalesce(cv.identity_divergent, false)
      AND coalesce(mn.n,0) <= 1
      AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
     CASE
+      WHEN coalesce(cv.identity_divergent, false) THEN 'identity_conflict'
       WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
         OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN 'ambiguo'
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN 'conflicto_owner_y_company'
@@ -904,7 +1071,9 @@ WITH notas AS (
          WHEN mn.n = 1 OR mc.n = 1 THEN 0.6 ELSE 0.3 END AS confidence,
     jsonb_build_object('pre_owner_id', s.pre_owner_id, 'pre_company_id', s.pre_company_id,
                        'dni_matches', coalesce(md.n,0), 'nombre_matches', coalesce(mn.n,0),
-                       'cif_matches', coalesce(mf.n,0), 'nombre_sociedad_matches', coalesce(mc.n,0)) AS audit_ids
+                       'cif_matches', coalesce(mf.n,0), 'nombre_sociedad_matches', coalesce(mc.n,0),
+                       'owner_doc_matches', coalesce(xo.n,0), 'company_doc_matches', coalesce(xc.n,0),
+                       'identity_divergent', coalesce(cv.identity_divergent,false)) AS audit_ids
   FROM soc s
   LEFT JOIN canon c ON c.unit_key = s.unit_key AND c.nota_id = s.nota_id
   LEFT JOIN unit_state us ON us.unit_key = s.unit_key
@@ -913,6 +1082,9 @@ WITH notas AS (
   LEFT JOIN m_nom mn ON mn.titular_id = s.titular_id
   LEFT JOIN m_cif mf ON mf.titular_id = s.titular_id
   LEFT JOIN m_comp mc ON mc.titular_id = s.titular_id
+  LEFT JOIN x_own xo ON xo.titular_id = s.titular_id
+  LEFT JOIN x_com xc ON xc.titular_id = s.titular_id
+  LEFT JOIN conv cv ON cv.titular_id = s.titular_id
 ), fila AS (
   -- (1) SEGURIDAD DE FILA, antes de mirar la capa.
   SELECT b.*,
@@ -1500,6 +1672,10 @@ REVOKE ALL ON FUNCTION public.p0_regime_candidates(text, text, text)      FROM P
 REVOKE ALL ON FUNCTION public.p0_regime_conflict(text, text, text)        FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_frac_contexto_ok(text)                   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_locator_valid(text, text, text)          FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_locator_all_valid(text, text, text)      FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_json_path_resolve(jsonb, text)           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_ruta_elemento(jsonb, text)               FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_locator_link_ok(jsonb, text, text, text, text, text, text, text, numeric) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_unit_locator_valid(text, text)           FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_nota_unit_claves(uuid)                   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_nota_unit_key_conflict(uuid)             FROM PUBLIC, anon, authenticated;
@@ -1512,6 +1688,10 @@ GRANT EXECUTE ON FUNCTION public.p0_regime_candidates(text, text, text)   TO ser
 GRANT EXECUTE ON FUNCTION public.p0_regime_conflict(text, text, text)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_frac_contexto_ok(text)                TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_locator_valid(text, text, text)       TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_locator_all_valid(text, text, text)   TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_json_path_resolve(jsonb, text)        TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_ruta_elemento(jsonb, text)            TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_locator_link_ok(jsonb, text, text, text, text, text, text, text, numeric) TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_unit_locator_valid(text, text)        TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_unit_claves(uuid)                TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_unit_key_conflict(uuid)          TO service_role;

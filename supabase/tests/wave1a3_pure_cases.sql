@@ -56,6 +56,68 @@ BEGIN
   ASSERT NOT public.p0_locator_valid(NULL, NULL, 'foo bar['), 'ruta abierta inválida';
   ASSERT NOT public.p0_locator_valid(NULL, NULL, ''), 'ruta vacía inválida';
 
+  -- P0.2: TODOS los localizadores aportados deben ser válidos. Una página
+  -- correcta NO puede tapar una ruta u offset erróneos.
+  ASSERT public.p0_locator_all_valid('3', '10', '$.titulares[0]'), 'los tres válidos';
+  ASSERT NOT public.p0_locator_all_valid('3', NULL, 'foo bar['),
+         'página válida NO rescata una ruta inválida';
+  ASSERT NOT public.p0_locator_all_valid('3', '-1', NULL),
+         'página válida NO rescata un offset inválido';
+  ASSERT NOT public.p0_locator_all_valid(NULL, NULL, NULL),
+         'sin ningún localizador no hay anclaje';
+
+  -- ---------------- RESOLUCIÓN REAL DE RUTAS ---------------------------
+  ASSERT public.p0_json_path_resolve(
+           '{"titulares":[{"nombre":"ANA","porcentaje":"50"},{"nombre":"LUIS","porcentaje":"50"}]}'::jsonb,
+           '$.titulares[1].nombre') = '"LUIS"'::jsonb,
+         'la ruta resuelve al nodo exacto';
+  ASSERT public.p0_json_path_resolve(
+           '{"titulares":[{"nombre":"ANA"}]}'::jsonb, '$.titulares[7].nombre') IS NULL,
+         'índice inexistente => NULL';
+  ASSERT public.p0_json_path_resolve('{"a":1}'::jsonb, 'foo bar[') IS NULL,
+         'sintaxis abierta => NULL';
+  ASSERT public.p0_ruta_elemento(
+           '{"titulares":[{"nombre":"ANA","porcentaje":"50"}]}'::jsonb,
+           '$.titulares[0].porcentaje') ->> 'nombre' = 'ANA',
+         'la ruta a una hoja sube al elemento titular';
+
+  -- ---------------- VÍNCULO CITA <-> LOCALIZADOR -----------------------
+  -- Ruta correcta: mismo titular, mismo derecho, mismo porcentaje.
+  ASSERT public.p0_locator_link_ok(
+           '{"titulares":[{"nombre":"ANA LOPEZ","derecho":"pleno dominio","porcentaje":"50"},
+                          {"nombre":"LUIS GIL","derecho":"pleno dominio","porcentaje":"50"}]}'::jsonb,
+           NULL, NULL, '1', NULL, '$.titulares[0]',
+           public.norm_person_name('ANA LOPEZ'), 'pleno_dominio', 50),
+         'ruta al titular correcto => vínculo probado';
+  -- Ruta que apunta a OTRO titular: nunca vale.
+  ASSERT NOT public.p0_locator_link_ok(
+           '{"titulares":[{"nombre":"ANA LOPEZ","derecho":"pleno dominio","porcentaje":"50"},
+                          {"nombre":"LUIS GIL","derecho":"pleno dominio","porcentaje":"50"}]}'::jsonb,
+           NULL, NULL, '1', NULL, '$.titulares[1]',
+           public.norm_person_name('ANA LOPEZ'), 'pleno_dominio', 50),
+         'ruta hacia otro titular => vínculo roto';
+  -- Ruta al titular correcto pero con porcentaje distinto.
+  ASSERT NOT public.p0_locator_link_ok(
+           '{"titulares":[{"nombre":"ANA LOPEZ","derecho":"pleno dominio","porcentaje":"50"}]}'::jsonb,
+           NULL, NULL, NULL, NULL, '$.titulares[0]',
+           public.norm_person_name('ANA LOPEZ'), 'pleno_dominio', 60),
+         'porcentaje divergente => vínculo roto';
+  -- Ruta al titular correcto pero con derecho distinto.
+  ASSERT NOT public.p0_locator_link_ok(
+           '{"titulares":[{"nombre":"ANA LOPEZ","derecho":"usufructo","porcentaje":"50"}]}'::jsonb,
+           NULL, NULL, NULL, NULL, '$.titulares[0]',
+           public.norm_person_name('ANA LOPEZ'), 'pleno_dominio', 50),
+         'derecho divergente => vínculo roto';
+  -- Offset correcto: la cita arranca exactamente ahí.
+  ASSERT public.p0_locator_link_ok(
+           NULL, 'XXXXX' || 'ANA LOPEZ titular del 50 % del pleno dominio', 'ANA LOPEZ titular del 50 %',
+           NULL, '5', NULL, NULL, NULL, NULL),
+         'offset que apunta al arranque real de la cita';
+  ASSERT NOT public.p0_locator_link_ok(
+           NULL, 'XXXXX' || 'ANA LOPEZ titular del 50 % del pleno dominio', 'ANA LOPEZ titular del 50 %',
+           NULL, '9', NULL, NULL, NULL, NULL),
+         'offset desplazado => vínculo roto';
+
   -- ---------------- UNIDAD REGISTRAL -----------------------------------
   ASSERT public.p0_unit_locator_valid('idufir', '12345678901'), 'IDUFIR válido';
   ASSERT NOT public.p0_unit_locator_valid('idufir', '123'), 'IDUFIR corto inválido';
