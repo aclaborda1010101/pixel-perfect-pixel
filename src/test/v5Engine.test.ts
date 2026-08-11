@@ -154,11 +154,15 @@ describe("V5 T6 y bloqueos", () => {
     expect(one.eligibilitySnapshot.incidencias_count).toBe(2);
   });
 
-  it("T6 no bloqueante sólo coexiste con personales si la regla lo declara", () => {
+  it("T6 es EXCLUSIVA salvo coexistencia declarada por la regla", () => {
     const o = owner({ ownerId: "O1", callCount: 0, contactedEver: false });
     const inc = incident({ id: "inc-1", blocking: false });
+    // Sin coexistencia declarada: la T6 gana y la personal queda suprimida.
     const sin = computeEligibility(building({ owners: [o], incidents: [inc] }), { now: NOW });
-    expect(sin.candidates.map((c) => c.taskCode)).toEqual(["T2_T3"]);
+    expect(sin.candidates.map((c) => c.taskCode)).toEqual(["T6"]);
+    expect(sin.candidates[0].suppressedPersonal).toEqual([
+      { subjectId: "O1", taskCode: "T2_T3", reason: "suprimida por T6 exclusiva del edificio" },
+    ]);
 
     const con = computeEligibility(
       building({ owners: [o], incidents: [{ ...inc, coexistsWithPersonal: true, coexistenceRule: "R-COEX-1" }] }),
@@ -767,7 +771,12 @@ describe("V5 migración pendiente (estructural)", () => {
     expect(sql).toMatch(/generation_mode IN \('legacy','production','manual'\)/);
     expect(sql).not.toMatch(/generation_mode IN \([^)]*'demo'/);
     expect(sql).not.toMatch(/DEFAULT 'manual'/);
-    expect(sql).not.toMatch(/UPDATE public\.building_tasks/);
+    // Única escritura tolerada: clasificar el histórico v5:<fecha>:T-0X
+    // como legacy de sólo lectura (P0.3), nunca reescribir claves ni datos.
+    const updates = sql.match(/UPDATE public\.building_tasks[\s\S]*?;/g) ?? [];
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatch(/SET generation_mode = 'legacy'/);
+    expect(updates[0]).toMatch(/T-0\[1-9\]/);
     expect(sql).not.toMatch(/DELETE FROM public\.building_tasks/);
   });
 

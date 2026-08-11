@@ -58,6 +58,17 @@ COMMENT ON COLUMN public.building_tasks.started_at IS
   'Inicio REAL de la tarea. NULL en el histórico: esas tareas no computan duración.';
 
 -- ---------------------------------------------------------------------
+-- 1.b CLASIFICACIÓN DEL HISTÓRICO (P0.3): las claves antiguas
+--     v5:<YYYY-MM-DD>:T-0X:<id> son LEGACY de sólo lectura. Se etiquetan
+--     ANTES del preflight para que la migración sea aplicable al histórico
+--     real: no se borran, no se reescriben claves y nunca ocupan slot.
+-- ---------------------------------------------------------------------
+UPDATE public.building_tasks
+   SET generation_mode = 'legacy'
+ WHERE task_key ~ '^v5:\d{4}-\d{2}-\d{2}:T-0[1-9]:'
+   AND generation_mode IS DISTINCT FROM 'legacy';
+
+-- ---------------------------------------------------------------------
 -- 2. Preflight FAIL-CLOSED sobre datos existentes (no borra ni reescribe)
 -- ---------------------------------------------------------------------
 DO $preflight$
@@ -103,9 +114,12 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT V5: % filas production con manual_subtype', v_bad;
   END IF;
 
-  -- 2.3 Claves V5 existentes: código válido y concordante, sin T7/T2/T3.
+  -- 2.3 Claves V5 CANÓNICAS: código válido y concordante, sin T7/T2/T3.
+  --     El histórico legacy (v5:<fecha>:T-0X:<id>) queda EXCLUIDO: es
+  --     sólo lectura y jamás generable.
   SELECT count(*) INTO v_bad FROM public.building_tasks
   WHERE task_key LIKE 'v5:%'
+    AND generation_mode IN ('production','manual')
     AND split_part(task_key, ':', 3) NOT IN ('T1','T2_T3','T4','T5','T6','T8','T9');
   IF v_bad > 0 THEN
     RAISE EXCEPTION 'PREFLIGHT V5: % task_key con código no admitido', v_bad;
@@ -191,6 +205,8 @@ BEGIN
       CHECK (
         task_key IS NULL
         OR task_key NOT LIKE 'v5:%'
+        -- Histórico etiquetado legacy: tolerado, sólo lectura, nunca slot.
+        OR (generation_mode = 'legacy' AND task_key ~ '^v5:\d{4}-\d{2}-\d{2}:T-0[1-9]:')
         OR (
           task_code IS NOT NULL
           AND split_part(task_key, ':', 3) = task_code

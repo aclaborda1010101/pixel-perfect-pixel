@@ -579,11 +579,23 @@ export function computeEligibility(
   // Evaluación personal (siempre se calcula para poder trazar supresiones).
   const personalEvals = building.owners.map((o) => ({ owner: o, res: evaluateOwner(o, opts) }));
 
-  if (t6.candidate && t6.hardBlocking) {
+  // T6 es EXCLUSIVA del edificio: si existe, ninguna personal convive con
+  // ella salvo que TODAS sus incidencias declaren coexistencia explícita.
+  const t6Coexiste =
+    t6.candidate !== null &&
+    !t6.hardBlocking &&
+    t6.incidents.length > 0 &&
+    t6.incidents.every((i) => i.coexistsWithPersonal === true);
+
+  if (t6.candidate && !t6Coexiste) {
     const suppressed = personalEvals.map(({ owner, res }) => ({
       subjectId: owner.ownerId,
       taskCode: (res.candidate?.taskCode ?? "ninguna") as V5TaskCode | "ninguna",
-      reason: res.candidate ? "suprimida por T6 bloqueante" : res.reason,
+      reason: res.candidate
+        ? t6.hardBlocking
+          ? "suprimida por T6 bloqueante"
+          : "suprimida por T6 exclusiva del edificio"
+        : res.reason,
     }));
     const only: V5Candidate = {
       ...t6.candidate,
@@ -593,7 +605,9 @@ export function computeEligibility(
     notes.push({
       subjectId: building.buildingId,
       subjectType: "building",
-      reason: `T6 bloqueante: se suprimen ${suppressed.filter((s) => s.taskCode !== "ninguna").length} tareas personales`,
+      reason: `${t6.hardBlocking ? "T6 bloqueante" : "T6 exclusiva"}: se suprimen ${
+        suppressed.filter((s) => s.taskCode !== "ninguna").length
+      } tareas personales`,
     });
     for (const s of suppressed) {
       notes.push({ subjectId: s.subjectId, subjectType: "owner", reason: s.reason });
@@ -614,23 +628,16 @@ export function computeEligibility(
   }
 
   if (t6.candidate) {
-    const coexiste = t6.incidents.every((i) => i.coexistsWithPersonal === true);
-    const personalCount = candidates.length;
-    if (personalCount === 0 || coexiste) {
-      const justificacion = personalCount === 0
-        ? "T6 no bloqueante sin tareas personales elegibles"
-        : `Coexistencia declarada: ${t6.incidents.map((i) => i.coexistenceRule ?? i.id).join(", ")}`;
-      candidates.push({
-        ...t6.candidate,
-        eligibilitySnapshot: { ...t6.candidate.eligibilitySnapshot, coexistencia: justificacion },
-      });
-    } else {
-      notes.push({
-        subjectId: building.buildingId,
-        subjectType: "building",
-        reason: "T6 no bloqueante omitida: la regla no declara coexistencia con tareas personales",
-      });
-    }
+    // Único camino restante: coexistencia declarada por TODAS las incidencias.
+    candidates.push({
+      ...t6.candidate,
+      eligibilitySnapshot: {
+        ...t6.candidate.eligibilitySnapshot,
+        coexistencia: `Coexistencia declarada: ${t6.incidents
+          .map((i) => i.coexistenceRule ?? i.id)
+          .join(", ")}`,
+      },
+    });
   } else {
     notes.push({ subjectId: building.buildingId, subjectType: "building", reason: t6.reason });
   }

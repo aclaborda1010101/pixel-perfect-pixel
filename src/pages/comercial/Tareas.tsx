@@ -24,7 +24,9 @@ import {
 } from "@/lib/operationalTasks";
 import { sortByDueThenPriority, isTaskOpen } from "@/lib/taskSchedule";
 import { operationalTaskBadge } from "@/lib/operationalTasks";
-import { startBuildingTask, canStartTask, reopenBuildingTask } from "@/lib/taskStart";
+import { startBuildingTask, canStartTask, reopenBuildingTask,
+  resolveBuildingTask,
+} from "@/lib/taskStart";
 import { toast } from "sonner";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
@@ -137,9 +139,12 @@ export default function ComercialTareas() {
 
   const toggle = async (id: string, completed: boolean) => {
     if (completed) {
-      await (supabase.from("building_tasks" as any) as any)
-        .update({ status: "completed", completed_at: new Date().toISOString() })
-        .eq("id", id);
+      // Cierre ÚNICO vía RPC transaccional (estado + reposición).
+      const done = await resolveBuildingTask(id, "completed");
+      if (!done.ok) {
+        toast.error(done.error ?? "No se pudo completar la tarea");
+        return;
+      }
     } else {
       // Reapertura ÚNICA vía RPC: valida estado, propiedad y limpia el ciclo.
       const res = await reopenBuildingTask(id);

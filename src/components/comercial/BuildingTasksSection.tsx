@@ -29,7 +29,12 @@ import { insertManualBuildingTask } from "@/lib/taskWriters";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { startBuildingTask, canStartTask, reopenBuildingTask } from "@/lib/taskStart";
+import {
+  startBuildingTask,
+  canStartTask,
+  reopenBuildingTask,
+  resolveBuildingTask,
+} from "@/lib/taskStart";
 
 const ICONS: Record<string, any> = {
   Phone, PhoneCall, Mail, ClipboardList, FileSearch, AlertTriangle, Brain, MapPin,
@@ -73,9 +78,9 @@ export function BuildingTasksSection({
   const toggleMutation = useMutation({
     mutationFn: async ({ id, completed }: { id: string; completed: boolean }) => {
       if (completed) {
-        await (supabase.from("building_tasks" as any) as any)
-          .update({ status: "completed", completed_at: new Date().toISOString() })
-          .eq("id", id);
+        // Cierre ÚNICO vía RPC transaccional (estado + reposición).
+        const done = await resolveBuildingTask(id, "completed");
+        if (!done.ok) throw new Error(done.error ?? "No se pudo completar la tarea");
         return;
       }
       // Reapertura ÚNICA vía RPC (nunca UPDATE directo).
@@ -103,11 +108,15 @@ export function BuildingTasksSection({
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await (supabase.from("building_tasks" as any) as any).delete().eq("id", id);
+      // Nunca DELETE directo: la tarea se cancela con trazabilidad.
+      const res = await resolveBuildingTask(id, "cancelled");
+      if (!res.ok) throw new Error(res.error ?? "No se pudo cancelar la tarea");
     },
+    onError: (e: Error) => toast({ title: "No se pudo cancelar", description: e.message }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["building_tasks", buildingId, userId] });
-      toast({ title: "Tarea eliminada" });
+      qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+      toast({ title: "Tarea cancelada" });
     },
   });
 
@@ -229,10 +238,16 @@ function TaskRow({
           )}
           <TaskScheduleMeta task={task} />
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            {task.starts_at && (
+              <span>Empieza: {new Date(task.starts_at).toLocaleString("es-ES")}</span>
+            )}
+            {task.due_date && (
+              <span>· Vence: {new Date(task.due_date).toLocaleString("es-ES")}</span>
+            )}
             {task.started_at ? (
-              <span>Inicio real: {new Date(task.started_at).toLocaleString("es-ES")}</span>
+              <span>· Inicio real: {new Date(task.started_at).toLocaleString("es-ES")}</span>
             ) : (
-              <span>Sin inicio registrado</span>
+              <span>· Sin inicio registrado</span>
             )}
             {task.completed_at && <span>· Cierre: {new Date(task.completed_at).toLocaleString("es-ES")}</span>}
             {onStart && canStartTask(task) && (
@@ -262,7 +277,7 @@ function TaskRow({
               type="button"
               onClick={onDelete}
               className="text-muted-foreground hover:text-destructive"
-              title="Eliminar"
+              title="Cancelar tarea"
             >
               <Trash2 className="h-3 w-3" />
             </button>
@@ -285,6 +300,8 @@ function NewTaskDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("medium");
+  const [subtype, setSubtype] = useState<"posible_interes" | "otro">("otro");
+  const [startsAt, setStartsAt] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -293,13 +310,25 @@ function NewTaskDialog({
     setSaving(true);
     let error: { message: string } | null = null;
     try {
+      const { data: auth } = await supabase.auth.getUser();
+      const author = auth?.user?.id;
+      if (!author) throw new Error("Sesión no válida: la tarea manual exige autor.");
+      const start = startsAt ? new Date(startsAt).toISOString() : new Date().toISOString();
+      const due = dueDate
+        ? new Date(dueDate).toISOString()
+        : new Date(Date.parse(start) + 86400000).toISOString();
       const res = await insertManualBuildingTask(supabase as any, {
         building_id: buildingId,
         user_id: userId,
+        created_by: author,
+        subject_type: "building",
+        subject_id: buildingId,
+        manual_subtype: subtype,
         title: title.trim(),
         description: description.trim() || null,
         priority,
-        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        starts_at: start,
+        due_date: due,
       });
       error = (res as any)?.error ?? null;
     } catch (e: any) {
@@ -310,7 +339,8 @@ function NewTaskDialog({
       toast({ title: "Error", description: error.message, variant: "destructive" });
       return;
     }
-    setTitle(""); setDescription(""); setPriority("medium"); setDueDate("");
+    setTitle(""); setDescription(""); setPriority("medium");
+    setSubtype("otro"); setStartsAt(""); setDueDate("");
     onOpenChange(false);
     onCreated();
     toast({ title: "Tarea creada" });
@@ -362,9 +392,37 @@ function NewTaskDialog({
             </div>
             <div>
               <label className="mb-1 block font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                Tipo
+              </label>
+              <Select value={subtype} onValueChange={(v) => setSubtype(v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="posible_interes">Posible interés</SelectItem>
+                  <SelectItem value="otro">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
+                Empieza
+              </label>
+              <Input
+                type="datetime-local"
+                value={startsAt}
+                onChange={(e) => setStartsAt(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                 Fecha límite
               </label>
-              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <Input
+                type="datetime-local"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
             </div>
           </div>
         </div>

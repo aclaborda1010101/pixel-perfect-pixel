@@ -12,6 +12,7 @@ import {
   scanBuildingTaskWrites,
   classifyBuildingTaskWrites,
   AUTHORIZED_WRITERS,
+  AUTHORIZED_SQL_WRITERS,
 } from "./helpers/taskWriteGuard";
 
 const ROOT = process.cwd();
@@ -157,14 +158,25 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
       "src/lib/taskWriters.ts#insertManualBuildingTask",
       "supabase/functions/_shared/taskWriters.ts#insertV5CallQueueTask",
       "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask",
+      "supabase/pending_migrations/20260815000000_v5_engine_p03_runtime_connect.sql#public.commit_v5_generation_plan",
     ]);
-    expect(authorized.every((o) => AUTHORIZED_WRITERS[`${o.file}#${o.fn}`])).toBe(true);
+    expect(
+      authorized.every((o) =>
+        o.kind === "sql"
+          ? Boolean(AUTHORIZED_SQL_WRITERS[o.fn ?? ""])
+          : Boolean(AUTHORIZED_WRITERS[`${o.file}#${o.fn}`]),
+      ),
+    ).toBe(true);
   });
 
   it("los updates de ciclo de vida no cuentan como creación", () => {
-    const tareas = sources["src/pages/comercial/Tareas.tsx"];
-    expect(tareas).toContain(".update({");
-    expect(scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", tareas)).toEqual([]);
+    const ciclo =
+      'await db.from("building_tasks").update({ status: "completed" }).eq("id", id);\n' +
+      'await db.from("building_tasks").delete().eq("id", id);';
+    expect(scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", ciclo)).toEqual([]);
+    // Y además las pantallas reales ya no escriben: cierran vía RPC.
+    expect(sources["src/pages/comercial/Tareas.tsx"]).toContain("resolveBuildingTask(");
+    expect(sources["src/pages/comercial/Tareas.tsx"]).not.toContain(".update({");
   });
 
   it("los callsites autorizados pasan por su helper con payload válido", () => {
@@ -367,20 +379,31 @@ describe("writers autorizados · contrato de payload", () => {
   it("writer manual escribe task_type manual sin task_key", async () => {
     const repo = fakeRepo();
     await insertManualBuildingTask(repo as any, {
-      building_id: "b1", user_id: "u1", title: " Llamar ", priority: "high", due_date: "",
+      building_id: "b1", user_id: "u1", created_by: "u1",
+      subject_type: "building", subject_id: "b1", manual_subtype: "otro",
+      title: " Llamar ", priority: "high",
+      starts_at: "2026-08-15T09:00:00.000Z", due_date: "2026-08-16T09:00:00.000Z",
     });
     expect(repo.rows[0]).toMatchObject({
-      task_type: "manual", task_key: null, status: "pending", title: "Llamar", due_date: null,
+      task_type: "manual", generation_mode: "manual", task_key: null,
+      status: "pending", title: "Llamar", manual_subtype: "otro",
+      due_date: "2026-08-16T09:00:00.000Z",
     });
   });
 
   it("writer manual rechaza payload automático", async () => {
     const repo = fakeRepo();
     await expect(insertManualBuildingTask(repo as any, {
-      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_type: "call_queue",
+      building_id: "b1", user_id: "u1", created_by: "u1", subject_type: "building",
+      subject_id: "b1", manual_subtype: "otro", title: "x", priority: "high",
+      starts_at: "2026-08-15T09:00:00.000Z", due_date: "2026-08-16T09:00:00.000Z",
+      task_type: "call_queue",
     })).rejects.toThrow(/manual/);
     await expect(insertManualBuildingTask(repo as any, {
-      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_key: "v5:v5a.1:T4:b1:o1:fp",
+      building_id: "b1", user_id: "u1", created_by: "u1", subject_type: "building",
+      subject_id: "b1", manual_subtype: "otro", title: "x", priority: "high",
+      starts_at: "2026-08-15T09:00:00.000Z", due_date: "2026-08-16T09:00:00.000Z",
+      task_key: "v5:v5a.1:T4:b1:o1:fp",
     })).rejects.toThrow(/task_key/);
     expect(repo.rows).toHaveLength(0);
   });
