@@ -184,6 +184,85 @@ export function decidePendingMatchOnDrain(
   return pending ? { run: true, reason: "match_pendiente_previo" } : { run: false, reason: "nada_pendiente" };
 }
 
+// ---------- estado DURABLE de match_pending ----------
+
+export type LogRow = { metadatos?: { match_pending?: unknown } | null } | null | undefined;
+
+/** Estado durable leído del historial. `known:false` => no se puede garantizar. */
+export type MatchPendingState =
+  | { known: true; pending: boolean; source: "log" | "sin_historial" }
+  | { known: false; pending: true; reason: string };
+
+/**
+ * Pliega un historial ACOTADO (más reciente primero) hasta encontrar el último
+ * registro que contenga realmente un boolean `match_pending`.
+ * - error de lectura => desconocido (conservador: pending=true).
+ * - historial agotado sin encontrar el campo => desconocido si venía truncado.
+ * - sin historial en absoluto => known, pending=false.
+ */
+export function foldMatchPendingHistory(args: {
+  rows?: LogRow[] | null;
+  error?: unknown;
+  limit?: number;
+}): MatchPendingState {
+  if (args.error) {
+    return { known: false, pending: true, reason: `state_read_error:${String((args.error as any)?.message ?? args.error).slice(0, 200)}` };
+  }
+  const rows = Array.isArray(args.rows) ? args.rows : null;
+  if (rows == null) return { known: false, pending: true, reason: "state_read_error:sin_filas" };
+  for (const r of rows) {
+    const v = r?.metadatos?.match_pending;
+    if (typeof v === "boolean") return { known: true, pending: v, source: "log" };
+  }
+  const limit = args.limit ?? rows.length;
+  if (rows.length > 0 && rows.length >= limit) {
+    return { known: false, pending: true, reason: "state_read_error:historial_agotado" };
+  }
+  return { known: true, pending: false, source: "sin_historial" };
+}
+
+export type NextMatchPending = {
+  pending: boolean;
+  /** El estado anterior no era legible y no se pudo resolver en este ciclo. */
+  degraded: boolean;
+  stateReadError: string | null;
+  reason: "rpc_ok" | "rpc_fail" | "conservado" | "conservado_sin_estado";
+};
+
+/**
+ * Estado siguiente de match_pending. NUNCA borra un pendiente anterior si en
+ * este ciclo no hubo una RPC de matching con éxito.
+ */
+export function computeNextMatchPending(args: {
+  previous: MatchPendingState;
+  ran: boolean;
+  outcome?: MatchOutcome | null;
+}): NextMatchPending {
+  const previous = args.previous;
+  const readError = previous.known === true ? null : previous.reason;
+  if (args.ran && args.outcome) {
+    if (args.outcome.status === "ok") {
+      return { pending: false, degraded: false, stateReadError: readError, reason: "rpc_ok" };
+    }
+    return { pending: true, degraded: false, stateReadError: readError, reason: "rpc_fail" };
+  }
+  if (previous.known === true) {
+    return { pending: previous.pending, degraded: false, stateReadError: null, reason: "conservado" };
+  }
+  return { pending: true, degraded: true, stateReadError: readError, reason: "conservado_sin_estado" };
+}
+
+/**
+ * Drenado: se intenta un ÚNICO RPC acotado si quedó pendiente o si el estado no
+ * es legible (conservador: resolverlo es más seguro que perderlo).
+ */
+export function decidePendingMatchOnDrainState(state: MatchPendingState): { run: boolean; reason: string } {
+  if (!state.known) return { run: true, reason: "estado_no_legible" };
+  return state.pending
+    ? { run: true, reason: "match_pendiente_previo" }
+    : { run: false, reason: "nada_pendiente" };
+}
+
 /** Semántica explícita del fallo del RPC de matching (no invalida los éxitos). */
 export async function runMatching(
   rpc: () => Promise<{ data?: unknown; error?: { message?: string } | string | null }>,

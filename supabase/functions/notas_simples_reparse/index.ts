@@ -35,7 +35,9 @@ import {
 import {
   processNotaCore,
   decideMatching,
-  decidePendingMatchOnDrain,
+  decidePendingMatchOnDrainState,
+  foldMatchPendingHistory,
+  computeNextMatchPending,
   runMatching,
   type NotaRepo,
 } from "./core.ts";
@@ -51,6 +53,8 @@ const DEFAULT_LIMIT = 2;
 const MAX_LIMIT = 5;
 const CLAIM_MINUTES = 30;
 const MAX_ATTEMPTS = 5;
+/** Historial acotado que se pliega para hallar el último match_pending durable. */
+const MATCH_STATE_HISTORY = 25;
 // Modelo estable, el mismo que ya usa analyze_nota_simple.
 const PRIMARY = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3.1-flash-lite-preview" };
 const FALLBACK = { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5.6-luna" };
@@ -341,6 +345,16 @@ Deno.serve(async (req) => {
 
   const t0 = Date.now();
 
+  // Estado DURABLE previo de match_pending (historial acotado, más reciente primero).
+  const { data: logRows, error: logReadErr } = await sb.from("hubspot_sync_log")
+    .select("metadatos").eq("entity", ENTITY)
+    .order("started_at", { ascending: false }).limit(MATCH_STATE_HISTORY);
+  const prevState = foldMatchPendingHistory({
+    rows: (logRows ?? null) as any,
+    error: logReadErr ?? null,
+    limit: MATCH_STATE_HISTORY,
+  });
+
   // 1) Reclamar lote con bloqueo (evita repetir siempre las mismas 12)
   const { data: notas, error: selErr } = await sb.rpc("reparse_claim_batch", {
     p_limit: limit,
@@ -354,31 +368,44 @@ Deno.serve(async (req) => {
   }
 
   if (!notas || notas.length === 0) {
-    // Drenado: intento ACOTADO de matching sólo si quedó pendiente de un lote anterior
-    // (marcador durable en hubspot_sync_log.metadatos.match_pending). Sin bucle caro.
-    const { data: lastLog } = await sb.from("hubspot_sync_log")
-      .select("metadatos").eq("entity", ENTITY)
-      .order("started_at", { ascending: false }).limit(1).maybeSingle();
-    const decision = decidePendingMatchOnDrain(lastLog as any);
+    // Drenado: UN solo intento acotado de matching si quedó pendiente de un lote
+    // anterior (o si el estado no es legible). El éxito lo limpia; el fallo lo
+    // conserva y devuelve HTTP no-2xx (nunca un bucle silencioso de "éxito").
+    const decision = decidePendingMatchOnDrainState(prevState);
     let outcome: any = null;
     if (decision.run) {
       outcome = await runMatching(async () => await sb.rpc("match_notas_pendientes"));
-      await sb.from("hubspot_sync_log").insert({
-        entity: ENTITY,
-        started_at: new Date(t0).toISOString(),
-        finished_at: new Date().toISOString(),
-        records_upserted: 0,
-        records_failed: 0,
-        status: outcome.status === "error" ? "partial" : "ok",
-        error_message: outcome.error ?? null,
-        metadatos: { drained: true, match_pending: outcome.pending, match_status: outcome.status, match_result: outcome.data ?? null },
-      });
     }
+    const next = computeNextMatchPending({ previous: prevState, ran: decision.run, outcome });
+    const degradado = next.pending && (outcome?.status === "error" || next.degraded);
+    await sb.from("hubspot_sync_log").insert({
+      entity: ENTITY,
+      started_at: new Date(t0).toISOString(),
+      finished_at: new Date().toISOString(),
+      records_upserted: 0,
+      records_failed: 0,
+      status: degradado ? "partial" : "ok",
+      error_message: outcome?.error ?? next.stateReadError ?? null,
+      metadatos: {
+        drained: true,
+        match_pending: next.pending,
+        match_pending_reason: next.reason,
+        state_read_error: next.stateReadError,
+        match_status: outcome?.status ?? "skipped",
+        match_result: outcome?.data ?? null,
+      },
+    });
     return new Response(JSON.stringify({
-      ok: true, procesadas: 0, drained: true,
+      ok: !degradado,
+      status: degradado ? "partial" : "ok",
+      procesadas: 0,
+      drained: true,
       match_attempt: decision.run ? outcome : null,
       match_reason: decision.reason,
+      match_pending: next.pending,
+      state_read_error: next.stateReadError,
     }), {
+      status: degradado ? 500 : 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -431,13 +458,22 @@ Deno.serve(async (req) => {
   //    nota finalizada en no finalizada; deja match_pending durable.
   const matchDecision = decideMatching({ ok, failed: resumen.records_failed });
   let matchOutcome: any = null;
-  let matchPending = false;
   if (matchDecision.run) {
     matchOutcome = await runMatching(async () => await sb.rpc("match_notas_pendientes"));
-    matchPending = matchOutcome.pending;
     if (matchOutcome.status === "error") console.error(`[notas_reparse] match rpc:`, matchOutcome.error);
   }
+  // match_pending NUNCA se borra si no hubo RPC con éxito en este ciclo.
+  const nextPending = computeNextMatchPending({
+    previous: prevState,
+    ran: matchDecision.run,
+    outcome: matchOutcome,
+  });
+  const matchPending = nextPending.pending;
   const matchResult = matchOutcome?.data ?? null;
+  // Si no podemos garantizar durabilidad del pendiente, la respuesta es no-2xx.
+  const degradado = nextPending.degraded;
+  const httpStatus = degradado && resumen.http < 400 ? 500 : resumen.http;
+  const statusFinal = degradado && resumen.status === "ok" ? "partial" : resumen.status;
 
   // 4) Log
   try {
@@ -447,8 +483,8 @@ Deno.serve(async (req) => {
       finished_at: new Date().toISOString(),
       records_upserted: resumen.records_upserted,
       records_failed: resumen.records_failed,
-      status: resumen.status,
-      error_message: resumen.error_message,
+      status: statusFinal,
+      error_message: resumen.error_message ?? nextPending.stateReadError,
       metadatos: {
         ok,
         fail: resumen.records_failed,
@@ -459,6 +495,8 @@ Deno.serve(async (req) => {
         match_error: matchOutcome?.error ?? null,
         match_reason: matchDecision.reason,
         match_pending: matchPending,
+        match_pending_reason: nextPending.reason,
+        state_read_error: nextPending.stateReadError,
         fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
       },
     });
@@ -468,20 +506,21 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({
-    ok: resumen.ok,
-    status: resumen.status,
+    ok: resumen.ok && !degradado,
+    status: statusFinal,
     procesadas: results.length,
     correctas: resumen.records_upserted,
     fallidas: resumen.records_failed,
-    error_message: resumen.error_message,
+    error_message: resumen.error_message ?? nextPending.stateReadError,
     retry_state_failed: retryStateFailed,
     match_result: matchResult,
     match_status: matchOutcome?.status ?? "skipped",
     match_pending: matchPending,
+    state_read_error: nextPending.stateReadError,
     elapsed_ms: Date.now() - t0,
     resultados: results,
   }), {
-    status: resumen.http,
+    status: httpStatus,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

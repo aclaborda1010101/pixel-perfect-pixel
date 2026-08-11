@@ -3,6 +3,7 @@
 
 import {
   baseIdentityKey,
+  hasRealEvidence,
   logicalRightKey,
   mergeEvidencias,
   evidenciaStable,
@@ -230,13 +231,32 @@ export function summarizeBatch(
   return { ok: false, status: "error", http: 500, records_upserted: 0, records_failed: fallidas, error_message, partial: false };
 }
 
-/** ¿Hay que pedir titulares al modelo? */
+/**
+ * ¿Es este titular persistido utilizable SIN volver a pedirlo al modelo?
+ * Exige nombre, rol_literal explícito y EVIDENCIA REAL (fuente con localizador).
+ * Los metadatos de normalización, una cita suelta o un localizador inválido
+ * NO cuentan como evidencia.
+ */
+export function titularPersistidoEsFiable(t: any): boolean {
+  if (!t || typeof t !== "object" || Array.isArray(t)) return false;
+  const nombre = String(t.nombre ?? t.nombre_extraido ?? "").trim();
+  if (!nombre) return false;
+  const literal = t.rol_literal;
+  if (typeof literal !== "string" || !literal.trim()) return false;
+  return hasRealEvidence(t.evidencia);
+}
+
+/**
+ * ¿Hay que pedir titulares al modelo? El schema v2 NO basta por sí solo:
+ * si CUALQUIER titular actual no es fiable (sin nombre, sin rol_literal o sin
+ * evidencia real con localizador), se refresca la nota ENTERA.
+ */
 export function needsTitularesRefetch(structured: any): boolean {
   const arr = Array.isArray(structured?.titulares) ? structured.titulares : [];
   if (arr.length === 0) return true;
   const version = Number(structured?.reparse_schema_version ?? 0);
   if (!Number.isFinite(version) || version < 2) return true;
-  return arr.some((t: any) => !t?.rol_literal || t?.evidencia == null);
+  return arr.some((t: any) => !titularPersistidoEsFiable(t));
 }
 
 // ---------- ejecución verificable (adaptador puro y testeable) ----------
