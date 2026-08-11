@@ -36,26 +36,11 @@ import {
   runMatching,
   type NotaRepo,
 } from "./core.ts";
-import { runReparseCycle } from "./orchestrator.ts";
-import { createReparseDeps } from "./deps.ts";
+import { handleReparseRequest, processNotaWithClaim as processNotaWithClaimCore } from "./handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-};
-
-const DEFAULT_LIMIT = 2;
-const MAX_LIMIT = 5;
-const CLAIM_MINUTES = 30;
-const MAX_ATTEMPTS = 5;
 // Modelo estable, el mismo que ya usa analyze_nota_simple.
 const PRIMARY = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3.1-flash-lite-preview" };
 const FALLBACK = { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5.6-luna" };
-
-function backoffMinutes(attempt: number): number {
-  return Math.min(360, 15 * Math.pow(2, Math.max(0, attempt - 1)));
-}
 
 // ---------- utilidades de texto ----------
 
