@@ -4,6 +4,16 @@
 export const ROLES_CANONICOS = ["pleno", "usufructo", "nuda_propiedad", "ganancial", "otro"] as const;
 export type RolCanonico = (typeof ROLES_CANONICOS)[number];
 
+/**
+ * DERECHOS jurídicos específicos y reconocidos. "ganancial" es un RÉGIMEN de
+ * cotitularidad (no un derecho) y "otro" es desconocido: ninguno de los dos
+ * puede entrar en conflicto con un derecho específico ni convertirse en pleno.
+ */
+export const ROLES_ESPECIFICOS = ["pleno", "usufructo", "nuda_propiedad"] as const;
+export function esRolEspecifico(r: RolCanonico | null | undefined): boolean {
+  return r != null && (ROLES_ESPECIFICOS as readonly string[]).includes(r);
+}
+
 const CLAVES_PROHIBIDAS = new Set(["__proto__", "prototype", "constructor"]);
 
 export const MAX_SANITIZE_DEPTH = 12;
@@ -200,7 +210,7 @@ function fuenteStable(f: EvidenciaFuente): string {
   return CLAVES_FUENTE.map((k) => `${k}=${(f as Record<string, unknown>)[k] ?? ""}`).join("|");
 }
 
-/** Identidad de localizador: dos fuentes con el mismo localizador son la MISMA fuente. */
+/** Identidad de localizador: página/ruta/offset (sin la cita). */
 export function fuenteLocatorKey(f: EvidenciaFuente): string {
   const partes: string[] = [];
   if (f.pagina != null) partes.push(`p:${f.pagina}`);
@@ -208,6 +218,19 @@ export function fuenteLocatorKey(f: EvidenciaFuente): string {
   if (f.offset != null) partes.push(`o:${f.offset}`);
   if (partes.length) return partes.join("+");
   return `c:${(f.cita ?? "").toLowerCase()}`;
+}
+
+/**
+ * Identidad de FUENTE = localizador normalizado + cita normalizada.
+ * Dos citas reales distintas en el mismo localizador son hechos registrales
+ * compatibles: se conservan ambas como dos fuentes (sin conflicto).
+ */
+export function fuenteIdentityKey(f: EvidenciaFuente): string {
+  const loc: string[] = [];
+  if (f.pagina != null) loc.push(`p:${f.pagina}`);
+  if (f.ruta != null) loc.push(`r:${normalizeLiteral(f.ruta)}`);
+  if (f.offset != null) loc.push(`o:${f.offset}`);
+  return `${loc.join("+")}##${normalizeLiteral(f.cita ?? "")}`;
 }
 
 /** ¿La fuente tiene un localizador válido (no es solo una cita suelta)? */
@@ -255,7 +278,7 @@ export function mergeEvidencias(...entradas: unknown[]): MergeEvidenciaResult {
   const porLocalizador = new Map<string, EvidenciaFuente>();
   for (const e of entradas) {
     for (const f of evidenciaFuentes(e)) {
-      const k = fuenteLocatorKey(f);
+      const k = fuenteIdentityKey(f);
       const prev = porLocalizador.get(k);
       if (!prev) {
         porLocalizador.set(k, { ...f });
@@ -268,7 +291,9 @@ export function mergeEvidencias(...entradas: unknown[]): MergeEvidenciaResult {
         if (nuevo == null) continue;
         const actual = (merged as Record<string, unknown>)[campo];
         if (actual != null && actual !== nuevo) {
-          return { ok: false, reason: "evidence_conflict", detalle: `${k}:${campo}` };
+          // Misma identidad de fuente (localizador + cita normalizados): sólo
+          // puede diferir el formato del texto. Se conserva SIEMPRE lo previo.
+          continue;
         }
         (merged as Record<string, unknown>)[campo] = nuevo;
       }
@@ -276,7 +301,18 @@ export function mergeEvidencias(...entradas: unknown[]): MergeEvidenciaResult {
     }
   }
   if (!orden.length) return { ok: true, value: null };
-  return { ok: true, value: { fuentes: orden.map((k) => porLocalizador.get(k)!) } };
+  // Una fuente SIN cita en un localizador que ya tiene fuente(s) con cita no
+  // aporta un hecho nuevo: se absorbe (sin perder ningún campo previo).
+  const conCita = new Set<string>();
+  for (const k of orden) {
+    const f = porLocalizador.get(k)!;
+    if (f.cita) conCita.add(fuenteLocatorKey(f));
+  }
+  const fuentes = orden
+    .map((k) => porLocalizador.get(k)!)
+    .filter((f) => f.cita != null || !fuenteTieneLocalizador(f) || !conCita.has(fuenteLocatorKey(f)));
+  if (!fuentes.length) return { ok: true, value: null };
+  return { ok: true, value: { fuentes } };
 }
 
 /** Evidencia registral utilizable: al menos una fuente con localizador válido. */
@@ -296,6 +332,8 @@ export type TitularNormalizado = {
   rol: RolCanonico;
   rol_literal: string | null;
   evidencia: Evidencia;
+  /** Diagnóstico NO registral (nunca evidencia, nunca se persiste como fuente). */
+  rol_diagnostico?: string | null;
 };
 
 /**
@@ -333,8 +371,12 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
   const rolDesdeRol = rawRol == null ? null : normalizeRol(rawRol);
   const rolDesdeLiteral = rol_literal == null ? null : normalizeRol(rol_literal);
 
-  // Conflicto rol declarado vs literal reconocido: BLOQUEA antes de escribir.
-  if (rolDesdeLiteral != null && rolDesdeRol != null && rolDesdeLiteral !== rolDesdeRol) {
+  // Sólo hay conflicto si AMBOS expresan derechos jurídicos específicos y distintos.
+  // "otro"/"ganancial" (desconocido / régimen) nunca bloquean ni ascienden a pleno.
+  if (
+    esRolEspecifico(rolDesdeLiteral) && esRolEspecifico(rolDesdeRol) &&
+    rolDesdeLiteral !== rolDesdeRol
+  ) {
     return {
       ok: false,
       reason: "role_conflict",
@@ -342,8 +384,22 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
     };
   }
 
-  // El literal jurídico manda si existe.
-  const rol: RolCanonico = rolDesdeLiteral ?? rolDesdeRol ?? "otro";
+  // El literal jurídico reconocible PREVALECE; si no lo es, se conserva el rol declarado.
+  let rol: RolCanonico;
+  let rol_diagnostico: string | null = null;
+  if (esRolEspecifico(rolDesdeLiteral)) {
+    rol = rolDesdeLiteral as RolCanonico;
+    if (rolDesdeRol != null && rolDesdeRol !== rol) {
+      rol_diagnostico = `literal_prevalece:raw=${rolDesdeRol}->${rol}`;
+    }
+  } else if (rolDesdeRol != null) {
+    rol = rolDesdeRol;
+    if (rolDesdeLiteral != null && rolDesdeLiteral !== rol) {
+      rol_diagnostico = `literal_no_especifico:${rolDesdeLiteral}`;
+    }
+  } else {
+    rol = rolDesdeLiteral ?? "otro";
+  }
   const evidencia = buildEvidencia(t);
 
   return {
@@ -355,6 +411,7 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
       rol,
       rol_literal,
       evidencia,
+      rol_diagnostico,
     },
   };
 }
@@ -397,8 +454,16 @@ export function logicalRightKey(t: {
   rol?: unknown; rol_literal?: unknown;
 }): string {
   const rolLit = normalizeLiteral(t.rol_literal);
-  const rol = t.rol_literal != null && String(t.rol_literal).trim()
+  const desdeLiteral = t.rol_literal != null && String(t.rol_literal).trim()
     ? normalizeRol(t.rol_literal)
-    : normalizeRol(t.rol);
+    : null;
+  // Misma precedencia que normalizeTitularChecked: literal específico manda;
+  // si no lo es, el rol declarado; y en su defecto el literal reconocido.
+  const hayRol = t.rol != null && String(t.rol).trim() !== "";
+  const rol = esRolEspecifico(desdeLiteral)
+    ? (desdeLiteral as RolCanonico)
+    : hayRol
+      ? normalizeRol(t.rol)
+      : (desdeLiteral ?? "otro");
   return `${baseIdentityKey(t)}|${rol}|${rolLit}`;
 }

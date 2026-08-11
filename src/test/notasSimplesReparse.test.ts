@@ -59,12 +59,33 @@ describe("rol y literal", () => {
     expect(t.rol).toBe("otro");
     expect(t.rol_literal).toBeNull();
   });
-  it("rol declarado que contradice al literal BLOQUEA con role_conflict", () => {
-    const r = normalizeTitularChecked({ nombre: "Ana", rol: "pleno", rol_literal: "Sociedad de gananciales" });
+  it("dos derechos específicos distintos BLOQUEAN con role_conflict", () => {
+    const r = normalizeTitularChecked({ nombre: "Ana", rol: "pleno", rol_literal: "usufructo vitalicio" });
     expect(r.ok).toBe(false);
     expect((r as any).reason).toBe("role_conflict");
     expect((r as any).detalle).toContain("raw_rol=pleno");
-    expect((r as any).detalle).toContain("raw_literal=Sociedad de gananciales");
+    expect((r as any).detalle).toContain("raw_literal=usufructo vitalicio");
+    const r2 = normalizeTitularChecked({ nombre: "Ana", rol: "nuda_propiedad", rol_literal: "pleno dominio" });
+    expect((r2 as any).reason).toBe("role_conflict");
+  });
+  it("rol genérico/desconocido: el literal reconocible PREVALECE sin bloquear", () => {
+    const a = normalizeTitular({ nombre: "Ana", rol: "otro", rol_literal: "usufructo vitalicio" })!;
+    expect(a.rol).toBe("usufructo");
+    const b = normalizeTitular({ nombre: "Ana", rol: "titular registral xyz", rol_literal: "nuda propiedad" })!;
+    expect(b.rol).toBe("nuda_propiedad");
+    const c = normalizeTitular({ nombre: "Ana", rol_literal: "usufructo" })!;
+    expect(c.rol).toBe("usufructo");
+    // el diagnóstico vive fuera de la evidencia
+    expect(a.evidencia).toBeNull();
+    expect(typeof a.rol_diagnostico === "string" || a.rol_diagnostico === null).toBe(true);
+  });
+  it("gananciales es régimen: nunca asciende a pleno ni bloquea", () => {
+    const t = normalizeTitular({ nombre: "Ana", rol: "pleno", rol_literal: "Sociedad de gananciales" })!;
+    expect(t.rol).toBe("pleno");
+    const g = normalizeTitular({ nombre: "Ana", rol: "ganancial", rol_literal: "gananciales" })!;
+    expect(g.rol).toBe("ganancial");
+    const d = normalizeTitular({ nombre: "Ana", rol: "desconocido", rol_literal: "concesión" })!;
+    expect(d.rol).toBe("otro");
   });
   it("sin conflicto no hay evidencia inventada", () => {
     const t = normalizeTitular({ nombre: "Ana", rol: "usufructo", rol_literal: "usufructo vitalicio" })!;
@@ -125,14 +146,24 @@ describe("evidencia canónica", () => {
     expect(buildEvidencia({ evidencia: { cita: "  ", ruta: "" } })).toBeNull();
     expect(buildEvidencia({})).toBeNull();
   });
-  it("fusiona sin pérdida y bloquea localizador incompatible", () => {
+  it("fusiona sin pérdida y conserva citas distintas del mismo localizador", () => {
     const m = mergeEvidencias({ cita: "A", pagina: 1 }, { ruta: "TOMO 3" });
     expect(m).toEqual({ ok: true, value: { fuentes: [{ cita: "A", pagina: 1 }, { ruta: "TOMO 3" }] } });
     const m2 = mergeEvidencias({ pagina: 1 }, { cita: "A", pagina: 1 });
     expect((m2 as any).value).toEqual({ fuentes: [{ pagina: 1, cita: "A" }] });
-    const conflicto = mergeEvidencias({ cita: "A", pagina: 1 }, { cita: "B", pagina: 1 });
-    expect(conflicto.ok).toBe(false);
-    expect((conflicto as any).reason).toBe("evidence_conflict");
+    // dos hechos registrales distintos en la misma página: se conservan ambos
+    const dos = mergeEvidencias({ cita: "A", pagina: 1 }, { cita: "B", pagina: 1 });
+    expect(dos.ok).toBe(true);
+    expect((dos as any).value.fuentes).toEqual([{ cita: "A", pagina: 1 }, { cita: "B", pagina: 1 }]);
+    // misma cita duplicada (aun con distinto formato) se coalesce en una
+    const una = mergeEvidencias({ cita: "A", pagina: 1 }, { cita: " a ", pagina: 1 });
+    expect((una as any).value.fuentes).toHaveLength(1);
+    // existente A + deseada B conserva ambas, en orden estable e idempotente
+    const existing = { fuentes: [{ cita: "A", pagina: 1 }] };
+    const r1 = mergeEvidencias(existing, { cita: "B", pagina: 1 });
+    const r2 = mergeEvidencias((r1 as any).value, { cita: "B", pagina: 1 });
+    expect((r2 as any).value).toEqual((r1 as any).value);
+    expect((r2 as any).value.fuentes.map((f: any) => f.cita)).toEqual(["A", "B"]);
   });
   it("hasRealEvidence exige fuente real con localizador válido", () => {
     expect(hasRealEvidence({ normalizacion: { raw_rol: "pleno", role_conflict: true } })).toBe(false);
@@ -186,12 +217,16 @@ describe("plan de conciliación", () => {
     expect(plan.updates[0].patch.evidencia.fuentes).toEqual([{ cita: "A", pagina: 1 }, { pagina: 2, cita: "B" }]);
   });
 
-  it("evidencia contradictoria con la fila existente bloquea", () => {
+  it("otra cita en la misma página se AÑADE a la fila existente (sin sobrescribir)", () => {
     const existentes = [fila({ id: "r1", rol_literal: "pleno dominio", evidencia: { cita: "A", pagina: 1 } })];
-    const plan = buildReconcilePlan(existentes, [tit({ evidencia: { cita: "B", pagina: 1 } })]);
-    expect(plan.ok).toBe(false);
-    expect((plan as any).reason).toBe("evidence_conflict");
-    expect(plan.updates).toHaveLength(0);
+    const plan = buildReconcilePlan(existentes, [tit({ evidencia: { cita: "B", pagina: 1 } })]) as any;
+    expect(plan.ok).toBe(true);
+    expect(plan.updates[0].patch.evidencia.fuentes).toEqual([{ cita: "A", pagina: 1 }, { cita: "B", pagina: 1 }]);
+    // idempotente: repetir la misma pasada no cambia el resultado
+    const existentes2 = [fila({ id: "r1", rol_literal: "pleno dominio", evidencia: plan.updates[0].patch.evidencia })];
+    const plan2 = buildReconcilePlan(existentes2, [tit({ evidencia: { cita: "B", pagina: 1 } })]) as any;
+    expect(plan2.ok).toBe(true);
+    expect(plan2.updates).toHaveLength(0);
   });
 
   it("dos deseados idénticos convergen en un derecho con unión de evidencias", () => {
@@ -205,10 +240,14 @@ describe("plan de conciliación", () => {
     expect(plan.inserts).toHaveLength(1);
   });
 
-  it("dos deseados con el mismo localizador incompatible bloquean", () => {
-    const plan = buildReconcilePlan([], [tit({ evidencia: { cita: "A", pagina: 1 } }), tit({ evidencia: { cita: "B", pagina: 1 } })]);
-    expect(plan.ok).toBe(false);
-    expect((plan as any).reason).toBe("duplicate_desired_conflicting_evidence");
+  it("dos deseados con citas distintas en la misma página conservan ambas fuentes", () => {
+    const plan = buildReconcilePlan([], [tit({ evidencia: { cita: "A", pagina: 1 } }), tit({ evidencia: { cita: "B", pagina: 1 } })]) as any;
+    expect(plan.ok).toBe(true);
+    expect(plan.inserts).toHaveLength(1);
+    expect(plan.inserts[0].evidencia.fuentes).toEqual([{ cita: "A", pagina: 1 }, { cita: "B", pagina: 1 }]);
+    // la misma cita duplicada se coalesce en una sola fuente
+    const dup = buildReconcilePlan([], [tit({ evidencia: { cita: "A", pagina: 1 } }), tit({ evidencia: { cita: "A", pagina: 1 } })]) as any;
+    expect(dup.inserts[0].evidencia.fuentes).toHaveLength(1);
   });
 
   it("legado único frente a DOS derechos deseados bloquea, en cualquier orden", () => {
@@ -409,7 +448,7 @@ describe("core: refetch estricto", () => {
   it("role_conflict bloquea antes de cualquier escritura", async () => {
     const f = repoMemoria();
     const r = await processNotaCore(
-      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ rol: "pleno", rol_literal: "Sociedad de gananciales" })] }) },
+      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ rol: "pleno", rol_literal: "usufructo vitalicio" })] }) },
       argsNota({}),
     );
     expect(r.reason).toBe("role_conflict");
