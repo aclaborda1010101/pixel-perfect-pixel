@@ -74,11 +74,27 @@ cleanup() {
 trap cleanup EXIT
 
 # --- 1. Clúster efímero sin red --------------------------------------
+# pgvector no viene con el binario local: se prepara un PGSHAREDIR
+# ESCRIBIBLE dentro del temporal con los ficheros de control de la
+# extensión y un dynamic_library_path propio. Nada fuera de $WORK cambia.
+PGVEXT="$(ls -d /nix/store/*-pgvector-*/ 2>/dev/null | head -1)"
+if [ -n "$PGVEXT" ] && [ -d /share/postgresql/extension ]; then
+  cp -rL /share/postgresql "$WORK/share" 2>/dev/null || true
+  chmod -R u+w "$WORK/share" 2>/dev/null || true
+  mkdir -p "$WORK/extlib"
+  cp "$PGVEXT"share/postgresql/extension/* "$WORK/share/extension/" 2>/dev/null || true
+  cp "$PGVEXT"lib/vector.so "$WORK/extlib/" 2>/dev/null || true
+  export PGSHAREDIR="$WORK/share"
+  EXTLIB="-c dynamic_library_path='\$libdir:$WORK/extlib'"
+else
+  EXTLIB=""
+fi
+
 initdb -D "$DATA" -U "$ADMIN" -A trust --no-locale --encoding=UTF8 >"$WORK/initdb.log" 2>&1 \
   || { sed -n '1,40p' "$WORK/initdb.log" >&2; skip "initdb falló: no hay entorno local aislado."; }
 
 pg_ctl -D "$DATA" -w -l "$WORK/pg.log" \
-  -o "-c listen_addresses='' -k '$SOCK' -c fsync=off -c full_page_writes=off -c synchronous_commit=off" \
+  -o "-c listen_addresses='' -k '$SOCK' $EXTLIB -c fsync=off -c full_page_writes=off -c synchronous_commit=off" \
   start >/dev/null 2>&1 || { sed -n '1,60p' "$WORK/pg.log" >&2; skip "el clúster efímero no arranca."; }
 
 PSQL_ADMIN=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d postgres -q)
