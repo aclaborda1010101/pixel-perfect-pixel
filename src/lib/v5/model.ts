@@ -1,8 +1,8 @@
 /**
- * MOTOR V5 — FASE A. Modelo canónico PURO.
+ * MOTOR V5 — FASE A.1. Modelo canónico PURO.
  *
- * Este módulo no toca base de datos, no genera tareas reales y no se conecta
- * a la UI operativa. Vive detrás de FEATURE_V5_ENGINE_PHASE_A (OFF).
+ * No toca base de datos, no genera tareas reales, no hay UI conectada.
+ * Vive detrás de FEATURE_V5_ENGINE_PHASE_A (OFF).
  *
  * T7 está EXCLUIDA del motor: nunca es un código válido.
  */
@@ -20,35 +20,86 @@ export function isV5TaskCode(code: unknown): code is V5TaskCode {
 }
 
 export type V5SubjectType = "owner" | "building";
-export type V5GenerationMode = "production" | "demo" | "manual";
+
+/**
+ * legacy = filas anteriores al motor (nunca se reclasifican).
+ * production | demo | manual son SIEMPRE explícitos.
+ */
+export const V5_GENERATION_MODES = ["legacy", "production", "demo", "manual"] as const;
+export type V5GenerationMode = (typeof V5_GENERATION_MODES)[number];
+
 export type V5ManualSubtype = "posible_interes" | "otro";
 
-/** Familia T2_T3: una única tarjeta, nunca T2 y T3 por separado. */
-export type V5T2T3Variant = "primera_llamada" | "whatsapp_pendiente";
-
+/** Evidencia real: exige fuente Y referencia trazable. */
 export type V5Evidence = {
-  /** Campo / señal observada. */
   field: string;
   observed: unknown;
   expected?: unknown;
   source: string;
+  /** Referencia trazable (nota:123#p2, call:987, msg:abc...). Obligatoria. */
+  reference: string;
   at?: string | null;
   quote?: string | null;
 };
 
+export function isValidEvidence(e: unknown): e is V5Evidence {
+  if (!e || typeof e !== "object") return false;
+  const v = e as Partial<V5Evidence>;
+  return (
+    typeof v.field === "string" && v.field.trim().length > 0 &&
+    typeof v.source === "string" && v.source.trim().length > 0 &&
+    typeof v.reference === "string" && v.reference.trim().length > 0
+  );
+}
+
+/** Incidencia concreta: id estable + field + action + source + evidencia válida. */
 export type V5Incident = {
+  id: string;
   field: string;
   observed: unknown;
   expected: unknown;
   source: string;
-  evidence: V5Evidence[];
   action: string;
-  /** Bloqueante = incidencia registral que impide operar el edificio. */
+  evidence: V5Evidence[];
+  /** Bloqueante duro: impide operar el edificio. */
   blocking?: boolean;
+  /** Sólo si la regla lo declara explícitamente puede coexistir con personales. */
+  coexistsWithPersonal?: boolean;
+  coexistenceRule?: string | null;
   resolved?: boolean;
 };
 
+export function isConcreteIncident(inc: unknown): inc is V5Incident {
+  if (!inc || typeof inc !== "object") return false;
+  const v = inc as Partial<V5Incident>;
+  if (v.resolved === true) return false;
+  if (typeof v.id !== "string" || v.id.trim().length === 0) return false;
+  if (typeof v.field !== "string" || v.field.trim().length === 0) return false;
+  if (typeof v.action !== "string" || v.action.trim().length === 0) return false;
+  if (typeof v.source !== "string" || v.source.trim().length === 0) return false;
+  if (!Array.isArray(v.evidence) || v.evidence.length === 0) return false;
+  return v.evidence.every(isValidEvidence);
+}
+
+/** Firma completa de una incidencia (dedupe determinista). */
+export function incidentSignature(inc: V5Incident): string {
+  return stableStringify({
+    id: inc.id,
+    field: inc.field,
+    observed: inc.observed ?? null,
+    expected: inc.expected ?? null,
+    source: inc.source,
+    action: inc.action,
+    blocking: inc.blocking === true,
+    evidence: [...inc.evidence]
+      .map((e) => ({ field: e.field, source: e.source, reference: e.reference, observed: e.observed ?? null }))
+      .sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1)),
+  });
+}
+
 export type V5Signal = {
+  /** Id trazable de la señal (evento/llamada/mensaje). */
+  id?: string | null;
   kind: "interesado" | "no_interesado" | "neutro";
   at: string;
   source: string;
@@ -93,35 +144,57 @@ export function isAllowedT5Field(field: string): field is V5T5Field {
   return false;
 }
 
+/** T2_T3 es UNA tarjeta con varias acciones/checkpoints que conviven. */
+export const V5_T2T3_ACTIONS = ["primera_llamada", "registrar_consentimiento", "enviar_whatsapp"] as const;
+export type V5T2T3ActionKind = (typeof V5_T2T3_ACTIONS)[number];
+
+export type V5T2T3Action = {
+  kind: V5T2T3ActionKind;
+  reason: string;
+  /** Ids trazables que entran en el fingerprint. */
+  refs: { signalId?: string | null; messageId?: string | null; eventId?: string | null };
+  evidence: V5Evidence[];
+  done?: boolean;
+};
+
+export type V5ContactEvent = { at: string; source: string; eventId: string };
+
 export type V5OwnerContext = {
   ownerId: string;
   buildingId: string;
   comercialId?: string | null;
   displayName?: string | null;
-  /** Titular canónico contactable (para T9). */
+  /** T9 exige canonical===true y contactable===true EXPLÍCITOS. */
   canonical?: boolean;
   contactable?: boolean;
   hasValidPhone: boolean;
   callCount: number;
   contactedEver: boolean;
+  /** Evento real de contacto (T9 no admite `true` como evidencia). */
+  lastContact?: V5ContactEvent | null;
   lastContactAt?: string | null;
   lastSignal?: V5Signal | null;
   /** Llamada posterior a la señal que la contradice. */
   contradictingCallAt?: string | null;
+  contradictingCallId?: string | null;
   whatsapp?: {
     consent?: boolean;
+    consentEventId?: string | null;
+    /** Marca explícita de "hay que registrar consentimiento". */
+    consentPending?: boolean;
     authorizedNumber?: boolean;
     pendingContentAfterSignal?: boolean;
+    pendingMessageId?: string | null;
+    sentMessageIds?: string[] | null;
     sent?: boolean;
   } | null;
   cadence?: { dueAt?: string | null; channelUsable?: boolean } | null;
   identity?: V5IdentityFlags | null;
-  /** Campos comerciales que faltan (se filtran por lista permitida). */
   missingCommercialFields?: string[] | null;
-  /** Existe ya acción/candidato personal manual abierto. */
   hasOpenPersonalAction?: boolean;
-  /** Incidencias concretas y accionables asociadas a este propietario. */
   incidents?: V5Incident[] | null;
+  /** Instancia del disparador: un evento materialmente nuevo trae id nuevo. */
+  triggerInstanceId?: string | null;
 };
 
 export type V5BuildingContext = {
@@ -129,11 +202,11 @@ export type V5BuildingContext = {
   comercialId?: string | null;
   owners: V5OwnerContext[];
   incidents?: V5Incident[] | null;
-  /** Coherencia registral, se alinea dentro de la T6. */
+  /** T9 exige universo de titularidad completo y explícito. */
+  ownershipUniverseComplete?: boolean;
   sumaPlenoVerificado?: number | null;
   derechosVerificados?: number | null;
   bloqueosDerechos?: number | null;
-  /** Última novedad relevante del edificio (T9 exige >= 90 días). */
   lastNoveltyAt?: string | null;
 };
 
@@ -143,9 +216,13 @@ export type V5Candidate = {
   subjectId: string;
   buildingId: string;
   comercialId?: string | null;
-  variant?: V5T2T3Variant;
+  /** Sólo T2_T3: acciones que conviven en la misma tarjeta. */
+  actions?: V5T2T3Action[];
+  checkpoints?: string[];
   urgent?: boolean;
   blocking?: boolean;
+  /** Sólo T6 hard-blocking: qué tareas personales se suprimieron. */
+  suppressedPersonal?: { subjectId: string; taskCode: V5TaskCode | "ninguna"; reason: string }[];
   reason: string;
   evidence: V5Evidence[];
   eligibilitySnapshot: Record<string, unknown>;
@@ -201,4 +278,11 @@ export function buildV5TaskKey(input: {
   }
   const rv = input.rulesVersion ?? V5_RULES_VERSION;
   return `v5:${rv}:${input.taskCode}:${input.buildingId}:${input.subjectId}:${input.triggerFingerprint}`;
+}
+
+/** Segmento de código dentro de una task_key V5 (concordancia con task_code). */
+export function taskCodeFromV5Key(taskKey: string | null | undefined): string | null {
+  if (!taskKey || !taskKey.startsWith("v5:")) return null;
+  const parts = taskKey.split(":");
+  return parts.length >= 3 ? parts[2] : null;
 }

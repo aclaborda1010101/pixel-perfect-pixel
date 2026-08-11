@@ -1,21 +1,66 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   computeEligibility,
+  effectiveSignal,
+  evaluateBuildingT6,
   evaluateBuildingT9,
   evaluateOwner,
 } from "@/lib/v5/eligibility";
-import { buildV5TaskKey, V5_RULES_VERSION, type V5BuildingContext, type V5OwnerContext } from "@/lib/v5/model";
-import { revalidateOpenTasks } from "@/lib/v5/revalidate";
-import { selectByMode, validateMix, V5_MODE_TEMPLATES, type V5ModeConfig } from "@/lib/v5/modes";
-import { buildDemoProposals, validateManualDraft } from "@/lib/v5/manualDemo";
+import {
+  buildV5TaskKey,
+  V5_RULES_VERSION,
+  isValidEvidence,
+  type V5BuildingContext,
+  type V5Candidate,
+  type V5Evidence,
+  type V5Incident,
+  type V5OwnerContext,
+} from "@/lib/v5/model";
+import { revalidateOpenTasks, type V5TerminalRecord } from "@/lib/v5/revalidate";
+import {
+  isModeActivatable,
+  selectNextByMode,
+  validateMix,
+  V5_PREDEFINED_MODES,
+  type V5ModeConfig,
+  type V5WindowEntry,
+} from "@/lib/v5/modes";
+import {
+  buildDemoProposals,
+  planRecomputeDeletions,
+  validateManualDraft,
+} from "@/lib/v5/manualDemo";
 import { FEATURE_V5_ENGINE_PHASE_A } from "@/lib/featureFlags";
 
 const NOW = new Date("2026-08-11T10:00:00Z");
 const TOMORROW = new Date("2026-08-12T10:00:00Z");
 
+/** Mezcla de prueba: los modos reales no traen pesos inventados. */
+const MIX = { T1: 15, T2_T3: 45, T4: 10, T5: 10, T6: 10, T8: 10, T9: 0 };
+const CFG: V5ModeConfig = { global: { mode: "iniciar_conversaciones", mix: MIX } };
+
+function ev(partial: Partial<V5Evidence> = {}): V5Evidence {
+  return { field: "campo", observed: 1, source: "nota_simple", reference: "nota:1#p1", ...partial };
+}
+
+function incident(partial: Partial<V5Incident> & { id: string }): V5Incident {
+  return {
+    field: "suma_pleno_verificado",
+    observed: 82,
+    expected: 100,
+    source: "nota_simple",
+    action: "Revisar titularidad registral",
+    evidence: [ev({ field: "suma_pleno_verificado", observed: 82, reference: "nota:123#p2" })],
+    ...partial,
+  };
+}
+
 function owner(partial: Partial<V5OwnerContext> & { ownerId: string }): V5OwnerContext {
   return {
     buildingId: "B1",
+    comercialId: "C1",
     hasValidPhone: true,
     callCount: 3,
     contactedEver: true,
@@ -24,21 +69,115 @@ function owner(partial: Partial<V5OwnerContext> & { ownerId: string }): V5OwnerC
 }
 
 function building(partial: Partial<V5BuildingContext> = {}): V5BuildingContext {
-  return { buildingId: "B1", owners: [], ...partial };
+  return { buildingId: "B1", comercialId: "C1", owners: [], ...partial };
 }
 
-describe("V5 fase A — flag", () => {
-  it("está desactivado", () => {
+function fakeCandidate(code: string, id: string, extra: Partial<V5Candidate> = {}): V5Candidate {
+  return {
+    taskCode: code as V5Candidate["taskCode"],
+    subjectType: "owner",
+    subjectId: id,
+    buildingId: "B1",
+    comercialId: "C1",
+    reason: "test",
+    evidence: [],
+    eligibilitySnapshot: {},
+    triggerFingerprint: `fp-${id}`,
+    taskKey: `v5:${V5_RULES_VERSION}:${code}:B1:${id}:fp-${id}`,
+    rulesVersion: V5_RULES_VERSION,
+    ...extra,
+  };
+}
+
+describe("V5 fase A.1 — flag", () => {
+  it("sigue desactivado", () => {
     expect(FEATURE_V5_ENGINE_PHASE_A).toBe(false);
   });
 });
 
-describe("V5 elegibilidad por propietario", () => {
-  it("interesado => sólo T8", () => {
+// =====================================================================
+// 2) T6 / bloqueos sin contradicciones
+// =====================================================================
+describe("V5 T6 y bloqueos", () => {
+  it("T6 hard + propietario sin llamadas => SÓLO T6 y registra las suprimidas", () => {
+    const o = owner({ ownerId: "O1", callCount: 0, contactedEver: false });
+    const res = computeEligibility(
+      building({ owners: [o], incidents: [incident({ id: "inc-1", blocking: true })] }),
+      { now: NOW },
+    );
+    expect(res.candidates.map((c) => c.taskCode)).toEqual(["T6"]);
+    const t6 = res.candidates[0];
+    expect(t6.blocking).toBe(true);
+    expect(t6.suppressedPersonal).toEqual([
+      { subjectId: "O1", taskCode: "T2_T3", reason: "suprimida por T6 bloqueante" },
+    ]);
+  });
+
+  it("bloqueo booleano sin incidencia concreta => 0 personales y 0 T6 inventada", () => {
+    const o = owner({ ownerId: "O1", callCount: 0, identity: { ambiguousIdentity: true } });
+    const res = computeEligibility(building({ owners: [o] }), { now: NOW });
+    expect(res.candidates).toHaveLength(0);
+    expect(res.notes.some((n) => n.reason.includes("bloqueadas"))).toBe(true);
+  });
+
+  it("incidencia sin evidencia válida se rechaza (no genera T6)", () => {
+    const sinEvidencia = incident({ id: "inc-x", evidence: [] });
+    const evidenciaIncompleta = incident({
+      id: "inc-y",
+      evidence: [{ field: "x", observed: 1, source: "nota", reference: "" }],
+    });
+    expect(evaluateBuildingT6(building({ incidents: [sinEvidencia] })).candidate).toBeNull();
+    expect(evaluateBuildingT6(building({ incidents: [evidenciaIncompleta] })).candidate).toBeNull();
+    expect(isValidEvidence({ field: "x", observed: 1, source: "nota" })).toBe(false);
+  });
+
+  it("permutar propietarios e incidencias no cambia el fingerprint; duplicados se deduplican", () => {
+    const a = incident({ id: "inc-a", blocking: true });
+    const b = incident({ id: "inc-b", field: "titular", action: "Conciliar titular" });
+    const o1 = owner({ ownerId: "O1", incidents: [a] });
+    const o2 = owner({ ownerId: "O2", incidents: [b, { ...b }] });
+    const one = evaluateBuildingT6(building({ owners: [o1, o2] })).candidate!;
+    const two = evaluateBuildingT6(building({ owners: [o2, o1] })).candidate!;
+    expect(one.triggerFingerprint).toBe(two.triggerFingerprint);
+    expect(one.eligibilitySnapshot.incidencias_count).toBe(2);
+  });
+
+  it("T6 no bloqueante sólo coexiste con personales si la regla lo declara", () => {
+    const o = owner({ ownerId: "O1", callCount: 0, contactedEver: false });
+    const inc = incident({ id: "inc-1", blocking: false });
+    const sin = computeEligibility(building({ owners: [o], incidents: [inc] }), { now: NOW });
+    expect(sin.candidates.map((c) => c.taskCode)).toEqual(["T2_T3"]);
+
+    const con = computeEligibility(
+      building({ owners: [o], incidents: [{ ...inc, coexistsWithPersonal: true, coexistenceRule: "R-COEX-1" }] }),
+      { now: NOW },
+    );
+    expect(con.candidates.map((c) => c.taskCode).sort()).toEqual(["T2_T3", "T6"]);
+    expect(String(con.candidates.find((c) => c.taskCode === "T6")!.eligibilitySnapshot.coexistencia)).toContain("R-COEX-1");
+  });
+});
+
+// =====================================================================
+// 3) Precedencia y T2_T3 fusionada
+// =====================================================================
+describe("V5 precedencia y señal efectiva", () => {
+  it("señal interesada + llamada posterior contradictoria + cadencia vencida => T4, no T8", () => {
+    const o = owner({
+      ownerId: "O1",
+      lastSignal: { id: "sig-1", kind: "interesado", at: "2026-08-01T00:00:00Z", source: "call" },
+      contradictingCallAt: "2026-08-05T00:00:00Z",
+      cadence: { dueAt: "2026-08-07T00:00:00Z", channelUsable: true },
+    });
+    expect(effectiveSignal(o).contradicted).toBe(true);
+    const res = evaluateOwner(o, { now: NOW });
+    expect(res.candidate?.taskCode).toBe("T4");
+  });
+
+  it("interesado vigente => T8 urgente por encima de todo", () => {
     const res = evaluateOwner(
       owner({
         ownerId: "O1",
-        lastSignal: { kind: "interesado", at: "2026-08-01T00:00:00Z", source: "call" },
+        lastSignal: { id: "sig-9", kind: "interesado", at: "2026-08-01T00:00:00Z", source: "call" },
         cadence: { dueAt: "2026-01-01T00:00:00Z", channelUsable: true },
         missingCommercialFields: ["motivacion", "urgencia"],
       }),
@@ -48,154 +187,112 @@ describe("V5 elegibilidad por propietario", () => {
     expect(res.candidate?.urgent).toBe(true);
   });
 
-  it("sin teléfono => T1, nunca T2/T4", () => {
-    const res = evaluateOwner(
+  it("T1 sólo sin canal válido y nunca 'llamar'", () => {
+    const sinCanal = evaluateOwner(owner({ ownerId: "O2", hasValidPhone: false, callCount: 0 }), { now: NOW });
+    expect(sinCanal.candidate?.taskCode).toBe("T1");
+    expect(sinCanal.candidate?.eligibilitySnapshot.llamar).toBe(false);
+
+    const conWhatsapp = evaluateOwner(
       owner({
-        ownerId: "O2",
+        ownerId: "O3",
         hasValidPhone: false,
-        callCount: 0,
-        cadence: { dueAt: "2026-01-01T00:00:00Z", channelUsable: true },
+        callCount: 2,
+        whatsapp: { consent: true, authorizedNumber: true, pendingContentAfterSignal: true, pendingMessageId: "msg-1" },
       }),
       { now: NOW },
     );
-    expect(res.candidate?.taskCode).toBe("T1");
-    expect(res.candidate?.eligibilitySnapshot.llamar).toBe(false);
+    expect(conWhatsapp.candidate?.taskCode).toBe("T2_T3");
   });
 
-  it("teléfono + cero llamadas => una T2_T3 primera llamada", () => {
-    const res = evaluateOwner(owner({ ownerId: "O3", callCount: 0, contactedEver: false }), { now: NOW });
-    expect(res.candidate?.taskCode).toBe("T2_T3");
-    expect(res.candidate?.variant).toBe("primera_llamada");
-  });
-
-  it("consentimiento + WhatsApp pendiente => misma T2_T3, no T3", () => {
+  it("T2_T3 es UNA tarjeta con varias acciones que conviven", () => {
     const res = evaluateOwner(
       owner({
         ownerId: "O4",
-        callCount: 2,
-        whatsapp: { consent: true, authorizedNumber: true, pendingContentAfterSignal: true },
+        callCount: 0,
+        whatsapp: {
+          consent: true,
+          authorizedNumber: true,
+          consentPending: false,
+          pendingContentAfterSignal: true,
+          pendingMessageId: "msg-7",
+        },
       }),
       { now: NOW },
     );
-    expect(res.candidate?.taskCode).toBe("T2_T3");
-    expect(res.candidate?.variant).toBe("whatsapp_pendiente");
-    expect(res.candidate?.taskKey).toContain(":T2_T3:");
-    expect(res.candidate?.taskKey).not.toContain(":T3:");
+    const c = res.candidate!;
+    expect(c.taskCode).toBe("T2_T3");
+    expect(c.actions?.map((a) => a.kind).sort()).toEqual(["enviar_whatsapp", "primera_llamada"]);
+    expect(c.taskKey).toContain(":T2_T3:");
+    expect(c.taskKey).not.toContain(":T3:");
+    expect(JSON.stringify(c.actions)).toContain("msg-7");
   });
 
-  it("T4 sólo con cadencia vencida y canal utilizable", () => {
-    const due = evaluateOwner(
-      owner({ ownerId: "O5", cadence: { dueAt: "2026-08-01T00:00:00Z", channelUsable: true } }),
-      { now: NOW },
-    );
-    expect(due.candidate?.taskCode).toBe("T4");
-    const notDue = evaluateOwner(
-      owner({ ownerId: "O5", cadence: { dueAt: "2026-12-01T00:00:00Z", channelUsable: true } }),
-      { now: NOW },
-    );
-    expect(notDue.candidate).toBeNull();
-  });
-
-  it("T5 nunca usa cuota/porcentaje/derecho registral", () => {
+  it("acción ya resuelta (WhatsApp enviado para ese message_id) no se genera", () => {
     const res = evaluateOwner(
       owner({
-        ownerId: "O6",
-        missingCommercialFields: ["cuota", "porcentaje_pleno", "derecho_registral", "motivacion", "urgencia"],
+        ownerId: "O5",
+        callCount: 0,
+        whatsapp: {
+          consent: true,
+          authorizedNumber: true,
+          pendingContentAfterSignal: true,
+          pendingMessageId: "msg-7",
+          sentMessageIds: ["msg-7"],
+        },
       }),
       { now: NOW },
     );
-    expect(res.candidate?.taskCode).toBe("T5");
-    const campos = res.candidate?.eligibilitySnapshot.campos_permitidos as string[];
-    expect(campos).toEqual(["motivacion", "urgencia"]);
-    expect(JSON.stringify(res.candidate)).not.toMatch(/cuota|porcentaj|derecho/i);
+    expect(res.candidate?.actions?.map((a) => a.kind)).toEqual(["primera_llamada"]);
   });
 
-  it("T5 exige al menos 2 campos permitidos", () => {
-    const res = evaluateOwner(owner({ ownerId: "O7", missingCommercialFields: ["motivacion"] }), { now: NOW });
-    expect(res.candidate).toBeNull();
-  });
-
-  it("identidad/derechos bloquean tareas personales", () => {
-    for (const flag of ["ambiguousIdentity", "unresolvedDuplicate", "contradictoryRight", "unreconciledOwner"] as const) {
-      const res = evaluateOwner(
-        owner({ ownerId: "O8", callCount: 0, identity: { [flag]: true } }),
-        { now: NOW },
-      );
-      expect(res.candidate).toBeNull();
-      expect(res.blockers.length).toBe(1);
-    }
-  });
-});
-
-describe("V5 elegibilidad de edificio", () => {
-  it("10 propietarios + 1 incidencia => una sola T6 con evidencia", () => {
-    const owners = Array.from({ length: 10 }, (_, i) => owner({ ownerId: `O${i}`, callCount: 1 }));
-    owners[3].incidents = [
-      {
-        field: "suma_pleno_verificado",
-        observed: 82,
-        expected: 100,
-        source: "nota_simple",
-        action: "Revisar titularidad registral",
-        blocking: true,
-        evidence: [{ field: "suma_pleno_verificado", observed: 82, source: "nota:123", quote: "pleno dominio 82%" }],
-      },
-    ];
-    const res = computeEligibility(
-      building({ owners, sumaPlenoVerificado: 82, derechosVerificados: 9, bloqueosDerechos: 1 }),
+  it("registrar consentimiento y primera llamada conviven en la misma tarjeta", () => {
+    const res = evaluateOwner(
+      owner({ ownerId: "O6", callCount: 0, whatsapp: { consentPending: true, consentEventId: "cev-2" } }),
       { now: NOW },
     );
-    const t6 = res.candidates.filter((c) => c.taskCode === "T6");
-    expect(t6).toHaveLength(1);
-    expect(t6[0].evidence.length).toBeGreaterThan(0);
-    expect(t6[0].blocking).toBe(true);
-    expect(t6[0].eligibilitySnapshot.alineacion).toEqual({
-      suma_pleno_verificado: 82,
-      derechos_verificados: 9,
-      bloqueos_derechos: 1,
-    });
+    expect(res.candidate?.checkpoints).toEqual(["primera_llamada", "registrar_consentimiento"]);
   });
 
-  it("bloqueo de identidad sólo permite T6 con incidencia accionable", () => {
-    const o = owner({
-      ownerId: "OX",
-      callCount: 0,
-      identity: { ambiguousIdentity: true },
-      incidents: [
+  it("T5 deduplica campos con Set y exige 2 distintos; nunca cuota/%/derecho", () => {
+    const dup = evaluateOwner(
+      owner({ ownerId: "O7", missingCommercialFields: ["motivacion", "motivacion"] }),
+      { now: NOW },
+    );
+    expect(dup.candidate).toBeNull();
+
+    const ok = evaluateOwner(
+      owner({
+        ownerId: "O8",
+        missingCommercialFields: ["cuota", "porcentaje_pleno", "derecho_registral", "urgencia", "motivacion", "motivacion"],
+      }),
+      { now: NOW },
+    );
+    expect(ok.candidate?.taskCode).toBe("T5");
+    expect(ok.candidate?.eligibilitySnapshot.campos_permitidos).toEqual(["motivacion", "urgencia"]);
+    expect(JSON.stringify(ok.candidate)).not.toMatch(/cuota|porcentaj|derecho/i);
+  });
+
+  it("cada par de precedencia se resuelve igual siempre", () => {
+    const pares: [Partial<V5OwnerContext>, string][] = [
+      [{ hasValidPhone: false, lastSignal: { kind: "interesado", at: "2026-08-01T00:00:00Z", source: "call" } }, "T8"],
+      [{ hasValidPhone: false, callCount: 0, cadence: { dueAt: "2026-01-01T00:00:00Z", channelUsable: true } }, "T1"],
+      [{ callCount: 0, cadence: { dueAt: "2026-01-01T00:00:00Z", channelUsable: true } }, "T2_T3"],
+      [
         {
-          field: "identidad",
-          observed: "2 candidatos",
-          expected: "1 titular",
-          source: "owners",
-          action: "Desambiguar titular",
-          evidence: [{ field: "identidad", observed: "2 candidatos", source: "owners" }],
+          callCount: 4,
+          cadence: { dueAt: "2026-01-01T00:00:00Z", channelUsable: true },
+          missingCommercialFields: ["motivacion", "urgencia"],
         },
+        "T4",
       ],
-    });
-    const res = computeEligibility(building({ owners: [o] }), { now: NOW });
-    expect(res.candidates.map((c) => c.taskCode)).toEqual(["T6"]);
-  });
-
-  it("T9 falla si un contactable no fue contactado", () => {
-    const owners = [
-      owner({ ownerId: "A", contactedEver: true, callCount: 2, lastContactAt: "2025-01-01T00:00:00Z" }),
-      owner({ ownerId: "B", contactedEver: false, callCount: 0 }),
+      [{ callCount: 4, missingCommercialFields: ["motivacion", "urgencia"] }, "T5"],
     ];
-    const res = evaluateBuildingT9(building({ owners, lastNoveltyAt: "2025-01-01T00:00:00Z" }), [], { now: NOW });
-    expect(res.candidate).toBeNull();
-    expect(res.reason).toContain("sin contactar");
+    for (const [ctx, code] of pares) {
+      expect(evaluateOwner(owner({ ownerId: "P", ...ctx }), { now: NOW }).candidate?.taskCode).toBe(code);
+    }
   });
 
-  it("T9 elegible con todos contactados y sin novedad 90 días", () => {
-    const owners = [
-      owner({ ownerId: "A", contactedEver: true, callCount: 2, lastContactAt: "2025-01-01T00:00:00Z", missingCommercialFields: [] }),
-      owner({ ownerId: "B", contactedEver: true, callCount: 1, lastContactAt: "2025-02-01T00:00:00Z", missingCommercialFields: [] }),
-    ];
-    const res = evaluateBuildingT9(building({ owners, lastNoveltyAt: "2025-03-01T00:00:00Z" }), [], { now: NOW });
-    expect(res.candidate?.taskCode).toBe("T9");
-  });
-
-  it("T7 siempre cero candidatos y aparece como rechazo", () => {
+  it("T7 nunca existe: ni candidato ni clave", () => {
     const res = computeEligibility(building({ owners: [owner({ ownerId: "A", callCount: 0 })] }), { now: NOW });
     expect(res.candidates.some((c) => (c.taskCode as string) === "T7")).toBe(false);
     expect(res.rejections.some((r) => r.taskCode === "T7")).toBe(true);
@@ -205,165 +302,289 @@ describe("V5 elegibilidad de edificio", () => {
   });
 });
 
-describe("V5 revalidación", () => {
-  it("T1 con teléfono ya disponible queda superseded y no reaparece al día siguiente", () => {
-    const before = owner({ ownerId: "O1", hasValidPhone: false, callCount: 0 });
-    const initial = evaluateOwner(before, { now: NOW }).candidate!;
-    expect(initial.taskCode).toBe("T1");
+// =====================================================================
+// 4) Revalidación y tombstones
+// =====================================================================
+describe("V5 revalidación y tombstones", () => {
+  const openFrom = (c: V5Candidate) => ({
+    taskKey: c.taskKey,
+    taskCode: c.taskCode,
+    subjectType: c.subjectType,
+    subjectId: c.subjectId,
+    buildingId: c.buildingId,
+    triggerFingerprint: c.triggerFingerprint,
+  });
 
-    const after = building({ owners: [owner({ ownerId: "O1", hasValidPhone: true, callCount: 5, missingCommercialFields: [] })] });
-    const open = [
+  it("ida y vuelta de teléfono: el fingerprint resuelto no reaparece; un evento nuevo sí", () => {
+    const sinTel = owner({ ownerId: "O1", hasValidPhone: false, callCount: 0, triggerInstanceId: "inst-1" });
+    const t1 = evaluateOwner(sinTel, { now: NOW }).candidate!;
+    const historia: V5TerminalRecord[] = [
       {
-        taskKey: initial.taskKey,
-        taskCode: initial.taskCode,
-        subjectType: "owner" as const,
+        taskKey: t1.taskKey,
+        taskCode: "T1",
         subjectId: "O1",
-        buildingId: "B1",
-        triggerFingerprint: initial.triggerFingerprint,
+        triggerFingerprint: t1.triggerFingerprint,
+        outcome: "completed",
+        resolvedAt: NOW.toISOString(),
       },
     ];
-    const today = revalidateOpenTasks(after, open, { now: NOW });
-    expect(today.superseded[0].supersededReason).toBe("t1_telefono_ya_disponible");
+    const mismoEvento = revalidateOpenTasks(building({ owners: [sinTel] }), [], { now: TOMORROW, history: historia });
+    expect(mismoEvento.fresh).toHaveLength(0);
+    expect(mismoEvento.suppressed[0].reason).toBe("fingerprint_ya_resuelto");
 
-    const tomorrow = revalidateOpenTasks(after, open, { now: TOMORROW });
-    expect(tomorrow.valid).toHaveLength(0);
-    const keys = computeEligibility(after, { now: TOMORROW }).candidates.map((c) => c.taskKey);
-    expect(keys).not.toContain(initial.taskKey);
+    const nuevoEvento = owner({ ...sinTel, triggerInstanceId: "inst-2" });
+    const conNuevo = revalidateOpenTasks(building({ owners: [nuevoEvento] }), [], { now: TOMORROW, history: historia });
+    expect(conNuevo.fresh.map((c) => c.taskCode)).toEqual(["T1"]);
   });
 
-  it("T4 con nueva señal interesada => superseded", () => {
-    const t4 = evaluateOwner(owner({ ownerId: "O2", cadence: { dueAt: "2026-08-01T00:00:00Z", channelUsable: true } }), { now: NOW }).candidate!;
-    const after = building({
-      owners: [owner({ ownerId: "O2", lastSignal: { kind: "interesado", at: "2026-08-10T00:00:00Z", source: "call" } })],
+  it("trigger idéntico y tarea abierta => valid", () => {
+    const o = owner({ ownerId: "O2", hasValidPhone: false, callCount: 0 });
+    const t1 = evaluateOwner(o, { now: NOW }).candidate!;
+    const res = revalidateOpenTasks(building({ owners: [o] }), [openFrom(t1)], { now: TOMORROW });
+    expect(res.valid).toHaveLength(1);
+    expect(res.superseded).toHaveLength(0);
+  });
+
+  it("T5 de 3 a 2 campos se actualiza en sitio, no se marca resuelto", () => {
+    const antes = owner({ ownerId: "O3", missingCommercialFields: ["motivacion", "urgencia", "decisores"] });
+    const t5 = evaluateOwner(antes, { now: NOW }).candidate!;
+    const despues = owner({ ownerId: "O3", missingCommercialFields: ["motivacion", "urgencia"] });
+    const res = revalidateOpenTasks(building({ owners: [despues] }), [openFrom(t5)], { now: NOW });
+    expect(res.superseded).toHaveLength(0);
+    expect(res.updated).toHaveLength(1);
+    expect(res.updated[0].candidate.taskCode).toBe("T5");
+  });
+
+  it("añadir una incidencia a T6 no la marca resuelta", () => {
+    const inc = incident({ id: "inc-1" });
+    const t6 = evaluateBuildingT6(building({ incidents: [inc] })).candidate!;
+    const res = revalidateOpenTasks(
+      building({ incidents: [inc, incident({ id: "inc-2", field: "titular", action: "Conciliar" })] }),
+      [openFrom(t6)],
+      { now: NOW },
+    );
+    expect(res.superseded).toHaveLength(0);
+    expect(res.updated[0].changeReason).toContain("no se marca resuelto");
+  });
+
+  it("cambio de código => supersede con reemplazo", () => {
+    const sinTel = owner({ ownerId: "O4", hasValidPhone: false, callCount: 0 });
+    const t1 = evaluateOwner(sinTel, { now: NOW }).candidate!;
+    const conTel = owner({ ownerId: "O4", hasValidPhone: true, callCount: 0 });
+    const res = revalidateOpenTasks(building({ owners: [conTel] }), [openFrom(t1)], { now: NOW });
+    expect(res.superseded[0].supersededReason).toBe("t1_canal_ya_disponible");
+    expect(res.superseded[0].replacement?.taskCode).toBe("T2_T3");
+  });
+
+  it("cooldown activo suprime el candidato", () => {
+    const o = owner({ ownerId: "O5", hasValidPhone: false, callCount: 0 });
+    const res = revalidateOpenTasks(building({ owners: [o] }), [], {
+      now: NOW,
+      history: [
+        {
+          taskKey: "x",
+          taskCode: "T1",
+          subjectId: "O5",
+          triggerFingerprint: "otro",
+          outcome: "superseded",
+          resolvedAt: NOW.toISOString(),
+          cooldownUntil: "2026-09-01T00:00:00Z",
+        },
+      ],
     });
-    const res = revalidateOpenTasks(after, [
-      { taskKey: t4.taskKey, taskCode: "T4", subjectType: "owner", subjectId: "O2", buildingId: "B1", triggerFingerprint: t4.triggerFingerprint },
-    ], { now: NOW });
-    expect(res.superseded[0].supersededReason).toBe("t4_nueva_senal_interesado");
-  });
-
-  it("T2_T3 con envío hecho => superseded", () => {
-    const t23 = evaluateOwner(owner({ ownerId: "O3", callCount: 0 }), { now: NOW }).candidate!;
-    const after = building({ owners: [owner({ ownerId: "O3", callCount: 1, whatsapp: { sent: true }, missingCommercialFields: [] })] });
-    const res = revalidateOpenTasks(after, [
-      { taskKey: t23.taskKey, taskCode: "T2_T3", subjectType: "owner", subjectId: "O3", buildingId: "B1", triggerFingerprint: t23.triggerFingerprint },
-    ], { now: NOW });
-    expect(res.superseded[0].supersededReason).toBe("t2_t3_envio_realizado");
-  });
-
-  it("T6 resuelta => superseded", () => {
-    const inc = {
-      field: "suma_pleno_verificado",
-      observed: 80,
-      expected: 100,
-      source: "nota",
-      action: "revisar",
-      evidence: [{ field: "suma", observed: 80, source: "nota:1" }],
-    };
-    const withInc = building({ owners: [], incidents: [inc] });
-    const t6 = computeEligibility(withInc, { now: NOW }).candidates.find((c) => c.taskCode === "T6")!;
-    const resolved = building({ owners: [], incidents: [{ ...inc, resolved: true }] });
-    const res = revalidateOpenTasks(resolved, [
-      { taskKey: t6.taskKey, taskCode: "T6", subjectType: "building", subjectId: "B1", buildingId: "B1", triggerFingerprint: t6.triggerFingerprint },
-    ], { now: NOW });
-    expect(res.superseded[0].supersededReason).toBe("t6_incidencia_resuelta");
+    expect(res.fresh).toHaveLength(0);
+    expect(res.suppressed[0].reason).toContain("cooldown_activo");
   });
 });
 
-describe("V5 modos puros", () => {
-  const cands = (codes: string[]) =>
-    codes.map((code, i) => {
-      const o = owner({ ownerId: `O${code}${i}` });
-      return {
-        taskCode: code as never,
-        subjectType: "owner" as const,
-        subjectId: o.ownerId,
-        buildingId: "B1",
-        comercialId: "C1",
-        reason: "test",
-        evidence: [],
-        eligibilitySnapshot: {},
-        triggerFingerprint: `fp${i}`,
-        taskKey: `v5:${V5_RULES_VERSION}:${code}:B1:${o.ownerId}:fp${i}`,
-        rulesVersion: V5_RULES_VERSION,
-      };
+// =====================================================================
+// 5) T9 estricta
+// =====================================================================
+describe("V5 T9 estricta", () => {
+  const contactado = (id: string, at: string) =>
+    owner({
+      ownerId: id,
+      canonical: true,
+      contactable: true,
+      contactedEver: true,
+      lastContact: { at, source: "hubspot", eventId: `call-${id}` },
+      missingCommercialFields: [],
     });
 
-  it("valida suma 100 y rechaza T7 / claves desconocidas", () => {
-    expect(validateMix(V5_MODE_TEMPLATES.equilibrado).valid).toBe(true);
-    expect(validateMix({ T1: 50, T7: 50 }).errors.join()).toContain("T7");
-    expect(validateMix({ T1: 50, TX: 50 }).errors.join()).toContain("desconocido");
-    expect(validateMix({ T1: 50, T4: 40 }).valid).toBe(false);
+  const base = (owners: V5OwnerContext[], extra: Partial<V5BuildingContext> = {}) =>
+    building({ owners, ownershipUniverseComplete: true, lastNoveltyAt: "2025-03-01T00:00:00Z", ...extra });
+
+  it("elegible con universo completo, eventos reales y 90 días sin novedad", () => {
+    const res = evaluateBuildingT9(
+      base([contactado("A", "2025-01-01T00:00:00Z"), contactado("B", "2025-02-01T00:00:00Z")]),
+      [],
+      { now: NOW },
+    );
+    expect(res.candidate?.taskCode).toBe("T9");
+    expect(res.candidate?.evidence.every(isValidEvidence)).toBe(true);
   });
 
-  it("modo manual genera cero automáticas", () => {
-    const sel = selectByMode({
+  it("universo incompleto bloquea", () => {
+    const res = evaluateBuildingT9(
+      building({ owners: [contactado("A", "2025-01-01T00:00:00Z")], lastNoveltyAt: "2025-03-01T00:00:00Z" }),
+      [],
+      { now: NOW },
+    );
+    expect(res.candidate).toBeNull();
+    expect(res.reason).toContain("universo");
+  });
+
+  it("canonical/contactable desconocidos bloquean", () => {
+    const o = { ...contactado("A", "2025-01-01T00:00:00Z"), canonical: undefined };
+    const res = evaluateBuildingT9(base([o]), [], { now: NOW });
+    expect(res.candidate).toBeNull();
+    expect(res.reason).toContain("canonical");
+  });
+
+  it("propietario duplicado bloquea", () => {
+    const a = contactado("A", "2025-01-01T00:00:00Z");
+    const res = evaluateBuildingT9(base([a, { ...a }]), [], { now: NOW });
+    expect(res.reason).toContain("duplicados");
+  });
+
+  it("contacto sin evento real (true como evidencia) bloquea", () => {
+    const o = { ...contactado("A", "2025-01-01T00:00:00Z"), lastContact: null };
+    const res = evaluateBuildingT9(base([o]), [], { now: NOW });
+    expect(res.reason).toContain("evento de contacto real");
+  });
+
+  it("lastNoveltyAt nula o inválida bloquea", () => {
+    const o = contactado("A", "2025-01-01T00:00:00Z");
+    expect(evaluateBuildingT9(base([o], { lastNoveltyAt: null }), [], { now: NOW }).reason).toContain("novedad ausente");
+    expect(evaluateBuildingT9(base([o], { lastNoveltyAt: "no-fecha" }), [], { now: NOW }).reason).toContain("novedad ausente");
+    expect(evaluateBuildingT9(base([o], { lastNoveltyAt: "2026-08-01T00:00:00Z" }), [], { now: NOW }).reason).toContain("90 días");
+  });
+
+  it("incidencia, bloqueo de identidad o acción personal bloquean", () => {
+    const o = contactado("A", "2025-01-01T00:00:00Z");
+    expect(evaluateBuildingT9(base([o], { incidents: [incident({ id: "i1" })] }), [], { now: NOW }).candidate).toBeNull();
+    expect(
+      evaluateBuildingT9(base([{ ...o, identity: { unresolvedDuplicate: true } }]), [], { now: NOW }).candidate,
+    ).toBeNull();
+    expect(evaluateBuildingT9(base([{ ...o, hasOpenPersonalAction: true }]), [], { now: NOW }).candidate).toBeNull();
+    expect(evaluateBuildingT9(base([o]), [fakeCandidate("T4", "A")], { now: NOW }).candidate).toBeNull();
+  });
+});
+
+// =====================================================================
+// 6) Modos y generación continua
+// =====================================================================
+describe("V5 modos", () => {
+  it("los modos predefinidos existen pero no son activables sin pesos guardados", () => {
+    expect(Object.keys(V5_PREDEFINED_MODES).sort()).toEqual(["equilibrado", "iniciar_conversaciones", "seguimiento"]);
+    for (const [, def] of Object.entries(V5_PREDEFINED_MODES)) expect(def.mix).toBeNull();
+    const check = isModeActivatable("equilibrado", null);
+    expect(check.activatable).toBe(false);
+    expect(check.errors.join()).toContain("Carlos");
+    expect(isModeActivatable("manual", null).activatable).toBe(true);
+  });
+
+  it("validación exacta de buckets", () => {
+    expect(validateMix(MIX).valid).toBe(true);
+    expect(validateMix({ ...MIX, T7: 0 }).errors.join()).toContain("T7");
+    expect(validateMix({ ...MIX, TX: 0 }).errors.join()).toContain("desconocido");
+    const { T9: _omit, ...sinT9 } = MIX;
+    expect(validateMix(sinT9).errors.join()).toContain("Falta el bucket T9");
+    expect(validateMix({ ...MIX, T4: 10.5 }).valid).toBe(false);
+    expect(validateMix({ ...MIX, T4: 11 }).errors.join()).toContain("exactamente 100");
+  });
+
+  it("modo manual: cero automáticas", () => {
+    const res = selectNextByMode({
       comercialId: "C1",
-      candidates: cands(["T4", "T5", "T2_T3"]),
+      candidates: [fakeCandidate("T4", "O1")],
       config: { global: { mode: "manual" } },
-      limit: 10,
     });
-    expect(sel.selected).toHaveLength(0);
-    expect(sel.modeSnapshot.automaticas).toBe(0);
+    expect(res.selected).toBeNull();
+    expect(res.modeSnapshot.automaticas).toBe(0);
   });
 
-  it("override por comercial gana al global", () => {
+  it("override de comercial gana al global y queda en el snapshot", () => {
     const config: V5ModeConfig = {
-      global: { mode: "seguimiento" },
+      global: { mode: "seguimiento", mix: MIX },
       overrides: { C1: { mode: "manual" } },
     };
-    const sel = selectByMode({ comercialId: "C1", candidates: cands(["T4"]), config, limit: 5 });
-    expect(sel.modeSnapshot.source).toBe("override");
-    expect(sel.selected).toHaveLength(0);
-    const other = selectByMode({ comercialId: "C2", candidates: cands(["T4"]), config, limit: 5 });
-    expect(other.modeSnapshot.source).toBe("global");
+    expect(selectNextByMode({ comercialId: "C1", candidates: [fakeCandidate("T4", "O1")], config }).modeSnapshot.source).toBe("override");
+    expect(selectNextByMode({ comercialId: "C2", candidates: [], config }).modeSnapshot.source).toBe("global");
   });
 
-  it("bucket sin elegibles no inventa y se reporta", () => {
-    const sel = selectByMode({
+  it("Jesús nunca recibe un candidato de David ni uno sin comercial", () => {
+    const ajenos = [
+      fakeCandidate("T4", "D1", { comercialId: "david" }),
+      fakeCandidate("T4", "N1", { comercialId: null }),
+    ];
+    const res = selectNextByMode({ comercialId: "jesus", candidates: ajenos, config: CFG });
+    expect(res.selected).toBeNull();
+    expect(res.rejected).toHaveLength(2);
+    expect(res.rejected.map((r) => r.reason).join()).toContain("≠ jesus");
+  });
+
+  it("urgente gana una vez y queda justificado en modeSnapshot", () => {
+    const res = selectNextByMode({
       comercialId: "C1",
-      candidates: cands(["T4", "T4", "T4"]),
-      config: { global: { mode: "seguimiento" } },
-      limit: 10,
+      candidates: [fakeCandidate("T4", "O1"), fakeCandidate("T8", "O2", { urgent: true })],
+      config: CFG,
     });
-    expect(sel.selected).toHaveLength(3);
-    expect(sel.reasons.join()).toContain("Buckets sin elegibles");
-    expect(sel.reasons.join()).toContain("Déficit");
-  });
-
-  it("la distribución converge por déficit y es determinista", () => {
-    const many = cands([
-      ...Array(10).fill("T2_T3"),
-      ...Array(10).fill("T4"),
-      ...Array(10).fill("T5"),
-      ...Array(10).fill("T1"),
-    ]);
-    const config: V5ModeConfig = { global: { mode: "iniciar_conversaciones" } };
-    const a = selectByMode({ comercialId: "C1", candidates: many, config, limit: 20 });
-    const b = selectByMode({ comercialId: "C1", candidates: many, config, limit: 20 });
-    expect(a.selected.map((c) => c.taskKey)).toEqual(b.selected.map((c) => c.taskKey));
-    const t23 = a.selected.filter((c) => c.taskCode === "T2_T3").length;
-    expect(t23).toBeGreaterThanOrEqual(8);
-  });
-
-  it("T8 urgente y T6 bloqueante ganan y lo justifican en mode_snapshot", () => {
-    const base = cands(["T4", "T5"]);
-    const urgent = { ...cands(["T8"])[0], urgent: true };
-    const blocking = { ...cands(["T6"])[0], blocking: true, subjectType: "building" as const };
-    const sel = selectByMode({
+    expect(res.selected?.taskCode).toBe("T8");
+    expect(res.modeSnapshot.urgente).toBeTruthy();
+    const segunda = selectNextByMode({
       comercialId: "C1",
-      candidates: [...base, urgent, blocking],
-      config: { global: { mode: "seguimiento" } },
-      limit: 2,
+      candidates: [fakeCandidate("T4", "O1"), fakeCandidate("T8", "O2", { urgent: true })],
+      config: CFG,
+      window: res.window,
     });
-    expect(sel.selected.map((c) => c.taskCode).sort()).toEqual(["T6", "T8"]);
-    expect((sel.modeSnapshot.prioridades as unknown[]).length).toBe(2);
+    expect(segunda.selected?.taskCode).toBe("T4");
+  });
+
+  it("25 invocaciones producen una a una con ventana móvil de 20 y sin repetir", () => {
+    const pool = Array.from({ length: 30 }, (_, i) => fakeCandidate("T2_T3", `O${String(i).padStart(2, "0")}`));
+    let window: V5WindowEntry[] = [];
+    const keys: string[] = [];
+    const emitidas = new Set<string>();
+    for (let i = 0; i < 25; i++) {
+      const step = selectNextByMode({
+        comercialId: "C1",
+        candidates: pool.filter((c) => !emitidas.has(c.taskKey)),
+        config: CFG,
+        window,
+      });
+      expect(step.selected).not.toBeNull();
+      keys.push(step.selected!.taskKey);
+      emitidas.add(step.selected!.taskKey);
+      window = step.window;
+      expect(window.length).toBeLessThanOrEqual(20);
+    }
+    expect(new Set(keys).size).toBe(25);
+    expect(window).toHaveLength(20);
+    expect(window[0].taskKey).toBe(keys[24]);
+    // El más antiguo fue expulsado.
+    expect(window.some((w) => w.taskKey === keys[0])).toBe(false);
+  });
+
+  it("dedupe por task_key: un candidato ya en ventana no se repite", () => {
+    const c = fakeCandidate("T2_T3", "O1");
+    const res = selectNextByMode({
+      comercialId: "C1",
+      candidates: [c],
+      config: CFG,
+      window: [{ taskKey: c.taskKey, bucket: c.taskCode }],
+    });
+    expect(res.selected).toBeNull();
+    expect(res.rejected[0].reason).toBe("duplicado por task_key");
   });
 });
 
+// =====================================================================
+// Manual y demo
+// =====================================================================
 describe("V5 manual y demo", () => {
-  it("acepta manual posible_interes con ventana válida", () => {
-    const res = validateManualDraft({
+  it("manual válido exige sujeto, autor y ventana exacta", () => {
+    const ok = validateManualDraft({
       buildingId: "B1",
       subjectType: "owner",
       subjectId: "O1",
@@ -373,67 +594,130 @@ describe("V5 manual y demo", () => {
       dueDate: "2026-08-15T09:00:00Z",
       createdBy: "U1",
     });
-    expect(res.valid).toBe(true);
-  });
+    expect(ok.valid).toBe(true);
+    expect(ok.draft?.generationMode).toBe("manual");
 
-  it("rechaza manual con fin < inicio", () => {
-    const res = validateManualDraft({
+    const sinAutor = validateManualDraft({
       buildingId: "B1",
-      subjectType: "owner",
+      subjectType: "cosa" as never,
       subjectId: "O1",
       title: "X",
       manualSubtype: "posible_interes",
       startsAt: "2026-08-15T09:00:00Z",
       dueDate: "2026-08-11T09:00:00Z",
-      createdBy: "U1",
     });
-    expect(res.valid).toBe(false);
-    expect(res.errors.join()).toContain("anterior");
-    expect(res.draft).toBeNull();
+    expect(sinAutor.valid).toBe(false);
+    expect(sinAutor.errors.join()).toContain("created_by");
+    expect(sinAutor.errors.join()).toContain("Tipo de sujeto");
+    expect(sinAutor.errors.join()).toContain("anterior");
   });
 
-  it("demo devuelve 20 si hay y no escribe (repo falso)", () => {
-    const repo = { insert: vi.fn(), update: vi.fn(), delete: vi.fn() };
-    const buildings = Array.from({ length: 30 }, (_, i) =>
-      building({ buildingId: `B${i}`, owners: [owner({ ownerId: `O${i}`, buildingId: `B${i}`, callCount: 0 })] }),
+  it("el recompute nunca retira manuales ni legacy", () => {
+    const plan = planRecomputeDeletions([
+      { taskKey: "a", generationMode: "manual" },
+      { taskKey: "b", generationMode: "production" },
+      { taskKey: "c", generationMode: "legacy" },
+      { taskKey: "d", generationMode: "demo" },
+    ]);
+    expect(plan.protectedTasks.map((t) => t.taskKey).sort()).toEqual(["a", "c"]);
+    expect(plan.deletable.map((t) => t.taskKey).sort()).toEqual(["b", "d"]);
+  });
+
+  it("demo tope 20, iterando selectNextByMode y sin escrituras (repo falso espiado)", () => {
+    const repo = { insert: vi.fn(), update: vi.fn(), delete: vi.fn(), upsert: vi.fn() };
+    const buildings = Array.from({ length: 40 }, (_, i) =>
+      building({
+        buildingId: `B${i}`,
+        owners: [owner({ ownerId: `O${i}`, buildingId: `B${i}`, callCount: 0, contactedEver: false })],
+      }),
     );
-    const res = buildDemoProposals({
-      comercialId: "C1",
-      buildings,
-      config: { global: { mode: "iniciar_conversaciones" } },
-      now: NOW,
-    });
+    const res = buildDemoProposals({ comercialId: "C1", buildings, config: CFG, now: NOW });
     expect(res.proposals).toHaveLength(20);
+    expect(res.report).toBe("20/20");
     expect(res.shortfall).toBe(0);
     expect(res.writes).toBe(0);
-    expect(repo.insert).not.toHaveBeenCalled();
-    expect(repo.update).not.toHaveBeenCalled();
-    expect(repo.delete).not.toHaveBeenCalled();
+    expect(new Set(res.proposals.map((p) => p.taskKey)).size).toBe(20);
+    for (const spy of Object.values(repo)) expect(spy).not.toHaveBeenCalled();
   });
 
-  it("demo reporta déficit X/20 si no hay suficientes", () => {
-    const buildings = [building({ owners: [owner({ ownerId: "O1", callCount: 0 })] })];
+  it("demo reporta X/20 cuando no hay suficientes", () => {
     const res = buildDemoProposals({
       comercialId: "C1",
-      buildings,
-      config: { global: { mode: "iniciar_conversaciones" } },
+      buildings: [building({ owners: [owner({ ownerId: "O1", callCount: 0, contactedEver: false })] })],
+      config: CFG,
       now: NOW,
     });
-    expect(res.proposals.length).toBeLessThan(20);
-    expect(res.shortfall).toBeGreaterThan(0);
-    expect(res.reasons[0]).toContain("/20");
+    expect(res.report).toBe("1/20");
+    expect(res.shortfall).toBe(19);
+    expect(res.writes).toBe(0);
+  });
+});
+
+// =====================================================================
+// 7) Tests estructurales de la migración PENDIENTE (no aplicada)
+// =====================================================================
+describe("V5 migración pendiente (estructural)", () => {
+  const sql = readFileSync(
+    resolve(process.cwd(), "supabase/pending_migrations/20260811230000_v5_engine_phase_a.sql"),
+    "utf8",
+  );
+
+  it("generation_mode usa legacy como default y dominio con legacy", () => {
+    expect(sql).toMatch(/generation_mode\s+text NOT NULL DEFAULT 'legacy'/);
+    expect(sql).toMatch(/ALTER COLUMN generation_mode SET DEFAULT 'legacy'/);
+    expect(sql).toMatch(/generation_mode IN \('legacy','production','demo','manual'\)/);
+    expect(sql).not.toMatch(/DEFAULT 'manual'/);
+    expect(sql).not.toMatch(/UPDATE public\.building_tasks/);
+    expect(sql).not.toMatch(/DELETE FROM public\.building_tasks/);
+  });
+
+  it("production exige el contrato completo", () => {
+    for (const col of [
+      "user_id",
+      "task_code",
+      "subject_type",
+      "subject_id",
+      "rules_version",
+      "trigger_fingerprint",
+      "eligibility_snapshot",
+      "mode_snapshot",
+      "task_key",
+    ]) {
+      expect(sql).toMatch(new RegExp(`${col}\\s+IS NOT NULL`));
+    }
+    expect(sql).toMatch(/building_tasks_production_contract_chk/);
+  });
+
+  it("concordancia código/clave y prohibición de T7/T2/T3", () => {
+    expect(sql).toMatch(/split_part\(task_key, ':', 3\) = task_code/);
+    expect(sql).toMatch(/task_key !~\* '\^v5:\[\^:\]\*:\(t7\|t2\|t3\):'/);
+    expect(sql).toMatch(/task_code IN \('T1','T2_T3','T4','T5','T6','T8','T9'\)/);
+  });
+
+  it("ventana exacta timestamptz sin cast a date", () => {
+    expect(sql).toMatch(/CHECK \(starts_at IS NULL OR due_date IS NULL OR due_date >= starts_at\)/);
+    expect(sql).not.toMatch(/starts_at::date/);
+  });
+
+  it("unicidad idempotente sólo en production y una activa por comercial", () => {
+    expect(sql).toMatch(/building_tasks_v5_production_key_uidx[\s\S]*?WHERE generation_mode = 'production' AND task_key LIKE 'v5:%'/);
+    expect(sql).toMatch(/building_tasks_one_active_production_uidx[\s\S]*?user_id IS NOT NULL/);
+  });
+
+  it("manual y demo tienen contrato propio y hay preflight fail-closed", () => {
+    expect(sql).toMatch(/building_tasks_manual_contract_chk/);
+    expect(sql).toMatch(/created_by\s+IS NOT NULL/);
+    expect(sql).toMatch(/generation_mode <> 'demo' OR simulation_run_id IS NOT NULL/);
+    expect((sql.match(/RAISE EXCEPTION/g) ?? []).length).toBeGreaterThanOrEqual(5);
   });
 });
 
 describe("V5 no toca producción", () => {
-  it("ninguna importación crea tareas ni usa el cliente de datos", async () => {
-    const mods = await Promise.all([
-      import("@/lib/v5/model"),
-      import("@/lib/v5/eligibility"),
-      import("@/lib/v5/modes"),
-      import("@/lib/v5/revalidate"),
-      import("@/lib/v5/manualDemo"),
-    ]);
-    expect(mods).toHaveLength(5);
+  it("ningún módulo importa el cliente de datos", () => {
+    for (const f of ["model", "eligibility", "modes", "revalidate", "manualDemo"]) {
+      const src = readFileSync(resolve(process.cwd(), `src/lib/v5/${f}.ts`), "utf8");
+      expect(src).not.toMatch(/integrations\/supabase/);
+      expect(src).not.toMatch(/\bfetch\(/);
+    }
   });
 });
