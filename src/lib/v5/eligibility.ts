@@ -67,6 +67,16 @@ export function normalizedIncidents(incidents?: V5Incident[] | null): V5Incident
 }
 
 /**
+ * Firma agrupada de la T6 del edificio: unión ordenada y deduplicada de las
+ * firmas canónicas de todas las incidencias. Igualdad de incidencias
+ * (incluida la evidencia) => misma firma.
+ */
+export function t6GroupSignature(incidents: readonly V5Incident[]): string {
+  const sigs = [...new Set(incidents.map(incidentSignature))].sort();
+  return fingerprint({ t6: sigs });
+}
+
+/**
  * Señal EFECTIVA: resuelve llamadas posteriores contradictorias.
  * Todas las reglas usan esta señal, nunca `owner.lastSignal` directamente.
  */
