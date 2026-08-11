@@ -10,6 +10,7 @@ import {
   proximaFechaLimite,
   taskKeyFor,
 } from '../_shared/generadorTareas.ts';
+import { propietariosContactables } from '../_shared/interlocutor.ts';
 import { insertGeneratedTask } from '../_shared/taskWriters.ts';
 
 const corsHeaders = {
@@ -77,7 +78,7 @@ Deno.serve(async (req) => {
     for (let i = 0; i < ids.length; i += 100) {
       const { data, error } = await admin
         .from('buildings')
-        .select('id,direccion,ciudad,porcentajes_estado')
+        .select('id,direccion,ciudad,porcentajes_estado,interlocutor_owner_id')
         .eq('porcentajes_estado', 'verificado')
         .in('id', ids.slice(i, i + 100));
       if (error) throw error;
@@ -136,7 +137,11 @@ Deno.serve(async (req) => {
     const candidatos: Record<Tipo, any[]> = {} as any;
     for (const tipo of TIPOS) candidatos[tipo] = [];
     for (const b of edificios) {
-      const owners = porEdificio.get(b.id) ?? [];
+      // Interlocutor activo: sólo se pueden generar tareas hacia esa persona.
+      const owners = propietariosContactables(
+        (b as any).interlocutor_owner_id ?? null,
+        porEdificio.get(b.id) ?? [],
+      );
       const top = owners[0] ?? null;
       const conTelefono = owners.find((o: any) => o.telefono) ?? null;
       const puntuacion = Number(top?.score ?? 0);
