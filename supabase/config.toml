@@ -60,3 +60,5 @@ verify_jwt = false
 
 [functions.notas_por_deal_gemelo]
 verify_jwt = false
+[functions.verify_interlocutor_p1]
+verify_jwt = false
