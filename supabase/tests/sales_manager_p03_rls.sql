@@ -96,7 +96,8 @@ BEGIN
     '(WITH x AS (UPDATE public.profiles SET must_change_password = false WHERE id = %L::uuid RETURNING 1) SELECT count(*)::text FROM x)', u_com));
   IF NOT (SELECT must_change_password FROM public.profiles WHERE id = u_com) THEN
     RAISE EXCEPTION 'CASO 7 FAIL: el usuario se quitó el flag (triggers=%, r=%)',
-      (SELECT string_agg(tgname, ',') FROM pg_trigger WHERE tgrelid='public.profiles'::regclass AND NOT tgisinternal), r;
+      (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname='public' AND p.proname='profiles_guard_must_change_password'), r;
   END IF;
   RAISE NOTICE 'CASO 7 PASS · must_change_password sólo por flujo privilegiado';
 END $$;
