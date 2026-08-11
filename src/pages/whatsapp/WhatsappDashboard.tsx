@@ -915,9 +915,11 @@ function LeadCardInner({ current, qual, messages, regenerateSummary, setRol }: a
       const ids = Array.from(new Set((hum ?? []).map((m: any) => m.agent_user_id).filter(Boolean)));
       const names: Record<string, string> = {};
       if (ids.length) {
-        const { data: profs } = await (supabase.from("profiles" as any) as any)
-          .select("id, full_name, email").in("id", ids);
-        for (const p of profs ?? []) names[(p as any).id] = (p as any).full_name || (p as any).email || "agente";
+        // Atribución MÍNIMA: RPC acotada (id + display_name). No se lee `profiles`.
+        const { data: agentes } = await (supabase.rpc as any)("get_agent_display_names", {
+          p_ids: ids,
+        });
+        for (const a of agentes ?? []) names[(a as any).id] = (a as any).display_name || "agente";
       }
       for (const m of hum ?? []) {
         out.push({
