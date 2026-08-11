@@ -217,17 +217,21 @@ export default function BuildingDetail() {
   if (loading || !building) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
   const existingOwnerIds = bos.map((r) => r.owner_id);
-  // Porcentaje efectivo: cuota propia del edificio si existe, si no el porcentaje_de_participacion de HubSpot
+  // Cuota OPERATIVA: sólo la vigente escrita por Wave 1B desde titularidad
+  // registral demostrada. Nunca se cae al porcentaje crudo de HubSpot.
   const pctOf = (r: any): number | null => {
-    if (r.cuota != null && r.cuota !== "") {
-      const n = Number(r.cuota);
-      if (isFinite(n)) return n;
-    }
-    const raw = r.owners?.metadatos?.porcentaje_de_participacion;
-    if (raw == null) return null;
-    const n = Number(String(raw).replace(",", ".").replace(/[^\d.]/g, ""));
-    return isFinite(n) && n > 0 ? n : null;
+    if (r.cuota_estado !== "vigente" || r.cuota == null || r.cuota === "") return null;
+    const n = Number(r.cuota);
+    return isFinite(n) ? n : null;
   };
+  // Capas registrales separadas: pleno dominio, nuda propiedad y usufructo
+  // jamás se agregan entre sí.
+  const capas = ["pleno_dominio", "nuda_propiedad", "usufructo", "ganancial", "otro"].map((tipo) => ({
+    tipo,
+    filas: rights.filter((x) => x.right_type === tipo),
+  })).filter((c) => c.filas.length > 0);
+  const titularidadSegura = rights.some((x) => x.feeds_cuota && x.status === "active" && !x.review_flag);
+  const derechosEnReview = rights.filter((x) => x.status === "review").length;
   const totalCuota = bos.reduce((a, r) => a + (pctOf(r) ?? 0), 0);
   const personas = bos;
   const empresas = bcs;
