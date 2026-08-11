@@ -37,6 +37,11 @@ INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
   ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Positivo 100', 'Madrid', false),
   ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Positivo 60/40', 'Madrid', false);
 
+-- Edificios de los casos de CONVERGENCIA DE IDENTIDAD (negativos).
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Identidad Divergente 1', 'Madrid', false),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Identidad Divergente 2', 'Madrid', false);
+
 INSERT INTO public.owners (id, nombre, metadatos) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'ANA LOPEZ',  '{"dni__nif__cif":"00000001A"}'::jsonb),
   ('a0000000-0000-0000-0000-000000000002', 'LUIS PEREZ', '{"dni__nif__cif":"00000002B"}'::jsonb);
