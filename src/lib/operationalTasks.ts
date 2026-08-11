@@ -47,13 +47,18 @@ export function filterVisibleOperationalTasks<T extends OperationalTaskLike>(tas
  * El código se normaliza SIEMPRE a la forma canónica sin guion ni ceros
  * (`T-01` -> `T1`), y se devuelve además el formato de origen.
  */
-/** Códigos canónicos admitidos por el catálogo V5 (T7 no existe: peso 0). */
-export const V5_CANONICAL_CODES = ["T1", "T2_T3", "T2", "T3", "T4", "T5", "T6", "T8", "T9"] as const;
+/**
+ * Catálogo CANÓNICO compartido: se importa del Motor V5, no se reimplementa.
+ * T7, T2 y T3 sueltos NO son códigos canónicos (T2/T3 solo como `T2_T3`).
+ */
+export const V5_CANONICAL_CODES = V5_TASK_CODES;
 
-const V5_CANONICAL_RX = /^T[1-9](?:_T[1-9])?$/;
-const V5_LEGACY_RX = /^T-0([1-9])$/;
+/** Códigos históricos de assign_daily_call_queue (T-07 existió y se etiqueta). */
+const V5_HISTORIC_RX = /^T-0([1-9])$/;
+const ISO_DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 
-export type V5KeyFormat = "legacy_call_queue" | "canonical";
+export type V5KeyFormat = "historic_call_queue" | "canonical";
+export type V5KeyOrigin = "legacy" | "engine";
 
 export type ParsedV5TaskKey = {
   /** Clave original. */
@@ -62,28 +67,65 @@ export type ParsedV5TaskKey = {
   rawCode: string | null;
   /** Código normalizado sin guion (`T1`, `T2_T3`, ...). */
   code: string | null;
-  /** Generación de la clave, o null si no se reconoce el código. */
+  /** Generación de la clave, o null si la estructura no es reconocible. */
   format: V5KeyFormat | null;
+  /** Procedencia: `legacy` (histórico, solo lectura) o `engine` (canónico). */
+  origin: V5KeyOrigin | null;
+  /** Código histórico sin equivalente canónico (T-07): nunca se convierte. */
+  legacyOnly: boolean;
 };
 
+function isIsoDate(seg: string): boolean {
+  if (!ISO_DATE_RX.test(seg)) return false;
+  const t = Date.parse(`${seg}T00:00:00Z`);
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === seg;
+}
+
+const unparsed = (key: string): ParsedV5TaskKey => ({
+  key, rawCode: null, code: null, format: null, origin: null, legacyOnly: false,
+});
+
 /**
- * Parsea una task_key V5. Devuelve null SOLO si la clave no es V5 en absoluto.
- * Una clave V5 con código irreconocible se devuelve con `code: null`: sigue
- * siendo V5 y jamás debe degradarse a "Manual".
+ * Parsea una task_key V5 de forma ESTRUCTURAL. Solo dos formatos completos:
+ *   a) histórico: `v5:<YYYY-MM-DD>:T-01…T-09:<id>`   (4 segmentos)
+ *   b) canónico:  `v5:<rules_version>:<code>:<building>:<subject>:<fp>` (6)
+ *
+ * En canónico el código se toma EXCLUSIVAMENTE del tercer segmento y debe
+ * pertenecer al catálogo del Motor. Cualquier otra cosa (T7, T2, T3, T4_T9,
+ * minúsculas, segmentos vacíos, de más o de menos, código fuera de posición)
+ * se devuelve como V5 sin código: nunca degrada a Manual.
  */
 export function parseV5TaskKey(taskKey: unknown): ParsedV5TaskKey | null {
   if (!isV5TaskKey(taskKey)) return null;
   const key = String(taskKey);
-  for (const seg of key.split(":").slice(1)) {
-    if (V5_CANONICAL_RX.test(seg)) {
-      return { key, rawCode: seg, code: seg, format: "canonical" };
-    }
-    const legacy = V5_LEGACY_RX.exec(seg);
-    if (legacy) {
-      return { key, rawCode: seg, code: `T${legacy[1]}`, format: "legacy_call_queue" };
-    }
+  const parts = key.split(":");
+  if (parts[0] !== "v5") return unparsed(key);
+
+  if (parts.length === 4) {
+    const [, fecha, raw, id] = parts;
+    if (!isIsoDate(fecha) || id.trim().length === 0) return unparsed(key);
+    const m = V5_HISTORIC_RX.exec(raw);
+    if (!m) return unparsed(key);
+    const code = `T${m[1]}`;
+    return {
+      key, rawCode: raw, code,
+      format: "historic_call_queue",
+      origin: "legacy",
+      legacyOnly: !isV5TaskCode(code),
+    };
   }
-  return { key, rawCode: null, code: null, format: null };
+
+  if (parts.length === 6) {
+    const [, version, raw, building, subject, fingerprint] = parts;
+    const filled = [version, building, subject, fingerprint].every((s) => s.trim().length > 0);
+    if (!filled || !isV5TaskCode(raw)) return unparsed(key);
+    return {
+      key, rawCode: raw, code: raw,
+      format: "canonical", origin: "engine", legacyOnly: false,
+    };
+  }
+
+  return unparsed(key);
 }
 
 export function v5TaskCodeFromKey(taskKey: unknown): string | null {
