@@ -658,10 +658,10 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   )
   SELECT CASE
     WHEN k.building_id IS NULL THEN NULL
-    -- (5) Contradicción de localizadores: cero clave, cero canónica.
-    WHEN public.p0_nota_unit_key_conflict(k.id) THEN NULL
     -- (4) No-DH: la unidad SIEMPRE es el edificio. Nunca NULL.
     WHEN NOT k.dh THEN 'building:' || k.building_id::text
+    -- (5) DH con localizadores contradictorios: no hay clave inequívoca.
+    WHEN public.p0_nota_unit_key_conflict(k.id) THEN NULL
     WHEN k.clave_norm IS NOT NULL
       THEN 'dh:' || k.building_id::text || ':' || k.ns_fuente || ':' || k.clave_norm
     ELSE NULL
