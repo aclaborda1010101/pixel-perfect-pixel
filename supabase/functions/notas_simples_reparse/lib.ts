@@ -320,6 +320,35 @@ export function hasRealEvidence(raw: unknown): boolean {
   return evidenciaFuentes(raw).some(fuenteTieneLocalizador);
 }
 
+/**
+ * Evidencia ANCLADA (P0.7): al menos una fuente con CITA literal no vacía Y
+ * localizador (página o ruta). Una cita suelta o un localizador sin cita no
+ * prueban nada.
+ */
+export function citaAnclada(raw: unknown): EvidenciaFuente | null {
+  for (const f of evidenciaFuentes(raw)) {
+    if (f.cita && f.cita.trim() && fuenteTieneLocalizador(f)) return f;
+  }
+  return null;
+}
+
+/** Texto comparable: sin acentos, sin puntuación y con espacios colapsados. */
+export function textoComparable(raw: unknown): string {
+  return foldAccents(String(raw ?? "")).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * ¿La cita existe REALMENTE en el texto fuente? Si no hay texto fuente
+ * (documento escaneado sin capa de texto) no se puede desmentir: devuelve true.
+ */
+export function citaVerificable(texto: string | null | undefined, cita: unknown): boolean {
+  const fuente = textoComparable(texto);
+  if (!fuente) return true;
+  const c = textoComparable(cita);
+  if (!c) return false;
+  return fuente.includes(c);
+}
+
 /** Comparación estable de dos evidencias ya canónicas. */
 export function evidenciaStable(raw: unknown): string {
   return evidenciaFuentes(raw).map(fuenteStable).join(";;");

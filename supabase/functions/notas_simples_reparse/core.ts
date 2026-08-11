@@ -3,7 +3,9 @@
 // index.ts USA este módulo (no hay hooks exclusivos de test).
 
 import {
-  hasRealEvidence,
+  citaAnclada,
+  citaVerificable,
+  esRolEspecifico,
   normalizeTitularesChecked,
   type TitularNormalizado,
 } from "./lib.ts";
@@ -84,19 +86,35 @@ export type ResultadoCore = {
 };
 
 /**
- * Validación estricta de titulares RECIÉN extraídos: nombre (ya garantizado),
- * rol_literal explícito y evidencia real con localizador. El porcentaje ya se
- * valida en la normalización (no vacío inválido => fallo).
+ * Validación estricta de titulares RECIÉN extraídos (P0.7). Cada titular debe
+ * probar los CUATRO datos: nombre (ya garantizado), DERECHO específico
+ * (pleno / usufructo / nuda_propiedad — "ganancial" es régimen, no derecho, y
+ * nunca hay pleno por defecto), PORCENTAJE y CITA literal anclada a página o
+ * ruta. Si hay texto fuente, la cita además debe existir realmente en él.
  */
 export function validarTitularesNuevos(
   titulares: TitularNormalizado[],
+  opts?: { textoFuente?: string | null },
 ): { ok: true } | { ok: false; reason: string; detalle: string } {
   for (const t of titulares) {
     if (!t.rol_literal || !String(t.rol_literal).trim()) {
       return { ok: false, reason: "titular_sin_rol_literal", detalle: t.nombre };
     }
-    if (!hasRealEvidence(t.evidencia)) {
+    if (t.rol === "ganancial") {
+      return { ok: false, reason: "titular_regimen_sin_derecho", detalle: t.nombre };
+    }
+    if (!esRolEspecifico(t.rol)) {
+      return { ok: false, reason: "titular_sin_derecho_especifico", detalle: t.nombre };
+    }
+    if (t.porcentaje == null) {
+      return { ok: false, reason: "titular_sin_porcentaje", detalle: t.nombre };
+    }
+    const fuente = citaAnclada(t.evidencia);
+    if (!fuente) {
       return { ok: false, reason: "titular_sin_evidencia_real", detalle: t.nombre };
+    }
+    if (!citaVerificable(opts?.textoFuente ?? null, fuente.cita)) {
+      return { ok: false, reason: "titular_cita_no_verificable", detalle: t.nombre };
     }
   }
   return { ok: true };
@@ -112,6 +130,7 @@ export function decidirTitulares(args: {
   needsRefetch: boolean;
   extraidos: unknown;
   actuales: unknown;
+  textoFuente?: string | null;
 }): { ok: true; value: TitularNormalizado[]; refetched: boolean } | { ok: false; reason: string; detalle?: string } {
   const nuevos = Array.isArray(args.extraidos) ? args.extraidos : [];
   if (args.needsRefetch) {
@@ -120,7 +139,7 @@ export function decidirTitulares(args: {
     }
     const norm = normalizeTitularesChecked(nuevos);
     if (norm.ok === false) return { ok: false, reason: norm.reason, detalle: norm.detalle };
-    const estricto = validarTitularesNuevos(norm.value);
+    const estricto = validarTitularesNuevos(norm.value, { textoFuente: args.textoFuente ?? null });
     if (estricto.ok === false) return { ok: false, reason: estricto.reason, detalle: estricto.detalle };
     return { ok: true, value: norm.value, refetched: true };
   }
@@ -129,7 +148,7 @@ export function decidirTitulares(args: {
   const norm = normalizeTitularesChecked(fuente);
   if (norm.ok === false) return { ok: false, reason: norm.reason, detalle: norm.detalle };
   if (nuevos.length) {
-    const estricto = validarTitularesNuevos(norm.value);
+    const estricto = validarTitularesNuevos(norm.value, { textoFuente: args.textoFuente ?? null });
     if (estricto.ok === false) return { ok: false, reason: estricto.reason, detalle: estricto.detalle };
   }
   return { ok: true, value: norm.value, refetched: nuevos.length > 0 };
@@ -138,7 +157,7 @@ export function decidirTitulares(args: {
 /** Pipeline completo de una nota, contra un repositorio inyectado. */
 export async function processNotaCore(
   deps: { repo: NotaRepo; extract: (needTitulares: boolean) => Promise<ExtraccionLLM> },
-  args: { notaId: string; claimToken: string; structured: unknown },
+  args: { notaId: string; claimToken: string; structured: unknown; textoFuente?: string | null },
 ): Promise<ResultadoCore> {
   const needsRefetch = needsTitularesRefetch(args.structured);
   const base: ResultadoCore = { ok: false, updated: 0, inserted: 0, finalized: false, refetched: false };
@@ -149,7 +168,12 @@ export async function processNotaCore(
   }
 
   const actuales = (args.structured as any)?.titulares;
-  const decision = decidirTitulares({ needsRefetch, extraidos: llm.data.titulares, actuales });
+  const decision = decidirTitulares({
+    needsRefetch,
+    extraidos: llm.data.titulares,
+    actuales,
+    textoFuente: args.textoFuente ?? null,
+  });
   if (decision.ok === false) {
     return { ...base, reason: decision.reason, detalle: decision.detalle, model: llm.model ?? null };
   }

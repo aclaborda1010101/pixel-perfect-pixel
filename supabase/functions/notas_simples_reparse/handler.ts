@@ -23,6 +23,23 @@ export const MAX_LIMIT = 5;
 export const CLAIM_MINUTES = 30;
 export const MAX_ATTEMPTS = 5;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Canario dirigido: lista de ids UUID válidos (máx. MAX_LIMIT). Cualquier
+ * entrada no-UUID se descarta: nunca amplía la selección de la cola.
+ */
+export function parseIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    const s = String(v ?? "").trim();
+    if (UUID_RE.test(s) && !out.includes(s)) out.push(s);
+    if (out.length >= MAX_LIMIT) break;
+  }
+  return out;
+}
+
 export function backoffMinutes(attempt: number): number {
   return Math.min(360, 15 * Math.pow(2, Math.max(0, attempt - 1)));
 }
@@ -50,7 +67,9 @@ export async function processNotaWithClaim(sb: any, n: any, processOne: ProcessO
   const r: any = await processOne(sb, n, claimToken);
   if (!r.ok) {
     const attempts = (n.attempt_count ?? 0) + 1;
-    const dead = attempts >= MAX_ATTEMPTS;
+    // Un fallo FATAL (binario irrecuperable tras la reingesta única) no vuelve
+    // a la cola: dead-letter inmediato, sin bucle.
+    const dead = r.fatal === true || attempts >= MAX_ATTEMPTS;
     const { data, error } = await sb.rpc("reparse_fail_nota", {
       p_id: n.id,
       p_expected_token: claimToken,
@@ -84,9 +103,11 @@ export async function handleReparseRequest(
   let body: any = {};
   try { body = await req.json(); } catch { /* cuerpo opcional */ }
   const limit = Math.max(1, Math.min(MAX_LIMIT, Number(body?.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
+  const ids = parseIds(body?.ids);
 
   const deps = createReparseDeps(sb, {
-    claimMinutes: CLAIM_MINUTES,
+    claimMinutes: Math.max(1, Math.min(120, Number(body?.lock_minutes ?? CLAIM_MINUTES) || CLAIM_MINUTES)),
+    ids,
     processNota: (n: any) => processNotaWithClaim(sb, n, processOne),
   });
 
