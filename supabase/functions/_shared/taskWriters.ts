@@ -121,7 +121,11 @@ export type V5CanonicalTaskRow = {
   mode_snapshot: Record<string, unknown>;
 };
 
-export function assertV5CanonicalTaskRow(row: unknown): asserts row is V5CanonicalTaskRow {
+export type CanonicalWriteOpts = { now?: number | Date };
+
+export function assertV5CanonicalTaskRow(
+  row: unknown, opts: CanonicalWriteOpts = {},
+): asserts row is V5CanonicalTaskRow {
   const r = (row ?? {}) as Record<string, unknown>;
   const nonEmpty = (v: unknown) => typeof v === "string" && v.trim().length > 0;
   const isObj = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -150,6 +154,18 @@ export function assertV5CanonicalTaskRow(row: unknown): asserts row is V5Canonic
   if (!V5_CANONICAL_TASK_KEY_RX.test(key)) {
     throw new Error(`v5 canónica: task_key inválida (${key})`);
   }
+  // FECHAS: instantes válidos, ventana coherente y jamás nacidas vencidas.
+  const nowMs = opts.now === undefined
+    ? Date.now()
+    : (opts.now instanceof Date ? opts.now.getTime() : Number(opts.now));
+  if (!Number.isFinite(nowMs)) throw new Error("v5 canónica: `now` inyectado inválido");
+  const starts = Date.parse(String(r.starts_at));
+  const due = Date.parse(String(r.due_date));
+  if (!Number.isFinite(starts)) throw new Error("v5 canónica: starts_at no es un instante válido");
+  if (!Number.isFinite(due)) throw new Error("v5 canónica: due_date no es un instante válido");
+  if (due < starts) throw new Error("v5 canónica: due_date anterior a starts_at");
+  if (due <= nowMs) throw new Error("v5 canónica: la tarea nacería vencida (due_date <= ahora)");
+
   const seg = key.split(":");
   const esperado = [
     ["rules_version", seg[1]], ["task_code", seg[2]], ["building_id", seg[3]],
@@ -163,8 +179,10 @@ export function assertV5CanonicalTaskRow(row: unknown): asserts row is V5Canonic
 }
 
 /** Inserta la tarea canónica del Motor tras validar el contrato completo. */
-export async function insertV5CanonicalTask(client: ClientLike, input: unknown) {
+export async function insertV5CanonicalTask(
+  client: ClientLike, input: unknown, opts: CanonicalWriteOpts = {},
+) {
   const row = input;
-  assertV5CanonicalTaskRow(row);
+  assertV5CanonicalTaskRow(row, opts);
   return await client.from("building_tasks").insert(row).select("id, task_key").maybeSingle();
 }
