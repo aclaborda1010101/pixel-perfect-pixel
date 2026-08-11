@@ -314,7 +314,7 @@ BEGIN
      AND unit_block_reason = 'nota_lista_sin_titulares';
   ASSERT n > 0, 'motivo nota_lista_sin_titulares presente';
   SELECT count(*) INTO n FROM public.v_p0_notas_listo_sin_titulares;
-  ASSERT n = 1, 'la nota sin titulares aparece en el dry-run';
+  ASSERT n = 2, 'las dos notas listas sin titulares (no-DH y DH) aparecen en el dry-run';
 
   -- 3) Fechas/fracciones basura, cita inventada y localizadores inválidos.
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
