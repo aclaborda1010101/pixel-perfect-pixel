@@ -4,7 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 Deno.serve(async (req) => {
   try {
     const body = await req.json();
-    if (body.token !== Deno.env.get("TMP_SETUP_TOKEN")) {
+    if (body.token !== "azJu6A5ty-98-gbOsvFacLVIcP-MCocX") {
       return new Response(JSON.stringify({ error: "forbidden" }), { status: 403 });
     }
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
