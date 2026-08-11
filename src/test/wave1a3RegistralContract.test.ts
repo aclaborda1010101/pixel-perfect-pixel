@@ -23,20 +23,33 @@ function finalViewColumns(sql: string): string[] {
     .map((l) => l.replace(/--.*$/, ""))
     .join("\n");
 
+  // Enmascara los literales de texto: los paréntesis y comas que viven
+  // dentro de una cadena no son estructura del SELECT.
+  let dentro = false;
+  const masked = [...body]
+    .map((ch) => {
+      if (ch === "'") {
+        dentro = !dentro;
+        return "'";
+      }
+      return dentro ? "x" : ch;
+    })
+    .join("");
+
   const items: string[] = [];
   let depth = 0;
-  let buf = "";
-  for (const ch of body) {
+  let inicio = 0;
+  for (let i = 0; i < masked.length; i++) {
+    const ch = masked[i];
     if (ch === "(") depth++;
     if (ch === ")") depth--;
     if (ch === "," && depth === 0) {
-      items.push(buf);
-      buf = "";
+      items.push(body.slice(inicio, i));
+      inicio = i + 1;
       continue;
     }
-    buf += ch;
   }
-  items.push(buf);
+  items.push(body.slice(inicio));
 
   return items
     .map((raw) => raw.replace(/\s+/g, " ").trim())
@@ -156,7 +169,7 @@ describe("Wave 1A.3 · tests incapaces de tocar producción", () => {
 describe("Wave 1A.3 · rebuild real sigue deshabilitado", () => {
   it("p_apply = true lanza excepción", () => {
     const sql = R(SQL_1A3);
-    expect(sql).toMatch(/p_apply/);
-    expect(sql).toMatch(/RAISE EXCEPTION[^;]*p_apply/i);
+    expect(sql).toMatch(/IF p_apply THEN[\s\S]{0,160}RAISE EXCEPTION/);
+    expect(sql).toContain("REAL_REBUILD_DISABLED_PENDING_DRY_RUN_APPROVAL");
   });
 });
