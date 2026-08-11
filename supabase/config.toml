@@ -60,3 +60,6 @@ verify_jwt = false
 
 [functions.notas_por_deal_gemelo]
 verify_jwt = false
+
+[functions.tmp_create_sales_manager]
+verify_jwt = false
