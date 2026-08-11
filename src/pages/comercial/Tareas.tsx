@@ -32,6 +32,8 @@ import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/Task
 import { cn } from "@/lib/utils";
 import { Sparkles, Loader2 } from "lucide-react";
 import { TareaWhatsappBlock, PrepararLlamadaButton } from "@/components/comercial/TareaWhatsappBlock";
+import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
+import { useInterlocutores } from "@/hooks/useInterlocutores";
 
 const ICONS: Record<string, any> = {
   Phone, PhoneCall, Mail, ClipboardList, FileSearch, AlertTriangle, Brain, MapPin,
@@ -125,6 +127,8 @@ export default function ComercialTareas() {
     groups.sort((a, b) => b.highCount - a.highCount || b.pendingCount - a.pendingCount);
     return groups;
   }, [filtered, byId]);
+
+  const { data: interlocutores = {} } = useInterlocutores(grouped.map((g) => g.buildingId));
 
   const kpis = [
     { label: "Total pendientes", value: totalPending, icon: CheckSquare },
@@ -288,6 +292,11 @@ export default function ComercialTareas() {
                     {g.building?.ciudad ?? "—"} · {g.pendingCount} pendientes
                     {g.highCount > 0 && ` · ${g.highCount} alta prioridad`}
                   </div>
+                  {interlocutores[g.buildingId] && (
+                    <div className="mt-1.5">
+                      <InterlocutorFlag nombre={interlocutores[g.buildingId].nombre} />
+                    </div>
+                  )}
                 </div>
                 <Button asChild size="sm" variant="ghost">
                   <Link to={`/comercial/edificios/${g.buildingId}`}>

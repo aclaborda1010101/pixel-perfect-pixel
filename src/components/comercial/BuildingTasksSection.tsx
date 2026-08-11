@@ -29,6 +29,8 @@ import { insertManualBuildingTask } from "@/lib/taskWriters";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
+import { useInterlocutores } from "@/hooks/useInterlocutores";
 import {
   startBuildingTask,
   canStartTask,
