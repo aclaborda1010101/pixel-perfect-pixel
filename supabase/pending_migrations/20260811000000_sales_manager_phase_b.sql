@@ -56,203 +56,6 @@ CREATE INDEX IF NOT EXISTS building_tasks_started_idx
   ON public.building_tasks (started_at) WHERE started_at IS NOT NULL;
 
 -- ---------------------------------------------------------------------
--- 2. Equipo del gestor comercial
--- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.sales_manager_team_members (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  manager_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  member_id  uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  active     boolean NOT NULL DEFAULT true,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT smtm_manager_ne_member CHECK (manager_id <> member_id),
-  UNIQUE (manager_id, member_id)
-);
-
--- Reparación idempotente si la tabla ya existía sin las garantías.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_manager_ne_member') THEN
-    ALTER TABLE public.sales_manager_team_members
-      ADD CONSTRAINT smtm_manager_ne_member CHECK (manager_id <> member_id);
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_manager_fk') THEN
-    ALTER TABLE public.sales_manager_team_members
-      ADD CONSTRAINT smtm_manager_fk FOREIGN KEY (manager_id)
-      REFERENCES public.profiles(id) ON DELETE CASCADE;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_member_fk') THEN
-    ALTER TABLE public.sales_manager_team_members
-      ADD CONSTRAINT smtm_member_fk FOREIGN KEY (member_id)
-      REFERENCES public.profiles(id) ON DELETE CASCADE;
-  END IF;
-END $$;
-
-GRANT SELECT ON public.sales_manager_team_members TO authenticated;
-GRANT ALL    ON public.sales_manager_team_members TO service_role;
-ALTER TABLE public.sales_manager_team_members ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS smtm_manager_reads_own ON public.sales_manager_team_members;
-CREATE POLICY smtm_manager_reads_own ON public.sales_manager_team_members
-  FOR SELECT TO authenticated
-  USING (manager_id = auth.uid() OR public.current_user_has_role('admin'));
-
-DROP POLICY IF EXISTS smtm_admin_writes ON public.sales_manager_team_members;
-CREATE POLICY smtm_admin_writes ON public.sales_manager_team_members
-  FOR ALL TO authenticated
-  USING (public.current_user_has_role('admin'))
-  WITH CHECK (public.current_user_has_role('admin'));
-
--- ---------------------------------------------------------------------
--- 3. Modos de reparto
---    Los grupos son el catálogo V5 canónico (T2_T3 único, T7 deshabilitada).
---    Los textos de negocio NO están versionados: se guarda el código y la
---    marca "pendiente validar". No se inventan etiquetas.
--- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.sales_task_groups (
-  code       text PRIMARY KEY,
-  label      text NOT NULL,
-  members    text[] NOT NULL,
-  enabled    boolean NOT NULL DEFAULT true,
-  sort_order int NOT NULL DEFAULT 0
-);
-
-INSERT INTO public.sales_task_groups (code, label, members, enabled, sort_order) VALUES
-  ('T1',    'T1 (pendiente validar)',                 ARRAY['T-01'],        true,  1),
-  ('T2_T3', 'T2_T3 (pendiente validar)',              ARRAY['T-02','T-03'], true,  2),
-  ('T4',    'T4 (pendiente validar)',                 ARRAY['T-04'],        true,  3),
-  ('T5',    'T5 (pendiente validar)',                 ARRAY['T-05'],        true,  4),
-  ('T6',    'T6 (pendiente validar)',                 ARRAY['T-06'],        true,  5),
-  ('T7',    'T7 (deshabilitada, pendiente validar)',  ARRAY['T-07'],        false, 6),
-  ('T8',    'T8 (pendiente validar)',                 ARRAY['T-08'],        true,  7),
-  ('T9',    'T9 (pendiente validar)',                 ARRAY['T-09'],        true,  8)
-ON CONFLICT (code) DO UPDATE
-  SET label = EXCLUDED.label, members = EXCLUDED.members,
-      enabled = EXCLUDED.enabled, sort_order = EXCLUDED.sort_order;
-
-GRANT SELECT ON public.sales_task_groups TO authenticated;
-GRANT ALL    ON public.sales_task_groups TO service_role;
-ALTER TABLE public.sales_task_groups ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS stg_read ON public.sales_task_groups;
-CREATE POLICY stg_read ON public.sales_task_groups FOR SELECT TO authenticated USING (true);
-
-CREATE TABLE IF NOT EXISTS public.sales_task_modes (
-  code                   text PRIMARY KEY,
-  label                  text NOT NULL,
-  description            text,
-  follows_engine_default boolean NOT NULL DEFAULT false,
-  requires_weights       boolean NOT NULL DEFAULT true,
-  sort_order             int NOT NULL DEFAULT 0
-);
-
-INSERT INTO public.sales_task_modes (code, label, description, follows_engine_default, requires_weights, sort_order) VALUES
-  ('equilibrado',           'Equilibrado',            'Genera tareas automáticas. Porcentajes definidos en el panel.', false, true, 1),
-  ('iniciar_conversaciones','Iniciar conversaciones', 'Genera tareas automáticas. Requiere mapa completo y válido.',   false, true, 2),
-  ('seguimiento',           'Seguimiento',            'Genera tareas automáticas. Requiere mapa completo y válido.',   false, true, 3),
-  ('manual',                'Manual (personalizado)', 'Porcentajes a mano. TAMBIÉN genera automáticas: no es pausa.',  false, true, 4)
-ON CONFLICT (code) DO UPDATE
-  SET label = EXCLUDED.label, description = EXCLUDED.description,
-      follows_engine_default = EXCLUDED.follows_engine_default,
-      requires_weights = EXCLUDED.requires_weights, sort_order = EXCLUDED.sort_order;
-
-GRANT SELECT ON public.sales_task_modes TO authenticated;
-GRANT ALL    ON public.sales_task_modes TO service_role;
-ALTER TABLE public.sales_task_modes ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS stm_read ON public.sales_task_modes;
-CREATE POLICY stm_read ON public.sales_task_modes FOR SELECT TO authenticated USING (true);
-
--- Pesos por modo y grupo. NO se siembran valores.
-CREATE TABLE IF NOT EXISTS public.sales_task_mode_weights (
-  mode_code  text NOT NULL REFERENCES public.sales_task_modes(code) ON DELETE CASCADE,
-  group_code text NOT NULL REFERENCES public.sales_task_groups(code) ON DELETE CASCADE,
-  weight     int  NOT NULL,
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  updated_by uuid NULL,
-  PRIMARY KEY (mode_code, group_code),
-  CONSTRAINT sales_task_mode_weights_range_chk CHECK (weight >= 0 AND weight <= 100)
-);
-
-GRANT SELECT ON public.sales_task_mode_weights TO authenticated;
-GRANT ALL    ON public.sales_task_mode_weights TO service_role;
-ALTER TABLE public.sales_task_mode_weights ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS stmw_read ON public.sales_task_mode_weights;
-CREATE POLICY stmw_read ON public.sales_task_mode_weights
-  FOR SELECT TO authenticated
-  USING (public.current_user_has_role('admin') OR public.current_user_has_role('sales_manager'));
-
-CREATE OR REPLACE FUNCTION public.sales_task_mode_weights_validate()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = public
-AS $$
-DECLARE v_enabled boolean;
-BEGIN
-  SELECT enabled INTO v_enabled FROM public.sales_task_groups WHERE code = NEW.group_code;
-  IF v_enabled IS DISTINCT FROM true AND NEW.weight <> 0 THEN
-    RAISE EXCEPTION 'El grupo % está deshabilitado: su peso debe ser 0', NEW.group_code;
-  END IF;
-  NEW.updated_at := now();
-  RETURN NEW;
-END $$;
-
-DROP TRIGGER IF EXISTS sales_task_mode_weights_validate_trg ON public.sales_task_mode_weights;
-CREATE TRIGGER sales_task_mode_weights_validate_trg
-  BEFORE INSERT OR UPDATE ON public.sales_task_mode_weights
-  FOR EACH ROW EXECUTE FUNCTION public.sales_task_mode_weights_validate();
-
-CREATE TABLE IF NOT EXISTS public.sales_task_mode_active (
-  singleton  boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-  mode_code  text NOT NULL REFERENCES public.sales_task_modes(code),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  updated_by uuid NULL
-);
-INSERT INTO public.sales_task_mode_active (singleton, mode_code)
-VALUES (true, 'equilibrado')
-ON CONFLICT (singleton) DO NOTHING;
-
--- Pausa de generación automática: interruptor SEPARADO del modo, OFF y
--- todavía NO consumido por el motor (Fase C).
-ALTER TABLE public.sales_task_mode_active
-  ADD COLUMN IF NOT EXISTS generation_paused boolean NOT NULL DEFAULT false;
-COMMENT ON COLUMN public.sales_task_mode_active.generation_paused IS
-  'Pausa de la generación automática. Independiente del modo. Modelo declarado, aún no conectado al motor.';
-
-CREATE TABLE IF NOT EXISTS public.sales_task_mode_overrides (
-  user_id    uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
-  mode_code  text NOT NULL REFERENCES public.sales_task_modes(code),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  updated_by uuid NULL
-);
-
-CREATE TABLE IF NOT EXISTS public.sales_task_mode_audit (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  actor_id    uuid NULL,
-  scope       text NOT NULL CHECK (scope IN ('global','user')),
-  target_user uuid NULL,
-  mode_code   text NOT NULL,
-  weights     jsonb NOT NULL DEFAULT '{}'::jsonb,
-  note        text NULL,
-  created_at  timestamptz NOT NULL DEFAULT now()
-);
-
-GRANT SELECT ON public.sales_task_mode_active, public.sales_task_mode_overrides, public.sales_task_mode_audit TO authenticated;
-GRANT ALL    ON public.sales_task_mode_active, public.sales_task_mode_overrides, public.sales_task_mode_audit TO service_role;
-ALTER TABLE public.sales_task_mode_active    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sales_task_mode_overrides ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sales_task_mode_audit     ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS stma_read ON public.sales_task_mode_active;
-CREATE POLICY stma_read ON public.sales_task_mode_active FOR SELECT TO authenticated
-  USING (public.current_user_has_role('admin') OR public.current_user_has_role('sales_manager'));
-DROP POLICY IF EXISTS stmo_read ON public.sales_task_mode_overrides;
-CREATE POLICY stmo_read ON public.sales_task_mode_overrides FOR SELECT TO authenticated
-  USING (public.current_user_has_role('admin') OR public.current_user_has_role('sales_manager') OR user_id = auth.uid());
-DROP POLICY IF EXISTS stmau_read ON public.sales_task_mode_audit;
-CREATE POLICY stmau_read ON public.sales_task_mode_audit FOR SELECT TO authenticated
-  USING (public.current_user_has_role('admin') OR public.current_user_has_role('sales_manager'));
-
--- ---------------------------------------------------------------------
 -- 4. current_user_role(): MANTIENE RETURNS public.app_role
 --    Prioridad admin > sales_manager > operativos > viewer.
 --    Fallback explícito 'viewer'::public.app_role. Sin SQL dinámico.
@@ -334,6 +137,203 @@ REVOKE ALL ON FUNCTION public.internal_member_has_role(uuid, public.app_role)
 GRANT EXECUTE ON FUNCTION public.internal_member_has_role(uuid, public.app_role) TO service_role;
 
 -- ---------------------------------------------------------------------
+-- 2. Equipo del gestor comercial
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.sales_manager_team_members (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  manager_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  member_id  uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  active     boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT smtm_manager_ne_member CHECK (manager_id <> member_id),
+  UNIQUE (manager_id, member_id)
+);
+
+-- Reparación idempotente si la tabla ya existía sin las garantías.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_manager_ne_member') THEN
+    ALTER TABLE public.sales_manager_team_members
+      ADD CONSTRAINT smtm_manager_ne_member CHECK (manager_id <> member_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_manager_fk') THEN
+    ALTER TABLE public.sales_manager_team_members
+      ADD CONSTRAINT smtm_manager_fk FOREIGN KEY (manager_id)
+      REFERENCES public.profiles(id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'smtm_member_fk') THEN
+    ALTER TABLE public.sales_manager_team_members
+      ADD CONSTRAINT smtm_member_fk FOREIGN KEY (member_id)
+      REFERENCES public.profiles(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+GRANT SELECT ON public.sales_manager_team_members TO authenticated;
+GRANT ALL    ON public.sales_manager_team_members TO service_role;
+ALTER TABLE public.sales_manager_team_members ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS smtm_manager_reads_own ON public.sales_manager_team_members;
+CREATE POLICY smtm_manager_reads_own ON public.sales_manager_team_members
+  FOR SELECT TO authenticated
+  USING (manager_id = auth.uid() OR public.current_user_has_role('admin'::public.app_role));
+
+DROP POLICY IF EXISTS smtm_admin_writes ON public.sales_manager_team_members;
+CREATE POLICY smtm_admin_writes ON public.sales_manager_team_members
+  FOR ALL TO authenticated
+  USING (public.current_user_has_role('admin'::public.app_role))
+  WITH CHECK (public.current_user_has_role('admin'::public.app_role));
+
+-- ---------------------------------------------------------------------
+-- 3. Modos de reparto
+--    Los grupos son el catálogo V5 canónico (T2_T3 único, T7 deshabilitada).
+--    Los textos de negocio NO están versionados: se guarda el código y la
+--    marca "pendiente validar". No se inventan etiquetas.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.sales_task_groups (
+  code       text PRIMARY KEY,
+  label      text NOT NULL,
+  members    text[] NOT NULL,
+  enabled    boolean NOT NULL DEFAULT true,
+  sort_order int NOT NULL DEFAULT 0
+);
+
+INSERT INTO public.sales_task_groups (code, label, members, enabled, sort_order) VALUES
+  ('T1',    'T1 (pendiente validar)',                 ARRAY['T-01'],        true,  1),
+  ('T2_T3', 'T2_T3 (pendiente validar)',              ARRAY['T-02','T-03'], true,  2),
+  ('T4',    'T4 (pendiente validar)',                 ARRAY['T-04'],        true,  3),
+  ('T5',    'T5 (pendiente validar)',                 ARRAY['T-05'],        true,  4),
+  ('T6',    'T6 (pendiente validar)',                 ARRAY['T-06'],        true,  5),
+  ('T7',    'T7 (deshabilitada, pendiente validar)',  ARRAY['T-07'],        false, 6),
+  ('T8',    'T8 (pendiente validar)',                 ARRAY['T-08'],        true,  7),
+  ('T9',    'T9 (pendiente validar)',                 ARRAY['T-09'],        true,  8)
+ON CONFLICT (code) DO UPDATE
+  SET label = EXCLUDED.label, members = EXCLUDED.members,
+      enabled = EXCLUDED.enabled, sort_order = EXCLUDED.sort_order;
+
+GRANT SELECT ON public.sales_task_groups TO authenticated;
+GRANT ALL    ON public.sales_task_groups TO service_role;
+ALTER TABLE public.sales_task_groups ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS stg_read ON public.sales_task_groups;
+CREATE POLICY stg_read ON public.sales_task_groups FOR SELECT TO authenticated USING (true);
+
+CREATE TABLE IF NOT EXISTS public.sales_task_modes (
+  code                   text PRIMARY KEY,
+  label                  text NOT NULL,
+  description            text,
+  follows_engine_default boolean NOT NULL DEFAULT false,
+  requires_weights       boolean NOT NULL DEFAULT true,
+  sort_order             int NOT NULL DEFAULT 0
+);
+
+INSERT INTO public.sales_task_modes (code, label, description, follows_engine_default, requires_weights, sort_order) VALUES
+  ('equilibrado',           'Equilibrado',            'Genera tareas automáticas. Porcentajes definidos en el panel.', false, true, 1),
+  ('iniciar_conversaciones','Iniciar conversaciones', 'Genera tareas automáticas. Requiere mapa completo y válido.',   false, true, 2),
+  ('seguimiento',           'Seguimiento',            'Genera tareas automáticas. Requiere mapa completo y válido.',   false, true, 3),
+  ('manual',                'Manual (personalizado)', 'Porcentajes a mano. TAMBIÉN genera automáticas: no es pausa.',  false, true, 4)
+ON CONFLICT (code) DO UPDATE
+  SET label = EXCLUDED.label, description = EXCLUDED.description,
+      follows_engine_default = EXCLUDED.follows_engine_default,
+      requires_weights = EXCLUDED.requires_weights, sort_order = EXCLUDED.sort_order;
+
+GRANT SELECT ON public.sales_task_modes TO authenticated;
+GRANT ALL    ON public.sales_task_modes TO service_role;
+ALTER TABLE public.sales_task_modes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS stm_read ON public.sales_task_modes;
+CREATE POLICY stm_read ON public.sales_task_modes FOR SELECT TO authenticated USING (true);
+
+-- Pesos por modo y grupo. NO se siembran valores.
+CREATE TABLE IF NOT EXISTS public.sales_task_mode_weights (
+  mode_code  text NOT NULL REFERENCES public.sales_task_modes(code) ON DELETE CASCADE,
+  group_code text NOT NULL REFERENCES public.sales_task_groups(code) ON DELETE CASCADE,
+  weight     int  NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid NULL,
+  PRIMARY KEY (mode_code, group_code),
+  CONSTRAINT sales_task_mode_weights_range_chk CHECK (weight >= 0 AND weight <= 100)
+);
+
+GRANT SELECT ON public.sales_task_mode_weights TO authenticated;
+GRANT ALL    ON public.sales_task_mode_weights TO service_role;
+ALTER TABLE public.sales_task_mode_weights ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS stmw_read ON public.sales_task_mode_weights;
+CREATE POLICY stmw_read ON public.sales_task_mode_weights
+  FOR SELECT TO authenticated
+  USING (public.current_user_has_role('admin'::public.app_role) OR public.current_user_has_role('sales_manager'::public.app_role));
+
+CREATE OR REPLACE FUNCTION public.sales_task_mode_weights_validate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE v_enabled boolean;
+BEGIN
+  SELECT enabled INTO v_enabled FROM public.sales_task_groups WHERE code = NEW.group_code;
+  IF v_enabled IS DISTINCT FROM true AND NEW.weight <> 0 THEN
+    RAISE EXCEPTION 'El grupo % está deshabilitado: su peso debe ser 0', NEW.group_code;
+  END IF;
+  NEW.updated_at := now();
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS sales_task_mode_weights_validate_trg ON public.sales_task_mode_weights;
+CREATE TRIGGER sales_task_mode_weights_validate_trg
+  BEFORE INSERT OR UPDATE ON public.sales_task_mode_weights
+  FOR EACH ROW EXECUTE FUNCTION public.sales_task_mode_weights_validate();
+
+CREATE TABLE IF NOT EXISTS public.sales_task_mode_active (
+  singleton  boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  mode_code  text NOT NULL REFERENCES public.sales_task_modes(code),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid NULL
+);
+INSERT INTO public.sales_task_mode_active (singleton, mode_code)
+VALUES (true, 'equilibrado')
+ON CONFLICT (singleton) DO NOTHING;
+
+-- Pausa de generación automática: interruptor SEPARADO del modo, OFF y
+-- todavía NO consumido por el motor (Fase C).
+ALTER TABLE public.sales_task_mode_active
+  ADD COLUMN IF NOT EXISTS generation_paused boolean NOT NULL DEFAULT false;
+COMMENT ON COLUMN public.sales_task_mode_active.generation_paused IS
+  'Pausa de la generación automática. Independiente del modo. Modelo declarado, aún no conectado al motor.';
+
+CREATE TABLE IF NOT EXISTS public.sales_task_mode_overrides (
+  user_id    uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  mode_code  text NOT NULL REFERENCES public.sales_task_modes(code),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.sales_task_mode_audit (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id    uuid NULL,
+  scope       text NOT NULL CHECK (scope IN ('global','user')),
+  target_user uuid NULL,
+  mode_code   text NOT NULL,
+  weights     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  note        text NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+GRANT SELECT ON public.sales_task_mode_active, public.sales_task_mode_overrides, public.sales_task_mode_audit TO authenticated;
+GRANT ALL    ON public.sales_task_mode_active, public.sales_task_mode_overrides, public.sales_task_mode_audit TO service_role;
+ALTER TABLE public.sales_task_mode_active    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sales_task_mode_overrides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sales_task_mode_audit     ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS stma_read ON public.sales_task_mode_active;
+CREATE POLICY stma_read ON public.sales_task_mode_active FOR SELECT TO authenticated
+  USING (public.current_user_has_role('admin'::public.app_role) OR public.current_user_has_role('sales_manager'::public.app_role));
+DROP POLICY IF EXISTS stmo_read ON public.sales_task_mode_overrides;
+CREATE POLICY stmo_read ON public.sales_task_mode_overrides FOR SELECT TO authenticated
+  USING (public.current_user_has_role('admin'::public.app_role) OR public.current_user_has_role('sales_manager'::public.app_role) OR user_id = auth.uid());
+DROP POLICY IF EXISTS stmau_read ON public.sales_task_mode_audit;
+CREATE POLICY stmau_read ON public.sales_task_mode_audit FOR SELECT TO authenticated
+  USING (public.current_user_has_role('admin'::public.app_role) OR public.current_user_has_role('sales_manager'::public.app_role));
+
+-- ---------------------------------------------------------------------
 -- 5. Helpers INTERNOS: sólo los usan las RPC SECURITY DEFINER.
 --    Nadie más puede ejecutarlos (ni PUBLIC, ni anon, ni authenticated).
 --    Por eso las políticas RLS NO los invocan: usan EXISTS en línea.
@@ -342,14 +342,14 @@ CREATE OR REPLACE FUNCTION public.is_sales_manager_or_admin(_uid uuid)
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
 AS $$
-  SELECT public.internal_member_has_role(_uid, 'admin') OR public.internal_member_has_role(_uid, 'sales_manager');
+  SELECT public.internal_member_has_role(_uid, 'admin'::public.app_role) OR public.internal_member_has_role(_uid, 'sales_manager'::public.app_role);
 $$;
 
 CREATE OR REPLACE FUNCTION public.sales_manager_can_see(_manager uuid, _member uuid)
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
 AS $$
-  SELECT public.internal_member_has_role(_manager, 'admin')
+  SELECT public.internal_member_has_role(_manager, 'admin'::public.app_role)
       OR EXISTS (
         SELECT 1 FROM public.sales_manager_team_members t
         WHERE t.manager_id = _manager AND t.member_id = _member AND t.active
@@ -402,7 +402,7 @@ BEGIN
     UNION
     SELECT ur.user_id
     FROM public.user_roles ur
-    WHERE public.internal_member_has_role(v_uid, 'admin')
+    WHERE public.internal_member_has_role(v_uid, 'admin'::public.app_role)
       AND ur.role IN ('comercial_zona'::public.app_role,
                       'captacion'::public.app_role,
                       'prevalificacion'::public.app_role)
@@ -804,7 +804,7 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'tarea inexistente' USING ERRCODE = 'P0002';
   END IF;
-  IF v_row.user_id IS DISTINCT FROM v_uid AND NOT public.internal_member_has_role(v_uid, 'admin') THEN
+  IF v_row.user_id IS DISTINCT FROM v_uid AND NOT public.internal_member_has_role(v_uid, 'admin'::public.app_role) THEN
     RAISE EXCEPTION 'la tarea no te pertenece' USING ERRCODE = '42501';
   END IF;
 
@@ -856,7 +856,7 @@ BEGIN
    WHERE m IS NOT NULL;
   v_solicitados := COALESCE(array_length(v_members, 1), 0);
 
-  IF v_uid IS NOT NULL AND NOT public.internal_member_has_role(v_uid, 'admin') THEN
+  IF v_uid IS NOT NULL AND NOT public.internal_member_has_role(v_uid, 'admin'::public.app_role) THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
   END IF;
   IF p_user_id IS NULL OR p_expected_email IS NULL OR btrim(p_expected_email) = '' THEN
@@ -884,7 +884,7 @@ BEGIN
       IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_member) THEN
         RAISE EXCEPTION 'el miembro % no existe', v_member USING ERRCODE = 'P0002';
       END IF;
-      IF NOT public.internal_member_has_role(v_member, 'comercial_zona') THEN
+      IF NOT public.internal_member_has_role(v_member, 'comercial_zona'::public.app_role) THEN
         RAISE EXCEPTION 'el miembro % no es comercial_zona', v_member USING ERRCODE = '22023';
       END IF;
     END LOOP;
@@ -962,7 +962,7 @@ CREATE POLICY profiles_select_scoped ON public.profiles
   FOR SELECT TO authenticated
   USING (
     id = auth.uid()
-    OR public.current_user_has_role('admin')
+    OR public.current_user_has_role('admin'::public.app_role)
   );
 
 -- user_roles: propio rol + admin. Sin excepción para sales_manager (evita
@@ -973,7 +973,7 @@ CREATE POLICY user_roles_select_scoped ON public.user_roles
   FOR SELECT TO authenticated
   USING (
     user_id = auth.uid()
-    OR public.current_user_has_role('admin')
+    OR public.current_user_has_role('admin'::public.app_role)
   );
 
 -- ---------------------------------------------------------------------
@@ -989,7 +989,7 @@ AS $$
   SELECT p.id, NULLIF(btrim(COALESCE(p.full_name, '')), '') AS display_name
   FROM public.profiles p
   WHERE auth.uid() IS NOT NULL
-    AND (public.current_user_has_role('whatsapp') OR public.current_user_has_role('admin'))
+    AND (public.current_user_has_role('whatsapp'::public.app_role) OR public.current_user_has_role('admin'::public.app_role))
     AND p_ids IS NOT NULL
     AND array_length(p_ids, 1) IS NOT NULL
     AND array_length(p_ids, 1) <= 200
@@ -1012,7 +1012,7 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public
 AS $$
 BEGIN
   IF auth.uid() IS NOT NULL
-     AND NOT public.current_user_has_role('admin')
+     AND NOT public.current_user_has_role('admin'::public.app_role)
      AND NEW.must_change_password IS DISTINCT FROM OLD.must_change_password THEN
     NEW.must_change_password := OLD.must_change_password;
   END IF;
