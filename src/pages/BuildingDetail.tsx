@@ -68,6 +68,7 @@ export default function BuildingDetail() {
   const [hsTasks, setHsTasks] = useState<any[]>([]);
   const [nextActions, setNextActions] = useState<any[]>([]);
   const [titStats, setTitStats] = useState<{ total: number; conPct: number } | null>(null);
+  const [rights, setRights] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // pagination per tab
@@ -84,7 +85,7 @@ export default function BuildingDetail() {
 
     const [{ data: bo }, { data: bc }, { data: ns }, { data: na }] = await Promise.all([
       supabase.from("building_owners")
-        .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona, metadatos)")
+        .select("building_id, owner_id, cuota, cuota_estado, cuota_estado_motivo, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona, metadatos)")
         .eq("building_id", id),
       supabase.from("building_companies")
         .select("id, role, percentage, fecha_inicio, fecha_fin, source, company:company_id(id, nombre, cif, email, telefono)")
@@ -102,6 +103,13 @@ export default function BuildingDetail() {
     setBcs(bc ?? []);
     setNotas(ns ?? []);
     setNextActions(na ?? []);
+
+    // Derechos registrales materializados (Wave 1B): única fuente de verdad
+    // de la titularidad. Se muestran por capas, nunca sumados entre sí.
+    const { data: rg } = await supabase.from("building_property_rights")
+      .select("id, owner_id, company_id, right_type, percentage, status, feeds_cuota, review_flag, titular_nombre, note_simple_id")
+      .eq("building_id", id);
+    setRights(rg ?? []);
 
     // % titulares con porcentaje declarado en el registro (todas las notas del edificio)
     const notaIds = (ns ?? []).map((n: any) => n.id);
@@ -209,17 +217,21 @@ export default function BuildingDetail() {
   if (loading || !building) return <div className="text-sm text-muted-foreground">{t.common.loading}</div>;
 
   const existingOwnerIds = bos.map((r) => r.owner_id);
-  // Porcentaje efectivo: cuota propia del edificio si existe, si no el porcentaje_de_participacion de HubSpot
+  // Cuota OPERATIVA: sólo la vigente escrita por Wave 1B desde titularidad
+  // registral demostrada. Nunca se cae al porcentaje crudo de HubSpot.
   const pctOf = (r: any): number | null => {
-    if (r.cuota != null && r.cuota !== "") {
-      const n = Number(r.cuota);
-      if (isFinite(n)) return n;
-    }
-    const raw = r.owners?.metadatos?.porcentaje_de_participacion;
-    if (raw == null) return null;
-    const n = Number(String(raw).replace(",", ".").replace(/[^\d.]/g, ""));
-    return isFinite(n) && n > 0 ? n : null;
+    if (r.cuota_estado !== "vigente" || r.cuota == null || r.cuota === "") return null;
+    const n = Number(r.cuota);
+    return isFinite(n) ? n : null;
   };
+  // Capas registrales separadas: pleno dominio, nuda propiedad y usufructo
+  // jamás se agregan entre sí.
+  const capas = ["pleno_dominio", "nuda_propiedad", "usufructo", "ganancial", "otro"].map((tipo) => ({
+    tipo,
+    filas: rights.filter((x) => x.right_type === tipo),
+  })).filter((c) => c.filas.length > 0);
+  const titularidadSegura = rights.some((x) => x.feeds_cuota && x.status === "active" && !x.review_flag);
+  const derechosEnReview = rights.filter((x) => x.status === "review").length;
   const totalCuota = bos.reduce((a, r) => a + (pctOf(r) ?? 0), 0);
   const personas = bos;
   const empresas = bcs;
@@ -274,6 +286,10 @@ export default function BuildingDetail() {
             Titulares con %: {titStats.conPct} de {titStats.total}
           </Chip>
         )}
+        <Chip tone={titularidadSegura ? "gold" : "warning"}>
+          {titularidadSegura ? "Titularidad registral demostrada" : "Pendiente de titularidad"}
+        </Chip>
+        {derechosEnReview > 0 && <Chip tone="warning">{derechosEnReview} derecho{derechosEnReview === 1 ? "" : "s"} en revisión</Chip>}
       </div>
 
       {/* KPIs reales */}
@@ -300,7 +316,9 @@ export default function BuildingDetail() {
               <Eyebrow>Cuota total</Eyebrow>
               <div className="mt-2"><MetricValue size="lg" unit="%">{totalCuota.toFixed(0)}</MetricValue></div>
               <p className={cn("mt-1 text-xs", cuotaInconsistente ? "text-destructive" : "text-muted-foreground")}>
-                {cuotaInconsistente ? "⚠ inconsistente — revisar notas" : "sumatorio cuotas"}
+                {cuotaInconsistente
+                  ? "⚠ inconsistente — revisar notas"
+                  : titularidadSegura ? "cuota operativa vigente (registral)" : "pendiente de titularidad"}
               </p>
             </>
           )}
