@@ -276,8 +276,8 @@ describe("P0.7 · P0.6 intacto", () => {
         extract: async () => ({
           data: {
             titulares: [{
-              nombre: "A B", porcentaje: 100, rol: "pleno", rol_literal: "pleno dominio",
-              evidencia: { cita: "TITULAR: A B PARTICIPACION: 100% del pleno dominio.", pagina: 1 },
+              nombre: "ANA BELEN LOPEZ", porcentaje: 100, rol: "pleno", rol_literal: "pleno dominio",
+              evidencia: { cita: "TITULAR: ANA BELEN LOPEZ PARTICIPACION: 100% del pleno dominio.", pagina: 1 },
             }],
           },
           model: "lovable/google/gemini-3.6-flash",
@@ -288,7 +288,7 @@ describe("P0.7 · P0.6 intacto", () => {
         // P0.8: corpus registral mínimo (inventario = 1 hecho esperado).
         textoFuente: [
           "NOTA SIMPLE INFORMATIVA", "Pág. 1", "TITULARIDADES",
-          "TITULAR: A B PARTICIPACION: 100% del pleno dominio.",
+          "TITULAR: ANA BELEN LOPEZ PARTICIPACION: 100% del pleno dominio.",
         ].join("\n"),
       },
     );
