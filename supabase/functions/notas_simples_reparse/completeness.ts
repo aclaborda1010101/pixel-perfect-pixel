@@ -55,6 +55,9 @@ const RE_NOTA = /\b(registro\s+de\s+la\s+propiedad|nota\s+simple|informativa\s+r
 export function clasificarSeccion(linea: string): SeccionTipo | null {
   const l = linea.trim();
   if (!l || l.length > 120) return null;
+  // Una línea de HECHO (lleva participación, coma o más de 6 palabras) nunca
+  // es cabecera de sección: "TITULAR: X, PARTICIPACION 5%" es un hecho.
+  if (RE_PARTICIPACION.test(l) || l.includes(",") || l.split(/\s+/).length > 6) return null;
   const esCabecera = l === l.toUpperCase() || /:\s*$/.test(l);
   if (!esCabecera) return null;
   if (RE_CARGAS.test(l)) return "cargas";
