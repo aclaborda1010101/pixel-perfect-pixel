@@ -404,9 +404,13 @@ function checkTsContract(
       }
       // Mutación del payload (reasignación o escritura de propiedad).
       if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-        const left = node.left;
-        const root = ts.isPropertyAccessExpression(left) || ts.isElementAccessExpression(left)
-          ? left.expression : left;
+        const unwrap = (e: ts.Expression): ts.Expression =>
+          ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e)
+            ? unwrap(e.expression) : e;
+        let root = unwrap(node.left);
+        while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) {
+          root = unwrap(root.expression);
+        }
         if (ts.isIdentifier(root) && root.text === op.payloadIdent) mutationPos = start;
       }
     }

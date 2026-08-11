@@ -31,7 +31,7 @@ describe("parser de task_key V5 · dos generaciones reales", () => {
     for (const [raw, code] of [["T-01", "T1"], ["T-04", "T4"], ["T-09", "T9"], ["T-02", "T2"]] as const) {
       const key = build(raw, "8d2c0d1e-0000-4000-8000-000000000001");
       const parsed = parseV5TaskKey(key)!;
-      expect(parsed.format).toBe("legacy_call_queue");
+      expect(parsed.format).toBe("historic_call_queue");
       expect(parsed.rawCode).toBe(raw);
       expect(parsed.code).toBe(code);
       expect(operationalTaskBadge({ task_type: "call_queue", task_key: key }).label).toBe(`V5 · ${code}`);
