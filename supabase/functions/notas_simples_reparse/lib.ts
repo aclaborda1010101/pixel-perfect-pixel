@@ -210,7 +210,7 @@ function fuenteStable(f: EvidenciaFuente): string {
   return CLAVES_FUENTE.map((k) => `${k}=${(f as Record<string, unknown>)[k] ?? ""}`).join("|");
 }
 
-/** Identidad de localizador: dos fuentes con el mismo localizador son la MISMA fuente. */
+/** Identidad de localizador: página/ruta/offset (sin la cita). */
 export function fuenteLocatorKey(f: EvidenciaFuente): string {
   const partes: string[] = [];
   if (f.pagina != null) partes.push(`p:${f.pagina}`);
@@ -218,6 +218,19 @@ export function fuenteLocatorKey(f: EvidenciaFuente): string {
   if (f.offset != null) partes.push(`o:${f.offset}`);
   if (partes.length) return partes.join("+");
   return `c:${(f.cita ?? "").toLowerCase()}`;
+}
+
+/**
+ * Identidad de FUENTE = localizador normalizado + cita normalizada.
+ * Dos citas reales distintas en el mismo localizador son hechos registrales
+ * compatibles: se conservan ambas como dos fuentes (sin conflicto).
+ */
+export function fuenteIdentityKey(f: EvidenciaFuente): string {
+  const loc: string[] = [];
+  if (f.pagina != null) loc.push(`p:${f.pagina}`);
+  if (f.ruta != null) loc.push(`r:${normalizeLiteral(f.ruta)}`);
+  if (f.offset != null) loc.push(`o:${f.offset}`);
+  return `${loc.join("+")}##${normalizeLiteral(f.cita ?? "")}`;
 }
 
 /** ¿La fuente tiene un localizador válido (no es solo una cita suelta)? */
@@ -265,7 +278,7 @@ export function mergeEvidencias(...entradas: unknown[]): MergeEvidenciaResult {
   const porLocalizador = new Map<string, EvidenciaFuente>();
   for (const e of entradas) {
     for (const f of evidenciaFuentes(e)) {
-      const k = fuenteLocatorKey(f);
+      const k = fuenteIdentityKey(f);
       const prev = porLocalizador.get(k);
       if (!prev) {
         porLocalizador.set(k, { ...f });
