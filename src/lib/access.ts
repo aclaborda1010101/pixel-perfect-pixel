@@ -11,9 +11,19 @@ export type AccessRole =
 export const GESTOR_PATH = "/gestor-comerciales";
 export const PASSWORD_PATH = "/cambiar-password";
 
-/** Rutas que sólo puede ver un admin general. */
+/**
+ * Excepciones legítimas dentro de /admin: NINGUNA hoy.
+ * Si alguna vez hace falta abrir una pantalla concreta, se añade su ruta
+ * EXACTA aquí (nunca un prefijo amplio) y se cubre con test explícito.
+ */
+export const ADMIN_PATH_EXCEPTIONS: readonly string[] = [] as const;
+
+/** Rutas que sólo puede ver un admin general: todo /admin y /admin/*. */
 export function isAdminOnlyPath(pathname: string): boolean {
-  return pathname === "/admin" || pathname.startsWith("/admin/");
+  const isAdminArea = pathname === "/admin" || pathname.startsWith("/admin/");
+  if (!isAdminArea) return false;
+  // Coincidencia EXACTA para la allowlist; un prefijo nunca abre una subruta.
+  return !ADMIN_PATH_EXCEPTIONS.includes(pathname);
 }
 
 export function canAccessGestor(role: AccessRole): boolean {
@@ -67,6 +77,13 @@ export function decideAccess(params: {
 
   // Panel de gestión comercial: sólo admin o sales_manager
   if (pathname.startsWith(GESTOR_PATH) && !canAccessGestor(role)) {
+    return { type: "redirect", to: "/" };
+  }
+
+  // Área de administración: SIEMPRE lo último antes del allow final.
+  // Cualquier rol distinto de admin queda fuera de /admin/* (incluida
+  // /admin/cola-simulada y cualquier ruta futura), también por URL directa.
+  if (isAdminOnlyPath(pathname) && role !== "admin") {
     return { type: "redirect", to: "/" };
   }
 

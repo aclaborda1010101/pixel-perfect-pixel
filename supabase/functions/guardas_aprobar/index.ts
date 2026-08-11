@@ -29,7 +29,15 @@ Deno.serve(async (req) => {
   const { data: userRes } = await sbUser.auth.getUser();
   const user = userRes?.user;
   if (!user) return json({ ok: false, error: "Sesión inválida" }, 401);
-  const { data: esAdmin } = await sb.rpc("has_role", { _user_id: user.id, _role: "admin" });
+  // Validación de rol de OTRO usuario: se consulta user_roles internamente con
+  // el cliente de servicio. No se expone has_role(user_id, role) al llamante.
+  const { data: rolAdmin } = await sb
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id)
+    .eq("role", "admin")
+    .maybeSingle();
+  const esAdmin = !!rolAdmin;
   const permitido = esAdmin === true || (user.email ?? "").toLowerCase() === "jesus.anzola@afflux.es";
   if (!permitido) return json({ ok: false, error: "Sin permisos" }, 403);
 
