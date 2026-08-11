@@ -174,6 +174,12 @@ asegurar_placeholder() {
     IF to_regclass('public.owners') IS NOT NULL THEN
       BEGIN
         ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS fecha_nacimiento date;
+        ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS edad_anios integer;
+        ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS estado_vital text;
+        ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS estado_vital_fuente text;
+        ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS estado_vital_fecha timestamptz;
+        ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS estado_vital_evidencia text;
+        ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS merged_into uuid;
       EXCEPTION WHEN others THEN NULL;
       END;
     END IF;
