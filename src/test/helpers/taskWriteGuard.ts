@@ -99,15 +99,15 @@ export const AUTHORIZED_TASK_RPCS: Record<string, { id: string; units: string[] 
   },
   claim_v5_generation_requests: {
     id: "v5_runtime_claim",
-    units: ["supabase/functions/v5_task_runtime/index.ts#claim"],
+    units: ["supabase/functions/v5_task_runtime/index.ts#claimRequests"],
   },
   release_v5_generation_request: {
     id: "v5_runtime_release",
-    units: ["supabase/functions/v5_task_runtime/index.ts#release"],
+    units: ["supabase/functions/v5_task_runtime/index.ts#releaseRequest"],
   },
   reap_v5_generation_leases: {
     id: "v5_runtime_reap",
-    units: ["supabase/functions/v5_task_runtime/index.ts#reap"],
+    units: ["supabase/functions/v5_task_runtime/index.ts#reapExpiredLeases"],
   },
   request_v5_generation: { id: "v5_request", units: [] },
 };
@@ -167,6 +167,8 @@ function scanTs(file: string, source: string): WriteOp[] {
   const boundTables = new Map<string, Resolved>();
   /** alias: const A = B */
   const aliases = new Map<string, string>();
+  /** const NAME = new Set(["a","b"]) */
+  const sets = new Map<string, string[]>();
 
   /**
    * Conjunto de valores posibles de una expresión de tabla.
@@ -200,9 +202,38 @@ function scanTs(file: string, source: string): WriteOp[] {
         if (objects.has(alias)) return objects.get(alias)!;
         return null;
       }
+      const guarded = guardedLiterals(name);
+      if (guarded) return guarded;
       return resolveParameter(n, seen, depth + 1);
     }
     return null;
+  }
+
+  /**
+   * Allowlist dominante: `if (!SET.has(x)) throw ...` con SET literal acota
+   * los valores posibles de `x` a ese conjunto (nada dinámico se cuela).
+   */
+  function guardedLiterals(name: string): string[] | null {
+    let found: string[] | null = null;
+    const visit = (node: ts.Node) => {
+      if (ts.isIfStatement(node) &&
+          ts.isPrefixUnaryExpression(node.expression) &&
+          node.expression.operator === ts.SyntaxKind.ExclamationToken) {
+        const call = node.expression.operand;
+        if (ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression) &&
+            call.expression.name.text === "has" &&
+            ts.isIdentifier(call.expression.expression) &&
+            sets.has(call.expression.expression.text) &&
+            call.arguments[0] && ts.isIdentifier(call.arguments[0]) &&
+            (call.arguments[0] as ts.Identifier).text === name &&
+            node.thenStatement.getText(sf).includes("throw")) {
+          found = sets.get(call.expression.expression.text)!;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    return found;
   }
 
   /**
@@ -250,6 +281,18 @@ function scanTs(file: string, source: string): WriteOp[] {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const name = node.name.text;
       const init = ts.isAsExpression(node.initializer) ? node.initializer.expression : node.initializer;
+      if (ts.isCallExpression(init) && ts.isNewExpression(init as any)) { /* noop */ }
+      if (ts.isNewExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === "Set") {
+        const arg = init.arguments?.[0];
+        if (arg && ts.isArrayLiteralExpression(arg)) {
+          const vals: string[] = [];
+          let ok = true;
+          for (const el of arg.elements) {
+            if (ts.isStringLiteralLike(el)) vals.push(el.text); else ok = false;
+          }
+          if (ok) sets.set(name, vals);
+        }
+      }
       if (ts.isStringLiteralLike(init)) strings.set(name, init.text);
       else if (ts.isIdentifier(init)) aliases.set(name, init.text);
       else if (ts.isObjectLiteralExpression(init)) {

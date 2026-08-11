@@ -24,6 +24,11 @@ const json = (status: number, body: unknown) =>
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 
+/** Único callsite autorizado del reaper de leases caducados. */
+async function reapExpiredLeases(admin: any) {
+  return await admin.rpc('reap_v5_generation_leases', {});
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -166,7 +171,7 @@ Deno.serve(async (req) => {
 
   // Reaper: SOLO recuperación de leases caducados, nunca generación normal.
   if (body?.reap === true) {
-    const { data, error } = await admin.rpc('reap_v5_generation_leases', {});
+    const { data, error } = await reapExpiredLeases(admin);
     return json(error ? 500 : 200, { ok: !error, reaped: data ?? 0, error: error?.message ?? null });
   }
 
