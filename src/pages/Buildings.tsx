@@ -22,9 +22,12 @@ import { Building2, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { NewBuildingDialog } from "@/components/forms/NewEntityDialogs";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { useAuth } from "@/hooks/useAuth";
+import { SITUACIONES_EDIFICIO, situacionLabel } from "@/lib/situacionComercial";
+import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
+import { useInterlocutores } from "@/hooks/useInterlocutores";
 
 const PAGE_SIZE = 50;
-const ESTADOS = ["identificado", "contactado", "en_estudio", "descartado"];
+const ESTADOS = [...SITUACIONES_EDIFICIO];
 
 function applyNonDemoFilter<T extends { or: (filters: string) => T }>(query: T) {
   return query.or("metadatos->>seed.is.null,metadatos->>seed.eq.false");
@@ -166,6 +169,8 @@ export default function Buildings() {
   useEffect(() => { loadMetrics(); /* eslint-disable-next-line */ }, [showDemos, isComercial, assignedIds]);
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [debouncedQ, filter, ciudad, showDemos, page, isComercial, assignedIds]);
 
+  const { data: interlocutores = {} } = useInterlocutores(rows.map((b: any) => b.id));
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const showingFrom = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const showingTo = Math.min(total, (page + 1) * PAGE_SIZE);
@@ -219,7 +224,7 @@ export default function Buildings() {
             <div className="flex flex-wrap items-center gap-1.5">
               <Chip active={filter === "all"} onClick={() => setFilter("all")}>Todos</Chip>
               {ESTADOS.map((e) => (
-                <Chip key={e} active={filter === e} onClick={() => setFilter(e)}>{e}</Chip>
+                <Chip key={e} active={filter === e} onClick={() => setFilter(e)}>{situacionLabel(e)}</Chip>
               ))}
             </div>
             <div className="ml-auto flex items-center gap-2">
@@ -242,8 +247,9 @@ export default function Buildings() {
                       <div className="font-mono text-[12px] uppercase tracking-eyebrow text-muted-foreground">{b.ciudad ?? "—"} · {b.codigo_postal ?? "—"}</div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
-                      <Badge variant="outline">{b.estado}</Badge>
+                      <Badge variant="outline">{situacionLabel(b.estado)}</Badge>
                       {b.division_horizontal && <Badge variant="gold">DH</Badge>}
+                      {interlocutores[b.id] && <InterlocutorFlag nombre={interlocutores[b.id].nombre} compact />}
                     </div>
                   </div>
                   <div className="text-right text-sm">
@@ -297,7 +303,12 @@ export default function Buildings() {
                     <TableCell>
                       {b.division_horizontal ? <Badge variant="gold">DH</Badge> : <span className="text-muted-foreground">—</span>}
                     </TableCell>
-                    <TableCell><Badge variant="outline">{b.estado}</Badge></TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{situacionLabel(b.estado)}</Badge>
+                      {interlocutores[b.id] && (
+                        <div className="mt-1"><InterlocutorFlag nombre={interlocutores[b.id].nombre} compact /></div>
+                      )}
+                    </TableCell>
                   </TableRow>
                   );
                 })}
