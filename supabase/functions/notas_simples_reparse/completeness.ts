@@ -218,7 +218,7 @@ export function contarCapas(items: Array<{ right_type?: string; rol?: string }>)
 }
 
 /** Clave 1:1 de un hecho: identidad + derecho + porcentaje EXACTO (6 dec.). */
-export function hechoKey(h: { nombre_norm?: string; nombre?: string; right_type?: string; rol?: string; porcentaje?: number | null }): string {
+export function hechoKey(h: { nombre_norm?: string; nombre?: string | null; right_type?: string; rol?: string; porcentaje?: number | null }): string {
   const nombre = h.nombre_norm ?? normalizeNombre(h.nombre ?? "");
   const derecho = String(h.right_type ?? h.rol ?? "");
   const pct = typeof h.porcentaje === "number" ? redondearExacto(h.porcentaje).toFixed(6) : "null";
