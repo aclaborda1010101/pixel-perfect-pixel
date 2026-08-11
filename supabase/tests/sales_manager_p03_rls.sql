@@ -21,6 +21,13 @@ EXCEPTION WHEN others THEN
   RETURN 'ERROR:' || SQLSTATE;
 END $$;
 
+-- La plataforma gestionada concede el Data API sobre public a los roles de
+-- cliente; el clúster local no. Se reproduce ese reparto (NO es parte de la
+-- prueba: sin él, todo fallaría por 42501 y no se probaría RLS alguna).
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+
 DO $$
 DECLARE
   u_admin uuid := '11111111-1111-1111-1111-111111111111';
