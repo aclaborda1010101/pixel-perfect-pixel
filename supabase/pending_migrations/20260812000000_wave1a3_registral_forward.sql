@@ -405,9 +405,15 @@ BEGIN
     END IF;
   END IF;
 
-  -- (c) FALLBACK 2: structured_json. Política inequívoca y VERIFICABLE:
-  --     exactamente UN elemento del MISMO titular con el MISMO derecho, el
-  --     MISMO porcentaje y un localizador válido o una cita anclada.
+  -- (c) FALLBACK 2: structured_json. SOLO AUDITORÍA.
+  --     Un elemento estructurado con ruta/página/offset "bien formados" NO
+  --     demuestra vínculo con ESTE titular: en SQL no podemos comprobar que
+  --     la ruta apunte al mismo elemento. Por eso:
+  --       - sólo se acepta si el elemento trae una CITA no vacía, ANCLADA en
+  --         raw_pdf_text, y esa misma cita contiene titular + derecho + pct;
+  --       - cualquier otro caso (ruta válida a otro titular, offset sin cita,
+  --         mismo 50 % en otro elemento, página sin vínculo) se marca
+  --         structured_unverified y BLOQUEA.
   IF NOT v_evid_presente AND NOT (v_ok_tit AND v_ok_der AND v_ok_pct)
      AND jsonb_typeof(v_sj -> 'titulares') = 'array' THEN
     WITH cand AS (
@@ -424,10 +430,12 @@ BEGIN
         AND public.p0_parse_pct(tj ->> 'porcentaje') IS NOT NULL
         AND abs(public.p0_parse_pct(tj ->> 'porcentaje') - v_pct) <= 0.01
     ), valida AS (
+      -- El localizador NO habilita nada: sólo cuenta la cita anclada.
       SELECT * FROM cand
-      WHERE public.p0_locator_valid(pagina, off, ruta)
-         OR (cita IS NOT NULL AND v_raw_norm IS NOT NULL
-             AND position(public.p0_norm_text(cita) IN v_raw_norm) > 0)
+      WHERE cita IS NOT NULL
+        AND v_raw_norm IS NOT NULL
+        AND public.p0_norm_text(cita) IS NOT NULL
+        AND position(public.p0_norm_text(cita) IN v_raw_norm) > 0
     )
     SELECT count(*),
            jsonb_build_object('cita', min(cita), 'ruta', coalesce(min(pagina), min(off), min(ruta)))
@@ -438,22 +446,42 @@ BEGIN
       v_fuente  := 'structured_json';
       v_cita    := r ->> 'cita';
       v_ref     := r ->> 'ruta';
-      v_ok_tit  := true; v_ok_der := true; v_ok_pct := true;
-      v_anclada := v_cita IS NOT NULL AND v_raw_norm IS NOT NULL
-                   AND position(coalesce(public.p0_norm_text(v_cita), '\x00') IN v_raw_norm) > 0;
-      v_traz    := v_ref IS NOT NULL OR v_anclada;
-      IF v_cita IS NOT NULL THEN
-        v_vals   := public.p0_cita_pct_values(v_cita);
-        v_ok_pct := EXISTS (SELECT 1 FROM unnest(v_vals) x WHERE abs(x - v_pct) <= 0.01);
-        v_ok_tit := public.norm_person_name(v_cita) LIKE '%' || v_nn || '%';
-        v_ok_der := v_rx_right IS NOT NULL AND v_cita ~* v_rx_right;
-        IF NOT (v_ok_pct AND v_ok_tit AND v_ok_der) THEN v_bad := true; END IF;
-        v_n_derechos := coalesce(array_length(public.p0_right_candidates(v_cita), 1), 0);
-        v_amb := coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_derechos > 1;
+      -- La traza es SIEMPRE el anclaje; ruta/página/offset son auditoría.
+      v_anclada := true;
+      v_traz    := true;
+      v_vals    := public.p0_cita_pct_values(v_cita);
+      v_ok_pct  := EXISTS (SELECT 1 FROM unnest(v_vals) x WHERE abs(x - v_pct) <= 0.01);
+      v_ok_tit  := v_nn IS NOT NULL AND public.norm_person_name(v_cita) LIKE '%' || v_nn || '%';
+      v_ok_der  := v_rx_right IS NOT NULL AND v_cita ~* v_rx_right;
+      -- El titular debe ser INEQUÍVOCO dentro de la propia cita.
+      SELECT count(*) INTO v_n_nombres
+      FROM public.nota_simple_titulares o
+      WHERE o.nota_simple_id = v_nota
+        AND public.norm_person_name(o.nombre_extraido) IS NOT NULL
+        AND public.norm_person_name(v_cita) LIKE '%' || public.norm_person_name(o.nombre_extraido) || '%';
+      v_n_derechos := coalesce(array_length(public.p0_right_candidates(v_cita), 1), 0);
+      v_amb := coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_nombres > 1 OR v_n_derechos > 1;
+      IF NOT (v_ok_pct AND v_ok_tit AND v_ok_der) THEN
+        v_bad := true; v_struct_unv := true;
       END IF;
     ELSIF v_n_cand > 1 THEN
-      v_fuente := 'structured_json'; v_amb := true; v_bad := true;
+      v_fuente := 'structured_json'; v_amb := true; v_bad := true; v_struct_unv := true;
+    ELSE
+      -- Había elementos estructurados coherentes en metadatos, pero NINGUNO
+      -- con cita anclada: auditoría, jamás evidencia.
+      IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_sj -> 'titulares') tj
+                 WHERE public.norm_person_name(tj ->> 'nombre') IS NOT NULL) THEN
+        v_fuente := 'structured_json_sin_anclaje';
+        v_struct_unv := true;
+        v_bad := true;
+      END IF;
     END IF;
+  END IF;
+
+  -- CIERRE FAIL-CLOSED: sin cita anclada no hay evidencia posible.
+  IF v_cita IS NULL OR NOT coalesce(v_anclada, false) THEN
+    v_traz := false;
+    v_bad  := true;
   END IF;
 
   IF v_fuente = 'ninguna' THEN
@@ -469,8 +497,11 @@ BEGIN
     'candidatos',    coalesce(v_n_cand,0),
     'evidence_ambiguous', coalesce(v_amb,false),
     'bad_evidence',  coalesce(v_bad,false),
+    'structured_unverified', coalesce(v_struct_unv,false),
     'evidence_ok',   coalesce(v_ok_tit,false) AND coalesce(v_ok_der,false)
                      AND coalesce(v_ok_pct,false) AND coalesce(v_traz,false)
+                     AND coalesce(v_anclada,false) AND v_cita IS NOT NULL
+                     AND NOT coalesce(v_struct_unv,false)
                      AND NOT coalesce(v_amb,false) AND NOT coalesce(v_bad,false),
     'fuente',        v_fuente,
     'cita',          v_cita,
@@ -480,7 +511,7 @@ BEGIN
 END $$;
 
 COMMENT ON FUNCTION public.p0_evidence_check(uuid) IS
-  'Wave 1A.3: la cita debe traer titular + SU derecho + SU porcentaje y estar ANCLADA en raw_pdf_text (normalización tolerante) o proceder de un único elemento structured_json verificable con localizador válido. Se cuentan candidatos y se exige exactamente uno.';
+  'Wave 1A.3 P0.1: SOLO una cita no vacía ANCLADA en raw_pdf_text que contenga titular inequívoco + SU derecho + SU porcentaje puede dar evidence_ok, y con exactamente un candidato coherente. structured_json/ruta/pagina/offset son auditoría: por sí solos marcan structured_unverified y bloquean.';
 
 -- ---------------------------------------------------------------------
 -- 7) FIRMAS: contenido (sin fecha) y fecha por separado
