@@ -292,7 +292,7 @@ Deno.serve(async (req) => {
           due_date: dueIso,
         };
         if (dryRun) { insertados.push({ ...row, dry_run: true }); continue; }
-        const { data: ins, error: insErr } = await sb.from('building_tasks').insert(row).select('id, task_key').maybeSingle();
+        const { data: ins, error: insErr } = await insertV5CallQueueTask(sb, row);
         if (ins) insertados.push({ ...ins, user_id: target.user_id, task_code: c.task_code });
         else if (insErr) console.error('insert err', c.task_key, JSON.stringify(insErr));
       }
