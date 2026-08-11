@@ -8710,7 +8710,9 @@ export type Database = {
       }
       work_modes: {
         Row: {
+          activo: boolean
           created_at: string
+          etiqueta: string | null
           id: string
           mix: Json
           mode: string
@@ -8720,7 +8722,9 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          activo?: boolean
           created_at?: string
+          etiqueta?: string | null
           id?: string
           mix: Json
           mode: string
@@ -8730,7 +8734,9 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          activo?: boolean
           created_at?: string
+          etiqueta?: string | null
           id?: string
           mix?: Json
           mode?: string
@@ -10714,6 +10720,10 @@ export type Database = {
           scope_type: string
           similarity: number
         }[]
+      }
+      set_task_generation_mode: {
+        Args: { p_mix?: Json; p_mode: string }
+        Returns: Json
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
