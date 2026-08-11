@@ -97,6 +97,7 @@ describe("edge function de contraseña (no desplegada)", () => {
   it("informa de estado parcial y mantiene el bloqueo si falla la base", () => {
     expect(fn).toContain('stage: "partial"');
     expect(fn).toContain("must_change_password: true");
-    expect(fn).toContain("PROFILE_RETRIES");
+    expect(fn).toContain("clearMustChangePassword");
+    expect(fn).toContain("PARTIAL_MESSAGE");
   });
 });
