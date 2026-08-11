@@ -20,22 +20,22 @@ BEGIN;
 -- ---------------------------------------------------------------------
 -- Edificios: uno sin división horizontal y uno con DH.
 -- ---------------------------------------------------------------------
-INSERT INTO public.buildings (id, direccion, division_horizontal) VALUES
-  ('11111111-1111-1111-1111-111111111111', 'Abel 7',           false),
-  ('22222222-2222-2222-2222-222222222222', 'Palencia 3',       false),
-  ('33333333-3333-3333-3333-333333333333', 'Sorgo 25',         false),
-  ('44444444-4444-4444-4444-444444444444', 'María Pedraza 17', false),
-  ('55555555-5555-5555-5555-555555555555', 'Bruno Ayllón 10',  true),
-  ('66666666-6666-6666-6666-666666666666', 'Retiro 1',         false),
-  ('77777777-7777-7777-7777-777777777777', 'Alcalá 9',         false),
-  ('88888888-8888-8888-8888-888888888888', 'Goya 4',           true),
-  ('99999999-9999-9999-9999-999999999999', 'Serrano 2',        false),
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Velázquez 8',      true);
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'Abel 7',           'Madrid', false),
+  ('22222222-2222-2222-2222-222222222222', 'Palencia 3',       'Madrid', false),
+  ('33333333-3333-3333-3333-333333333333', 'Sorgo 25',         'Madrid', false),
+  ('44444444-4444-4444-4444-444444444444', 'María Pedraza 17', 'Madrid', false),
+  ('55555555-5555-5555-5555-555555555555', 'Bruno Ayllón 10',  'Madrid', true),
+  ('66666666-6666-6666-6666-666666666666', 'Retiro 1',         'Madrid', false),
+  ('77777777-7777-7777-7777-777777777777', 'Alcalá 9',         'Madrid', false),
+  ('88888888-8888-8888-8888-888888888888', 'Goya 4',           'Madrid', true),
+  ('99999999-9999-9999-9999-999999999999', 'Serrano 2',        'Madrid', false),
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Velázquez 8',      'Madrid', true);
 
 -- Edificios de los casos POSITIVOS (no-DH, sin conflicto alguno).
-INSERT INTO public.buildings (id, direccion, division_horizontal) VALUES
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Positivo 100', false),
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Positivo 60/40', false);
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Positivo 100', 'Madrid', false),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Positivo 60/40', 'Madrid', false);
 
 INSERT INTO public.owners (id, nombre, metadatos) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'ANA LOPEZ',  '{"dni__nif__cif":"00000001A"}'::jsonb),

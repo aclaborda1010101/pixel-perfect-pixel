@@ -211,7 +211,9 @@ VALUES ('55555555-0000-0000-0000-000000000010', '44444444-0000-0000-0000-0000000
         'JUAN PEREZ LOPEZ', '87654321X', 100, 'pleno', 'usufructo vitalicio'),
        -- literal con DOS derechos: nunca se resuelve por el orden de palabras
        ('55555555-0000-0000-0000-000000000011', '44444444-0000-0000-0000-000000000008',
-        'ANA GARCIA SOTO', '12345678Z', 100, NULL, 'nuda propiedad y usufructo');
+        -- rol crudo vacío (la columna es NOT NULL en el esquema real):
+        -- equivale a "ausente" para los helpers p0_*.
+        'ANA GARCIA SOTO', '12345678Z', 100, '', 'nuda propiedad y usufructo');
 
 -- ---- B9 · Palencia3: pleno + ganancial separados; y solo ganancial ------
 INSERT INTO public.notas_simples (id, building_id, status, raw_pdf_text, structured_json)
