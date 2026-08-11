@@ -17,6 +17,12 @@ import { clearMustChangePassword, PARTIAL_MESSAGE } from "./profile.ts";
 
 const MIN_LEN = 10;
 
+/**
+ * Flag de fase B. Mientras esté apagada la función falla CERRADA
+ * ANTES de tocar Auth (espejo de src/lib/featureFlags.ts).
+ */
+const FEATURE_FORCE_PASSWORD_EDGE_FN = false;
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -27,6 +33,9 @@ function json(body: unknown, status = 200) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "método no permitido" }, 405);
+  if (!FEATURE_FORCE_PASSWORD_EDGE_FN) {
+    return json({ ok: false, stage: "disabled", error: "función no habilitada" }, 503);
+  }
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
