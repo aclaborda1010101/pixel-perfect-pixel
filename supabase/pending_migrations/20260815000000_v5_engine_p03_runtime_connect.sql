@@ -203,6 +203,28 @@ REVOKE ALL ON FUNCTION public.reap_v5_generation_leases() FROM PUBLIC, anon, aut
 GRANT EXECUTE ON FUNCTION public.reap_v5_generation_leases() TO service_role;
 
 -- ---------------------------------------------------------------------
+-- 5.0 Validador de clave canónica (obligatorio en el commit)
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.v5_assert_canonical_task_key(
+  p_key text, p_code text, p_building uuid, p_subject uuid, p_fingerprint text
+)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public
+AS $fn$
+BEGIN
+  IF p_key !~ '^v5:[^:]+:(T1|T2_T3|T4|T5|T6|T8|T9):[^:]+:[^:]+:[^:]+$'
+     OR split_part(p_key, ':', 3) <> p_code
+     OR split_part(p_key, ':', 4) <> p_building::text
+     OR split_part(p_key, ':', 5) <> p_subject::text
+     OR split_part(p_key, ':', 6) <> p_fingerprint THEN
+    RAISE EXCEPTION 'V5: task_key no canónica (%)', p_key;
+  END IF;
+END
+$fn$;
+
+-- ---------------------------------------------------------------------
 -- 5. COMMIT TRANSACCIONAL: única puerta de escritura de production
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.commit_v5_generation_plan(
@@ -250,6 +272,7 @@ BEGIN
      OR v_code NOT IN ('T1','T2_T3','T4','T5','T6','T8','T9') THEN
     RAISE EXCEPTION 'commit_v5_generation_plan: plan no canónico';
   END IF;
+  PERFORM public.v5_assert_canonical_task_key(v_key, v_code, v_building, v_subject, v_fp);
 
   -- 5.4 Slot: como mucho UNA production abierta por comercial.
   PERFORM 1 FROM public.building_tasks
