@@ -153,7 +153,7 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
     if (!RE_PARTICIPACION.test(linea)) continue;
 
     // Una participación fuera de titularidad es carga/afección: NO es titular.
-    if (seccion !== "titularidad" || RE_CARGAS.test(linea)) {
+    if (seccion !== "titularidad") {
       inv.cargas += (linea.match(/participaci[oó]n/gi) ?? []).length;
       continue;
     }

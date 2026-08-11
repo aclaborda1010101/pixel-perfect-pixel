@@ -24,8 +24,8 @@ export type Bloque = {
 const RE_PAGINA_MARCA = /\f|(?:-{0,3}\s*)?P[áa]g(?:ina)?\.?\s*(\d{1,3})(?:\s*(?:de|\/)\s*\d{1,3})?/gi;
 
 /** Sólo cabeceras estructurales; palabras narrativas nunca cambian sección. */
-const RE_TITULARIDADES_HEADER = /(?:MAPA\s+DE\s+)?TITULARIDADES?\s*:/gi;
-const RE_CARGAS_HEADER = /CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?\s*:/gi;
+const RE_TITULARIDADES_HEADER = /(?:MAPA\s+DE\s+)?TITULARIDADES?\s*:?/gi;
+const RE_CARGAS_HEADER = /CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?\s*:?/gi;
 
 export const RE_PARTICIPACION_G = /PARTICIPACI[ÓO]N/gi;
 
@@ -124,8 +124,8 @@ export function segmentarBloques(src: string, zona: Zona, paginas: Pagina[]): Bl
     const previo = i === 0 ? 0 : arranques[i - 1] + "PARTICIPACION".length;
     const a = Math.max(previo, token - 320);
     const b = i + 1 < arranques.length ? arranques[i + 1] : trozo.length;
-    const inicioToken = zona.inicio + token;
-    out.push({ texto: trozo.slice(a, b), inicio: inicioToken, fin: zona.inicio + b, page: paginaDe(paginas, inicioToken), seccion: zona.seccion });
+    const inicio = zona.inicio + a;
+    out.push({ texto: trozo.slice(a, b), inicio, fin: zona.inicio + b, page: paginaDe(paginas, zona.inicio + token), seccion: zona.seccion });
   }
   return out;
 }
