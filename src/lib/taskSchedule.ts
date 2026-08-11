@@ -1,3 +1,5 @@
+import { V5_TERMINAL_STATUSES } from "./v5/status";
+
 const TZ = "Europe/Madrid";
 
 const dateFmt = new Intl.DateTimeFormat("es-ES", {
@@ -43,11 +45,18 @@ export function plannedDate(task: any): { iso: string; source: "task_key" | "cre
   return null;
 }
 
-/** Código de catálogo V5 (T-01…T-09) de una tarea, si lo tiene. */
+/**
+ * Código de catálogo de una tarea.
+ * - Histórico (SÓLO lectura): `v5:<YYYY-MM-DD>:T-0X:<id>`.
+ * - Canónico V5: `v5:<rules_version>:<T1|T2_T3|…>:<building>:<subject>:<fp>`.
+ */
 export function taskCode(task: any): string | null {
+  if (typeof task?.task_code === "string" && task.task_code.trim()) return task.task_code;
   const key = typeof task?.task_key === "string" ? task.task_key : null;
-  const fromKey = key?.match(/^v5:\d{4}-\d{2}-\d{2}:(T-\d{2}):/);
-  if (fromKey) return fromKey[1];
+  const legacy = key?.match(/^v5:\d{4}-\d{2}-\d{2}:(T-\d{2}):/);
+  if (legacy) return legacy[1];
+  const canonical = key?.match(/^v5:[^:]+:(T1|T2_T3|T4|T5|T6|T8|T9):/);
+  if (canonical) return canonical[1];
   const fromTitle = typeof task?.title === "string" ? task.title.match(/T-\d{2}/) : null;
   return fromTitle ? fromTitle[0] : null;
 }
@@ -58,12 +67,18 @@ export function taskSubjectId(task: any): string | null {
   if (!key) return null;
   const v5 = key.match(/^v5:\d{4}-\d{2}-\d{2}:T-\d{2}:([0-9a-f-]{36})$/i);
   if (v5) return v5[1];
+  const canonical = key.match(/^v5:[^:]+:(?:T1|T2_T3|T4|T5|T6|T8|T9):[^:]+:([^:]+):[^:]+$/);
+  if (canonical) return canonical[1];
   const legacy = key.match(/^call_queue:\d{4}-\d{2}-\d{2}:([0-9a-f-]{36})$/i);
   return legacy ? legacy[1] : null;
 }
 
+/**
+ * Abierta = no terminal según el vocabulario canónico V5 (status.ts).
+ * `cancelled` y `superseded` son terminales: nunca se muestran vencidas.
+ */
 export function isTaskOpen(task: any): boolean {
-  return task?.status !== "completed" && task?.status !== "skipped";
+  return !V5_TERMINAL_STATUSES.includes(String(task?.status) as never);
 }
 
 export function temporalState(task: any, now: Date = new Date()): TemporalState {

@@ -16,6 +16,8 @@ import {
   isAllowedT5Field,
   isConcreteIncident,
   isValidEvidence,
+  isTraceableId,
+  isValidPastTimestamp,
   type V5BuildingContext,
   type V5Candidate,
   type V5Evidence,
@@ -65,17 +67,32 @@ export function normalizedIncidents(incidents?: V5Incident[] | null): V5Incident
 }
 
 /**
+ * Firma agrupada de la T6 del edificio: unión ordenada y deduplicada de las
+ * firmas canónicas de todas las incidencias. Igualdad de incidencias
+ * (incluida la evidencia) => misma firma.
+ */
+export function t6GroupSignature(incidents: readonly V5Incident[]): string {
+  const sigs = [...new Set(incidents.map(incidentSignature))].sort();
+  return fingerprint({ t6: sigs });
+}
+
+/**
  * Señal EFECTIVA: resuelve llamadas posteriores contradictorias.
  * Todas las reglas usan esta señal, nunca `owner.lastSignal` directamente.
  */
-export function effectiveSignal(owner: V5OwnerContext): {
+export function effectiveSignal(owner: V5OwnerContext, opts: { now?: Date } = {}): {
   signal: V5Signal | null;
   contradicted: boolean;
   reason: string;
 } {
+  const now = opts.now ?? new Date();
   const raw = owner.lastSignal ?? null;
   if (!raw) return { signal: null, contradicted: false, reason: "sin_senal" };
   if (raw.valid === false) return { signal: null, contradicted: false, reason: "senal_invalida" };
+  if (!isTraceableId(raw.source)) return { signal: null, contradicted: false, reason: "senal_sin_source" };
+  if (!isValidPastTimestamp(raw.at, now)) {
+    return { signal: null, contradicted: false, reason: "senal_con_fecha_invalida_o_futura" };
+  }
   const signalMs = ts(raw.at);
   const contraMs = ts(owner.contradictingCallAt);
   if (signalMs !== null && contraMs !== null && contraMs > signalMs) {
@@ -143,9 +160,10 @@ export function hasUsableChannel(owner: V5OwnerContext): boolean {
 }
 
 /** Acciones vivas de la familia T2_T3 (una tarjeta, varias acciones). */
-export function t2t3Actions(owner: V5OwnerContext): V5T2T3Action[] {
+export function t2t3Actions(owner: V5OwnerContext, opts: { now?: Date } = {}): V5T2T3Action[] {
+  const now = opts.now ?? new Date();
   const wa = owner.whatsapp ?? {};
-  const sig = effectiveSignal(owner).signal;
+  const sig = effectiveSignal(owner, { now }).signal;
   const sent = new Set((wa.sentMessageIds ?? []).filter(Boolean) as string[]);
   const actions: V5T2T3Action[] = [];
 
@@ -160,40 +178,51 @@ export function t2t3Actions(owner: V5OwnerContext): V5T2T3Action[] {
     });
   }
 
-  if (wa.consentPending === true && wa.consent !== true) {
+  // Registrar consentimiento EXIGE un evento de consentimiento real y trazable.
+  if (wa.consentPending === true && wa.consent !== true && isTraceableId(wa.consentEventId)) {
     actions.push({
       kind: "registrar_consentimiento",
       reason: "Falta registrar el consentimiento de WhatsApp.",
-      refs: { signalId: sig?.id ?? null, eventId: wa.consentEventId ?? null },
+      refs: { signalId: sig?.id ?? null, eventId: wa.consentEventId!.trim() },
       evidence: [
         {
           field: "consentimiento_whatsapp",
           observed: wa.consent ?? null,
           expected: true,
           source: "wa_consent_signals",
-          reference: wa.consentEventId ?? `owner:${owner.ownerId}`,
+          reference: wa.consentEventId!.trim(),
         },
       ],
     });
   }
 
+  // Enviar WhatsApp EXIGE pendingMessageId o contentEventId real.
+  const pendingId = isTraceableId(wa.pendingMessageId) ? wa.pendingMessageId.trim() : null;
+  const contentId = isTraceableId(wa.contentEventId) ? wa.contentEventId.trim() : null;
+  const msgRef = pendingId ?? contentId;
+  // `wa.sent` global SÓLO suprime como fallback legado explícito y NUNCA
+  // tapa un pendingMessageId/contentEventId nuevo.
+  const legacySuppression = wa.sent === true && wa.legacySentFallback === true && !msgRef;
+  const alreadySent = pendingId !== null && sent.has(pendingId);
   if (
     wa.consent === true &&
     wa.authorizedNumber === true &&
     wa.pendingContentAfterSignal === true &&
-    !(wa.pendingMessageId && sent.has(wa.pendingMessageId)) &&
-    wa.sent !== true
+    msgRef !== null &&
+    !alreadySent &&
+    !legacySuppression
   ) {
     actions.push({
       kind: "enviar_whatsapp",
       reason: "Consentimiento válido, número autorizado y contenido pendiente tras la señal.",
-      refs: { signalId: sig?.id ?? null, messageId: wa.pendingMessageId ?? null },
+      refs: { signalId: sig?.id ?? null, messageId: pendingId, eventId: contentId },
       evidence: [
         {
           field: "contenido_pendiente",
           observed: true,
           source: "wa_conversations",
-          reference: wa.pendingMessageId ?? `owner:${owner.ownerId}`,
+          reference: msgRef,
+          at: isValidPastTimestamp(sig?.at, now) ? sig!.at : null,
         },
       ],
     });
@@ -224,7 +253,7 @@ export function evaluateOwner(
     };
   }
 
-  const eff = effectiveSignal(owner);
+  const eff = effectiveSignal(owner, { now });
   const signal = eff.signal;
 
   // --- T8: interés vigente (señal efectiva). Gana a todas las automáticas.
@@ -288,7 +317,7 @@ export function evaluateOwner(
   }
 
   // --- T2_T3: UNA tarjeta con todas las acciones vivas.
-  const actions = t2t3Actions(owner);
+  const actions = t2t3Actions(owner, { now });
   if (actions.length > 0) {
     return {
       candidate: makeCandidate({
@@ -413,6 +442,9 @@ export function evaluateBuildingT6(building: V5BuildingContext): V5T6Result {
     reason: `Incidencias registrales/datos por resolver: ${incidents.length}.`,
     evidence: incidents.flatMap((i) => i.evidence).filter(isValidEvidence),
     trigger: {
+      // Firma CANÓNICA completa: incluye la evidencia (reference/at/quote),
+      // de modo que un cambio material sólo en la evidencia cambia el
+      // trigger_fingerprint de la T6.
       incidencias: incidents.map((i) => ({
         id: i.id,
         campo: i.field,
@@ -421,10 +453,16 @@ export function evaluateBuildingT6(building: V5BuildingContext): V5T6Result {
         fuente: i.source,
         accion: i.action,
         bloqueante: i.blocking === true,
+        firma: incidentSignature(i),
       })),
+      firma_agrupada: t6GroupSignature(incidents),
       alineacion,
     },
-    snapshotExtra: { alineacion, incidencias_count: incidents.length },
+    snapshotExtra: {
+      alineacion,
+      incidencias_count: incidents.length,
+      firma_agrupada: t6GroupSignature(incidents),
+    },
   });
   return { candidate, hardBlocking, incidents, reason: hardBlocking ? "T6 bloqueante" : "T6 no bloqueante" };
 }
@@ -468,15 +506,19 @@ export function evaluateBuildingT9(
     (o) =>
       o.contactedEver !== true ||
       !o.lastContact ||
-      ts(o.lastContact.at) === null ||
-      !o.lastContact.source ||
-      !o.lastContact.eventId,
+      !isValidPastTimestamp(o.lastContact.at, now) ||
+      !isTraceableId(o.lastContact.source) ||
+      !isTraceableId(o.lastContact.eventId),
   );
   if (sinEvento.length > 0) {
     return {
       candidate: null,
       reason: `T9 no procede: titulares sin evento de contacto real (${sinEvento.map((o) => o.ownerId).join(", ")})`,
     };
+  }
+  const eventIds = building.owners.map((o) => o.lastContact!.eventId.trim());
+  if (new Set(eventIds).size !== eventIds.length) {
+    return { candidate: null, reason: "T9 no procede: eventos de contacto duplicados entre titulares" };
   }
   if (personalCandidates.length > 0) {
     return { candidate: null, reason: "T9 no procede: existe candidato personal abierto" };
@@ -485,10 +527,11 @@ export function evaluateBuildingT9(
     return { candidate: null, reason: "T9 no procede: existe acción personal abierta" };
   }
   const noveltyMs = ts(building.lastNoveltyAt);
-  if (noveltyMs === null) {
+  if (noveltyMs === null || !isValidPastTimestamp(building.lastNoveltyAt, now)) {
     return { candidate: null, reason: "T9 no procede: última novedad ausente o inválida" };
   }
-  if (now.getTime() - noveltyMs < 90 * DAY_MS) {
+  // Novedad ESTRICTAMENTE mayor de 90 días (>90, no >=).
+  if (now.getTime() - noveltyMs <= 90 * DAY_MS) {
     return { candidate: null, reason: "T9 no procede: hay novedad en los últimos 90 días" };
   }
 

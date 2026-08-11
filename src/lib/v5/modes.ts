@@ -15,22 +15,44 @@ import { V5_TASK_CODES } from "./model";
 export type V5Bucket = V5TaskCode;
 export const V5_BUCKETS: readonly V5Bucket[] = V5_TASK_CODES;
 
-export type V5ModeCode = "iniciar_conversaciones" | "equilibrado" | "seguimiento" | "manual";
+/**
+ * Los CUATRO modos comerciales. `personalizado` (histórico: "manual") es un
+ * modo comercial que SÍ genera automáticas con su propio mapa de pesos: no
+ * tiene nada que ver con generation_mode='manual' (tarea creada por una
+ * persona, ver manualDemo.ts).
+ */
+export const V5_COMMERCIAL_MODES = [
+  "iniciar_conversaciones",
+  "equilibrado",
+  "seguimiento",
+  "personalizado",
+] as const;
+export type V5ModeCode = (typeof V5_COMMERCIAL_MODES)[number] | "manual";
 export type V5Mix = Partial<Record<string, number>>;
+
+/** Alias histórico: el modo comercial "manual" ES "personalizado". */
+export function normalizeModeCode(mode: V5ModeCode): Exclude<V5ModeCode, "manual"> {
+  return mode === "manual" ? "personalizado" : mode;
+}
 
 /** Únicos autorizados a guardar pesos. */
 export const V5_MODE_WEIGHT_EDITORS = ["carlos.moreno", "carlos.sanz"] as const;
 
-/** Los tres códigos existen; el mix es null hasta que se guarde en panel. */
+/** Los códigos existen; el mix es null hasta que se guarde en panel. */
 export const V5_PREDEFINED_MODES: Record<Exclude<V5ModeCode, "manual">, { mix: null }> = {
   iniciar_conversaciones: { mix: null },
   equilibrado: { mix: null },
   seguimiento: { mix: null },
+  personalizado: { mix: null },
 };
 
 export type V5MixValidation = { valid: boolean; total: number; errors: string[] };
 
-/** Validación EXACTA: los 7 buckets, enteros, sin extras ni T7, suma 100. */
+/**
+ * Validación EXACTA: los 7 buckets generables, enteros, suma 100.
+ * T7 puede venir en el mapa completo del panel, pero SÓLO con valor 0 y se
+ * elimina antes del selector: nunca es generable.
+ */
 export function validateMix(mix: V5Mix | null | undefined): V5MixValidation {
   const errors: string[] = [];
   if (!mix || typeof mix !== "object") {
@@ -39,7 +61,7 @@ export function validateMix(mix: V5Mix | null | undefined): V5MixValidation {
   let total = 0;
   for (const [code, raw] of Object.entries(mix)) {
     if (code === "T7") {
-      errors.push("T7 está excluida del motor V5.");
+      if (Number(raw) !== 0) errors.push("T7 está excluida del motor V5: sólo admite 0.");
       continue;
     }
     if (!(V5_BUCKETS as readonly string[]).includes(code)) {
@@ -60,9 +82,20 @@ export function validateMix(mix: V5Mix | null | undefined): V5MixValidation {
   return { valid: errors.length === 0, total, errors };
 }
 
+/** Mapa listo para el selector: T7 eliminada (no se considera generable). */
+export function generableMix(mix: V5Mix): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [code, raw] of Object.entries(mix)) {
+    if (code === "T7") continue;
+    if (!(V5_BUCKETS as readonly string[]).includes(code)) continue;
+    out[code] = Number(raw) || 0;
+  }
+  return out;
+}
+
 /**
- * NINGÚN modo se activa sin mapa completo: el modo `manual` (personalizado)
- * también genera tareas automáticas, no es una pausa.
+ * NINGÚN modo se activa sin mapa completo: el modo `personalizado` (alias
+ * histórico `manual`) también genera tareas automáticas, no es una pausa.
  */
 export function isModeActivatable(mode: V5ModeCode, mix: V5Mix | null | undefined): { activatable: boolean; errors: string[] } {
   void mode;
@@ -94,7 +127,8 @@ export function resolveModeFor(
   const ov = comercialId ? config.overrides?.[comercialId] : undefined;
   const chosen = ov ?? config.global;
   const source: "override" | "global" = ov ? "override" : "global";
-  return { mode: chosen.mode, mix: chosen.mode === "manual" ? null : chosen.mix ?? null, source };
+  // El modo personalizado (alias `manual`) CONSERVA su mapa completo.
+  return { mode: normalizeModeCode(chosen.mode), mix: chosen.mix ?? null, source };
 }
 
 export type V5WindowEntry = { taskKey: string; bucket: string };
@@ -136,21 +170,11 @@ export function selectNextByMode(input: V5SelectNextInput): V5SelectNextResult {
   const resolved = resolveModeFor(input.comercialId, input.config);
 
   const base = {
-    mode: resolved.mode,
+    mode: normalizeModeCode(resolved.mode),
     source: resolved.source,
     comercial_id: input.comercialId,
     window_size: windowIn.length,
   };
-
-  if (resolved.mode === "manual") {
-    return {
-      selected: null,
-      window: [...windowIn],
-      modeSnapshot: { ...base, automaticas: 0, motivo: "Modo manual: cero tareas automáticas." },
-      reasons: ["Modo manual: no se generan automáticas."],
-      rejected,
-    };
-  }
 
   const activatable = isModeActivatable(resolved.mode, resolved.mix);
   if (!activatable.activatable) {
@@ -162,7 +186,7 @@ export function selectNextByMode(input: V5SelectNextInput): V5SelectNextResult {
       rejected,
     };
   }
-  const mix = resolved.mix as Record<string, number>;
+  const mix = generableMix(resolved.mix as V5Mix);
 
   const inWindow = new Set(windowIn.map((e) => e.taskKey));
   const pool: V5Candidate[] = [];
