@@ -13,13 +13,13 @@ import ts from "typescript";
 export type WriteOp = {
   file: string;
   kind: "ts" | "sql";
-  op: "insert" | "upsert" | "merge";
+  op: "insert" | "upsert" | "merge" | "update" | "delete" | "rpc";
   /** Texto del payload emparejado con la operación (objeto TS o cuerpo SQL). */
   payload: string;
   line: number;
   /** Función/RPC que contiene la operación (`null` si es de nivel superior). */
   fn: string | null;
-  /** Tabla resuelta; `null` = no resoluble (fail-closed). */
+  /** Tabla resuelta (o nombre de RPC si op="rpc"); `null` = no resoluble. */
   table: string | null;
   /** Motivo cuando el destino no se pudo resolver. */
   unresolved?: string;
@@ -44,11 +44,6 @@ type TsRule = {
  * Nada más puede crear filas en building_tasks.
  */
 export const AUTHORIZED_WRITERS: Record<string, TsRule> = {
-  "supabase/functions/_shared/taskWriters.ts#insertV5CallQueueTask": {
-    id: "v5_call_queue_historico",
-    validator: "assertV5CallQueueRow",
-    mode: "assert",
-  },
   "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask": {
     id: "v5_canonica_motor",
     validator: "assertV5CanonicalTaskRow",
@@ -70,6 +65,59 @@ export const AUTHORIZED_SQL_WRITERS: Record<string, { id: string; requires: RegE
   "public.create_manual_building_task": {
     id: "manual_rpc",
     requires: [/'manual'/, /manual_subtype/i],
+  },
+};
+
+/**
+ * Writers RETIRADOS: importarlos o llamarlos desde cualquier módulo es una
+ * violación. El histórico sólo se LEE (parseLegacyHistoricTaskKey).
+ */
+export const RETIRED_WRITERS = ["insertV5CallQueueTask", "insertBuildingTaskLegacy"] as const;
+
+/** Mutaciones DML directas autorizadas en TS/TSX: NINGUNA (la UI usa RPC). */
+export const AUTHORIZED_TS_MUTATIONS: Record<string, string> = {};
+
+/** RPC de mutación de tareas autorizadas: nombre -> unidad(es) de llamada. */
+export const AUTHORIZED_TASK_RPCS: Record<string, { id: string; units: string[] }> = {
+  start_building_task: { id: "lifecycle_start", units: ["src/lib/taskStart.ts#startBuildingTask"] },
+  reopen_building_task: { id: "lifecycle_reopen", units: ["src/lib/taskStart.ts#reopenBuildingTask"] },
+  resolve_building_task: { id: "lifecycle_resolve", units: ["src/lib/taskStart.ts#resolveBuildingTask"] },
+  create_manual_building_task: { id: "manual_rpc", units: [] },
+  commit_v5_generation_plan: {
+    id: "v5_runtime_commit",
+    units: ["supabase/functions/v5_task_runtime/index.ts#commitPlan"],
+  },
+  claim_v5_generation_requests: {
+    id: "v5_runtime_claim",
+    units: ["supabase/functions/v5_task_runtime/index.ts#claim"],
+  },
+  release_v5_generation_request: {
+    id: "v5_runtime_release",
+    units: ["supabase/functions/v5_task_runtime/index.ts#release"],
+  },
+  reap_v5_generation_leases: {
+    id: "v5_runtime_reap",
+    units: ["supabase/functions/v5_task_runtime/index.ts#reap"],
+  },
+  request_v5_generation: { id: "v5_request", units: [] },
+};
+
+/** Nombres de RPC que el inventario considera "de tareas" (no toda la app). */
+export const TASK_RPC_RX = /(building_task|_v5_generation|task_runtime)/i;
+
+/** Mutaciones SQL (update/delete) autorizadas por función + contrato. */
+export const AUTHORIZED_SQL_MUTATORS: Record<string, { id: string; requires: RegExp[] }> = {
+  "public.start_building_task": { id: "lifecycle_start", requires: [/FOR UPDATE/i, /auth\.uid\(\)/i] },
+  "public.reopen_building_task": { id: "lifecycle_reopen", requires: [/FOR UPDATE/i, /auth\.uid\(\)/i] },
+  "public.resolve_building_task": { id: "lifecycle_resolve", requires: [/FOR UPDATE/i, /auth\.uid\(\)/i] },
+  "public.commit_v5_generation_plan": { id: "v5_commit_plan", requires: [/lease/i] },
+};
+
+/** DML de nivel superior autorizada en migraciones (clasificación histórica). */
+export const AUTHORIZED_SQL_TOPLEVEL: Record<string, { id: string; requires: RegExp[] }> = {
+  "supabase/pending_migrations/20260811230000_v5_engine_phase_a.sql#update": {
+    id: "clasificacion_historico_legacy",
+    requires: [/generation_mode\s*=\s*'legacy'/i],
   },
 };
 
