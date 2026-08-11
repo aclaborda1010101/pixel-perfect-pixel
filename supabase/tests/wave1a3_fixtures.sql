@@ -32,6 +32,11 @@ INSERT INTO public.buildings (id, direccion, division_horizontal) VALUES
   ('99999999-9999-9999-9999-999999999999', 'Serrano 2',        false),
   ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Velázquez 8',      true);
 
+-- Edificios de los casos POSITIVOS (no-DH, sin conflicto alguno).
+INSERT INTO public.buildings (id, direccion, division_horizontal) VALUES
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Positivo 100', false),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Positivo 60/40', false);
+
 INSERT INTO public.owners (id, nombre, metadatos) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'ANA LOPEZ',  '{"dni__nif__cif":"00000001A"}'::jsonb),
   ('a0000000-0000-0000-0000-000000000002', 'LUIS PEREZ', '{"dni__nif__cif":"00000002B"}'::jsonb);
