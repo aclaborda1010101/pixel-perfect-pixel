@@ -12,6 +12,7 @@ import { normalizeNombre, normalizeDoc, type RolCanonico } from "./lib.ts";
 import { candidatosPorcentaje, parsePorcentajeFuente, redondearExacto, type PorcentajeFuente } from "./porcentaje.ts";
 import {
   contarTokensParticipacion,
+  localizarVentanaRegistral,
   tokenizarDocumento,
   type SeccionTipo,
 } from "./parsing.ts";
@@ -33,8 +34,10 @@ export type HechoEsperado = {
   offset: number;
   /** Rango [inicio,fin) del hecho dentro del texto fuente. */
   range: [number, number];
+  locator: string;
   cita: string;
   seccion: SeccionTipo;
+  section_reason: string;
 };
 
 export type Inventario = {
@@ -86,7 +89,7 @@ export function derechoDe(texto: string): HechoEsperado["right_type"] | null {
   return null;
 }
 
-const RE_NOMBRE = /(?:titular(?:es)?|a\s+favor\s+de|adquirente|due[ñn][oa])\s*:?\s*([^\n;]{3,120}?)(?=\s*(?:,|;|\s+con\s+|\s*(?:d\.?n\.?i|n\.?i\.?f|c\.?i\.?f)\b|\s*participaci[oó]n\b|$))/i;
+const RE_NOMBRE = /(?:titular(?:es)?|a\s+favor\s+de|adquirente|due[ñn][oa])\s*:?\s*([^;,.]{3,120}?)(?=\s*(?:,|\.|;|\s+con\s+|\s*(?:d\.?n\.?i|n\.?i\.?f|c\.?i\.?f)\b|\s*participaci[oó]n\b|$))/i;
 const RE_DOC = /\b(\d{8}[A-Za-z]|[A-Za-z]\d{7}[A-Za-z0-9]|[A-Za-z]-?\d{8})\b/;
 
 function extraerNombre(texto: string): string | null {
@@ -126,6 +129,7 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
 
   // TOKENIZACIÓN POR OFFSETS: funciona con el documento en una sola línea.
   const { paginas, zonas, bloques } = tokenizarDocumento(src);
+  const ventana = localizarVentanaRegistral(src);
   inv.paginas = paginas.length ? Math.max(...paginas.map((p) => p.page)) : 0;
   inv.diagnostico.zonas_titularidad = zonas.filter((z) => z.seccion === "titularidad").length;
   inv.diagnostico.zonas_cargas = zonas.filter((z) => z.seccion === "cargas").length;
@@ -154,8 +158,10 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       continue;
     }
 
-    const cita = linea.trim();
-    const candidatos = candidatosPorcentaje(linea);
+    const tokenLocal = linea.toUpperCase().lastIndexOf("PARTICIPACION");
+    const tramoInmediato = tokenLocal >= 0 ? linea.slice(tokenLocal, Math.min(linea.length, tokenLocal + 260)) : linea;
+    const cita = linea.trim().slice(0, 700);
+    const candidatos = candidatosPorcentaje(tramoInmediato);
     if (candidatos.length === 0) {
       inv.ambiguos.push({ page, offset: inicio, cita, motivo: "participacion_sin_porcentaje" });
       continue;
@@ -164,7 +170,7 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       inv.ambiguos.push({ page, offset: inicio, cita, motivo: "participacion_con_varios_porcentajes" });
       continue;
     }
-    const derecho = derechoDe(linea);
+    const derecho = derechoDe(tramoInmediato);
     if (!derecho) {
       inv.ambiguos.push({ page, offset: inicio, cita, motivo: "participacion_sin_derecho" });
       continue;
@@ -186,8 +192,10 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       page,
       offset: inicio,
       range: [inicio, bloque.fin],
+      locator: `p${page}:o${inicio}`,
       cita,
       seccion,
+      section_reason: ventana?.razon_fin ?? "ventana_registral_ausente",
     });
   }
 
@@ -202,6 +210,10 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       cita: src.slice(0, 160),
       motivo: `inventario_vacio_con_participaciones:${tokens}`,
     });
+  }
+  const clasificados = inv.hechos.length + inv.cargas + inv.ambiguos.length;
+  if (tokens > 0 && clasificados !== tokens) {
+    inv.ambiguos.push({ page: 0, offset: 0, cita: "", motivo: `tokens_sin_clasificar:${tokens - clasificados}` });
   }
   return inv;
 }

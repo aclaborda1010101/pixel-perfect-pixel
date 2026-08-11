@@ -11,7 +11,7 @@
 export type SeccionTipo = "titularidad" | "cargas" | "descripcion" | "otro";
 
 export type Pagina = { page: number; inicio: number; fin: number };
-export type Zona = { seccion: SeccionTipo; inicio: number; fin: number; encabezado: string };
+export type Zona = { seccion: SeccionTipo; inicio: number; fin: number; encabezado: string; razon?: string };
 export type Bloque = {
   texto: string;
   inicio: number;
@@ -23,21 +23,40 @@ export type Bloque = {
 /** Marcadores de página por POSICIÓN (no por línea). */
 const RE_PAGINA_MARCA = /\f|(?:-{0,3}\s*)?P[áa]g(?:ina)?\.?\s*(\d{1,3})(?:\s*(?:de|\/)\s*\d{1,3})?/gi;
 
-/** Encabezados de sección reconocibles aunque vayan pegados al texto. */
-const RE_ENCABEZADO =
-  /(MAPA\s+DE\s+TITULARIDADES?|TITULARIDADES?|TITULARES|DERECHOS\s+INSCRITOS|CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?|HIPOTECAS?|AFECCIONES?|EMBARGOS?|SERVIDUMBRES?|ANOTACIONES\s+PREVENTIVAS?|DESCRIPCI[ÓO]N(?:\s+DE\s+LA\s+FINCA)?)\s*:?/g;
-
-/** Delimitador de bloque de hecho: cada titular abre uno. */
-const RE_INICIO_HECHO = /(?:TITULAR(?:ES)?\s*:|A\s+FAVOR\s+DE\s*:?|ADQUIRENTE\s*:)/gi;
+/** Sólo cabeceras estructurales; palabras narrativas nunca cambian sección. */
+const RE_TITULARIDADES_HEADER = /(?:MAPA\s+DE\s+)?TITULARIDADES?\s*:/gi;
+const RE_CARGAS_HEADER = /CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?\s*:/gi;
 
 export const RE_PARTICIPACION_G = /PARTICIPACI[ÓO]N/gi;
 
-function tipoDeEncabezado(h: string): SeccionTipo {
-  const t = h.toUpperCase();
-  if (/CARG|HIPOTEC|AFECCI|EMBARG|SERVIDUMBRE|ANOTACI/.test(t)) return "cargas";
-  if (/TITULAR/.test(t)) return "titularidad";
-  if (/DESCRIPCI/.test(t)) return "descripcion";
-  return "otro";
+export type VentanaRegistral = {
+  inicio: number;
+  fin: number;
+  titularidades_header: [number, number];
+  cargas_header: [number, number];
+  razon_inicio: "cabecera_titularidades";
+  razon_fin: "cabecera_cargas_estructural";
+};
+
+function primera(re: RegExp, src: string, desde = 0): RegExpExecArray | null {
+  re.lastIndex = desde;
+  return re.exec(src);
+}
+
+/** Ventana inequívoca [fin cabecera TITULARIDADES, inicio cabecera CARGAS). */
+export function localizarVentanaRegistral(src: string): VentanaRegistral | null {
+  const titular = primera(RE_TITULARIDADES_HEADER, src);
+  if (!titular) return null;
+  const cargas = primera(RE_CARGAS_HEADER, src, titular.index + titular[0].length);
+  if (!cargas) return null;
+  return {
+    inicio: titular.index + titular[0].length,
+    fin: cargas.index,
+    titularidades_header: [titular.index, titular.index + titular[0].length],
+    cargas_header: [cargas.index, cargas.index + cargas[0].length],
+    razon_inicio: "cabecera_titularidades",
+    razon_fin: "cabecera_cargas_estructural",
+  };
 }
 
 /** Páginas por posición. Siempre devuelve al menos una página cubriendo todo. */
@@ -78,59 +97,35 @@ export function paginaDe(paginas: Pagina[], offset: number): number {
 
 /** Zonas de sección por posición: CARGAS/HIPOTECAS excluyen sus participaciones. */
 export function segmentarSecciones(src: string): Zona[] {
-  const cortes: Array<{ idx: number; fin: number; seccion: SeccionTipo; encabezado: string }> = [];
-  RE_ENCABEZADO.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = RE_ENCABEZADO.exec(src))) {
-    cortes.push({ idx: m.index, fin: m.index + m[0].length, seccion: tipoDeEncabezado(m[1]), encabezado: m[0].trim() });
-  }
-  const zonas: Zona[] = [];
-  if (cortes.length === 0 || cortes[0].idx > 0) {
-    zonas.push({ seccion: "otro", inicio: 0, fin: cortes.length ? cortes[0].idx : src.length, encabezado: "" });
-  }
-  for (let i = 0; i < cortes.length; i++) {
-    const c = cortes[i];
-    const fin = i + 1 < cortes.length ? cortes[i + 1].idx : src.length;
-    if (fin > c.fin) zonas.push({ seccion: c.seccion, inicio: c.fin, fin, encabezado: c.encabezado });
-  }
-  return zonas;
+  const v = localizarVentanaRegistral(src);
+  if (!v) return [{ seccion: "otro", inicio: 0, fin: src.length, encabezado: "", razon: "ventana_registral_ausente" }];
+  const out: Zona[] = [];
+  if (v.titularidades_header[0] > 0) out.push({ seccion: "otro", inicio: 0, fin: v.titularidades_header[0], encabezado: "", razon: "antes_titularidades" });
+  out.push({ seccion: "titularidad", inicio: v.inicio, fin: v.fin, encabezado: src.slice(...v.titularidades_header), razon: v.razon_fin });
+  out.push({ seccion: "cargas", inicio: v.cargas_header[1], fin: src.length, encabezado: src.slice(...v.cargas_header), razon: v.razon_fin });
+  return out;
 }
 
 /**
- * Bloques semánticos de hecho dentro de una zona. Un bloque arranca en un
- * delimitador de titular y termina en el siguiente (o al final de la zona).
- * Sin delimitadores se cae a los separadores fuertes (";", "|").
+ * Bloques semánticos: CADA token PARTICIPACION abre un hecho y termina justo
+ * antes del siguiente token (o al final de la sección). No depende de líneas,
+ * guiones, TITULAR: ni de separadores editoriales.
  */
 export function segmentarBloques(src: string, zona: Zona, paginas: Pagina[]): Bloque[] {
   const trozo = src.slice(zona.inicio, zona.fin);
   const arranques: number[] = [];
-  RE_INICIO_HECHO.lastIndex = 0;
+  RE_PARTICIPACION_G.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = RE_INICIO_HECHO.exec(trozo))) arranques.push(m.index);
-
-  const rangos: Array<[number, number]> = [];
-  if (arranques.length) {
-    if (arranques[0] > 0) rangos.push([0, arranques[0]]);
-    for (let i = 0; i < arranques.length; i++) {
-      rangos.push([arranques[i], i + 1 < arranques.length ? arranques[i + 1] : trozo.length]);
-    }
-  } else {
-    let cursor = 0;
-    const re = /[;|]/g;
-    let s: RegExpExecArray | null;
-    while ((s = re.exec(trozo))) {
-      rangos.push([cursor, s.index]);
-      cursor = s.index + 1;
-    }
-    rangos.push([cursor, trozo.length]);
-  }
+  while ((m = RE_PARTICIPACION_G.exec(trozo))) arranques.push(m.index);
 
   const out: Bloque[] = [];
-  for (const [a, b] of rangos) {
-    const texto = trozo.slice(a, b);
-    if (!texto.trim()) continue;
-    const inicio = zona.inicio + a;
-    out.push({ texto, inicio, fin: zona.inicio + b, page: paginaDe(paginas, inicio), seccion: zona.seccion });
+  for (let i = 0; i < arranques.length; i++) {
+    const token = arranques[i];
+    const previo = i === 0 ? 0 : arranques[i - 1] + "PARTICIPACION".length;
+    const a = Math.max(previo, token - 320);
+    const b = i + 1 < arranques.length ? arranques[i + 1] : trozo.length;
+    const inicioToken = zona.inicio + token;
+    out.push({ texto: trozo.slice(a, b), inicio: inicioToken, fin: zona.inicio + b, page: paginaDe(paginas, inicioToken), seccion: zona.seccion });
   }
   return out;
 }
