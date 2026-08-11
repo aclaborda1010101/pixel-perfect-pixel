@@ -125,6 +125,25 @@ psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
   -c "GRANT ALL ON ALL TABLES IN SCHEMA public, auth, storage TO \"$ROLE\";" >/dev/null 2>&1 || true
 psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
   -c "GRANT anon, authenticated, service_role, supabase_auth_admin TO \"$ROLE\";" >/dev/null 2>&1 || true
+# El rol dedicado debe poder mantener los objetos de plataforma que las
+# migraciones históricas modifican (p. ej. políticas sobre storage.objects).
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q -c "DO \$own\$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT nspname FROM pg_namespace WHERE nspname IN ('public','auth','storage','extensions') LOOP
+    EXECUTE format('ALTER SCHEMA %I OWNER TO %I', r.nspname, '$ROLE');
+  END LOOP;
+  FOR r IN SELECT schemaname, tablename FROM pg_tables
+           WHERE schemaname IN ('public','auth','storage') LOOP
+    EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', r.schemaname, r.tablename, '$ROLE');
+  END LOOP;
+  FOR r IN SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+           WHERE n.nspname IN ('public','auth','storage')
+             AND p.oid NOT IN (SELECT objid FROM pg_depend WHERE deptype = 'e' AND classid = 'pg_proc'::regclass) LOOP
+    EXECUTE format('ALTER FUNCTION %I.%I(%s) OWNER TO %I', r.nspname, r.proname, r.args, '$ROLE');
+  END LOOP;
+END \$own\$;" >/dev/null 2>&1 || true
 
 CHAIN=()
 if [ -d "$ROOT/supabase/migrations" ]; then
