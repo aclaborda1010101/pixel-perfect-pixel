@@ -444,7 +444,13 @@ export function logicalRightKey(t: {
   const desdeLiteral = t.rol_literal != null && String(t.rol_literal).trim()
     ? normalizeRol(t.rol_literal)
     : null;
-  // Misma precedencia que normalizeTitularChecked: literal específico manda.
-  const rol = esRolEspecifico(desdeLiteral) ? (desdeLiteral as RolCanonico) : normalizeRol(t.rol);
+  // Misma precedencia que normalizeTitularChecked: literal específico manda;
+  // si no lo es, el rol declarado; y en su defecto el literal reconocido.
+  const hayRol = t.rol != null && String(t.rol).trim() !== "";
+  const rol = esRolEspecifico(desdeLiteral)
+    ? (desdeLiteral as RolCanonico)
+    : hayRol
+      ? normalizeRol(t.rol)
+      : (desdeLiteral ?? "otro");
   return `${baseIdentityKey(t)}|${rol}|${rolLit}`;
 }
