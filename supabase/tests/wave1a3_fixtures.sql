@@ -676,7 +676,6 @@ DO $$
 DECLARE
   fallos int := 0;
   d jsonb;
-  PROCEDURE_NOOP boolean;
   r record;
 BEGIN
   CREATE TEMP TABLE IF NOT EXISTS _p04_matriz(caso text, ok boolean) ON COMMIT DROP;
