@@ -281,7 +281,6 @@ function scanTs(file: string, source: string): WriteOp[] {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const name = node.name.text;
       const init = ts.isAsExpression(node.initializer) ? node.initializer.expression : node.initializer;
-      if (ts.isCallExpression(init) && ts.isNewExpression(init as any)) { /* noop */ }
       if (ts.isNewExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === "Set") {
         const arg = init.arguments?.[0];
         if (arg && ts.isArrayLiteralExpression(arg)) {
