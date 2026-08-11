@@ -3,6 +3,7 @@
 // T-07 excluido por decisión del cliente. No publica nada en HubSpot.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 import { insertV5CallQueueTask } from '../_shared/taskWriters.ts';
+import { decideRuntimeMode } from '../_shared/v5Runtime.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
