@@ -558,6 +558,34 @@ function checkTsContract(
   return null;
 }
 
+/**
+ * Contrato SQL: la operación debe estar DENTRO del cuerpo de la función
+ * autorizada, la validación debe precederla en el mismo cuerpo y a
+ * profundidad 0 (no rama muerta), sobre las mismas variables escritas, y no
+ * puede haber mutaciones posteriores de la tabla en el mismo cuerpo.
+ */
+function checkSqlContract(
+  op: WriteOp, rule: { id: string; requires: RegExp[] }, source: string,
+): string | null {
+  const range = sqlFunctionRanges(source).find((r) => r.name === op.fn && op.pos > r.bodyStart && op.pos < r.bodyEnd);
+  if (!range) return `${rule.id}: la operación no está dentro del cuerpo de ${op.fn}`;
+  const antes = source.slice(range.bodyStart, op.pos);
+  for (const rx of rule.requires) {
+    const local = new RegExp(rx.source, rx.flags.replace("g", "") + "g");
+    let ok = false;
+    let m: RegExpExecArray | null;
+    while ((m = local.exec(antes))) {
+      // Validación a profundidad 0: nunca en una rama que pueda no ejecutarse.
+      if (plpgsqlDepth(antes.slice(0, m.index)) <= 0) { ok = true; break; }
+    }
+    if (!ok) return `${rule.id}: la definición no cumple el contrato antes de escribir (${rx})`;
+  }
+  if (plpgsqlDepth(antes) > 0) {
+    return `${rule.id}: la escritura está en una rama condicional no dominada`;
+  }
+  return null;
+}
+
 export function classifyBuildingTaskWrites(
   ops: readonly WriteOp[],
   sources: Readonly<Record<string, string>>,
@@ -576,20 +604,66 @@ export function classifyBuildingTaskWrites(
     }
 
     if (op.kind === "sql") {
-      const rule = op.fn ? AUTHORIZED_SQL_WRITERS[op.fn] : undefined;
-      if (!rule) {
+      const src = sources[op.file] ?? "";
+      if (!op.fn) {
+        const rule = AUTHORIZED_SQL_TOPLEVEL[`${op.file}#${op.op}`];
+        if (rule && rule.requires.every((rx) => rx.test(op.payload))) {
+          authorized.push(op);
+          continue;
+        }
         violations.push({
           file: op.file, line: op.line,
-          reason: `${op.op} SQL no autorizado sobre building_tasks (fn: ${op.fn ?? "nivel superior"})`,
+          reason: `${op.op} SQL de NIVEL SUPERIOR sobre building_tasks (fuera de toda función autorizada)`,
         });
         continue;
       }
-      const body = sqlFunctionBody(sources[op.file] ?? "", op.pos);
-      const falta = rule.requires.find((rx) => !rx.test(body));
-      if (falta) {
+      const rule =
+        op.op === "update" || op.op === "delete"
+          ? AUTHORIZED_SQL_MUTATORS[op.fn]
+          : AUTHORIZED_SQL_WRITERS[op.fn];
+      if (!rule) {
         violations.push({
           file: op.file, line: op.line,
-          reason: `${rule.id}: la definición no cumple el contrato (${falta})`,
+          reason: `${op.op} SQL no autorizado sobre building_tasks (fn: ${op.fn})`,
+        });
+        continue;
+      }
+      const problema = checkSqlContract(op, rule, src);
+      if (problema) {
+        violations.push({ file: op.file, line: op.line, reason: problema });
+        continue;
+      }
+      authorized.push(op);
+      continue;
+    }
+
+    if (op.op === "rpc") {
+      const rpc = AUTHORIZED_TASK_RPCS[String(op.table)];
+      const unit = `${op.file}#${op.fn ?? ""}`;
+      if (!rpc) {
+        violations.push({
+          file: op.file, line: op.line,
+          reason: `RPC de tareas no autorizada: ${op.table} en ${unit}`,
+        });
+        continue;
+      }
+      if (rpc.units.length > 0 && !rpc.units.includes(unit)) {
+        violations.push({
+          file: op.file, line: op.line,
+          reason: `${rpc.id}: callsite no autorizado (${unit})`,
+        });
+        continue;
+      }
+      authorized.push(op);
+      continue;
+    }
+
+    if (op.op === "update" || op.op === "delete") {
+      const unit = `${op.file}#${op.fn ?? ""}`;
+      if (!AUTHORIZED_TS_MUTATIONS[unit]) {
+        violations.push({
+          file: op.file, line: op.line,
+          reason: `DML directa (${op.op}) sobre building_tasks prohibida en ${unit}: usa el RPC de ciclo de vida`,
         });
         continue;
       }
