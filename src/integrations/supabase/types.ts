@@ -10389,6 +10389,35 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      reparse_claim_ids: {
+        Args: { p_ids: string[]; p_lock_minutes?: number }
+        Returns: {
+          attempt_count: number
+          building_id: string | null
+          claim_expires_at: string | null
+          claim_token: string | null
+          claimed_at: string | null
+          created_at: string
+          dead_letter: boolean
+          error_message: string | null
+          file_url: string | null
+          id: string
+          last_error: string | null
+          next_retry_at: string | null
+          owner_id: string | null
+          processed_at: string | null
+          raw_pdf_text: string | null
+          riesgo: string | null
+          status: string
+          structured_json: Json | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "notas_simples"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       reparse_clear_match_pending: {
         Args: { p_expected_generation: number }
         Returns: boolean

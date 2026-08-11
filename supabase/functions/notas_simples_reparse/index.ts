@@ -22,7 +22,7 @@
 //      hubspot_sync_log.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
-import { extractText } from "npm:unpdf@0.12.1";
+import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
 import {
   sanitize,
   sanitizeDeep,
@@ -37,10 +37,9 @@ import {
   type NotaRepo,
 } from "./core.ts";
 import { handleReparseRequest, processNotaWithClaim as processNotaWithClaimCore } from "./handler.ts";
-
-// Modelo estable, el mismo que ya usa analyze_nota_simple.
-const PRIMARY = { name: "lovable", url: "https://ai.gateway.lovable.dev/v1/chat/completions", model: "google/gemini-3.1-flash-lite-preview" };
-const FALLBACK = { name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openai/gpt-5.6-luna" };
+import { buildProviders, buildDocumentMessages, callChat, REGLAS_EVIDENCIA } from "./llm.ts";
+import { inspectPdf, fitsSingleDocument, type PdfInspection } from "./pdf.ts";
+import { decideReingest, shouldReplaceStored, fetchHubspotPdf, REINGEST_FLAG } from "./reingest.ts";
 
 // ---------- utilidades de texto ----------
 
@@ -138,8 +137,7 @@ REGLAS:
 - Sólo la dirección de la FINCA (parte "URBANA…" / "DESCRIPCIÓN"), NUNCA la dirección del titular.
 - Los porcentajes en 0-100 (no en fracción). Si es 50%, devuelve 50.
 - "rol" debe ser uno de: pleno, usufructo, nuda_propiedad, ganancial, otro. Si el derecho no encaja con claridad en los cuatro primeros, usa "otro" (NUNCA "pleno" por defecto).
-- Un mismo titular puede aparecer varias veces con derechos distintos (p. ej. nuda propiedad y usufructo): devuélvelos como filas separadas.
-- "rol_literal" es el texto literal del derecho si aparece; "evidencia" sólo si puedes citar el fragmento real. Si no lo tienes, OMÍTELOS.
+- ${REGLAS_EVIDENCIA}
 - Si un dato no aparece con claridad, OMÍTELO (no inventes).
 
 TEXTO:
@@ -148,60 +146,34 @@ ${rawText.slice(0, 60000)}
 """`;
 }
 
-function buildVisionMessages(pdfDataUrl: string, needTitulares: boolean) {
-  const schemaHint = needTitulares
-    ? `{ "direccion": "...", "ref_catastral": "...", "finca_numero": "...", "registro": "...", "titulares": [{ "nombre": "...", "cif_dni": "...", "porcentaje": 0-100, "rol": "pleno|usufructo|nuda_propiedad|ganancial|otro", "rol_literal": "...", "evidencia": { "cita": "...", "pagina": 1, "ruta": "..." } }] }`
-    : `{ "direccion": "...", "ref_catastral": "...", "finca_numero": "...", "registro": "..." }`;
-  return [
-    {
-      role: "user",
-      content: [
-        { type: "text", text: `Extrae de esta NOTA SIMPLE los datos y devuelve SOLO JSON:\n${schemaHint}\n\nReglas: dirección de la FINCA (no del titular); convierte números escritos en letra a cifra; porcentajes 0-100; "rol" sólo puede ser pleno, usufructo, nuda_propiedad, ganancial u otro (usa "otro" si no está claro, NUNCA "pleno" por defecto); un mismo titular con derechos distintos va en filas separadas; "rol_literal" y "evidencia" sólo si constan realmente; omite lo que no aparezca.` },
-        { type: "image_url", image_url: { url: pdfDataUrl } },
-      ],
-    },
-  ];
+async function callLLM(messages: any[]): Promise<{ data: ExtractedFields | null; error?: string; model?: string }> {
+  const providers = buildProviders(Deno.env.get("LOVABLE_API_KEY"));
+  const r = await callChat({
+    providers,
+    messages,
+    fetchImpl: fetch as any,
+    parse: (txt) => sanitizeDeep(JSON.parse(txt)),
+  });
+  if (!r.data) console.error(`[notas_reparse] LLM fail: ${r.error}`);
+  return r as { data: ExtractedFields | null; error?: string; model?: string };
 }
 
-async function callLLM(messages: any[]): Promise<{ data: ExtractedFields | null; error?: string; model?: string }> {
-  const OR = Deno.env.get("OPENROUTER_API_KEY") || "";
-  const LK = Deno.env.get("LOVABLE_API_KEY") || "";
-  const providers = [
-    LK ? { ...PRIMARY, auth: `Bearer ${LK}`, extra: {} as Record<string, string> } : null,
-    OR ? { ...FALLBACK, auth: `Bearer ${OR}`, extra: { "HTTP-Referer": "https://affluxosv2.world", "X-Title": "Afflux OS · Notas Reparse" } } : null,
-  ].filter(Boolean) as any[];
-  if (!providers.length) return { data: null, error: "sin_proveedor_ia_configurado" };
-
-  const errores: string[] = [];
-  for (const p of providers) {
-    try {
-      const r = await fetch(p.url, {
-        method: "POST",
-        headers: { Authorization: p.auth, "Content-Type": "application/json", ...(p.extra ?? {}) },
-        body: JSON.stringify({
-          model: p.model,
-          messages,
-          response_format: { type: "json_object" },
-          temperature: 0,
-          max_tokens: 2000,
-        }),
-      });
-      if (!r.ok) {
-        const detalle = (await r.text()).slice(0, 300);
-        console.error(`[notas_reparse] ${p.name}/${p.model} HTTP ${r.status} ${detalle}`);
-        errores.push(`${p.name}/${p.model} HTTP ${r.status}: ${detalle}`);
-        continue;
-      }
-      const j = await r.json();
-      let txt = j?.choices?.[0]?.message?.content || "{}";
-      txt = String(txt).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-      return { data: sanitizeDeep(JSON.parse(txt)) as ExtractedFields, model: `${p.name}/${p.model}` };
-    } catch (e) {
-      console.error(`[notas_reparse] ${p.name}/${p.model} excepción`, e);
-      errores.push(`${p.name}/${p.model} excepción: ${String((e as Error).message ?? e).slice(0, 200)}`);
-    }
+/** Contador REAL de páginas (unpdf). Nunca lanza hacia fuera. */
+async function contarPaginas(bytes: Uint8Array): Promise<number | null> {
+  try {
+    const doc: any = await getDocumentProxy(bytes);
+    const n = Number(doc?.numPages ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
   }
-  return { data: null, error: errores.join(" | ").slice(0, 500) };
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(bin);
 }
 
 // ---------- procesamiento por nota ----------
@@ -213,7 +185,69 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
     if (!nota.file_url) return { id, ok: false, reason: "no_file_url" };
     const { data: blob, error: dlErr } = await sb.storage.from("notas-simples").download(nota.file_url);
     if (dlErr || !blob) return { id, ok: false, reason: `download_fail:${dlErr?.message ?? "empty"}` };
-    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let bytes = new Uint8Array(await blob.arrayBuffer());
+
+    // 1.b) VALIDACIÓN REAL DEL BINARIO antes de gastar un LLM.
+    let insp: PdfInspection = await inspectPdf(bytes, { countPages: contarPaginas });
+    let pdfOrigen = "storage";
+    const prevStructured = (nota.structured_json && typeof nota.structured_json === "object") ? nota.structured_json : {};
+    const reingest = decideReingest({
+      inspection: insp,
+      hsFileId: prevStructured.hs_file_id ?? null,
+      structured: prevStructured,
+    });
+    if (reingest.reingest) {
+      const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+      const hubspotKey = Deno.env.get("HUBSPOT_API_KEY") ?? "";
+      const bajada = await fetchHubspotPdf({
+        hsFileId: String(prevStructured.hs_file_id),
+        lovableKey, hubspotKey,
+        fetchImpl: fetch as any,
+        countPages: contarPaginas,
+      });
+      let detalle = bajada.ok ? "descargado" : bajada.reason;
+      if (bajada.ok) {
+        const decision = shouldReplaceStored({ nueva: bajada.inspection, shaAnterior: insp.sha256 });
+        detalle = `${detalle}|${decision.reason}`;
+        if (decision.replace) {
+          // Snapshot del binario anterior ANTES de sustituir (auditoría).
+          try {
+            await sb.storage.from("notas-simples").upload(
+              `reingest-backup/${nota.file_url}.${Date.now()}.bak`,
+              blob,
+              { contentType: "application/octet-stream", upsert: false },
+            );
+          } catch { /* el snapshot nunca bloquea el intento */ }
+          const up = await sb.storage.from("notas-simples")
+            .upload(nota.file_url, bajada.bytes, { contentType: "application/pdf", upsert: true });
+          detalle = `${detalle}|upload:${up?.error?.message ?? "ok"}`;
+          if (!up?.error) {
+            bytes = bajada.bytes;
+            insp = bajada.inspection;
+            pdfOrigen = "hubspot_reingest";
+          }
+        }
+      }
+      await sb.from("hubspot_sync_log").insert({
+        tipo: "notas_simples_reparse_reingest",
+        status: bajada.ok && insp.ok ? "ok" : "error",
+        metadatos: {
+          nota_id: id,
+          hs_file_id: prevStructured.hs_file_id ?? null,
+          motivo: reingest.reason,
+          detalle: String(detalle).slice(0, 300),
+          sha_anterior: insp.sha256,
+          pdf_valido: insp.ok,
+        },
+      });
+    }
+    if (!insp.ok) {
+      // Irrecuperable tras la reingesta única: dead-letter trazable, sin bucle.
+      return {
+        id, ok: false, fatal: true,
+        reason: `invalid_pdf_no_pages:${insp.reason}:size=${insp.size}:pages=${insp.pageCount ?? 0}:sha=${(insp.sha256 ?? "").slice(0, 16)}`,
+      } as any;
+    }
 
     // 2) Texto con unpdf
     let rawText = "";
@@ -262,6 +296,15 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
         merged.titulares = titulares as TitularNormalizado[];
         merged.reparse_model = model;
         merged.reparse_schema_version = 2;
+        merged[REINGEST_FLAG] = pdfOrigen === "hubspot_reingest" ? true : (prev[REINGEST_FLAG] ?? false);
+        merged.pdf_meta = {
+          origen: pdfOrigen,
+          size: insp.size,
+          pages: insp.pageCount,
+          sha256: insp.sha256,
+          texto_chars: rawText.length,
+          metodo: rawText.length >= 200 ? "texto_unpdf" : "documento_gateway",
+        };
         refCatastralFinal = merged.ref_catastral ?? null;
         direccionFinal = merged.direccion ?? null;
         // Token OPACO de servidor (uuid tipado), nunca un timestamp serializado.
@@ -294,15 +337,21 @@ async function processOne(sb: any, nota: any, claimToken: string): Promise<{ id:
           { role: "user", content: buildTextPrompt(rawText, needTitulares) },
         ]) as any;
       }
-      let bin = "";
-      const chunk = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-      const dataUrl = `data:application/pdf;base64,${btoa(bin)}`;
-      return await callLLM(buildVisionMessages(dataUrl, needTitulares)) as any;
+      // PDF escaneado (sin capa de texto): bloque DOCUMENTO real del gateway,
+      // nunca un application/pdf disfrazado de image_url.
+      if (!fitsSingleDocument(insp)) {
+        return { data: null, error: `pdf_fuera_de_limites:pages=${insp.pageCount}:size=${insp.size}` } as any;
+      }
+      return await callLLM(buildDocumentMessages({
+        base64: toBase64(bytes),
+        filename: String(nota.file_url ?? "nota.pdf").split("/").pop() || "nota.pdf",
+        needTitulares,
+        pageCount: insp.pageCount,
+      })) as any;
     };
 
     const res = await processNotaCore({ repo, extract }, {
-      notaId: id, claimToken, structured: nota.structured_json,
+      notaId: id, claimToken, structured: nota.structured_json, textoFuente: rawText || null,
     });
     if (!res.ok) {
       return { id, ok: false, reason: `${res.reason}:${res.detalle ?? ""}`.slice(0, 400) };

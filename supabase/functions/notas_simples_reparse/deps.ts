@@ -18,6 +18,11 @@ export type SbLike = {
 
 export type DepsOptions = {
   claimMinutes: number;
+  /**
+   * Canario dirigido (P0.7): reclama EXACTAMENTE estos ids y ningún otro.
+   * Sin ids el comportamiento es el de siempre (lote por cola).
+   */
+  ids?: string[] | null;
   /** Procesa UNA nota ya reclamada (con su claim_token de servidor). */
   processNota(nota: any): Promise<NotaResult>;
   now?(): number;
@@ -55,10 +60,16 @@ export function createReparseDeps(sb: SbLike, opts: DepsOptions): CycleDeps {
     },
 
     async claimBatch(limit) {
-      const { data, error } = await sb.rpc("reparse_claim_batch", {
-        p_limit: limit,
-        p_lock_minutes: opts.claimMinutes,
-      });
+      const ids = (opts.ids ?? []).filter((x) => typeof x === "string" && x.trim());
+      const { data, error } = ids.length
+        ? await sb.rpc("reparse_claim_ids", {
+            p_ids: ids,
+            p_lock_minutes: opts.claimMinutes,
+          })
+        : await sb.rpc("reparse_claim_batch", {
+            p_limit: limit,
+            p_lock_minutes: opts.claimMinutes,
+          });
       if (error) return { rows: null, error: msg(error) };
       return { rows: (data ?? []) as unknown[], error: null };
     },

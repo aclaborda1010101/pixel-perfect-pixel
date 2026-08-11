@@ -320,6 +320,56 @@ export function hasRealEvidence(raw: unknown): boolean {
   return evidenciaFuentes(raw).some(fuenteTieneLocalizador);
 }
 
+/**
+ * Evidencia ANCLADA (P0.7): al menos una fuente con CITA literal no vacía Y
+ * localizador (página o ruta). Una cita suelta o un localizador sin cita no
+ * prueban nada.
+ */
+export function citaAnclada(raw: unknown): EvidenciaFuente | null {
+  for (const f of evidenciaFuentes(raw)) {
+    if (f.cita && f.cita.trim() && fuenteTieneLocalizador(f)) return f;
+  }
+  return null;
+}
+
+/** Texto comparable: sin acentos, sin puntuación y con espacios colapsados. */
+export function textoComparable(raw: unknown): string {
+  return foldAccents(String(raw ?? "")).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/** Fracción mínima de la cita que debe encontrarse literalmente en el texto. */
+export const CITA_COBERTURA_MINIMA = 0.6;
+const CITA_VENTANA = 5;
+
+/**
+ * ¿La cita existe REALMENTE en el texto fuente?
+ *
+ * En una nota simple el hecho ("TITULAR ... PARTICIPACION: 6,25% de la nuda
+ * propiedad") aparece partido por saltos de página y pies de página, así que
+ * exigir contención contigua exacta rechazaría citas legítimas. Se comprueba
+ * por VENTANAS de 5 palabras: al menos una fracción alta de las ventanas de la cita debe
+ * aparecer literalmente en el texto: al menos el 60 % (un corte de página parte
+ * hasta cuatro ventanas). Un texto inventado no supera el umbral.
+ *
+ * Sin texto fuente (escaneado sin capa de texto) no se puede desmentir: true.
+ */
+export function citaVerificable(texto: string | null | undefined, cita: unknown): boolean {
+  const fuente = textoComparable(texto);
+  if (!fuente) return true;
+  const c = textoComparable(cita);
+  if (!c) return false;
+  if (fuente.includes(c)) return true;
+  const palabras = c.split(" ").filter(Boolean);
+  if (palabras.length < CITA_VENTANA) return false;
+  let total = 0;
+  let encontradas = 0;
+  for (let i = 0; i + CITA_VENTANA <= palabras.length; i++) {
+    total++;
+    if (fuente.includes(palabras.slice(i, i + CITA_VENTANA).join(" "))) encontradas++;
+  }
+  return total > 0 && encontradas >= 2 && encontradas / total >= CITA_COBERTURA_MINIMA;
+}
+
 /** Comparación estable de dos evidencias ya canónicas. */
 export function evidenciaStable(raw: unknown): string {
   return evidenciaFuentes(raw).map(fuenteStable).join(";;");
