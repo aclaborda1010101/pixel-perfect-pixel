@@ -2161,6 +2161,121 @@ export type Database = {
           },
         ]
       }
+      building_interlocutor_history: {
+        Row: {
+          accion: string
+          actor_id: string | null
+          building_id: string
+          created_at: string
+          id: string
+          motivo: string | null
+          owner_id: string | null
+        }
+        Insert: {
+          accion: string
+          actor_id?: string | null
+          building_id: string
+          created_at?: string
+          id?: string
+          motivo?: string | null
+          owner_id?: string | null
+        }
+        Update: {
+          accion?: string
+          actor_id?: string | null
+          building_id?: string
+          created_at?: string
+          id?: string
+          motivo?: string | null
+          owner_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
       building_overrides: {
         Row: {
           building_id: string
@@ -2990,6 +3105,10 @@ export type Database = {
           iee_fecha_inspeccion: string | null
           iee_fuente: string | null
           iee_proxima_revision: string | null
+          interlocutor_marcado_at: string | null
+          interlocutor_marcado_por: string | null
+          interlocutor_motivo: string | null
+          interlocutor_owner_id: string | null
           last_synced_at: string | null
           metadatos: Json
           notas: string | null
@@ -3037,6 +3156,10 @@ export type Database = {
           iee_fecha_inspeccion?: string | null
           iee_fuente?: string | null
           iee_proxima_revision?: string | null
+          interlocutor_marcado_at?: string | null
+          interlocutor_marcado_por?: string | null
+          interlocutor_motivo?: string | null
+          interlocutor_owner_id?: string | null
           last_synced_at?: string | null
           metadatos?: Json
           notas?: string | null
@@ -3084,6 +3207,10 @@ export type Database = {
           iee_fecha_inspeccion?: string | null
           iee_fuente?: string | null
           iee_proxima_revision?: string | null
+          interlocutor_marcado_at?: string | null
+          interlocutor_marcado_por?: string | null
+          interlocutor_motivo?: string | null
+          interlocutor_owner_id?: string | null
           last_synced_at?: string | null
           metadatos?: Json
           notas?: string | null
@@ -3103,7 +3230,36 @@ export type Database = {
           score_updated_at?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "buildings_interlocutor_owner_id_fkey"
+            columns: ["interlocutor_owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "buildings_interlocutor_owner_id_fkey"
+            columns: ["interlocutor_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "buildings_interlocutor_owner_id_fkey"
+            columns: ["interlocutor_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "buildings_interlocutor_owner_id_fkey"
+            columns: ["interlocutor_owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
       }
       cadence_steps: {
         Row: {
@@ -10350,7 +10506,15 @@ export type Database = {
           total: number
         }[]
       }
+      can_manage_building_interlocutor: {
+        Args: { _building_id: string; _user_id: string }
+        Returns: boolean
+      }
       clean_owner_name: { Args: { p_name: string }; Returns: string }
+      clear_building_interlocutor: {
+        Args: { p_building_id: string; p_motivo?: string }
+        Returns: Json
+      }
       compute_cluster_score: {
         Args: { p_building_id: string }
         Returns: number
@@ -10725,6 +10889,10 @@ export type Database = {
           similarity: number
         }[]
       }
+      set_building_interlocutor: {
+        Args: { p_building_id: string; p_motivo?: string; p_owner_id: string }
+        Returns: Json
+      }
       set_task_generation_mode: {
         Args: { p_mix?: Json; p_mode: string }
         Returns: Json
@@ -10773,6 +10941,7 @@ export type Database = {
         | "contactado"
         | "en_estudio"
         | "descartado"
+        | "posible_interes"
       buyer_persona:
         | "cansado"
         | "desplazado"
@@ -11000,6 +11169,7 @@ export const Constants = {
         "contactado",
         "en_estudio",
         "descartado",
+        "posible_interes",
       ],
       buyer_persona: [
         "cansado",
