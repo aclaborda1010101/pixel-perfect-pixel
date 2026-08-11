@@ -63,6 +63,21 @@ export function validateManualDraft(draft: Partial<V5ManualDraft>): V5ManualVali
 
 export type V5RecomputeTask = { taskKey: string; generationMode?: string | null };
 
+/**
+ * Guardia de dominio: la demo NUNCA se persiste. Si algún camino intentara
+ * escribir generation_mode='demo' en building_tasks, falla en código antes
+ * de llegar a la base (donde además hay un CHECK que lo prohíbe).
+ */
+export function assertPersistableGenerationMode(mode: unknown): V5GenerationMode {
+  if (mode === V5_PREVIEW_MODE) {
+    throw new Error("La demo es preview puro: generation_mode='demo' no es persistible.");
+  }
+  if (!isPersistableGenerationMode(mode)) {
+    throw new Error(`generation_mode no persistible: ${JSON.stringify(mode)}`);
+  }
+  return mode;
+}
+
 /** Las manuales (y el legado) NUNCA se borran en un recompute. */
 export function isProtectedFromRecompute(task: { generationMode?: string | null }): boolean {
   return task.generationMode === "manual" || task.generationMode === "legacy";
