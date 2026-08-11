@@ -170,6 +170,14 @@ asegurar_placeholder() {
         ALTER TABLE public.buildings ADD COLUMN IF NOT EXISTS comercial text;
       EXCEPTION WHEN others THEN NULL;
       END;
+    END IF;
+    IF to_regclass('public.owners') IS NOT NULL THEN
+      BEGIN
+        ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS fecha_nacimiento date;
+      EXCEPTION WHEN others THEN NULL;
+      END;
+    END IF;
+    IF to_regclass('public.buildings') IS NOT NULL THEN
       BEGIN
         INSERT INTO public.buildings (id, direccion, ciudad)
         VALUES ('0485d8cf-c1a2-4412-b38f-e37fb18961a2', 'BASELINE LOCAL PLACEHOLDER', 'LOCAL')
