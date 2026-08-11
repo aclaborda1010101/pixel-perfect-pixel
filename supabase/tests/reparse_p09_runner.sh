@@ -15,11 +15,17 @@ fi
 AS=""
 if [ "$(id -u)" = "0" ]; then
   RUNAS="${P09_LOCAL_USER:-pgtest}"
-  if ! id "$RUNAS" >/dev/null 2>&1 || ! command -v setpriv >/dev/null 2>&1; then
-    echo "SKIP / NO VERIFICADO: define P09_LOCAL_USER con un usuario local sin privilegios." >&2
+  if id "$RUNAS" >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1; then
+    AS="setpriv --reuid=$(id -u "$RUNAS") --regid=$(id -g "$RUNAS") --clear-groups env HOME=/tmp"
+  elif command -v unshare >/dev/null 2>&1; then
+    # User namespace aislado: uid 0 del namespace se mapea al uid real no-root.
+    # PostgreSQL no ve privilegios de host y el rol SQL service_role sigue siendo
+    # NOSUPERUSER/NOBYPASSRLS.
+    AS="unshare --user --map-auto --map-root-user env HOME=/tmp"
+  else
+    echo "SKIP / NO VERIFICADO: falta usuario local o user namespace aislado." >&2
     exit 3
   fi
-  AS="setpriv --reuid=$(id -u "$RUNAS") --regid=$(id -g "$RUNAS") --clear-groups env HOME=/tmp"
 fi
 
 TMP="$(mktemp -d /tmp/p09cluster.XXXXXX)"
