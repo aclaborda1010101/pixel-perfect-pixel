@@ -17,7 +17,7 @@ function baseDeps(over: Partial<any> = {}) {
     markPending: async () => ({ ok: true as const, generation: 4 }),
     releaseClaim: async (n: any) => { released.push(n.id); return { ok: true as const, released: true }; },
     processNota: async (n: any) => ({ id: n.id, ok: true }),
-    runMatching: async () => ({ ok: true as const }),
+    runMatch: async () => ({ ok: true as const }),
     clearPending: async () => ({ ok: true as const, cleared: true }),
     insertLog: async () => ({ ok: true as const }),
     now: () => 1_000,
@@ -97,7 +97,7 @@ describe("P0.6 · toda excepción es 500/partial trazable", () => {
   });
 
   it("notas OK + matching que LANZA => notas finalizadas, pending true, 500", async () => {
-    const { deps } = baseDeps({ runMatching: async () => { throw new Error("match boom"); } });
+    const { deps } = baseDeps({ runMatch: async () => { throw new Error("match boom"); } });
     const r = await runReparseCycle(deps, { limit: 5 });
     expect(contractual(r)).toEqual([500, "partial", false, "string"]);
     expect(r.body.match_pending).toBe(true);
