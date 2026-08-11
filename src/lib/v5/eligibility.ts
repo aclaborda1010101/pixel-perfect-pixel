@@ -70,14 +70,19 @@ export function normalizedIncidents(incidents?: V5Incident[] | null): V5Incident
  * Señal EFECTIVA: resuelve llamadas posteriores contradictorias.
  * Todas las reglas usan esta señal, nunca `owner.lastSignal` directamente.
  */
-export function effectiveSignal(owner: V5OwnerContext): {
+export function effectiveSignal(owner: V5OwnerContext, opts: { now?: Date } = {}): {
   signal: V5Signal | null;
   contradicted: boolean;
   reason: string;
 } {
+  const now = opts.now ?? new Date();
   const raw = owner.lastSignal ?? null;
   if (!raw) return { signal: null, contradicted: false, reason: "sin_senal" };
   if (raw.valid === false) return { signal: null, contradicted: false, reason: "senal_invalida" };
+  if (!isTraceableId(raw.source)) return { signal: null, contradicted: false, reason: "senal_sin_source" };
+  if (!isValidPastTimestamp(raw.at, now)) {
+    return { signal: null, contradicted: false, reason: "senal_con_fecha_invalida_o_futura" };
+  }
   const signalMs = ts(raw.at);
   const contraMs = ts(owner.contradictingCallAt);
   if (signalMs !== null && contraMs !== null && contraMs > signalMs) {
