@@ -41,7 +41,7 @@ INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
   ('b1166666-0000-0000-0000-000000001166', 'Baseline seguro', 'Madrid', false);
 
 INSERT INTO public.owners (id, nombre, metadatos) VALUES
-  ('b1166666-0000-0000-0000-0000000000o1'::text::uuid, 'ROSA VEGA',
+  ('b1166666-0000-0000-0000-00000000000c', 'ROSA VEGA',
    '{"dni__nif__cif":"00000010C"}'::jsonb);
 
 INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
