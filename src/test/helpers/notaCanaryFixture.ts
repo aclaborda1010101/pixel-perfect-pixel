@@ -82,7 +82,6 @@ export function buildCanaryText(): string {
       s += `Pagina ${Math.floor(i / porPagina) + 1} de ${CANARY_PAGINAS} `;
     }
     s += `${h.cita} `;
-    s += "Texto registral de continuidad, asiento vigente y referencia de inscripcion. ";
     if (i === 39) {
       s += ".".repeat(CANARY_HIPOTECA_NARRATIVA_OFFSET - s.length);
       if (s.length !== CANARY_HIPOTECA_NARRATIVA_OFFSET) throw new Error("offset HIPOTECA inválido");
