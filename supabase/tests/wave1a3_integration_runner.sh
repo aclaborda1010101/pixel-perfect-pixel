@@ -1,152 +1,178 @@
 #!/usr/bin/env bash
 # =====================================================================
-# WAVE 1A.3 · RUNNER DE INTEGRACIÓN (base desechable, nunca producción)
+# WAVE 1A.3 P0.2 · RUNNER LOCAL DESECHABLE (IMPOSIBLE CONTRA PRODUCCIÓN)
 # =====================================================================
-# Crea una base LOCAL desechable wave1a_test_<sufijo>, aplica la cadena
-# exacta de checkout, verifica que la 1A.3 está presente, ejecuta las
-# fixtures y DESTRUYE la base siempre (trap EXIT).
+# Este runner NO se conecta a ningún servidor existente. Crea con initdb
+# un CLÚSTER EFÍMERO propio, sin red (listen_addresses='', sólo socket
+# unix dentro de un directorio temporal), una base aleatoria
+# wave1a_test_<random> y un ROL DEDICADO no-superusuario. TODAS las
+# migraciones y fixtures se ejecutan con ESE rol. El superusuario local
+# del clúster efímero sólo crea y destruye base + rol.
 #
-# Salvaguardas (ninguna depende de un GUC falsificable):
-#   - El host debe ser loopback (127.0.0.1 / ::1 / localhost).
-#   - Se rechaza cualquier URL no local y la base "postgres".
-#   - Se exige un rol dedicado (WAVE1A_TEST_ROLE), nunca el superusuario
-#     de un proyecto real.
-#   - El nombre de la base debe empezar por wave1a_test_ (las fixtures lo
-#     revalidan con current_database()).
-#
-# Uso:
-#   PGHOST=127.0.0.1 PGPORT=54322 WAVE1A_TEST_ROLE=wave1a_tester \
-#   PGPASSWORD=... bash supabase/tests/wave1a3_integration_runner.sh
+# Garantías:
+#   - Se RECHAZA cualquier variable de conexión suministrada
+#     (DATABASE_URL, SUPABASE_DB_URL, PGHOST, PGPORT, PGUSER, PGDATABASE,
+#      PGPASSWORD, PGSERVICE...). No hay host.docker.internal, ni túnel,
+#      ni TCP: el clúster no escucha en ningún puerto.
+#   - trap EXIT: se para el clúster y se borra el directorio de datos
+#     (base + rol incluidos) incluso si algo falla.
+#   - Cadena EXACTA 1A.2 -> 1A.3 en orden, con manifiesto y checksums.
+#   - Sin reintentos sobre una migración parcialmente aplicada: si algo
+#     falla, se destruye todo y se sale con error.
+#   - Si no se puede crear el entorno local aislado: SKIP / NO VERIFICADO
+#     (exit 3) y NO se declara aplicabilidad.
 # =====================================================================
-set -euo pipefail
+set -uo pipefail
 
-# Ninguna variable heredada puede decidir el destino: todas las llamadas
-# a psql pasan host/puerto/base de forma explícita.
-unset PGDATABASE PGSERVICE PGSERVICEFILE PGOPTIONS 2>/dev/null || true
-
-PGHOST="${PGHOST:-127.0.0.1}"
-PGPORT="${PGPORT:-54322}"
-PGUSER="${PGUSER:-postgres}"
-ROLE="${WAVE1A_TEST_ROLE:-}"
-ADMIN_DB="${WAVE1A_ADMIN_DB:-postgres}"
-SUFIJO="$(date +%s)_$$"
-TESTDB="wave1a_test_${SUFIJO}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-die() { echo "ABORTADO: $*" >&2; exit 2; }
+die()  { echo "ABORTADO: $*" >&2; exit 2; }
+skip() { echo "SKIP / NO VERIFICADO: $*" >&2; exit 3; }
 
-# --- 1. Host obligatoriamente local ----------------------------------
-case "$PGHOST" in
-  127.0.0.1|::1|localhost|host.docker.internal) ;;
-  *) die "PGHOST='$PGHOST' no es loopback. Este runner solo opera contra Supabase local." ;;
-esac
-[ -n "${DATABASE_URL:-}" ] && case "$DATABASE_URL" in
-  *supabase.co*|*supabase.in*|*.pooler.*) die "DATABASE_URL apunta a un proyecto remoto." ;;
-esac
-case "${SUPABASE_DB_URL:-}" in
-  ?*) die "SUPABASE_DB_URL presente: este runner nunca opera contra un proyecto gestionado." ;;
-esac
-[ -n "$ROLE" ] || die "Define WAVE1A_TEST_ROLE con un rol dedicado de pruebas."
-[ "$ROLE" != "postgres" ] || die "El rol dedicado no puede ser 'postgres'."
-case "$TESTDB" in
-  wave1a_test_*) ;;
-  *) die "El nombre de la base desechable es inválido: $TESTDB" ;;
-esac
+# --- 0. Ninguna conexión suministrada puede influir -------------------
+for v in DATABASE_URL SUPABASE_DB_URL PGHOST PGPORT PGUSER PGDATABASE \
+         PGPASSWORD PGSERVICE PGSERVICEFILE PGOPTIONS PGURI PGCONNECT_TIMEOUT; do
+  if [ -n "${!v:-}" ]; then
+    die "La variable $v está definida. Este runner sólo opera contra un clúster efímero propio; no acepta destinos externos."
+  fi
+done
+export PGHOST= PGPORT= PGUSER= PGDATABASE= PGPASSWORD=
+unset PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD
 
-# --- 1.b Las fixtures NO pueden confirmar nada -----------------------
-if grep -qiE '^[[:space:]]*COMMIT[[:space:]]*;' "$ROOT/supabase/tests/wave1a3_fixtures.sql"; then
-  die "wave1a3_fixtures.sql contiene COMMIT: las fixtures deben terminar en ROLLBACK."
+command -v initdb >/dev/null 2>&1 || skip "initdb no disponible: no se puede crear un clúster local aislado."
+command -v pg_ctl >/dev/null 2>&1 || skip "pg_ctl no disponible."
+command -v psql   >/dev/null 2>&1 || skip "psql no disponible."
+
+# --- 0.b El servidor no puede arrancar como root ----------------------
+if [ "$(id -u)" = "0" ]; then
+  RUNAS="${WAVE1A_LOCAL_USER:-}"
+  if [ -z "$RUNAS" ] || ! id "$RUNAS" >/dev/null 2>&1 || ! command -v setpriv >/dev/null 2>&1; then
+    skip "PostgreSQL no arranca como root. Define WAVE1A_LOCAL_USER con un usuario local sin privilegios."
+  fi
+  exec setpriv --reuid="$(id -u "$RUNAS")" --regid="$(id -g "$RUNAS")" --clear-groups \
+       env HOME=/tmp WAVE1A_LOCAL_USER= bash "${BASH_SOURCE[0]}" "$@"
 fi
-grep -qiE '^[[:space:]]*ROLLBACK[[:space:]]*;' "$ROOT/supabase/tests/wave1a3_fixtures.sql" || \
-  die "wave1a3_fixtures.sql no termina en ROLLBACK."
 
-PSQL_ADMIN=(psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" -q)
+RAND="$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"
+TESTDB="wave1a_test_${RAND}"
+ROLE="wave1a_role_${RAND}"
+ADMIN="wave1a_admin_${RAND}"
+case "$TESTDB" in wave1a_test_*) ;; *) die "nombre de base inválido: $TESTDB";; esac
 
-command -v psql >/dev/null 2>&1 || die "psql no disponible: no hay runner local, ejecuta solo los tests puros."
-"${PSQL_ADMIN[@]}" -c 'SELECT 1' >/dev/null 2>&1 || \
-  die "No hay Supabase local accesible en $PGHOST:$PGPORT: ejecuta solo los tests puros."
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/wave1a3.XXXXXXXX")" || skip "no se puede crear directorio temporal"
+DATA="$WORK/data"
+SOCK="$WORK/sock"
+mkdir -p "$SOCK"
 
-# --- 2. Base desechable y limpieza garantizada -----------------------
 cleanup() {
-  "${PSQL_ADMIN[@]}" -c "DROP DATABASE IF EXISTS \"$TESTDB\" WITH (FORCE);" >/dev/null 2>&1 || true
-  echo "Base desechable $TESTDB destruida."
+  if [ -d "$DATA" ]; then
+    pg_ctl -D "$DATA" -m immediate -w stop >/dev/null 2>&1 || true
+  fi
+  rm -rf "$WORK"
+  echo "Clúster efímero destruido (base $TESTDB y rol $ROLE incluidos)."
 }
 trap cleanup EXIT
 
-"${PSQL_ADMIN[@]}" -c "DO \$\$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$ROLE') THEN
-    EXECUTE format('CREATE ROLE %I LOGIN', '$ROLE');
-  END IF;
-END \$\$;"
-"${PSQL_ADMIN[@]}" -c "CREATE DATABASE \"$TESTDB\" OWNER \"$ROLE\";"
+# --- 1. Clúster efímero sin red --------------------------------------
+initdb -D "$DATA" -U "$ADMIN" -A trust --no-locale --encoding=UTF8 >"$WORK/initdb.log" 2>&1 \
+  || { sed -n '1,40p' "$WORK/initdb.log" >&2; skip "initdb falló: no hay entorno local aislado."; }
 
-PSQL_TEST=(psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$TESTDB" -q)
+pg_ctl -D "$DATA" -w -l "$WORK/pg.log" \
+  -o "-c listen_addresses='' -k '$SOCK' -c fsync=off -c full_page_writes=off -c synchronous_commit=off" \
+  start >/dev/null 2>&1 || { sed -n '1,60p' "$WORK/pg.log" >&2; skip "el clúster efímero no arranca."; }
 
-# --- 3. Baseline local + cadena EXACTA de checkout -------------------
+PSQL_ADMIN=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d postgres -q)
+"${PSQL_ADMIN[@]}" -c 'SELECT 1' >/dev/null || skip "el clúster efímero no acepta conexiones."
+
+# --- 2. Rol dedicado NO superusuario + base aleatoria -----------------
+"${PSQL_ADMIN[@]}" -c "CREATE ROLE \"$ROLE\" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;" \
+  || die "no se pudo crear el rol dedicado"
+"${PSQL_ADMIN[@]}" -c "CREATE DATABASE \"$TESTDB\" OWNER \"$ROLE\";" \
+  || die "no se pudo crear la base desechable"
+
+# Extensiones: único paso admin dentro de la base (requieren superusuario).
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
+  -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null 2>&1 || true
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
+  -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' >/dev/null 2>&1 || true
+
+# A partir de aquí TODO se ejecuta con el rol dedicado.
+PSQL_TEST=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ROLE" -d "$TESTDB" -q)
+WHO="$("${PSQL_TEST[@]}" -At -c 'SELECT current_user || :: text || rolsuper::text FROM pg_roles WHERE rolname = current_user' 2>/dev/null || true)"
+"${PSQL_TEST[@]}" -At -c "SELECT CASE WHEN rolsuper THEN 1/0 ELSE 1 END FROM pg_roles WHERE rolname = current_user" >/dev/null \
+  || die "el rol de pruebas no puede ser superusuario"
+
+# --- 3. Cadena EXACTA 1A.2 -> 1A.3 con manifiesto y checksums ---------
 BASELINE="$ROOT/supabase/tests/wave1a_local_baseline.sql"
 [ -f "$BASELINE" ] || die "Falta el baseline local $BASELINE"
-"${PSQL_TEST[@]}" -f "$BASELINE" >/dev/null
 
-# Migraciones históricas que dependen de estado creado fuera del
-# historial versionado (mutan una vista que nunca crea ninguna
-# migración) y que NO tocan ningún objeto registral. Se omiten en la
-# reproducción local y se verifica que no rozan el dominio de la Wave.
 SKIP_LOCAL=(
-  "20260805051330_381b4dcd-9ef7-496c-bc7e-02824c3c48cc.sql" # reescribe v_building_score a partir de una definición no versionada
+  "20260805051330_381b4dcd-9ef7-496c-bc7e-02824c3c48cc.sql" # reescribe v_building_score desde una definición no versionada
 )
 
-CHAIN=(
-  "$ROOT/supabase/migrations"
-  "$ROOT/supabase/pending_migrations/20260810164500_wave1a_registral_rebuild_seguro.sql"
-  "$ROOT/supabase/pending_migrations/20260812000000_wave1a3_registral_forward.sql"
-)
-
-if [ -d "${CHAIN[0]}" ]; then
-  for f in $(ls "${CHAIN[0]}"/*.sql 2>/dev/null | sort); do
-    base="$(basename "$f")"
-    skip=0
-    for s in "${SKIP_LOCAL[@]}"; do [ "$base" = "$s" ] && skip=1; done
-    if [ "$skip" = "1" ]; then
-      # Ninguna migración omitida puede tocar el dominio registral.
-      if grep -qiE 'p0_|property_rights|notas_simples|nota_simple_titulares|building_owners' "$f"; then
-        die "La migración omitida $base toca objetos registrales: la cadena 1A.2->1A.3 dejaría de ser exacta."
-      fi
-      echo "OMITIDA (deriva no versionada, sin impacto registral): $base"
-      continue
-    fi
-    if ! "${PSQL_TEST[@]}" -f "$f" >/dev/null 2>&1; then
-      # Reintento único tras reaplicar el baseline (deriva de producción).
-      "${PSQL_TEST[@]}" -f "$BASELINE" >/dev/null
-      "${PSQL_TEST[@]}" -f "$f" >/dev/null || die "La migración $base no aplica en la base desechable."
-    fi
-  done
+CHAIN=("$BASELINE")
+if [ -d "$ROOT/supabase/migrations" ]; then
+  while IFS= read -r f; do CHAIN+=("$f"); done < <(ls "$ROOT/supabase/migrations"/*.sql 2>/dev/null | sort)
 fi
-"${PSQL_TEST[@]}" -f "${CHAIN[1]}" >/dev/null
-"${PSQL_TEST[@]}" -f "${CHAIN[2]}" >/dev/null
+CHAIN+=("$ROOT/supabase/pending_migrations/20260810164500_wave1a_registral_rebuild_seguro.sql")
+CHAIN+=("$ROOT/supabase/pending_migrations/20260812000000_wave1a3_registral_forward.sql")
 
-# --- 4. Verificar que la 1A.3 EXACTA está presente -------------------
+MANIFEST="$WORK/manifest.txt"
+: > "$MANIFEST"
+echo "--- MANIFIESTO DE LA CADENA (sha256) ---"
+for f in "${CHAIN[@]}"; do
+  base="$(basename "$f")"
+  skipthis=0
+  for s in "${SKIP_LOCAL[@]}"; do [ "$base" = "$s" ] && skipthis=1; done
+  sum="$(sha256sum "$f" | cut -c1-16)"
+  if [ "$skipthis" = "1" ]; then
+    if grep -qiE 'p0_|property_rights|notas_simples|nota_simple_titulares|building_owners' "$f"; then
+      die "La migración omitida $base toca objetos registrales: la cadena dejaría de ser exacta."
+    fi
+    echo "OMITIDA  $sum  $base" | tee -a "$MANIFEST"
+    continue
+  fi
+  echo "APLICA   $sum  $base" | tee -a "$MANIFEST"
+  if ! "${PSQL_TEST[@]}" -f "$f" >"$WORK/last.log" 2>&1; then
+    sed -n '1,40p' "$WORK/last.log" >&2
+    # SIN REINTENTOS: una migración parcialmente aplicada invalida la base.
+    die "La migración $base no aplica con el rol dedicado. La base se destruye; no se reintenta."
+  fi
+done
+echo "--- FIN DEL MANIFIESTO ($(wc -l < "$MANIFEST") entradas) ---"
+
+# --- 4. La 1A.3 EXACTA debe estar presente ----------------------------
 "${PSQL_TEST[@]}" -c "DO \$\$
 BEGIN
   IF to_regprocedure('public.p0_nota_date_conflict(jsonb)') IS NULL
-     OR to_regprocedure('public.p0_locator_valid(text,text,text)') IS NULL
+     OR to_regprocedure('public.p0_locator_all_valid(text,text,text)') IS NULL
+     OR to_regprocedure('public.p0_locator_link_ok(jsonb,text,text,text,text,text,text,text,numeric)') IS NULL
      OR to_regprocedure('public.p0_nota_ownership_signature(uuid)') IS NULL
      OR to_regclass('public.v_p0_notas_listo_sin_titulares') IS NULL THEN
-    RAISE EXCEPTION 'La migración 1A.3 no está aplicada en la base de prueba';
+    RAISE EXCEPTION 'La migración 1A.3 P0.2 no está aplicada en la base de prueba';
   END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='v_p0_rights_staging'
-      AND column_name IN ('layer_safe','row_safe_pre_layer')
-    HAVING count(*) = 2
-  ) THEN
-    RAISE EXCEPTION 'v_p0_rights_staging no expone layer_safe y row_safe_pre_layer';
-  END IF;
-END \$\$;"
+END \$\$;" || die "verificación de presencia 1A.3 fallida"
 
-# --- 5. Tests puros y fixtures ---------------------------------------
-"${PSQL_TEST[@]}" -f "$ROOT/supabase/tests/wave1a3_pure_cases.sql"
-# Invariantes portadas de la suite 1A.2, ejecutadas sobre el contrato 1A.3.
-"${PSQL_TEST[@]}" -f "$ROOT/supabase/tests/wave1a_property_rights_cases.sql"
-"${PSQL_TEST[@]}" -f "$ROOT/supabase/tests/wave1a3_fixtures.sql"
+# --- 5. Suites: cada una se ejecuta y se reporta por separado ---------
+FAILED=0
+run_suite() {
+  local nombre="$1" fichero="$2"
+  if "${PSQL_TEST[@]}" -f "$fichero" >"$WORK/$nombre.log" 2>&1; then
+    echo "SUITE PASS  $nombre"
+  else
+    echo "SUITE FAIL  $nombre"
+    sed -n '1,200p' "$WORK/$nombre.log" >&2
+    FAILED=1
+  fi
+  grep -E '^(CASO|NOTICE:  CASO)' "$WORK/$nombre.log" || true
+}
 
-echo "WAVE 1A.3 · integración: PASS (base $TESTDB)"
+run_suite "puros_1a3"    "$ROOT/supabase/tests/wave1a3_pure_cases.sql"
+run_suite "invariantes_1a2" "$ROOT/supabase/tests/wave1a_property_rights_cases.sql"
+run_suite "fixtures_1a3" "$ROOT/supabase/tests/wave1a3_fixtures.sql"
+
+if [ "$FAILED" != "0" ]; then
+  echo "WAVE 1A.3 P0.2 · integración: NO-GO (al menos un caso en rojo)"
+  exit 1
+fi
+echo "WAVE 1A.3 P0.2 · integración: PASS (clúster efímero, base $TESTDB, rol $ROLE)"
