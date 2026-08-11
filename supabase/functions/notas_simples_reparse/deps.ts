@@ -71,7 +71,33 @@ export function createReparseDeps(sb: SbLike, opts: DepsOptions): CycleDeps {
             p_lock_minutes: opts.claimMinutes,
           });
       if (error) return { rows: null, error: msg(error) };
-      return { rows: (data ?? []) as unknown[], error: null };
+      const rows = (data ?? []) as any[];
+      if (!ids.length) return { rows, error: null };
+
+      // IDS EXPLÍCITOS: TODO O NADA. El conjunto reclamado debe ser
+      // EXACTAMENTE el pedido. Si falta uno (inexistente, no reclamable o ya
+      // en manos de otro worker), se liberan los claims ya adquiridos y el
+      // ciclo aborta antes de procesar ninguna nota: cero escrituras.
+      const obtenidos = rows.map((r) => String(r?.id ?? ""));
+      const faltan = ids.filter((x) => !obtenidos.includes(x));
+      const sobran = obtenidos.filter((x) => !ids.includes(x));
+      if (faltan.length || sobran.length || obtenidos.length !== ids.length) {
+        const problemas: string[] = [];
+        for (const r of rows) {
+          const { data: rel, error: relErr } = await sb.rpc("release_nota_reparse_claim", {
+            p_id: r?.id, p_expected_token: r?.claim_token,
+          });
+          if (relErr || !one(rel)) problemas.push(`release_fail:${String(r?.id ?? "?")}`);
+        }
+        return {
+          rows: null,
+          error: [
+            `ids_no_reclamables_exactos:faltan=${faltan.length}:sobran=${sobran.length}`,
+            problemas.join(","),
+          ].filter(Boolean).join("|"),
+        };
+      }
+      return { rows, error: null };
     },
 
     /** CAS: sólo libera si el token sigue siendo el de este worker. */

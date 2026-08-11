@@ -10,8 +10,13 @@
 
 import { normalizeNombre, normalizeDoc, type RolCanonico } from "./lib.ts";
 import { candidatosPorcentaje, parsePorcentajeFuente, redondearExacto, type PorcentajeFuente } from "./porcentaje.ts";
+import {
+  contarTokensParticipacion,
+  tokenizarDocumento,
+  type SeccionTipo,
+} from "./parsing.ts";
 
-export type SeccionTipo = "titularidad" | "cargas" | "descripcion" | "otro";
+export type { SeccionTipo };
 
 export type HechoEsperado = {
   /** Nombre literal tal y como aparece en la nota. */
@@ -40,9 +45,16 @@ export type Inventario = {
   /** Líneas de participación que no pudieron resolverse (bloquean). */
   ambiguos: Array<{ page: number; offset: number; cita: string; motivo: string }>;
   paginas: number;
+  /** Diagnóstico durable del parser (nunca se reduce a un string). */
+  diagnostico: {
+    chars: number;
+    saltos_de_linea: number;
+    tokens_participacion: number;
+    zonas_titularidad: number;
+    zonas_cargas: number;
+    bloques: number;
+  };
 };
-
-const RE_PAGINA = /^\s*(?:-{0,3}\s*)?(?:p[áa]g(?:ina)?\.?)\s*(\d+)/i;
 
 const RE_CARGAS = /\b(cargas?|hipotec\w*|afecci\w*|embargo\w*|servidumbre\w*|condici[oó]n\s+resolutoria|anotaci[oó]n\s+preventiva)\b/i;
 const RE_TITULARIDAD = /\b(titularidad(?:es)?|titulares?|derechos?\s+inscritos?|propiedad(?:es)?\s+inscrita)\b/i;
@@ -94,41 +106,39 @@ function extraerNombre(texto: string): string | null {
  */
 export function extraerInventario(texto: string | null | undefined): Inventario {
   const src = String(texto ?? "");
+  const tokens = contarTokensParticipacion(src);
   const inv: Inventario = {
     documento: RE_NOTA.test(src) ? "NOTA_SIMPLE" : "NON_REGISTRY_DOCUMENT",
     hechos: [],
     cargas: 0,
     ambiguos: [],
     paginas: 0,
+    diagnostico: {
+      chars: src.length,
+      saltos_de_linea: (src.match(/\n/g) ?? []).length,
+      tokens_participacion: tokens,
+      zonas_titularidad: 0,
+      zonas_cargas: 0,
+      bloques: 0,
+    },
   };
   if (!src.trim()) return inv;
 
-  let page = 1;
-  let seccion: SeccionTipo = "otro";
-  let offset = 0;
+  // TOKENIZACIÓN POR OFFSETS: funciona con el documento en una sola línea.
+  const { paginas, zonas, bloques } = tokenizarDocumento(src);
+  inv.paginas = paginas.length ? Math.max(...paginas.map((p) => p.page)) : 0;
+  inv.diagnostico.zonas_titularidad = zonas.filter((z) => z.seccion === "titularidad").length;
+  inv.diagnostico.zonas_cargas = zonas.filter((z) => z.seccion === "cargas").length;
+  inv.diagnostico.bloques = bloques.length;
+
   let ultimoNombre: string | null = null;
   let ultimoDoc: string | null = null;
 
-  const lineas = src.split(/\n/);
-  for (const linea of lineas) {
-    const inicio = offset;
-    offset += linea.length + 1;
-
-    if (linea.includes("\f")) page += (linea.match(/\f/g) ?? []).length;
-    const mp = linea.match(RE_PAGINA);
-    if (mp) {
-      const n = Number(mp[1]);
-      if (Number.isInteger(n) && n > 0) page = n;
-      continue;
-    }
-    const sec = clasificarSeccion(linea);
-    if (sec) {
-      seccion = sec;
-      ultimoNombre = null;
-      ultimoDoc = null;
-      continue;
-    }
-    inv.paginas = Math.max(inv.paginas, page);
+  for (const bloque of bloques) {
+    const linea = bloque.texto;
+    const inicio = bloque.inicio;
+    const page = bloque.page;
+    const seccion = bloque.seccion;
 
     const nombreLinea = extraerNombre(linea);
     if (nombreLinea) {
@@ -140,7 +150,7 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
 
     // Una participación fuera de titularidad es carga/afección: NO es titular.
     if (seccion !== "titularidad" || RE_CARGAS.test(linea)) {
-      inv.cargas += 1;
+      inv.cargas += (linea.match(/participaci[oó]n/gi) ?? []).length;
       continue;
     }
 
@@ -175,9 +185,22 @@ export function extraerInventario(texto: string | null | undefined): Inventario 
       forma: candidatos[0].forma,
       page,
       offset: inicio,
-      range: [inicio, inicio + linea.length],
+      range: [inicio, bloque.fin],
       cita,
       seccion,
+    });
+  }
+
+  // FAIL-CLOSED: un documento registral con tokens PARTICIPACION que no
+  // produce inventario NO es "no registral" ni "completo": es un fallo del
+  // parser y debe bloquear con diagnóstico.
+  if (tokens > 0 && inv.hechos.length === 0 && inv.ambiguos.length === 0) {
+    inv.documento = "NOTA_SIMPLE";
+    inv.ambiguos.push({
+      page: 0,
+      offset: 0,
+      cita: src.slice(0, 160),
+      motivo: `inventario_vacio_con_participaciones:${tokens}`,
     });
   }
   return inv;

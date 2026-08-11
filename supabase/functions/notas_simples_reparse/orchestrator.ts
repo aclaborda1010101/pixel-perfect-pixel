@@ -256,7 +256,15 @@ async function runReparseCycleInner(deps: CycleDeps, opts: { limit: number }): P
     cas_conflict: casConflict,
     state_clear_error: clearError,
     match_result: outcome?.status === "ok" ? outcome.data : null,
-    fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
+    // DIAGNÓSTICO DURABLE: se persiste el JSON estructurado del fallo
+    // (completeness/review incluidos), nunca sólo un string.
+    fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({
+      id: r.id,
+      reason: r.reason,
+      fatal: (r as any).fatal === true,
+      estado: (r as any).estado ?? null,
+      diagnostico: (r as any).diagnostico ?? null,
+    })),
   };
 
   // 7) Log auditor: si falla, el estado singleton sigue intacto pero HTTP 500.
