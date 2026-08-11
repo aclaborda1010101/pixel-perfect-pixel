@@ -441,8 +441,10 @@ export function logicalRightKey(t: {
   rol?: unknown; rol_literal?: unknown;
 }): string {
   const rolLit = normalizeLiteral(t.rol_literal);
-  const rol = t.rol_literal != null && String(t.rol_literal).trim()
+  const desdeLiteral = t.rol_literal != null && String(t.rol_literal).trim()
     ? normalizeRol(t.rol_literal)
-    : normalizeRol(t.rol);
+    : null;
+  // Misma precedencia que normalizeTitularChecked: literal específico manda.
+  const rol = esRolEspecifico(desdeLiteral) ? (desdeLiteral as RolCanonico) : normalizeRol(t.rol);
   return `${baseIdentityKey(t)}|${rol}|${rolLit}`;
 }
