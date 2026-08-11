@@ -1143,7 +1143,78 @@ REVOKE ALL ON public.v_p0_rights_staging FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.v_p0_rights_staging TO service_role;
 
 COMMENT ON VIEW public.v_p0_rights_staging IS
-  'Wave 1A.3: staging read-only 1:1 con nota_simple_titulares de notas listo. feeds_cuota = row_safe_pre_layer AND layer_safe; la capa es indivisible.';
+  'Wave 1A.3 P0.1: staging read-only 1:1 con nota_simple_titulares de notas listo. feeds_cuota = row_safe_pre_layer AND layer_safe AND unidad_segura: fila, capa y UNIDAD COMPLETA. Las 39 primeras columnas conservan exactamente la firma de 1A.2.';
+
+-- ---------------------------------------------------------------------
+-- 9.b) VALIDADOR DE CONTRATO DE FIRMA 1A.2 -> 1A.3 (fail-closed)
+-- ---------------------------------------------------------------------
+-- Si una columna de 1A.2 se desplaza, se renombra o cambia de tipo, esta
+-- migración FALLA aquí y no deja la vista en un estado incompatible.
+DO $contrato$
+DECLARE
+  v_esperado text[] := ARRAY[
+    'titular_id:uuid',
+    'note_simple_id:uuid',
+    'building_id:uuid',
+    'ownership_unit_key:text',
+    'is_canonical:boolean',
+    'nota_signature:text',
+    'nota_fecha_registral:date',
+    'titular_nombre:text',
+    'titular_dni:text',
+    'right_type:text',
+    'percentage:numeric',
+    'coownership_regime:text',
+    'role_conflict:boolean',
+    'owner_id:uuid',
+    'company_id:uuid',
+    'conflicto_ids:boolean',
+    'identity_match:text',
+    'confidence:numeric',
+    'evidence_ok:boolean',
+    'evidence_ambiguous:boolean',
+    'bad_evidence:boolean',
+    'evidence_ref:jsonb',
+    'audit_ids:jsonb',
+    'right_literal:text',
+    'es_sociedad:boolean',
+    'division_horizontal:boolean',
+    'dh:boolean',
+    'nota_status:text',
+    'unidad_contradictoria:boolean',
+    'unidad_resuelta_por_fecha:boolean',
+    'invalid_pct:boolean',
+    'capa_suma:numeric',
+    'capa_nulos:bigint',
+    'layer_complete:boolean',
+    'unit_block_reason:text',
+    'status:text',
+    'review_flag:boolean',
+    'review_reason:text',
+    'feeds_cuota:boolean'
+  ];
+  v_real  text[];
+  v_i     int;
+BEGIN
+  SELECT array_agg(c.column_name || ':' || c.data_type ORDER BY c.ordinal_position)
+    INTO v_real
+  FROM information_schema.columns c
+  WHERE c.table_schema = 'public' AND c.table_name = 'v_p0_rights_staging'
+    AND c.ordinal_position <= array_length(v_esperado, 1);
+
+  IF v_real IS NULL THEN
+    RAISE EXCEPTION 'CONTRATO 1A.2: la vista v_p0_rights_staging no existe';
+  END IF;
+
+  FOR v_i IN 1 .. array_length(v_esperado, 1) LOOP
+    IF v_real[v_i] IS DISTINCT FROM v_esperado[v_i] THEN
+      RAISE EXCEPTION
+        'CONTRATO 1A.2 ROTO en la posición %: se esperaba "%" y hay "%". Las columnas de 1A.2 no pueden desplazarse, renombrarse ni cambiar de tipo; las nuevas van al final.',
+        v_i, v_esperado[v_i], v_real[v_i];
+    END IF;
+  END LOOP;
+END
+$contrato$;
 
 -- Notas 'listo' SIN titulares: existen, se cuentan y bloquean su unidad.
 CREATE OR REPLACE VIEW public.v_p0_notas_listo_sin_titulares AS
