@@ -203,7 +203,7 @@ describe("P0.8 · precisión exacta", () => {
   it("dos porcentajes en la misma cita sin localizador => bloquea", () => {
     const p = porcentajeCanonico({ cita: "PARTICIPACION: 50% y 25% del pleno dominio", porcentajeLlm: 50 });
     expect(p.ok).toBe(false);
-    if (!p.ok) expect(p.reason).toBe("porcentaje_ambiguo");
+    expect((p as any).reason).toBe("porcentaje_ambiguo");
     expect(candidatosPorcentaje("50% y 25%").length).toBe(2);
   });
 
@@ -230,7 +230,7 @@ describe("P0.8 · precisión exacta", () => {
       evidencia: { fuentes: [{ cita: "PARTICIPACION: 50% del pleno dominio.", pagina: 1 }] },
     }] as any, {});
     expect(roto.ok).toBe(false);
-    if (!roto.ok) expect(roto.reason).toBe("cita_sin_identidad");
+    expect((roto as any).reason).toBe("cita_sin_identidad");
 
     const derechoMal = canonizarPorcentajes([{
       nombre: HECHOS[0].nombre, cif_dni: null, porcentaje: 0.11, rol: "usufructo" as any,
@@ -238,7 +238,7 @@ describe("P0.8 · precisión exacta", () => {
       evidencia: { fuentes: [{ cita: linea(HECHOS[0]), pagina: 1 }] },
     }] as any, {});
     expect(derechoMal.ok).toBe(false);
-    if (!derechoMal.ok) expect(derechoMal.reason).toBe("cita_derecho_discrepante");
+    expect((derechoMal as any).reason).toBe("cita_derecho_discrepante");
   });
 });
 
@@ -392,7 +392,7 @@ describe("P0.8 · backup verificado", () => {
       download: async () => bytes,
     }, { fileUrl: "nota.pdf", bytes, now: 1 });
     expect(sinSubida).toMatchObject({ ok: false });
-    if (!sinSubida.ok) expect(sinSubida.reason).toMatch(/upload_fail/);
+    expect((sinSubida as any).reason).toMatch(/upload_fail/);
 
     const vacio = await backupVerificado({
       upload: async () => ({}),
