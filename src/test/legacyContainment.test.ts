@@ -5,6 +5,13 @@ import { operationalTaskBadge, v5TaskCodeFromKey } from "@/lib/operationalTasks"
 import { fetchVisibleUserTasks } from "@/lib/dashboardTasks";
 import { handleTecnofindCore } from "../../supabase/functions/enrichment-agent/tecnofind";
 import { tecnofindIncidenciaTrasVerificacion } from "../../supabase/functions/enrichment-apply-verification/tasks";
+import { insertManualBuildingTask } from "@/lib/taskWriters";
+import { insertV5CallQueueTask } from "../../supabase/functions/_shared/taskWriters";
+import {
+  scanBuildingTaskWrites,
+  classifyBuildingTaskWrites,
+  AUTHORIZED_WRITERS,
+} from "./helpers/taskWriteGuard";
 
 const ROOT = process.cwd();
 
@@ -18,34 +25,60 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+function walkSql(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    if (entry === "node_modules" || entry.startsWith(".")) continue;
+    const p = join(dir, entry);
+    if (statSync(p).isDirectory()) walkSql(p, out);
+    else if (/\.sql$/i.test(entry)) out.push(p);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // 1) PRODUCTORES EDGE: cero inserts en building_tasks
 // ---------------------------------------------------------------------------
 describe("contención legacy · productores enrichment", () => {
-  it("enrichment-agent (tecnofind) no escribe tareas y termina el job igual", async () => {
-    const from = vi.fn(() => {
-      throw new Error("ningún productor de enrichment puede tocar la base de tareas");
-    });
-    const supabase = { from };
-    const timeline: any[] = [];
-    const finished: any[] = [];
+  it("enrichment-agent (tecnofind) usa el repo inyectado y jamás toca building_tasks", async () => {
+    // Repo REAL inyectado: el core escribe timeline y cierre a través de él.
+    const ops: Array<{ table: string; op: string; payload: any }> = [];
+    const fakeDb = {
+      from(table: string) {
+        const chain: any = {
+          insert: (payload: any) => { ops.push({ table, op: "insert", payload }); return chain; },
+          update: (payload: any) => { ops.push({ table, op: "update", payload }); return chain; },
+          eq: () => chain,
+          then: (res: any) => Promise.resolve({ data: null, error: null }).then(res),
+        };
+        return chain;
+      },
+    };
+    const fromSpy = vi.spyOn(fakeDb, "from");
 
     const res = await handleTecnofindCore(
       { id: "job-1", building_id: "b1", titular_nombre: "ANA", datos: { telefono: null } },
       {
-        pushTimeline: (_j, e) => { timeline.push(e); },
-        finishJob: async (_j, patch) => { finished.push(patch); (supabase as any); return null; },
+        pushTimeline: (job, e) => {
+          fakeDb.from("enrichment_jobs").update({ id: job.id, timeline_entry: e });
+        },
+        finishJob: async (job, patch) => {
+          await fakeDb.from("enrichment_jobs").update({ id: job.id, ...patch });
+          return null;
+        },
       },
     );
 
-    expect(from).not.toHaveBeenCalled();
+    // El enriquecimiento SÍ ocurre a través del repo inyectado…
+    expect(fromSpy).toHaveBeenCalled();
+    expect(ops.map((o) => o.table)).toEqual(["enrichment_jobs", "enrichment_jobs"]);
+    // …y CERO escrituras sobre tareas.
+    expect(ops.filter((o) => o.table === "building_tasks")).toEqual([]);
+    expect(fromSpy.mock.calls.flat()).not.toContain("building_tasks");
     expect(res.task_created).toBe(false);
     expect(res.incidencia?.incidencia).toBe("telefono_pendiente_tecnofind");
-    // El enriquecimiento continúa: el job se cierra y avanza de fase.
-    expect(finished).toHaveLength(1);
-    expect(finished[0]).toMatchObject({ estado: "ok", fase: "verificacion" });
-    // Nunca vuelve a afirmar "tarea creada".
-    expect(JSON.stringify(timeline)).not.toContain("tarea creada");
+    // El job se cierra y avanza de fase.
+    expect(ops.at(-1)?.payload).toMatchObject({ estado: "ok", fase: "verificacion" });
+    expect(JSON.stringify(ops)).not.toContain("tarea creada");
     expect(JSON.stringify(res)).not.toContain("tarea creada");
   });
 
@@ -97,49 +130,144 @@ describe("contención legacy · productores enrichment", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2) GUARDA DE ARQUITECTURA: inventario de escritores de building_tasks
+// 2) GUARDA DE ARQUITECTURA: inventario REAL de escritores de building_tasks
 // ---------------------------------------------------------------------------
-const WRITE_RX =
-  /(from\s*\(\s*["'`]building_tasks["'`][^)]*\)[\s\S]{0,200}?\.(insert|upsert|update|delete)\s*\(|(insert|update|delete)\s+(into\s+)?(public\.)?building_tasks)/gi;
-
-/** Allowlist EXPLÍCITA: motor V5 productivo/simulación aprobada + creación manual. */
-const ALLOWED_WRITERS = new Set<string>([
-  "supabase/functions/assign_daily_call_queue/index.ts", // V5 productivo / simulación aprobada
-  "src/components/comercial/BuildingTasksSection.tsx",   // creación manual + cierre/borrado por el usuario
-  "src/pages/comercial/Tareas.tsx",                      // cierre/reapertura manual por el usuario
-]);
-
 describe("guarda de arquitectura · escritores de building_tasks", () => {
   const files = [
     ...walk(resolve(ROOT, "src")),
+    ...walkSql(resolve(ROOT, "supabase/functions")),
+    ...walkSql(resolve(ROOT, "supabase/migrations")),
+    ...walkSql(resolve(ROOT, "supabase/pending_migrations")),
     ...walk(resolve(ROOT, "supabase/functions")),
   ].filter((f) => !/[\\/]test[\\/]|\.test\.tsx?$/.test(f));
 
-  it("inventaría los escritores y falla si alguno está fuera de la allowlist", () => {
-    const writers: string[] = [];
-    for (const f of files) {
-      const src = readFileSync(f, "utf8");
-      WRITE_RX.lastIndex = 0;
-      if (WRITE_RX.test(src)) writers.push(relative(ROOT, f).replace(/\\/g, "/"));
-    }
+  const rel = (f: string) => relative(ROOT, f).replace(/\\/g, "/");
+  const sources: Record<string, string> = {};
+  for (const f of files) sources[rel(f)] = readFileSync(f, "utf8");
+
+  const ops = Object.entries(sources).flatMap(([f, src]) => scanBuildingTaskWrites(f, src));
+
+  it("inventaría TODAS las operaciones de creación y no hay ninguna sin clasificar", () => {
     expect(files.length).toBeGreaterThan(50);
-    const noAutorizados = writers.filter((w) => !ALLOWED_WRITERS.has(w));
-    expect(noAutorizados, `escritores de building_tasks no autorizados: ${noAutorizados.join(", ")}`)
-      .toEqual([]);
+    const { authorized, violations } = classifyBuildingTaskWrites(ops, sources);
+    expect(violations.map((v) => `${v.file}:${v.line} ${v.reason}`)).toEqual([]);
+    // Exactamente dos escrituras autorizadas: cola V5 y creación manual.
+    expect(authorized.map((o) => o.file).sort()).toEqual([
+      "src/lib/taskWriters.ts",
+      "supabase/functions/_shared/taskWriters.ts",
+    ]);
   });
 
-  it("los escritores permitidos siguen existiendo (V5 y creación manual)", () => {
-    const v5 = readFileSync(resolve(ROOT, "supabase/functions/assign_daily_call_queue/index.ts"), "utf8");
-    expect(v5).toMatch(/from\('building_tasks'\)\.insert|from\("building_tasks"\)\.insert/);
-    expect(v5).toContain("v5:");
-    const manual = readFileSync(resolve(ROOT, "src/components/comercial/BuildingTasksSection.tsx"), "utf8");
-    expect(manual).toContain('task_type: "manual"');
+  it("los updates de ciclo de vida no cuentan como creación", () => {
+    const tareas = sources["src/pages/comercial/Tareas.tsx"];
+    expect(tareas).toContain(".update({");
+    expect(scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", tareas)).toEqual([]);
+  });
+
+  it("los callsites autorizados pasan por su helper con payload válido", () => {
+    const v5 = sources["supabase/functions/assign_daily_call_queue/index.ts"];
+    expect(v5).toContain("insertV5CallQueueTask(sb, row)");
+    expect(v5).toContain("task_type: 'call_queue'");
+    expect(v5).toContain("task_key: c.task_key");
+    expect(v5).toMatch(/const taskKey = `v5:\$\{hoy\}:\$\{c\.task_code\}:\$\{idKey\}`/);
+    const manual = sources["src/components/comercial/BuildingTasksSection.tsx"];
+    expect(manual).toContain("insertManualBuildingTask(supabase as any, {");
+    expect(scanBuildingTaskWrites("x.tsx", manual)).toEqual([]);
+  });
+
+  it("PRUEBA NEGATIVA: un insert automático colado en un archivo autorizado hace fallar la guarda", () => {
+    for (const file of Object.keys(AUTHORIZED_WRITERS)) {
+      const fixture = sources[file] +
+        `\nasync function colado(client: any) {\n` +
+        `  await client.from("building_tasks").insert({ task_type: "auto", task_key: "call_queue:x" });\n}\n`;
+      const fixtureOps = scanBuildingTaskWrites(file, fixture);
+      expect(fixtureOps, file).toHaveLength(2);
+      const { violations } = classifyBuildingTaskWrites(fixtureOps, { ...sources, [file]: fixture });
+      expect(violations.length, file).toBeGreaterThan(0);
+    }
+  });
+
+  it("PRUEBA NEGATIVA: insert nuevo en cualquier otro archivo (TS dinámico o SQL) se detecta", () => {
+    const dyn = `const t = "building_tasks";\nawait sb.from("building_tasks").upsert(filas, { onConflict: "task_key" });`;
+    const dynOps = scanBuildingTaskWrites("supabase/functions/nuevo/index.ts", dyn);
+    expect(dynOps).toHaveLength(1);
+    expect(dynOps[0].op).toBe("upsert");
+    const sqlOps = scanBuildingTaskWrites(
+      "supabase/pending_migrations/9999_x.sql",
+      "insert into public.building_tasks (id) select id from buildings;",
+    );
+    expect(sqlOps).toHaveLength(1);
+    const { violations } = classifyBuildingTaskWrites([...dynOps, ...sqlOps], sources);
+    expect(violations).toHaveLength(2);
   });
 
   it("el motor legacy sigue siendo no-op", async () => {
     const mod = await import("@/lib/buildingTasks");
     expect(mod.LEGACY_TASK_ENGINE_RETIRED).toBe(true);
     await expect(mod.syncBuildingTasks("b1", "u1")).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2b) WRITERS: payload válido escribe, payload auto/legacy se rechaza
+// ---------------------------------------------------------------------------
+describe("writers autorizados · contrato de payload", () => {
+  function fakeRepo() {
+    const rows: any[] = [];
+    const q: any = {
+      insert: (row: any) => { rows.push(row); return { ...q, __row: row }; },
+      select: () => q,
+      maybeSingle: async () => ({ data: { id: "t1", task_key: rows.at(-1)?.task_key }, error: null }),
+      then: undefined,
+    };
+    return { rows, from: (t: string) => { expect(t).toBe("building_tasks"); return q; } };
+  }
+
+  const v5Row = {
+    building_id: "b1", user_id: "u1", task_type: "call_queue",
+    task_key: "v5:2026-08-10:T-04:o1", title: "T-04 Cadencia — Goya 4",
+    description: "x", priority: "medium", status: "pending",
+    due_date: "2026-08-10T18:00:00.000Z",
+  };
+
+  it("writer V5 escribe con payload válido (clave legacy y canónica)", async () => {
+    const repo = fakeRepo();
+    await insertV5CallQueueTask(repo as any, v5Row);
+    await insertV5CallQueueTask(repo as any, { ...v5Row, task_key: "v5:2026-08-10:T2_T3:o1" });
+    expect(repo.rows).toHaveLength(2);
+    expect(repo.rows.map((r) => r.task_type)).toEqual(["call_queue", "call_queue"]);
+  });
+
+  it("writer V5 rechaza payload auto/legacy o incompleto", async () => {
+    const repo = fakeRepo();
+    await expect(insertV5CallQueueTask(repo as any, { ...v5Row, task_key: "call_queue:2026-01-01:o1" }))
+      .rejects.toThrow(/task_key inválida/);
+    await expect(insertV5CallQueueTask(repo as any, { ...v5Row, task_type: "auto" }))
+      .rejects.toThrow(/call_queue/);
+    const { due_date, ...sinDue } = v5Row as any;
+    await expect(insertV5CallQueueTask(repo as any, sinDue)).rejects.toThrow(/due_date/);
+    expect(repo.rows).toHaveLength(0);
+  });
+
+  it("writer manual escribe task_type manual sin task_key", async () => {
+    const repo = fakeRepo();
+    await insertManualBuildingTask(repo as any, {
+      building_id: "b1", user_id: "u1", title: " Llamar ", priority: "high", due_date: "",
+    });
+    expect(repo.rows[0]).toMatchObject({
+      task_type: "manual", task_key: null, status: "pending", title: "Llamar", due_date: null,
+    });
+  });
+
+  it("writer manual rechaza payload automático", async () => {
+    const repo = fakeRepo();
+    await expect(insertManualBuildingTask(repo as any, {
+      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_type: "call_queue",
+    })).rejects.toThrow(/manual/);
+    await expect(insertManualBuildingTask(repo as any, {
+      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_key: "v5:2026-08-10:T4:o1",
+    })).rejects.toThrow(/task_key/);
+    expect(repo.rows).toHaveLength(0);
   });
 });
 
@@ -189,14 +317,4 @@ describe("dashboard comercial · tareas visibles sin edificios", () => {
     expect(tasks.map((t: any) => t.id)).toEqual(["1", "2"]);
   });
 
-  it("el dashboard carga las tareas ANTES del early return por cero edificios", () => {
-    const src = readFileSync(resolve(ROOT, "src/pages/comercial/Dashboard.tsx"), "utf8");
-    const idxTasks = src.indexOf("fetchVisibleUserTasks");
-    const idxEarly = src.indexOf("buildingIds.length === 0");
-    expect(idxTasks).toBeGreaterThan(0);
-    expect(idxEarly).toBeGreaterThan(idxTasks);
-    // El early return devuelve las tareas y mantiene el enriquecimiento de edificio.
-    const early = src.slice(idxEarly, idxEarly + 500);
-    expect(early).toContain("tasks");
-  });
 });

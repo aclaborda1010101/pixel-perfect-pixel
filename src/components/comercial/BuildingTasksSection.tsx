@@ -25,6 +25,7 @@ import {
   operationalTaskBadge,
 } from "@/lib/operationalTasks";
 import { sortByDueThenPriority } from "@/lib/taskSchedule";
+import { insertManualBuildingTask } from "@/lib/taskWriters";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -290,16 +291,20 @@ function NewTaskDialog({
   const submit = async () => {
     if (!title.trim()) return;
     setSaving(true);
-    const { error } = await (supabase.from("building_tasks" as any) as any).insert({
-      building_id: buildingId,
-      user_id: userId,
-      task_type: "manual",
-      title: title.trim(),
-      description: description.trim() || null,
-      priority,
-      due_date: dueDate ? new Date(dueDate).toISOString() : null,
-      status: "pending",
-    });
+    let error: { message: string } | null = null;
+    try {
+      const res = await insertManualBuildingTask(supabase as any, {
+        building_id: buildingId,
+        user_id: userId,
+        title: title.trim(),
+        description: description.trim() || null,
+        priority,
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+      });
+      error = (res as any)?.error ?? null;
+    } catch (e: any) {
+      error = { message: e?.message ?? "No se pudo crear la tarea" };
+    }
     setSaving(false);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });

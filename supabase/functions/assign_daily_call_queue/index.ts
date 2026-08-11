@@ -2,6 +2,7 @@
 // Catálogo operativo: T-01, T-02, T-03, T-04, T-05, T-06, T-08, T-09.
 // T-07 excluido por decisión del cliente. No publica nada en HubSpot.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
+import { insertV5CallQueueTask } from '../_shared/taskWriters.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -292,7 +293,7 @@ Deno.serve(async (req) => {
           due_date: dueIso,
         };
         if (dryRun) { insertados.push({ ...row, dry_run: true }); continue; }
-        const { data: ins, error: insErr } = await sb.from('building_tasks').insert(row).select('id, task_key').maybeSingle();
+        const { data: ins, error: insErr } = await insertV5CallQueueTask(sb, row);
         if (ins) insertados.push({ ...ins, user_id: target.user_id, task_code: c.task_code });
         else if (insErr) console.error('insert err', c.task_key, JSON.stringify(insErr));
       }
