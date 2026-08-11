@@ -149,7 +149,12 @@ Deno.serve(async (req) => {
     const perUser = Math.max(1, Math.min(50, Number(body.per_user ?? body.n ?? 10)));
     const replaceToday = body.replace_today === true;
     const ensureCoverage = body.ensure_catalog_coverage !== false;
-    const dryRun = body.dry_run === true;
+    // ADAPTADOR RUNTIME V5 (P0.2): con el flag OFF, este productor legacy
+    // queda contenido — no borra ni inserta NADA (dry-run forzado). Con el
+    // flag ON la generación pasa exclusivamente por el Motor V5, que vive
+    // fuera de esta función.
+    const runtime = decideRuntimeMode();
+    const dryRun = body.dry_run === true || !runtime.legacyWritesAllowed;
     const explicitUsers: string[] | null = Array.isArray(body.user_ids)
       ? body.user_ids
       : (body.user_id ? [body.user_id] : null);
