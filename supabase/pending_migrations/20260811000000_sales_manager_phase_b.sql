@@ -677,6 +677,7 @@ AS $$
 DECLARE
   v_uid uuid := auth.uid();
   v_row public.building_tasks%ROWTYPE;
+  v_mode text;
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'no autorizado' USING ERRCODE = '42501';
@@ -686,8 +687,16 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'tarea inexistente' USING ERRCODE = 'P0002';
   END IF;
+  -- Ni siquiera un admin arranca tareas ajenas desde aquí: haría falta una
+  -- RPC administrativa separada.
   IF v_row.user_id IS DISTINCT FROM v_uid THEN
     RAISE EXCEPTION 'la tarea no te pertenece' USING ERRCODE = '42501';
+  END IF;
+
+  -- Sólo tareas de producción o manuales: legacy/demo NO son iniciables.
+  v_mode := COALESCE(to_jsonb(v_row) ->> 'generation_mode', 'production');
+  IF v_mode NOT IN ('production','manual') THEN
+    RAISE EXCEPTION 'modo de generación no iniciable: %', v_mode USING ERRCODE = '22023';
   END IF;
 
   IF v_row.status IN ('completed','skipped','no_procede','blocked') THEN
@@ -697,6 +706,11 @@ BEGIN
   IF v_row.status = 'in_progress' AND v_row.started_at IS NOT NULL THEN
     RETURN jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status,
                               'started_at', v_row.started_at, 'idempotent', true);
+  END IF;
+
+  -- in_progress HISTÓRICO sin started_at: no se inventa duración retroactiva.
+  IF v_row.status = 'in_progress' AND v_row.started_at IS NULL THEN
+    RAISE EXCEPTION 'tarea in_progress sin inicio registrado: requiere reapertura' USING ERRCODE = '22023';
   END IF;
 
   IF v_row.status NOT IN ('pending','in_progress') THEN
@@ -736,6 +750,11 @@ BEGIN
   END IF;
   IF v_row.user_id IS DISTINCT FROM v_uid AND NOT public.has_role(v_uid, 'admin') THEN
     RAISE EXCEPTION 'la tarea no te pertenece' USING ERRCODE = '42501';
+  END IF;
+
+  -- Reapertura SÓLO desde estados terminales o bloqueados.
+  IF v_row.status IS NULL OR v_row.status NOT IN ('completed','skipped','no_procede','blocked') THEN
+    RAISE EXCEPTION 'estado no reabrible: %', COALESCE(v_row.status,'null') USING ERRCODE = '22023';
   END IF;
 
   UPDATE public.building_tasks
