@@ -23,8 +23,8 @@ describe("panel de gestor: cero consultas directas", () => {
 
   it("muestra estados de carga, error y vacío", () => {
     expect(panel).toContain("isLoading");
-    expect(panel).toContain("Error al cargar los datos");
-    expect(panel).toContain("Sin tareas en el periodo seleccionado");
+    expect(panel).toContain("No se han podido cargar los datos");
+    expect(panel).toContain("Sin tareas que mostrar");
   });
 });
 
