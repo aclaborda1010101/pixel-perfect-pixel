@@ -9,8 +9,11 @@ import {
 const ROOT = process.cwd();
 const PHASE_B = readFileSync(
   resolve(ROOT, "supabase/pending_migrations/20260811000000_sales_manager_phase_b.sql"), "utf8");
+// P0.3: la migración BLOQUEADA se sustituye por una FORWARD que porta a los
+// consumidores históricos y sólo entonces revoca has_role (fail-closed).
 const LOCKDOWN = readFileSync(
-  resolve(ROOT, "supabase/pending_migrations/BLOCKED_20260812130000_has_role_lockdown.sql"), "utf8");
+  resolve(ROOT, "supabase/pending_migrations/20260813120000_sales_manager_p03_has_role_lockdown.sql"),
+  "utf8");
 
 const ROLES: Exclude<AccessRole, null>[] = [
   "admin", "sales_manager", "comercial_zona", "captacion",
@@ -177,18 +180,32 @@ describe("has_role · inventario y endpoint seguro", () => {
     expect(consumidores.length).toBeGreaterThan(10);
   });
 
-  it("el cierre de has_role queda como migración pendiente BLOQUEADA", () => {
-    expect(LOCKDOWN).toContain("RAISE EXCEPTION");
-    expect(LOCKDOWN).toMatch(/MIGRACION BLOQUEADA/);
+  it("el cierre de has_role es FORWARD, fail-closed y porta a los consumidores", () => {
+    // Porta políticas y funciones ANTES de revocar.
+    expect(LOCKDOWN).toContain("current_user_has_role");
+    expect(LOCKDOWN).toContain("internal_member_has_role");
     expect(LOCKDOWN).toContain("REVOKE ALL ON FUNCTION public.has_role(uuid, public.app_role)");
-    // El guard precede al REVOKE: nunca se ejecuta por accidente.
-    expect(LOCKDOWN.indexOf("RAISE EXCEPTION"))
+    expect(LOCKDOWN.indexOf("pg_policies"))
       .toBeLessThan(LOCKDOWN.indexOf("REVOKE ALL ON FUNCTION public.has_role"));
-    // Inventario explícito en la cabecera.
-    expect(LOCKDOWN).toContain("guardas_aprobar");
-    expect(LOCKDOWN).toContain("CRITERIO DE DESBLOQUEO");
-    // Nombre bloqueante y no incluido en el runner de migraciones normales.
+    // Preflight: si queda UN consumidor, aborta sin revocar.
+    const preflight = LOCKDOWN.indexOf("preflight");
+    expect(preflight).toBeGreaterThan(-1);
+    expect(preflight).toBeLessThan(LOCKDOWN.indexOf("REVOKE ALL ON FUNCTION public.has_role"));
+    expect(LOCKDOWN).toMatch(/RAISE\s+EXCEPTION/);
+    // service_role conserva la firma histórica; ningún rol de cliente.
+    expect(LOCKDOWN).toContain("GRANT EXECUTE ON FUNCTION public.has_role(uuid, public.app_role) TO service_role");
+    expect(LOCKDOWN).toContain("has_role sigue siendo ejecutable por un rol de cliente");
+    // La versión BLOQUEADA ya no existe.
     const pend = readdirSync(resolve(ROOT, "supabase/pending_migrations"));
-    expect(pend).toContain("BLOCKED_20260812130000_has_role_lockdown.sql");
+    expect(pend).toContain("20260813120000_sales_manager_p03_has_role_lockdown.sql");
+    expect(pend.some((f) => f.startsWith("BLOCKED_"))).toBe(false);
+  });
+
+  it("existe el runner de integración en clúster efímero con sus dos suites", () => {
+    const runner = readFileSync(resolve(ROOT, "supabase/tests/sales_manager_p03_runner.sh"), "utf8");
+    expect(runner).toContain("initdb");
+    expect(runner).toContain("sales_manager_p03_rls.sql");
+    expect(runner).toContain("sales_manager_p03_metrics.sql");
+    expect(runner).toContain("20260813120000_sales_manager_p03_has_role_lockdown.sql");
   });
 });
