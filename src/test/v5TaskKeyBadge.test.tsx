@@ -4,7 +4,9 @@ import { resolve } from "node:path";
 import { render, screen } from "@testing-library/react";
 import {
   parseV5TaskKey, v5TaskCodeFromKey, operationalTaskBadge, isV5TaskKey,
+  V5_CANONICAL_CODES,
 } from "@/lib/operationalTasks";
+import { buildV5TaskKey, V5_TASK_CODES } from "@/lib/v5/model";
 
 const ROOT = process.cwd();
 
@@ -38,6 +40,31 @@ describe("parser de task_key V5 · dos generaciones reales", () => {
     }
   });
 
+  it("el catálogo del parser ES el del Motor (sin regex paralela)", () => {
+    expect(V5_CANONICAL_CODES).toEqual(V5_TASK_CODES);
+  });
+
+  it("T-07 histórico se etiqueta pero jamás se convierte en canónico", () => {
+    const parsed = parseV5TaskKey(build("T-07", "o1"))!;
+    expect(parsed.format).toBe("historic_call_queue");
+    expect(parsed.origin).toBe("legacy");
+    expect(parsed.code).toBe("T7");
+    expect(parsed.legacyOnly).toBe(true);
+    expect((V5_TASK_CODES as readonly string[]).includes("T7")).toBe(false);
+  });
+
+  it("claves canónicas REALES de buildV5TaskKey se reconocen", () => {
+    for (const code of V5_TASK_CODES) {
+      const key = buildV5TaskKey({
+        taskCode: code, buildingId: "b1", subjectId: "o1", triggerFingerprint: "fp",
+      });
+      const parsed = parseV5TaskKey(key)!;
+      expect(parsed.format).toBe("canonical");
+      expect(parsed.origin).toBe("engine");
+      expect(parsed.code).toBe(code);
+    }
+  });
+
   it("claves canónicas nuevas (T1, T2_T3, T4…T9) se reconocen", () => {
     for (const code of ["T1", "T2_T3", "T4", "T5", "T6", "T8", "T9"]) {
       const key = `v5:v5.0:${code}:b1:o1:fp`;
@@ -56,6 +83,33 @@ describe("parser de task_key V5 · dos generaciones reales", () => {
       const badge = operationalTaskBadge({ task_type: "manual", task_key: key });
       expect(badge.label).toBe("V5");
       expect(badge.label).not.toBe("Manual");
+    }
+  });
+
+  it("RECHAZOS estructurales: código fuera de catálogo, posición o forma", () => {
+    const malas = [
+      "v5:v5.0:T7:b1:o1:fp",        // T7 no existe
+      "v5:v5.0:T2:b1:o1:fp",        // T2 suelto
+      "v5:v5.0:T3:b1:o1:fp",        // T3 suelto
+      "v5:v5.0:T4_T9:b1:o1:fp",     // combinación inventada
+      "v5:v5.0:t2_t3:b1:o1:fp",     // case
+      "v5:v5.0::b1:o1:fp",          // vacío
+      "v5:v5.0:b1:T4:o1:fp",        // código fuera de posición
+      "v5:v5.0:T4:b1:o1:fp:extra",  // segmento de más
+      "v5:v5.0:T4:b1:o1",           // segmento de menos
+      "v5:v5.0:T4:b1::fp",          // segmento vacío
+      "v5:2026-13-45:T-01:o1",      // fecha histórica inválida
+      "v5:2026-08-10:T-10:o1",      // código histórico inexistente
+      "v5:2026-08-10:T4:o1",        // canónico en formato histórico
+      "v5:2026-08-10:T-04:",        // id vacío
+    ];
+    for (const key of malas) {
+      const parsed = parseV5TaskKey(key)!;
+      expect(parsed, key).not.toBeNull();
+      expect(parsed.code, key).toBeNull();
+      expect(parsed.format, key).toBeNull();
+      // Sigue siendo V5: nunca degrada a Manual.
+      expect(operationalTaskBadge({ task_type: "call_queue", task_key: key }).label, key).toBe("V5");
     }
   });
 
