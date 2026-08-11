@@ -40,5 +40,5 @@ psql -v ON_ERROR_STOP=1 -q -f supabase/pending_migrations/20260814000000_reparse
 echo "   manifiesto:"; sha256sum supabase/pending_migrations/20260812210000_reparse_state_and_apply_plan.sql supabase/pending_migrations/20260814000000_reparse_claim_token_p05.sql
 
 echo "== suite de integración (adaptador + RPC reales) =="
-P05_LIVE=1 P05_PGHOST="$SOCK" P05_PGDATABASE=p05 P05_PGUSER=service_role \
+P05_LIVE=1 P05_PGHOST="$SOCK" P05_PGDATABASE=p05 P05_PGUSER=service_role P05_PGOWNER=p05owner \
   bunx vitest run src/test/reparseP05Live.test.ts

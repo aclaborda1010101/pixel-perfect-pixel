@@ -13,20 +13,25 @@ import { runReparseCycle } from "../../supabase/functions/notas_simples_reparse/
 const LIVE = process.env.P05_LIVE === "1";
 const d = LIVE ? describe : describe.skip;
 
-const env = {
+const envFor = (user?: string) => ({
   ...process.env,
   PGHOST: process.env.P05_PGHOST,
   PGDATABASE: process.env.P05_PGDATABASE,
-  PGUSER: process.env.P05_PGUSER,
+  PGUSER: user,
   PGPASSWORD: "",
-};
+});
 
-function psql(sql: string): string {
+function run(user: string | undefined, sql: string): string {
   return execFileSync("psql", ["-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql], {
-    env: env as any,
+    env: envFor(user) as any,
     encoding: "utf8",
   }).trim();
 }
+
+/** Fixtures y aserciones: rol propietario (el worker NO tiene estos permisos). */
+const psql = (sql: string) => run(process.env.P05_PGOWNER, sql);
+/** Todo lo que hace el worker pasa por service_role, con sus permisos reales. */
+const psqlWorker = (sql: string) => run(process.env.P05_PGUSER, sql);
 
 // Tipos exactos de cada parámetro: el token viaja SIEMPRE como uuid tipado.
 const SIG: Record<string, Record<string, string>> = {
@@ -79,7 +84,7 @@ function sbLive() {
             if (psql(`SELECT v::text FROM public.p05_switches WHERE k='log_fail'`) === "true") {
               throw new Error("log down (simulado)");
             }
-            psql(`INSERT INTO public.${table}(entity, status, error_message, metadatos) VALUES (${lit(row.entity, "text")}, ${lit(row.status, "text")}, ${lit(row.error_message, "text")}, ${lit(row.metadatos ?? {}, "jsonb")})`);
+            psqlWorker(`INSERT INTO public.${table}(entity, status, error_message, metadatos) VALUES (${lit(row.entity, "text")}, ${lit(row.status, "text")}, ${lit(row.error_message, "text")}, ${lit(row.metadatos ?? {}, "jsonb")})`);
             return Promise.resolve({ error: null });
           } catch (e: any) {
             return Promise.resolve({ error: { message: String(e?.stderr ?? e?.message) } });
