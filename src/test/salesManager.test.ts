@@ -684,9 +684,11 @@ describe("contrato final de modos", () => {
     expect(DEFAULT_GENERATION_STATE).toEqual({ paused: false, connected: false });
   });
 
-  it("el panel dice si está configurado y no afirma que ya afecte al motor", () => {
+  it("el panel muestra el estado de configuración y no afirma que ya afecte al motor", () => {
     const src = readFileSync("src/components/gestor/ModosTareasCard.tsx", "utf8");
-    expect(src).toMatch(/no configurado/i);
-    expect(src).not.toMatch(/ya afecta al motor/i);
+    expect(src).toContain("modeConfigLabel(weights)");
+    expect(modeConfigLabel(emptyWeights())).toBe("no configurado");
+    expect(src).not.toMatch(/ya afecta al motor|el motor ya usa/i);
+    expect(src).toMatch(/sólo <strong>configura<\/strong>/);
   });
 });
