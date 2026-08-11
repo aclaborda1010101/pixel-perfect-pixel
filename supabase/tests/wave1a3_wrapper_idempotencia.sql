@@ -37,8 +37,7 @@ BEGIN
   w  := public.p0_rebuild_property_rights('x', false);
   ASSERT (w ->> 'applied')::boolean IS FALSE, 'el wrapper declara applied=false';
   ASSERT (w - 'reason' - 'motivo') = d1,
-    'el wrapper debe devolver EXACTAMENTE el dry-run (salvo reason/motivo). Diferencia: '
-    || ((w - 'reason' - 'motivo') - (SELECT array_agg(key) FROM jsonb_each(d1) AS e(key, val)))::text;
+    'el wrapper debe devolver EXACTAMENTE el dry-run (salvo reason/motivo). wrapper=' || w::text || ' dry_run=' || d1::text;
   FOR k IN SELECT key FROM jsonb_each(d1) LOOP
     ASSERT w -> k = d1 -> k, format('el wrapper altera la clave %s del dry-run', k);
   END LOOP;

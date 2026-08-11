@@ -218,6 +218,8 @@ END \$\$;" || die "verificación de presencia 1A.3 P0.4 fallida"
 
 # --- 6. Suites: reporte individual, SIN fail-fast ---------------------
 for f in "$ROOT/supabase/tests/wave1a3_fixtures.sql" \
+         "$ROOT/supabase/tests/wave1a3_readiness_positivo.sql" \
+         "$ROOT/supabase/tests/wave1a3_wrapper_idempotencia.sql" \
          "$ROOT/supabase/tests/wave1a_property_rights_cases.sql"; do
   [ -f "$f" ] || continue
   grep -qiE '^[[:space:]]*ROLLBACK[[:space:]]*;' "$f" \
@@ -244,6 +246,9 @@ run_suite() {
 run_suite "puros_1a3"       "$ROOT/supabase/tests/wave1a3_pure_cases.sql"
 run_suite "invariantes_1a2" "$ROOT/supabase/tests/wave1a_property_rights_cases.sql"
 run_suite "fixtures_1a3"    "$ROOT/supabase/tests/wave1a3_fixtures.sql"
+run_suite "readiness_positivo" "$ROOT/supabase/tests/wave1a3_readiness_positivo.sql"
+run_suite "wrapper_idempotencia" "$ROOT/supabase/tests/wave1a3_wrapper_idempotencia.sql"
+run_suite "vocabulario_identity_match" "$ROOT/supabase/tests/wave1a3_identity_vocab.sql"
 
 if [ "$FAILED" != "0" ]; then
   echo "WAVE 1A.3 P0.4 · integración: NO-GO (al menos un caso en rojo)"
