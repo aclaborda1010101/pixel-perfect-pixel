@@ -6127,10 +6127,36 @@ export type Database = {
           },
         ]
       }
+      notas_reparse_state: {
+        Row: {
+          created_at: string
+          generation: number
+          id: string
+          match_pending: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          generation?: number
+          id?: string
+          match_pending?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          generation?: number
+          id?: string
+          match_pending?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       notas_simples: {
         Row: {
           attempt_count: number
           building_id: string | null
+          claim_expires_at: string | null
+          claim_token: string | null
           claimed_at: string | null
           created_at: string
           dead_letter: boolean
@@ -6149,6 +6175,8 @@ export type Database = {
         Insert: {
           attempt_count?: number
           building_id?: string | null
+          claim_expires_at?: string | null
+          claim_token?: string | null
           claimed_at?: string | null
           created_at?: string
           dead_letter?: boolean
@@ -6167,6 +6195,8 @@ export type Database = {
         Update: {
           attempt_count?: number
           building_id?: string | null
+          claim_expires_at?: string | null
+          claim_token?: string | null
           claimed_at?: string | null
           created_at?: string
           dead_letter?: boolean
@@ -10085,6 +10115,10 @@ export type Database = {
         Returns: boolean
       }
       _safe_int_from_dir: { Args: { p: string }; Returns: number }
+      apply_nota_reparse_plan: {
+        Args: { p_claim_token: string; p_nota_id: string; p_payload: Json }
+        Returns: Json
+      }
       audit_building_owner_cuotas: { Args: never; Returns: Json }
       auto_link_owner_building: { Args: { p_days?: number }; Returns: Json }
       build_score_summary: { Args: { p_building_id: string }; Returns: string }
@@ -10322,11 +10356,17 @@ export type Database = {
         Returns: Json
       }
       reconciliation_mark_candidates: { Args: never; Returns: Json }
+      release_nota_reparse_claim: {
+        Args: { p_expected_token: string; p_id: string }
+        Returns: string
+      }
       reparse_claim_batch: {
         Args: { p_limit?: number; p_lock_minutes?: number }
         Returns: {
           attempt_count: number
           building_id: string | null
+          claim_expires_at: string | null
+          claim_token: string | null
           claimed_at: string | null
           created_at: string
           dead_letter: boolean
@@ -10349,6 +10389,30 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      reparse_clear_match_pending: {
+        Args: { p_expected_generation: number }
+        Returns: boolean
+      }
+      reparse_fail_nota: {
+        Args: {
+          p_attempt: number
+          p_dead: boolean
+          p_expected_token: string
+          p_id: string
+          p_last_error: string
+          p_next_retry_at: string
+        }
+        Returns: boolean
+      }
+      reparse_mark_match_pending: { Args: never; Returns: number }
+      reparse_match_state_read: {
+        Args: never
+        Returns: {
+          generation: number
+          match_pending: boolean
+        }[]
+      }
+      reparse_reap_expired_claims: { Args: never; Returns: number }
       rpc_inversores_paginated:
         | {
             Args: { p_limit?: number; p_offset?: number; p_search?: string }
