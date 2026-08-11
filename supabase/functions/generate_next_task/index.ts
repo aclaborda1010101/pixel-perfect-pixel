@@ -10,6 +10,7 @@ import {
   proximaFechaLimite,
   taskKeyFor,
 } from '../_shared/generadorTareas.ts';
+import { insertGeneratedTask } from '../_shared/taskWriters.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -178,11 +179,7 @@ Deno.serve(async (req) => {
       due_date: proximaFechaLimite(ahora).toISOString(),
     };
 
-    const { data: creada, error: iErr } = await admin
-      .from('building_tasks')
-      .insert(row)
-      .select('*')
-      .single();
+    const { data: creada, error: iErr } = await insertGeneratedTask(admin, row);
     if (iErr) throw iErr;
 
     return json(200, { ok: true, created: creada, tipo });

@@ -54,6 +54,11 @@ export const AUTHORIZED_WRITERS: Record<string, TsRule> = {
     validator: "buildManualTaskRow",
     mode: "builder",
   },
+  "supabase/functions/_shared/taskWriters.ts#insertGeneratedTask": {
+    id: "generador_continuo_v1",
+    validator: "assertGeneratedTaskRow",
+    mode: "assert",
+  },
 };
 
 /** RPC SQL autorizadas: clave `<esquema>.<función>` + contrato exigido. */
