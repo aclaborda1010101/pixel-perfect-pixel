@@ -481,7 +481,9 @@ describe("V5 modos", () => {
     const check = isModeActivatable("equilibrado", null);
     expect(check.activatable).toBe(false);
     expect(check.errors.join()).toContain("Carlos");
-    expect(isModeActivatable("manual", null).activatable).toBe(true);
+    // Manual tampoco se activa sin mapa completo: también genera automáticas.
+    expect(isModeActivatable("manual", null).activatable).toBe(false);
+    expect(isModeActivatable("manual", MIX).activatable).toBe(true);
   });
 
   it("validación exacta de buckets", () => {
