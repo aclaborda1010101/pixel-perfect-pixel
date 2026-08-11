@@ -8,6 +8,8 @@ LANGUAGE plpgsql AS $$
 DECLARE v text;
 BEGIN
   PERFORM set_config('request.jwt.claims', json_build_object('sub', _uid, 'role','authenticated')::text, true);
+  PERFORM set_config('request.jwt.claim.sub', _uid::text, true);
+  PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
   PERFORM set_config('role', 'authenticated', true);
   EXECUTE _sql INTO v;
   PERFORM set_config('role', 'none', true);

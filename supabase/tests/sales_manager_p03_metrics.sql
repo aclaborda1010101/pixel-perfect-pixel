@@ -32,6 +32,7 @@ BEGIN
     (b, u_com, 'manual', 'v5:2026-08-10:T-03:x6', 'sustituida',         'superseded', now() - interval '2 days', now() - interval '3 days');
 
   PERFORM set_config('request.jwt.claims', json_build_object('sub', u_sm, 'role','authenticated')::text, true);
+  PERFORM set_config('request.jwt.claim.sub', u_sm::text, true);
   j := public.get_sales_manager_dashboard(now() - interval '10 days', now() + interval '1 day');
   fila := (SELECT x FROM jsonb_array_elements(j->'rows') x WHERE x->>'user_id' = u_com::text);
   IF fila IS NULL THEN RAISE EXCEPTION 'CASO M0 FAIL: el gestor no ve a su comercial'; END IF;
@@ -61,6 +62,7 @@ BEGIN
   -- Un comercial no puede llamar al panel.
   BEGIN
     PERFORM set_config('request.jwt.claims', json_build_object('sub', u_com, 'role','authenticated')::text, true);
+    PERFORM set_config('request.jwt.claim.sub', u_com::text, true);
     PERFORM public.get_sales_manager_dashboard(now() - interval '1 day', now());
     RAISE EXCEPTION 'CASO M5 FAIL: el comercial ejecutó el panel';
   EXCEPTION WHEN insufficient_privilege THEN
