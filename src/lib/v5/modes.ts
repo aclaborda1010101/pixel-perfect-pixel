@@ -127,7 +127,8 @@ export function resolveModeFor(
   const ov = comercialId ? config.overrides?.[comercialId] : undefined;
   const chosen = ov ?? config.global;
   const source: "override" | "global" = ov ? "override" : "global";
-  return { mode: chosen.mode, mix: chosen.mode === "manual" ? null : chosen.mix ?? null, source };
+  // El modo personalizado (alias `manual`) CONSERVA su mapa completo.
+  return { mode: normalizeModeCode(chosen.mode), mix: chosen.mix ?? null, source };
 }
 
 export type V5WindowEntry = { taskKey: string; bucket: string };
