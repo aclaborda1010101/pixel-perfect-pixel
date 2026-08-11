@@ -73,7 +73,8 @@ BEGIN
   r := pg_temp.como(u_admin, 'SELECT count(*)::text FROM public.user_roles');
   IF r::int < 5 THEN RAISE EXCEPTION 'CASO 4 FAIL: el admin perdió visibilidad (%)', r; END IF;
   r := pg_temp.como(u_com, 'SELECT count(*)::text FROM public.user_roles');
-  IF r <> '1' THEN RAISE EXCEPTION 'CASO 4 FAIL: el comercial ve roles ajenos (%)', r; END IF;
+  IF r <> '1' THEN RAISE EXCEPTION 'CASO 4 FAIL: el comercial ve roles ajenos (%) políticas=%', r,
+    (SELECT string_agg(policyname || '=' || COALESCE(qual,'-'), ' | ') FROM pg_policies WHERE tablename='user_roles'); END IF;
   RAISE NOTICE 'CASO 4 PASS · user_roles: admin todo, tercero sólo self';
 
   -- CASO 5: perfiles ajenos no son legibles por un comercial.
