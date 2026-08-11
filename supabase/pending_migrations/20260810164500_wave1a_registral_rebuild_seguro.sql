@@ -93,6 +93,13 @@ ALTER TABLE public.building_property_rights
 
 -- (7) identity_match: vocabulario alineado 1:1 con lo que emite el staging.
 --     El futuro rebuild no puede fallar por su propio CHECK.
+-- P0.5: se elimina EXPRESAMENTE el CHECK legacy (y cualquier vocabulario
+-- antiguo) para dejar UN ÚNICO vocabulario vigente, el de abajo, que cubre
+-- exactamente los valores que emite el staging de 1A.3 (identity_conflict
+-- incluido). Con dos CHECKs vivos el futuro rebuild de Wave 1B fallaría.
+ALTER TABLE public.building_property_rights
+  DROP CONSTRAINT IF EXISTS building_property_rights_identity_match_check;
+
 ALTER TABLE public.building_property_rights
   DROP CONSTRAINT IF EXISTS bpr_identity_match_vocab;
 
@@ -108,7 +115,8 @@ ALTER TABLE public.building_property_rights
     'company_preexistente',
     'ambiguo',
     'conflicto_owner_y_company',
-    'nombre_sociedad_revisable'
+    'nombre_sociedad_revisable',
+    'identity_conflict'
   )) NOT VALID;
 
 CREATE INDEX IF NOT EXISTS idx_bpr_unit ON public.building_property_rights(ownership_unit_key);

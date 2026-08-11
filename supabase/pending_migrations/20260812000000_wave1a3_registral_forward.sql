@@ -1322,7 +1322,7 @@ WITH notas AS (
         (s.pre_owner_id IS NOT NULL AND md.n = 1 AND md.owner_id IS DISTINCT FROM s.pre_owner_id)
         OR (s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id)
         OR coalesce(cv.identity_divergent, false)
-      ) THEN 'ambiguo'
+      ) THEN 'identity_conflict'
       WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
         OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN 'ambiguo'
       WHEN s.es_sociedad AND s.pre_company_id IS NOT NULL THEN 'company_preexistente'
