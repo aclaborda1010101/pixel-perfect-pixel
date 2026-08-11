@@ -836,30 +836,58 @@ WITH notas AS (
 ), base AS (
   SELECT s.*,
     (c.nota_id IS NOT NULL) AS is_canonical,
+    -- (4)(5) Bloqueos que viven en el edificio, no en la unidad.
+    (coalesce(ed.b_unit_key_conflict, false)
+     OR coalesce(ed.b_dh_sin_clave, false)
+     OR coalesce(ed.b_lista_sin_titulares_sin_unidad, false)) AS building_block,
     (coalesce(us.n_firmas, 0) > 1 AND NOT coalesce(us.resuelta, false)) AS unidad_contradictoria,
     (coalesce(us.n_firmas, 0) > 1 AND coalesce(us.resuelta, false))     AS unidad_resuelta_por_fecha,
-    (coalesce(us.n_sin_titulares, 0) > 0)                               AS unidad_con_lista_sin_titulares,
+    (coalesce(us.n_sin_titulares, 0) > 0
+     OR coalesce(ed.b_lista_sin_titulares_sin_unidad, false))           AS unidad_con_lista_sin_titulares,
     coalesce(us.unidad_date_conflict, false)                            AS unidad_date_conflict,
+    (s.unit_key_conflict OR coalesce(us.unidad_key_conflict, false)
+     OR coalesce(ed.b_unit_key_conflict, false))                        AS unidad_key_conflict,
     (s.porcentaje IS NULL OR s.porcentaje <= 0 OR s.porcentaje > 100)   AS invalid_pct,
     (s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL)       AS conflicto_ids,
+    -- (5) IDENTIDAD: exactamente UNA coincidencia total. Duplicado => ambiguo.
+    (coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
+     OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1)                   AS identidad_ambigua,
+    -- (5) Discrepancia entre el ID preexistente y lo que dice el documento.
+    (
+      (s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL)
+      OR (s.pre_owner_id IS NOT NULL AND md.n = 1 AND md.owner_id IS DISTINCT FROM s.pre_owner_id)
+      OR (s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id)
+      OR (s.es_sociedad AND s.pre_owner_id IS NOT NULL)
+      OR (NOT s.es_sociedad AND s.pre_company_id IS NOT NULL)
+    )                                                                    AS identity_conflict,
     CASE
+      WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
+        OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN NULL
+      WHEN s.pre_owner_id IS NOT NULL AND md.n = 1 AND md.owner_id IS DISTINCT FROM s.pre_owner_id THEN NULL
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN NULL
+      WHEN s.es_sociedad AND s.pre_owner_id IS NOT NULL THEN NULL
       WHEN s.pre_owner_id IS NOT NULL THEN s.pre_owner_id
       WHEN s.pre_company_id IS NOT NULL THEN NULL
       WHEN NOT s.es_sociedad THEN
         CASE WHEN md.n = 1 THEN md.owner_id WHEN mn.n = 1 THEN mn.owner_id END
     END AS f_owner_id,
     CASE
+      WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
+        OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN NULL
+      WHEN s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id THEN NULL
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN NULL
+      WHEN NOT s.es_sociedad AND s.pre_company_id IS NOT NULL THEN NULL
       WHEN s.pre_company_id IS NOT NULL THEN s.pre_company_id
       WHEN s.pre_owner_id IS NOT NULL THEN NULL
       WHEN s.es_sociedad THEN
         CASE WHEN mf.n = 1 THEN mf.company_id WHEN mc.n = 1 THEN mc.company_id END
     END AS f_company_id,
     (md.n = 1 AND s.pre_company_id IS NULL
+     AND coalesce(mn.n,0) <= 1
      AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
-    (coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1 OR coalesce(mc.n,0) > 1) AS identidad_ambigua,
     CASE
+      WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
+        OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN 'ambiguo'
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN 'conflicto_owner_y_company'
       WHEN s.es_sociedad AND s.pre_company_id IS NOT NULL THEN 'company_preexistente'
       WHEN s.es_sociedad AND mf.n = 1 THEN 'cif'
@@ -868,7 +896,6 @@ WITH notas AS (
       WHEN md.n = 1 THEN 'dni'
       WHEN s.pre_owner_id IS NOT NULL THEN 'owner_preexistente'
       WHEN mn.n = 1 THEN 'nombre_exacto'
-      WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1 THEN 'ambiguo'
       ELSE 'ninguno'
     END AS identity_match,
     CASE WHEN md.n = 1 THEN 1.0 WHEN mf.n = 1 THEN 0.9
@@ -880,6 +907,7 @@ WITH notas AS (
   FROM soc s
   LEFT JOIN canon c ON c.unit_key = s.unit_key AND c.nota_id = s.nota_id
   LEFT JOIN unit_state us ON us.unit_key = s.unit_key
+  LEFT JOIN edificio ed ON ed.building_id = s.building_id
   LEFT JOIN m_dni md ON md.titular_id = s.titular_id
   LEFT JOIN m_nom mn ON mn.titular_id = s.titular_id
   LEFT JOIN m_cif mf ON mf.titular_id = s.titular_id
