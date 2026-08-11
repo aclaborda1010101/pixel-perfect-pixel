@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { postPasswordChangePath } from "@/lib/access";
 import { FEATURE_FORCE_PASSWORD_EDGE_FN } from "@/lib/featureFlags";
@@ -13,7 +12,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 
 export default function CambiarPasswordObligatorio() {
-  const { user } = useAuth();
   const { role } = useCurrentRole();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -27,33 +25,25 @@ export default function CambiarPasswordObligatorio() {
     setError(null);
     if (pwd.length < 10) return setError("La contraseña debe tener al menos 10 caracteres.");
     if (pwd !== pwd2) return setError("Las contraseñas no coinciden.");
-    setSaving(true);
+    // FALLA CERRADO: sin el servicio activo NO se toca la contraseña.
+    // No existe ruta alternativa desde el navegador (bajar el flag desde el
+    // cliente dejaría el acceso abierto sin garantía de cambio real).
+    if (!FEATURE_FORCE_PASSWORD_EDGE_FN) {
+      return setError(
+        "El servicio de cambio de contraseña no está activado. No se ha modificado nada: avisa a soporte.",
+      );
+    }
 
-    if (FEATURE_FORCE_PASSWORD_EDGE_FN) {
-      // Ruta definitiva (edge function aún NO desplegada): cambia la contraseña
-      // y baja el flag con service role. Si sólo se completa la primera parte,
-      // el acceso sigue bloqueado y se informa del estado parcial.
-      const { data, error: fnErr } = await supabase.functions.invoke("force_password_change", {
-        body: { password: pwd },
-      });
-      setSaving(false);
-      if (fnErr) return setError(fnErr.message);
-      if (!data?.ok) {
-        return setError(
-          data?.error ?? "No se pudo completar el cambio de contraseña. El acceso sigue bloqueado.",
-        );
-      }
-    } else {
-      const { error: upErr } = await supabase.auth.updateUser({ password: pwd });
-      if (upErr) {
-        setSaving(false);
-        return setError(upErr.message);
-      }
-      const { error: profErr } = await (supabase.from("profiles") as any)
-        .update({ must_change_password: false })
-        .eq("id", user?.id ?? "");
-      setSaving(false);
-      if (profErr) return setError(`Contraseña actualizada, pero no se pudo marcar el perfil: ${profErr.message}`);
+    setSaving(true);
+    const { data, error: fnErr } = await supabase.functions.invoke("force_password_change", {
+      body: { password: pwd },
+    });
+    setSaving(false);
+    if (fnErr) return setError(fnErr.message);
+    if (!data?.ok) {
+      return setError(
+        data?.error ?? "No se pudo completar el cambio de contraseña. El acceso sigue bloqueado.",
+      );
     }
 
     await queryClient.invalidateQueries({ queryKey: ["mustChangePassword"] });

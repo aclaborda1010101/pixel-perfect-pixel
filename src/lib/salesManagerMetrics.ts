@@ -2,27 +2,42 @@
  * Métricas del panel de gestor comercial — lógica PURA.
  * Los datos llegan YA agregados desde la RPC get_sales_manager_dashboard:
  * el frontend no consulta building_tasks directamente.
+ *
+ * Ventanas SEPARADAS y no intercambiables:
+ *  - created_in_period   -> tareas CREADAS en [from, to)
+ *  - completed_in_period -> tareas CERRADAS en [from, to) (pudieron crearse antes)
+ *  - plazos y duraciones -> se calculan SOLO sobre los cierres del periodo
+ *  - snapshot            -> FOTO ACTUAL de estados, no es histórico
  */
 
-export type SalesManagerRow = {
-  user_id: string;
-  full_name: string | null;
-  creadas: number;
-  completadas: number;
+export type SalesManagerSnapshot = {
   pending: number;
   in_progress: number;
   blocked: number;
   skipped: number;
+  completed: number;
   unknown: number;
-  vencidas: number;
+  vencidas_ahora: number;
+  as_of: string;
+};
+
+export type SalesManagerRow = {
+  user_id: string;
+  full_name: string | null;
+  created_in_period: number;
+  completed_in_period: number;
   con_plazo: number;
   en_plazo: number;
-  con_inicio: number;
-  cobertura_inicio_pct: number | null;
+  con_duracion: number;
   media_horas: number | null;
   mediana_horas: number | null;
-  muestra_duracion: number;
-  mezcla: Record<string, number>;
+  /** Creadas en el periodo que tienen inicio real registrado. */
+  cobertura_inicio_creadas: number;
+  cobertura_inicio_pct: number | null;
+  /** Cierres del periodo con duración completa (inicio + cierre). */
+  cobertura_duracion_pct: number | null;
+  snapshot: SalesManagerSnapshot;
+  mezcla_creadas: Record<string, number>;
 };
 
 export type SalesManagerDashboard = {
@@ -76,6 +91,9 @@ export function madridDayStart(at: Date): Date {
   return new Date(localMidnight - madridOffsetMs(approx));
 }
 
+/** El backend rechaza intervalos mayores: el cliente no puede pedirlos. */
+export const MAX_PERIOD_DAYS = 31;
+
 export type PeriodKey = "hoy" | "semana" | "mes";
 
 export const PERIODS: readonly { key: PeriodKey; label: string; days: number }[] = [
@@ -91,8 +109,9 @@ export const PERIODS: readonly { key: PeriodKey; label: string; days: number }[]
 export function periodRange(period: PeriodKey, now: Date = new Date()): { from: Date; to: Date } {
   const startToday = madridDayStart(now);
   const days = PERIODS.find((p) => p.key === period)!.days;
+  const capped = Math.min(days, MAX_PERIOD_DAYS);
   const to = new Date(madridDayStart(new Date(startToday.getTime() + 36 * 3_600_000)).getTime());
-  const fromApprox = new Date(startToday.getTime() - (days - 1) * 24 * 3_600_000);
+  const fromApprox = new Date(startToday.getTime() - (capped - 1) * 24 * 3_600_000);
   return { from: madridDayStart(fromApprox), to };
 }
 
@@ -109,12 +128,26 @@ export function fmtHoras(h: number | null | undefined): string {
 }
 
 export function mezclaEntries(row: SalesManagerRow): [string, number][] {
-  return Object.entries(row.mezcla ?? {}).sort((a, b) => b[1] - a[1]);
+  return Object.entries(row.mezcla_creadas ?? {}).sort((a, b) => b[1] - a[1]);
 }
 
-/** Aviso honesto sobre la cobertura de started_at. */
-export function coberturaNota(row: SalesManagerRow): string {
-  const pct = row.cobertura_inicio_pct;
-  if (pct == null) return "Sin tareas en el periodo.";
-  return `Duración calculada sobre ${row.muestra_duracion} de ${row.creadas} tareas (${pct}% con inicio real registrado). El histórico sin inicio no computa duración.`;
+/** Cobertura de INICIO sobre las tareas creadas en el periodo. */
+export function coberturaInicioNota(row: SalesManagerRow): string {
+  if (!row.created_in_period) return "Sin tareas creadas en el periodo.";
+  return `${row.cobertura_inicio_creadas} de ${row.created_in_period} tareas creadas tienen inicio real registrado (${row.cobertura_inicio_pct ?? 0}%).`;
+}
+
+/** Cobertura de DURACIÓN COMPLETA sobre los cierres del periodo. */
+export function coberturaDuracionNota(row: SalesManagerRow): string {
+  if (!row.completed_in_period) return "Sin cierres en el periodo.";
+  return `Duración medida en ${row.con_duracion} de ${row.completed_in_period} cierres (${row.cobertura_duracion_pct ?? 0}%). Los cierres sin inicio registrado no computan duración.`;
+}
+
+/** Aviso de la foto actual: nunca se presenta como dato histórico. */
+export function snapshotNota(row: SalesManagerRow): string {
+  const at = row.snapshot?.as_of ? new Date(row.snapshot.as_of) : null;
+  const cuando = at && !Number.isNaN(at.getTime())
+    ? at.toLocaleString("es-ES", { timeZone: MADRID_TZ })
+    : "ahora";
+  return `Foto actual a ${cuando} (Madrid). No corresponde al periodo seleccionado.`;
 }

@@ -8,6 +8,9 @@ import { Eyebrow } from "@/components/common/Eyebrow";
 import { MetricValue } from "@/components/common/MetricValue";
 import { EmptyState } from "@/components/common/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
+import { startBuildingTask, canStartTask } from "@/lib/taskStart";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { fetchVisibleUserTasks } from "@/lib/dashboardTasks";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
@@ -29,6 +32,7 @@ function greet() {
 }
 
 export default function ComercialDashboard() {
+  const qc = useQueryClient();
   const { user, loading: authLoading } = useAuth();
   const { role, loading: roleLoading } = useCurrentRole();
 
@@ -280,6 +284,21 @@ export default function ComercialDashboard() {
                       {t.priority === "high" ? "Alta" : t.priority === "medium" ? "Media" : "Baja"}
                     </Badge>
                     <span className="flex-1 truncate text-sm text-foreground">{t.title}</span>
+                    {canStartTask(t) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={async () => {
+                          const res = await startBuildingTask(t.id);
+                          if (!res.ok) return toast.error(res.error ?? "No se pudo marcar el inicio");
+                          toast.success("Tarea iniciada");
+                          qc.invalidateQueries({ queryKey: ["comercial:dashboard", userId] });
+                        }}
+                      >
+                        Empezar
+                      </Button>
+                    )}
                     <Button asChild size="sm" variant="ghost">
                       <Link to={`/comercial/edificios/${t.building_id}`}>
                         Ir <ArrowRight className="h-3 w-3" />
