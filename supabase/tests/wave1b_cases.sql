@@ -189,6 +189,40 @@ BEGIN
   PERFORM pg_temp.ok('firma obsoleta aborta sin escribir', n = 0);
 END $$;
 
+
+-- ---------------------------------------------------------------------
+-- 2bis) PAREJA AUSENTE => ABORTO GLOBAL (no descarte del edificio)
+-- ---------------------------------------------------------------------
+DO $$
+DECLARE nr bigint; no_ bigint; na bigint; err text;
+BEGIN
+  SELECT count(*) INTO nr FROM public.building_property_rights;
+  SELECT count(*) INTO no_ FROM public.building_owners;
+  SELECT count(*) INTO na FROM afflux_audit.wave1b_runs;
+  BEGIN
+    PERFORM public.p0_apply_property_rights_wave1b(public.p0_wave1b_signature(), true);
+    RAISE EXCEPTION 'CASO FALLA: la pareja ausente NO abortó el apply completo';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    GET STACKED DIAGNOSTICS err = MESSAGE_TEXT;
+    IF position('WAVE1B_PAREJA_AUSENTE' in err) = 0 THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.ok('pareja ausente · cero derechos',
+    nr = (SELECT count(*) FROM public.building_property_rights));
+  PERFORM pg_temp.ok('pareja ausente · cero owners nuevos',
+    no_ = (SELECT count(*) FROM public.building_owners));
+  PERFORM pg_temp.ok('pareja ausente · cero auditoría',
+    na = (SELECT count(*) FROM afflux_audit.wave1b_runs));
+END $$;
+
+-- Se retira la nota del edificio 6 (decisión operativa explícita); Wave 1B
+-- jamás crea la pareja por su cuenta.
+DELETE FROM public.nota_simple_titulares t
+ USING public.notas_simples ns
+ WHERE ns.id = t.nota_simple_id
+   AND ns.building_id = 'b0000006-0000-0000-0000-000000000006';
+DELETE FROM public.notas_simples
+ WHERE building_id = 'b0000006-0000-0000-0000-000000000006';
+
 -- ---------------------------------------------------------------------
 -- 3) APPLY real
 -- ---------------------------------------------------------------------
@@ -232,11 +266,11 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM public.building_owners
       WHERE building_id='b0000005-0000-0000-0000-000000000005' AND cuota IS NOT NULL));
 
-  PERFORM pg_temp.ok('CASO F · falta pareja building/owner: NO-GO y jamás se crea',
-    NOT EXISTS (SELECT 1 FROM public.building_owners
-      WHERE building_id='b0000006-0000-0000-0000-000000000006' AND cuota IS NOT NULL)
-    AND (SELECT count(*)=1 FROM public.building_owners
-      WHERE building_id='b0000006-0000-0000-0000-000000000006'));
+  PERFORM pg_temp.ok('CASO F · la pareja ausente nunca se crea',
+    (SELECT count(*)=1 FROM public.building_owners
+      WHERE building_id='b0000006-0000-0000-0000-000000000006')
+    AND NOT EXISTS (SELECT 1 FROM public.building_owners
+      WHERE building_id='b0000006-0000-0000-0000-000000000006' AND cuota IS NOT NULL));
 
   PERFORM pg_temp.ok('CASO G · unmatched => review, sin owner ni company',
     (SELECT status='review' AND owner_id IS NULL AND company_id IS NULL AND NOT feeds_cuota
@@ -284,12 +318,15 @@ DO $$
 DECLARE ck1 text; ck2 text; ids1 text; ids2 text; rep jsonb;
 BEGIN
   SELECT md5(string_agg(id::text,'|' ORDER BY id)) INTO ids1 FROM public.building_property_rights;
-  SELECT checksums->>'rights' INTO ck1 FROM afflux_audit.wave1b_runs ORDER BY created_at DESC LIMIT 1;
+  SELECT checksums->>'current' INTO ck1 FROM afflux_audit.wave1b_runs ORDER BY created_at DESC LIMIT 1;
   rep := public.p0_apply_property_rights_wave1b(public.p0_wave1b_signature(), true);
   SELECT md5(string_agg(id::text,'|' ORDER BY id)) INTO ids2 FROM public.building_property_rights;
-  ck2 := rep->'checksums'->>'rights';
+  ck2 := rep->'checksums'->>'current';
   PERFORM pg_temp.ok('idempotencia · mismos ids estables', ids1 = ids2);
-  PERFORM pg_temp.ok('idempotencia · mismo checksum de derechos', ck1 = ck2, coalesce(ck1,'-')||' vs '||coalesce(ck2,'-'));
+  PERFORM pg_temp.ok('idempotencia · mismo checksum completo', ck1 = ck2, coalesce(ck1,'-')||' vs '||coalesce(ck2,'-'));
+  PERFORM pg_temp.ok('idempotencia · no-op declarado', (rep->>'idempotent')='true');
+  PERFORM pg_temp.ok('idempotencia · sin nueva auditoría',
+    (SELECT count(*)=1 FROM afflux_audit.wave1b_runs WHERE applied));
 END $$;
 
 -- ---------------------------------------------------------------------
@@ -298,7 +335,7 @@ END $$;
 DO $$
 DECLARE run uuid; res jsonb;
 BEGIN
-  SELECT run_id INTO run FROM afflux_audit.wave1b_runs ORDER BY created_at ASC LIMIT 1;
+  SELECT run_id INTO run FROM afflux_audit.wave1b_runs ORDER BY created_at DESC LIMIT 1;
   res := public.p0_rollback_property_rights_wave1b(run);
   PERFORM pg_temp.ok('rollback · derechos restaurados al estado previo (vacío)',
     (SELECT count(*)=0 FROM public.building_property_rights));
@@ -356,8 +393,8 @@ BEGIN
         AND contype='c' AND pg_get_constraintdef(oid) ILIKE '%identity_match%'));
 
   PERFORM pg_temp.ok('RPCs sin acceso para PUBLIC/anon/authenticated',
-    NOT (has_function_privilege('anon','public.p0_apply_property_rights_wave1b(text,boolean)','EXECUTE')
-      OR has_function_privilege('authenticated','public.p0_apply_property_rights_wave1b(text,boolean)','EXECUTE')));
+    NOT (has_function_privilege('anon','public.p0_apply_property_rights_wave1b(text,boolean,text)','EXECUTE')
+      OR has_function_privilege('authenticated','public.p0_apply_property_rights_wave1b(text,boolean,text)','EXECUTE')));
 END $$;
 
 -- ---------------------------------------------------------------------
@@ -389,7 +426,15 @@ DO $$
 DECLARE rep jsonb;
 BEGIN
   DELETE FROM public.nota_simple_titulares;
-  rep := public.p0_apply_property_rights_wave1b(public.p0_wave1b_signature(), true);
+  BEGIN
+    PERFORM public.p0_apply_property_rights_wave1b(public.p0_wave1b_signature(), true);
+    RAISE EXCEPTION 'CASO FALLA: feeds=0 limpió cuotas heredadas sin revisión';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF position('WAVE1B_NOGO_OPERATIVO' in SQLERRM) = 0 THEN RAISE; END IF;
+  END;
+  PERFORM pg_temp.ok('feeds=0 · NO-GO operativo sin ack explícito', true);
+  rep := public.p0_apply_property_rights_wave1b(
+           public.p0_wave1b_signature(), true, 'PURGE:' || public.p0_wave1b_context_hash());
   PERFORM pg_temp.ok('feeds=0 · apply válido', (rep->>'applied')='true');
   PERFORM pg_temp.ok('feeds=0 · 0 cuotas operativas', (rep->>'cuotas_operativas')='0');
   PERFORM pg_temp.ok('feeds=0 · readiness global sigue false', (rep->>'readiness_ok')='false');
