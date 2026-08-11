@@ -909,7 +909,8 @@ CREATE POLICY profiles_select_scoped ON public.profiles
     OR public.has_role(auth.uid(), 'admin')
   );
 
--- user_roles: propio rol + admin + rol de los miembros activos del equipo.
+-- user_roles: propio rol + admin. Sin excepción para sales_manager (evita
+-- además cualquier recursión con las políticas de profiles).
 DROP POLICY IF EXISTS user_roles_self_read     ON public.user_roles;
 DROP POLICY IF EXISTS user_roles_select_scoped ON public.user_roles;
 CREATE POLICY user_roles_select_scoped ON public.user_roles
@@ -917,14 +918,30 @@ CREATE POLICY user_roles_select_scoped ON public.user_roles
   USING (
     user_id = auth.uid()
     OR public.has_role(auth.uid(), 'admin')
-    OR (
-      public.has_role(auth.uid(), 'sales_manager')
-      AND EXISTS (
-        SELECT 1 FROM public.sales_manager_team_members t
-        WHERE t.manager_id = auth.uid() AND t.member_id = public.user_roles.user_id AND t.active
-      )
-    )
   );
+
+-- ---------------------------------------------------------------------
+-- 7b. Atribución MÍNIMA de agentes para el panel de WhatsApp.
+--     Devuelve EXCLUSIVAMENTE id + nombre visible de los ids solicitados.
+--     Ni email, ni avatar, ni roles, ni timestamps, ni must_change_password.
+--     No permite enumerar la tabla base (exige lista de ids).
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.get_agent_display_names(p_ids uuid[])
+RETURNS TABLE (id uuid, display_name text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT p.id, NULLIF(btrim(COALESCE(p.full_name, '')), '') AS display_name
+  FROM public.profiles p
+  WHERE auth.uid() IS NOT NULL
+    AND (public.has_role(auth.uid(), 'whatsapp') OR public.has_role(auth.uid(), 'admin'))
+    AND p_ids IS NOT NULL
+    AND array_length(p_ids, 1) IS NOT NULL
+    AND array_length(p_ids, 1) <= 200
+    AND p.id = ANY (p_ids);
+$$;
+
+REVOKE ALL ON FUNCTION public.get_agent_display_names(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_agent_display_names(uuid[]) TO authenticated;
 
 -- El usuario normal NO puede quitarse must_change_password vía profiles.update.
 DROP POLICY IF EXISTS profiles_self_update_safe ON public.profiles;
