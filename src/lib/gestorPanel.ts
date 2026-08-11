@@ -23,6 +23,7 @@ export type PanelData = {
   from: string;
   to: string;
   generated_at: string;
+  comerciales?: { user_id: string; full_name: string | null }[];
   activas: TareaPanel[];
   realizadas: TareaPanel[];
 };
@@ -59,6 +60,15 @@ export function agruparPorComercial(data: PanelData | undefined, ahora: Date = n
   const activas = soloReales(data?.activas ?? []);
   const realizadas = soloReales(data?.realizadas ?? []);
   const mapa = new Map<string, ResumenComercial>();
+  for (const c of data?.comerciales ?? []) {
+    mapa.set(c.user_id, {
+      user_id: c.user_id,
+      nombre: c.full_name || c.user_id.slice(0, 8),
+      activas: [],
+      retrasadas: [],
+      realizadas: [],
+    });
+  }
   const get = (t: TareaPanel) => {
     const k = t.user_id;
     if (!mapa.has(k)) {
