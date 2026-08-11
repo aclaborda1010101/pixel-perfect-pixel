@@ -217,12 +217,16 @@ describe("plan de conciliación", () => {
     expect(plan.updates[0].patch.evidencia.fuentes).toEqual([{ cita: "A", pagina: 1 }, { pagina: 2, cita: "B" }]);
   });
 
-  it("evidencia contradictoria con la fila existente bloquea", () => {
+  it("otra cita en la misma página se AÑADE a la fila existente (sin sobrescribir)", () => {
     const existentes = [fila({ id: "r1", rol_literal: "pleno dominio", evidencia: { cita: "A", pagina: 1 } })];
-    const plan = buildReconcilePlan(existentes, [tit({ evidencia: { cita: "B", pagina: 1 } })]);
-    expect(plan.ok).toBe(false);
-    expect((plan as any).reason).toBe("evidence_conflict");
-    expect(plan.updates).toHaveLength(0);
+    const plan = buildReconcilePlan(existentes, [tit({ evidencia: { cita: "B", pagina: 1 } })]) as any;
+    expect(plan.ok).toBe(true);
+    expect(plan.updates[0].patch.evidencia.fuentes).toEqual([{ cita: "A", pagina: 1 }, { cita: "B", pagina: 1 }]);
+    // idempotente: repetir la misma pasada no cambia el resultado
+    const existentes2 = [fila({ id: "r1", rol_literal: "pleno dominio", evidencia: plan.updates[0].patch.evidencia })];
+    const plan2 = buildReconcilePlan(existentes2, [tit({ evidencia: { cita: "B", pagina: 1 } })]) as any;
+    expect(plan2.ok).toBe(true);
+    expect(plan2.updates).toHaveLength(0);
   });
 
   it("dos deseados idénticos convergen en un derecho con unión de evidencias", () => {
@@ -236,10 +240,14 @@ describe("plan de conciliación", () => {
     expect(plan.inserts).toHaveLength(1);
   });
 
-  it("dos deseados con el mismo localizador incompatible bloquean", () => {
-    const plan = buildReconcilePlan([], [tit({ evidencia: { cita: "A", pagina: 1 } }), tit({ evidencia: { cita: "B", pagina: 1 } })]);
-    expect(plan.ok).toBe(false);
-    expect((plan as any).reason).toBe("duplicate_desired_conflicting_evidence");
+  it("dos deseados con citas distintas en la misma página conservan ambas fuentes", () => {
+    const plan = buildReconcilePlan([], [tit({ evidencia: { cita: "A", pagina: 1 } }), tit({ evidencia: { cita: "B", pagina: 1 } })]) as any;
+    expect(plan.ok).toBe(true);
+    expect(plan.inserts).toHaveLength(1);
+    expect(plan.inserts[0].evidencia.fuentes).toEqual([{ cita: "A", pagina: 1 }, { cita: "B", pagina: 1 }]);
+    // la misma cita duplicada se coalesce en una sola fuente
+    const dup = buildReconcilePlan([], [tit({ evidencia: { cita: "A", pagina: 1 } }), tit({ evidencia: { cita: "A", pagina: 1 } })]) as any;
+    expect(dup.inserts[0].evidencia.fuentes).toHaveLength(1);
   });
 
   it("legado único frente a DOS derechos deseados bloquea, en cualquier orden", () => {
