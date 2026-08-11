@@ -442,9 +442,16 @@ BEGIN
       v_anclada := v_raw_norm IS NOT NULL
                    AND public.p0_norm_text(v_cita) IS NOT NULL
                    AND position(public.p0_norm_text(v_cita) IN v_raw_norm) > 0;
-      -- El localizador, si viene, debe ser válido; si no viene, el anclaje es la traza.
-      IF v_ref IS NOT NULL AND NOT public.p0_locator_valid(v_pagina, v_offset, v_ruta) THEN
-        v_bad := true;
+      -- El localizador, si viene, debe ser válido EN TODAS sus partes y
+      -- resolver al MISMO elemento que la cita. Una página válida no tapa
+      -- una ruta u offset erróneos.
+      IF v_ref IS NOT NULL THEN
+        IF NOT public.p0_locator_all_valid(v_pagina, v_offset, v_ruta) THEN
+          v_bad := true; v_struct_unv := true;
+        ELSIF NOT public.p0_locator_link_ok(v_sj, v_raw, v_cita, v_pagina, v_offset, v_ruta,
+                                            v_nn, v_right, v_pct) THEN
+          v_bad := true; v_struct_unv := true;
+        END IF;
       END IF;
       v_traz := v_anclada;
 
