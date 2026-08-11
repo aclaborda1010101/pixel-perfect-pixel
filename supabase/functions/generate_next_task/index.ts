@@ -103,11 +103,12 @@ Deno.serve(async (req) => {
       .order('created_at', { ascending: false })
       .limit(40);
 
+    // Modo de reparto ACTIVO (global). Se lee en cada generación: sin redespliegue.
     const { data: modo } = await admin
       .from('work_modes')
-      .select('mix,scope,user_id')
-      .or(`user_id.eq.${userId},scope.eq.global`)
-      .order('user_id', { ascending: false, nullsFirst: false })
+      .select('mode,mix')
+      .eq('scope', 'global')
+      .eq('activo', true)
       .limit(1)
       .maybeSingle();
 
