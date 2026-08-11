@@ -356,36 +356,73 @@ function scanTs(file: string, source: string): WriteOp[] {
 // ---------------------------------------------------------------------------
 
 const SQL_WRITE_RX =
-  /\b(insert\s+into|merge\s+into|upsert\s+into)\s+((?:"?[A-Za-z_][A-Za-z0-9_]*"?\s*\.\s*)?"?[A-Za-z_][A-Za-z0-9_]*"?)/gi;
+  /\b(insert\s+into|merge\s+into|upsert\s+into|update|delete\s+from)\s+((?:"?[A-Za-z_][A-Za-z0-9_]*"?\s*\.\s*)?"?[A-Za-z_][A-Za-z0-9_]*"?)/gi;
 const SQL_FN_RX =
   /create\s+(?:or\s+replace\s+)?function\s+("?[A-Za-z_][A-Za-z0-9_]*"?\s*\.\s*)?("?[A-Za-z_][A-Za-z0-9_]*"?)/gi;
 
 const unquote = (s: string) => s.replace(/"/g, "").trim().toLowerCase();
 
-function sqlEnclosingFn(source: string, index: number): string | null {
+export type SqlFnRange = {
+  name: string;
+  headerStart: number;
+  bodyStart: number;
+  bodyEnd: number;
+  /** true si el cuerpo dollar-quoted no se pudo delimitar (fail-closed). */
+  unterminated: boolean;
+};
+
+/**
+ * Rangos REALES de cuerpo de función: se localiza la etiqueta dollar-quote
+ * (`$$`, `$fn$`, …) de apertura y su cierre EXACTO. Nada que caiga fuera de
+ * [bodyStart, bodyEnd] pertenece a la función, por muy cerca que esté.
+ */
+export function sqlFunctionRanges(source: string): SqlFnRange[] {
+  const out: SqlFnRange[] = [];
   SQL_FN_RX.lastIndex = 0;
-  let last: string | null = null;
   let m: RegExpExecArray | null;
   while ((m = SQL_FN_RX.exec(source))) {
-    if (m.index > index) break;
-    const schema = m[1] ? unquote(m[1].replace(/\.$/, "")) : "public";
-    last = `${schema}.${unquote(m[2])}`;
+    const schema = m[1] ? unquote(m[1].replace(/\.\s*$/, "")) : "public";
+    const name = `${schema}.${unquote(m[2])}`;
+    const tagRx = /\$([A-Za-z0-9_]*)\$/g;
+    tagRx.lastIndex = m.index + m[0].length;
+    const open = tagRx.exec(source);
+    if (!open) {
+      out.push({ name, headerStart: m.index, bodyStart: m.index, bodyEnd: m.index, unterminated: true });
+      continue;
+    }
+    const closeIdx = source.indexOf(open[0], open.index + open[0].length);
+    out.push({
+      name,
+      headerStart: m.index,
+      bodyStart: open.index + open[0].length,
+      bodyEnd: closeIdx < 0 ? source.length : closeIdx,
+      unterminated: closeIdx < 0,
+    });
+    if (closeIdx > 0) SQL_FN_RX.lastIndex = Math.max(SQL_FN_RX.lastIndex, closeIdx);
   }
-  return last;
+  return out;
 }
 
-/** Definición completa de la función SQL que contiene `index`. */
-export function sqlFunctionBody(source: string, index: number): string {
-  SQL_FN_RX.lastIndex = 0;
-  let start = 0;
-  let m: RegExpExecArray | null;
-  while ((m = SQL_FN_RX.exec(source))) {
-    if (m.index > index) break;
-    start = m.index;
+function sqlEnclosing(source: string, index: number): SqlFnRange | null {
+  for (const r of sqlFunctionRanges(source)) {
+    if (index > r.bodyStart && index < r.bodyEnd) return r;
   }
-  const tag = /\$([A-Za-z0-9_]*)\$/.exec(source.slice(start, index));
-  const end = tag ? source.indexOf(tag[0], index) : -1;
-  return source.slice(start, end < 0 ? source.length : end + (tag ? tag[0].length : 0));
+  return null;
+}
+
+/** Cuerpo de la función que CONTIENE `index`; cadena vacía si es top-level. */
+export function sqlFunctionBody(source: string, index: number): string {
+  const r = sqlEnclosing(source, index);
+  return r ? source.slice(r.bodyStart, r.bodyEnd) : "";
+}
+
+/** Profundidad de bloques (IF/LOOP/CASE) en un fragmento de PL/pgSQL. */
+export function plpgsqlDepth(fragment: string): number {
+  const abre = (fragment.match(/\bif\b[^;]*?\bthen\b/gi) ?? []).length +
+    (fragment.match(/\bloop\b/gi) ?? []).length -
+    (fragment.match(/\bend\s+loop\b/gi) ?? []).length * 2;
+  const cierra = (fragment.match(/\bend\s+if\b/gi) ?? []).length;
+  return abre - cierra;
 }
 
 function scanSql(file: string, source: string): WriteOp[] {
@@ -398,18 +435,44 @@ function scanSql(file: string, source: string): WriteOp[] {
     if (parts[parts.length - 1] !== TABLE) continue;
     const end = source.indexOf(";", m.index);
     const body = source.slice(m.index, end < 0 ? source.length : end);
+    const verbo = m[1].toLowerCase();
+    const op: WriteOp["op"] = /^merge/.test(verbo)
+      ? "merge"
+      : /^update/.test(verbo)
+        ? "update"
+        : /^delete/.test(verbo)
+          ? "delete"
+          : /on\s+conflict/i.test(body) ? "upsert" : "insert";
+    const encl = sqlEnclosing(source, m.index);
     ops.push({
-      file, kind: "sql",
-      op: /^merge/i.test(m[1]) ? "merge" : /on\s+conflict/i.test(body) ? "upsert" : "insert",
+      file, kind: "sql", op,
       payload: body.trim(),
       payloadIdent: null,
       line: lineOf(source, m.index),
       pos: m.index,
-      fn: sqlEnclosingFn(source, m.index),
+      fn: encl && !encl.unterminated ? encl.name : null,
       table: TABLE,
+      unresolved: encl?.unterminated ? "cuerpo dollar-quoted sin cierre" : undefined,
     });
   }
   return ops;
+}
+
+/** Usos (import o llamada) de writers retirados: siempre violación. */
+export function scanRetiredWriterUsage(file: string, source: string): Violation[] {
+  if (/\.sql$/i.test(file)) return [];
+  const out: Violation[] = [];
+  for (const name of RETIRED_WRITERS) {
+    const rx = new RegExp(`\\b${name}\\b`, "g");
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(source))) {
+      out.push({
+        file, line: lineOf(source, m.index),
+        reason: `writer legacy retirado en uso: ${name}`,
+      });
+    }
+  }
+  return out;
 }
 
 export function scanBuildingTaskWrites(file: string, source: string): WriteOp[] {
