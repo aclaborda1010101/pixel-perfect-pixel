@@ -7,25 +7,27 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
-# El servidor no puede arrancar como root: re-ejecuta como usuario local sin privilegios.
+# El SERVIDOR no puede correr como root: initdb/pg_ctl se ejecutan con un
+# usuario local sin privilegios; los clientes (psql/vitest) siguen normales.
+AS=""
 if [ "$(id -u)" = "0" ]; then
-  RUNAS="${P05_LOCAL_USER:-}"
-  if [ -z "$RUNAS" ] || ! id "$RUNAS" >/dev/null 2>&1 || ! command -v setpriv >/dev/null 2>&1; then
+  RUNAS="${P05_LOCAL_USER:-pgtest}"
+  if ! id "$RUNAS" >/dev/null 2>&1 || ! command -v setpriv >/dev/null 2>&1; then
     echo "SKIP / NO VERIFICADO: define P05_LOCAL_USER con un usuario local sin privilegios." >&2
     exit 3
   fi
-  exec setpriv --reuid="$(id -u "$RUNAS")" --regid="$(id -g "$RUNAS")" --clear-groups \
-       env HOME=/tmp P05_LOCAL_USER= bash "${BASH_SOURCE[0]}" "$@"
+  AS="setpriv --reuid=$(id -u "$RUNAS") --regid=$(id -g "$RUNAS") --clear-groups env HOME=/tmp"
 fi
+
 TMP="$(mktemp -d /tmp/p05cluster.XXXXXX)"
-DATA="$TMP/data"; SOCK="$TMP/sock"; mkdir -p "$SOCK"
+DATA="$TMP/data"; SOCK="$TMP/sock"; mkdir -p "$SOCK"; chmod 777 "$TMP" "$SOCK"
 unset PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE PGSERVICE PGSSLMODE || true
-cleanup() { pg_ctl -D "$DATA" -m immediate stop >/dev/null 2>&1 || true; rm -rf "$TMP"; }
+cleanup() { $AS pg_ctl -D "$DATA" -m immediate stop >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
 
 echo "== initdb (efímero, sin red) =="
-initdb -D "$DATA" -U p05owner --auth=trust >"$TMP/initdb.log" 2>&1
-pg_ctl -D "$DATA" -o "-k $SOCK -c listen_addresses=''" -l "$TMP/pg.log" start >/dev/null
+$AS initdb -D "$DATA" -U p05owner --auth=trust >"$TMP/initdb.log" 2>&1
+$AS pg_ctl -D "$DATA" -o "-k $SOCK -c listen_addresses=''" -l "$TMP/pg.log" start >/dev/null
 export PGHOST="$SOCK" PGUSER=p05owner PGDATABASE=postgres
 psql -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE p05;" 
 export PGDATABASE=p05
