@@ -198,6 +198,18 @@ BEGIN
       );
   END IF;
 
+  -- Ventana temporal coherente en producción (la BD revalida al writer).
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_window_chk') THEN
+    ALTER TABLE public.building_tasks
+      ADD CONSTRAINT building_tasks_window_chk
+      CHECK (
+        generation_mode IS DISTINCT FROM 'production'
+        OR starts_at IS NULL
+        OR due_date IS NULL
+        OR due_date >= starts_at
+      );
+  END IF;
+
   -- Concordancia EXACTA entre task_code y el segmento de la task_key.
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_v5_key_code_chk') THEN
     ALTER TABLE public.building_tasks
