@@ -574,6 +574,47 @@ $$;
 
 
 --
+-- Name: _wave1a_replace_view(text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public._wave1a_replace_view(p_view text, p_def text) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_deps text[] := '{}';
+  v_defs text[] := '{}';
+  r record;
+BEGIN
+  -- Vistas dependientes (transitivas), en orden de creación, para poder
+  -- recrearlas tras el DROP ... CASCADE. Nada se pierde.
+  FOR r IN
+    WITH RECURSIVE d(oid) AS (
+      SELECT c.oid FROM pg_class c WHERE c.oid = p_view::regclass
+      UNION
+      SELECT rw.ev_class FROM pg_depend dep
+        JOIN pg_rewrite rw ON rw.oid = dep.objid
+        JOIN d ON d.oid = dep.refobjid
+       WHERE dep.classid = 'pg_rewrite'::regclass AND rw.ev_class <> d.oid
+    )
+    SELECT c.oid, (n.nspname||'.'||quote_ident(c.relname)) AS nombre,
+           pg_get_viewdef(c.oid, true) AS def
+      FROM d JOIN pg_class c ON c.oid = d.oid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('v','m') AND c.oid <> p_view::regclass
+     ORDER BY c.oid
+  LOOP
+    v_deps := v_deps || r.nombre; v_defs := v_defs || r.def;
+  END LOOP;
+
+  EXECUTE format('DROP VIEW %s CASCADE', p_view);
+  EXECUTE format('CREATE VIEW %s AS %s', p_view, p_def);
+  FOR i IN 1 .. coalesce(array_length(v_deps,1),0) LOOP
+    EXECUTE format('CREATE OR REPLACE VIEW %s AS %s', v_deps[i], v_defs[i]);
+  END LOOP;
+END $$;
+
+
+--
 -- Name: audit_building_owner_cuotas(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1142,6 +1183,7 @@ DECLARE
   v_owner_kpi_positive boolean;
   v_owner_kpi_blocked boolean;
   v_owner_kpi_oferta boolean;
+  v_suc record;
   POS_RX text := '((quier[oaenás]{1,4}|quer(emos|éis|ían?|íamos))\s+vender|dispuest[oa]s?\s+a\s+vender|acepta\s+vender|necesita\s+vender|urge\s+vender|salir\s+del?\s+edificio|predisposici[oó]n.{0,20}(alta|positiv|si)|intenci[oó]n\s+de\s+vender|motivaci[oó]n.{0,20}(alta|urgen)|abiert[oa]s?\s+a\s+opciones)';
   NEG_RX text := '(no\s+quier[eo]n?\s+vender|se\s+niega|nunca\s+(voy\s+a\s+)?vender|no\s+piensa\s+vender|cerrad[oa]\s+a\s+vender)';
   IMP_RX text := '(impulsor|lidera|liderazgo|puente\s+clave|asumido\s+el\s+liderazgo|gestion(a|ando)\s+el\s+tema)';
@@ -1318,6 +1360,36 @@ BEGIN
       'nota','sub-señal informativa · trabajo pendiente, no calidad del activo');
   END IF;
 
+  -- === NUEVO: señales de sucesión/envejecimiento ===
+  SELECT * INTO v_suc FROM public.v_building_sucesion WHERE building_id = p_building_id;
+  IF v_suc.building_id IS NOT NULL THEN
+    IF v_suc.estado_sucesion = 'herencia_abierta' THEN
+      -- fuerte: herederos = no eligieron estar ahí = vía de entrada
+      v_delta := CASE
+        WHEN v_suc.n_fallecidos >= v_suc.n_propietarios THEN 18   -- todos fallecidos
+        WHEN v_suc.n_fallecidos::numeric / v_suc.n_propietarios >= 0.5 THEN 14
+        ELSE 10
+      END;
+      v_score := v_score + v_delta;
+      v_signals := v_signals || jsonb_build_object(
+        'signal','herencia_abierta','delta',v_delta,
+        'evidence', jsonb_build_object('n_fallecidos',v_suc.n_fallecidos,'n_propietarios',v_suc.n_propietarios),
+        'nota','herederos localizables · nunca penaliza si aún no hay contacto');
+    ELSIF v_suc.estado_sucesion = 'sospecha' THEN
+      v_score := v_score + 5;
+      v_signals := v_signals || jsonb_build_object(
+        'signal','sospecha_fallecimiento','delta',5,
+        'evidence', jsonb_build_object('n_probables',v_suc.n_probables),
+        'nota','marcado como probable fallecido · verificar y localizar herederos');
+    ELSIF v_suc.estado_sucesion = 'envejecimiento_alto' THEN
+      v_score := v_score + 5;
+      v_signals := v_signals || jsonb_build_object(
+        'signal','envejecimiento_alto','delta',5,
+        'evidence', jsonb_build_object('n_mayores_85',v_suc.n_mayores_85,'n_mayores_90',v_suc.n_mayores_90,'edad_media',v_suc.edad_media),
+        'nota','concentración de mayores de 85 · herencias previsibles a medio plazo');
+    END IF;
+  END IF;
+
   v_score := greatest(0, least(100, v_score));
 
   RETURN jsonb_build_object(
@@ -1334,8 +1406,17 @@ BEGIN
       'last_call_at', v_last_call_at,
       'last_call_hs_id', v_last_call_hs,
       'cobertura_pct', round(100 * v_cvg, 0),
+      'sucesion', CASE WHEN v_suc.building_id IS NULL THEN NULL ELSE jsonb_build_object(
+        'estado', v_suc.estado_sucesion,
+        'n_fallecidos', v_suc.n_fallecidos,
+        'n_probables', v_suc.n_probables,
+        'n_mayores_85', v_suc.n_mayores_85,
+        'n_mayores_90', v_suc.n_mayores_90,
+        'edad_media', v_suc.edad_media,
+        'pct_con_fecha', v_suc.pct_con_fecha
+      ) END,
       'signals', v_signals,
-      'formula', 'base 45 + escala propietarios + intención (mayoría, oferta, impulsor) - bloqueos suaves - cobertura suave · clamp 0-100'
+      'formula', 'base 45 + escala propietarios + intención (mayoría, oferta, impulsor) - bloqueos suaves - cobertura suave + sucesión/envejecimiento (nunca penaliza) · clamp 0-100'
     )
   );
 END $$;
@@ -1354,9 +1435,13 @@ DECLARE
   v_avisos jsonb := '[]'::jsonb;
   v_an public.building_analysis%ROWTYPE;
   v_has_ai boolean;
+  v_activo numeric;
 BEGIN
   SELECT * INTO v_row FROM public.v_building_score WHERE id = p_building_id;
   IF NOT FOUND THEN RETURN NULL; END IF;
+
+  -- Score del activo: SIEMPRE desde score_raw (nunca desde el total ya ponderado).
+  v_activo := v_row.score_raw;
 
   SELECT * INTO v_an FROM public.building_analysis WHERE building_id = p_building_id;
   v_has_ai := FOUND;
@@ -1379,13 +1464,13 @@ BEGIN
   END IF;
 
   UPDATE public.buildings
-  SET score = v_row.score,
+  SET score_activo = v_activo,
       score_breakdown = v_row.score_breakdown,
       avisos_inteligentes = v_avisos,
       score_updated_at = now()
   WHERE id = p_building_id;
 
-  RETURN v_row.score;
+  RETURN v_activo;
 END;
 $$;
 
@@ -1409,15 +1494,14 @@ DECLARE v_activo numeric; v_owner_score numeric; v_owner_result jsonb; v_total n
 BEGIN
   BEGIN v_activo := public.compute_score(p_building_id);
   EXCEPTION WHEN OTHERS THEN
-    SELECT score INTO v_activo FROM public.buildings WHERE id = p_building_id;
+    SELECT score_activo INTO v_activo FROM public.buildings WHERE id = p_building_id;
   END;
   IF v_activo IS NULL THEN
-    SELECT score INTO v_activo FROM public.buildings WHERE id = p_building_id;
+    SELECT score_activo INTO v_activo FROM public.buildings WHERE id = p_building_id;
   END IF;
 
   v_owner_result := public.compute_owner_score(p_building_id);
   v_owner_score := (v_owner_result->>'score')::numeric;
-  -- Media ponderada 60% activo + 40% propietarios (permite que propietarios calientes suban el total sobre el activo)
   v_total := round(0.60 * coalesce(v_activo,0) + 0.40 * coalesce(v_owner_score,50), 1);
 
   UPDATE public.buildings
@@ -3739,6 +3823,16 @@ CREATE TABLE public._fn_backups (
 
 
 --
+-- Name: _wave1a_drift_marks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public._wave1a_drift_marks (
+    mark text NOT NULL,
+    applied_at timestamp with time zone DEFAULT now()
+);
+
+
+--
 -- Name: agent_runs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3962,6 +4056,24 @@ CREATE TABLE public.building_imagery (
 
 
 --
+-- Name: building_overrides; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.building_overrides (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    building_id uuid NOT NULL,
+    dimension text NOT NULL,
+    valor_num numeric,
+    valor_bool boolean,
+    valor_text text,
+    fuente text DEFAULT 'building_feedback'::text,
+    nota text,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+
+--
 -- Name: building_owners; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4149,6 +4261,8 @@ CREATE TABLE public.buildings (
     notas text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    comercial text,
+    hs_deal_id text,
     metadatos jsonb DEFAULT '{}'::jsonb NOT NULL,
     last_synced_at timestamp with time zone,
     refcatastral text,
@@ -5383,6 +5497,9 @@ CREATE TABLE public.owners (
     notas_breves text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    fecha_nacimiento date,
+    estado_vital text,
+    edad_anios integer,
     subrole public.owner_subrole DEFAULT 'ninguno'::public.owner_subrole NOT NULL,
     metadatos jsonb DEFAULT '{}'::jsonb NOT NULL,
     last_synced_at timestamp with time zone,
@@ -5934,18 +6051,42 @@ CREATE VIEW public.v_building_rights_summary WITH (security_invoker='true') AS
 --
 
 CREATE VIEW public.v_building_score AS
- WITH agg AS (
+ WITH own_counts AS (
+         SELECT bo.building_id,
+            count(DISTINCT COALESCE(NULLIF(public.normalize_person_name(o.nombre), ''::text), NULLIF(upper((o.metadatos ->> 'nif'::text)), ''::text), NULLIF(upper((o.metadatos ->> 'dni'::text)), ''::text), NULLIF(lower(o.email), ''::text), (o.id)::text)) AS n
+           FROM (public.building_owners bo
+             JOIN public.owners o ON ((o.id = bo.owner_id)))
+          WHERE ((COALESCE(bo.rol_notas, ''::text) !~~* '%representante%'::text) AND (COALESCE(bo.rol_notas, ''::text) !~~* '%apoderado%'::text))
+          GROUP BY bo.building_id
+        ), comp_counts AS (
+         SELECT bc.building_id,
+            count(DISTINCT bc.company_id) AS n
+           FROM public.building_companies bc
+          WHERE (COALESCE((bc.role)::text, ''::text) = ANY (ARRAY['titular'::text, 'usufructuario'::text, 'arrendador'::text, 'otro'::text]))
+          GROUP BY bc.building_id
+        ), ov AS (
+         SELECT building_overrides.building_id,
+            (building_overrides.valor_num)::integer AS n
+           FROM public.building_overrides
+          WHERE ((building_overrides.dimension = 'propietarios'::text) AND (building_overrides.valor_num IS NOT NULL))
+        ), agg AS (
          SELECT b.id,
             b.direccion,
             b.ciudad,
             b.division_horizontal,
             b.metadatos AS md,
             b.numero_propietarios,
+            b.score_activo AS b_score_activo,
+            b.score_propietarios AS b_score_propietarios,
+            b.score_total AS b_score_total,
             (NULLIF((b.metadatos ->> 'metros_cuadrados__exactos_'::text), ''::text))::numeric AS m2_exactos,
             NULLIF((b.metadatos ->> 'metros_cuadrados__rango_'::text), ''::text) AS m2_rango,
             COALESCE((NULLIF((b.metadatos ->> 'viviendas__unidades___clonada_'::text), ''::text))::integer, (NULLIF((b.metadatos ->> 'viviendas__unidades_'::text), ''::text))::integer, (NULLIF((b.metadatos ->> 'num_viviendas'::text), ''::text))::integer) AS viviendas_unidades,
-            public.count_distinct_owners(b.id) AS owners_count
-           FROM public.buildings b
+            (COALESCE((ov.n)::bigint, (COALESCE(oc.n, (0)::bigint) + COALESCE(cc.n, (0)::bigint))))::integer AS owners_count
+           FROM (((public.buildings b
+             LEFT JOIN own_counts oc ON ((oc.building_id = b.id)))
+             LEFT JOIN comp_counts cc ON ((cc.building_id = b.id)))
+             LEFT JOIN ov ON ((ov.building_id = b.id)))
         ), scored AS (
          SELECT agg.id,
             agg.direccion,
@@ -5953,18 +6094,29 @@ CREATE VIEW public.v_building_score AS
             agg.division_horizontal,
             agg.md,
             agg.numero_propietarios,
+            agg.b_score_activo,
+            agg.b_score_propietarios,
+            agg.b_score_total,
             agg.m2_exactos,
             agg.m2_rango,
             agg.viviendas_unidades,
             agg.owners_count,
             agg.m2_exactos AS m2_total,
             agg.viviendas_unidades AS num_viviendas,
+            (NULLIF((agg.md ->> 'metros_cuadrados_comercio'::text), ''::text))::numeric AS m2_comercio_x,
+            (COALESCE(NULLIF((agg.md ->> 'metros_cuadrados_oficina'::text), ''::text), NULLIF((agg.md ->> 'metros_cuadrado_oficina'::text), ''::text)))::numeric AS m2_oficina_x,
+            (NULLIF((agg.md ->> 'metros_cuadrados_almacen'::text), ''::text))::numeric AS m2_almacen_x,
+            (NULLIF((agg.md ->> 'metros_cuadrados_industrial'::text), ''::text))::numeric AS m2_industrial_x,
+                CASE
+                    WHEN ((agg.m2_exactos IS NOT NULL) AND (((((agg.m2_exactos - COALESCE((NULLIF((agg.md ->> 'metros_cuadrados_comercio'::text), ''::text))::numeric, (0)::numeric)) - COALESCE((COALESCE(NULLIF((agg.md ->> 'metros_cuadrados_oficina'::text), ''::text), NULLIF((agg.md ->> 'metros_cuadrado_oficina'::text), ''::text)))::numeric, (0)::numeric)) - COALESCE((NULLIF((agg.md ->> 'metros_cuadrados_almacen'::text), ''::text))::numeric, (0)::numeric)) - COALESCE((NULLIF((agg.md ->> 'metros_cuadrados_industrial'::text), ''::text))::numeric, (0)::numeric)) > (0)::numeric)) THEN ((((agg.m2_exactos - COALESCE((NULLIF((agg.md ->> 'metros_cuadrados_comercio'::text), ''::text))::numeric, (0)::numeric)) - COALESCE((COALESCE(NULLIF((agg.md ->> 'metros_cuadrados_oficina'::text), ''::text), NULLIF((agg.md ->> 'metros_cuadrado_oficina'::text), ''::text)))::numeric, (0)::numeric)) - COALESCE((NULLIF((agg.md ->> 'metros_cuadrados_almacen'::text), ''::text))::numeric, (0)::numeric)) - COALESCE((NULLIF((agg.md ->> 'metros_cuadrados_industrial'::text), ''::text))::numeric, (0)::numeric))
+                    ELSE agg.m2_exactos
+                END AS m2_vivienda_calc,
             LEAST(1.0, ((COALESCE(agg.viviendas_unidades, 0))::numeric / 40.0)) AS s_viviendas,
             LEAST(1.0, (COALESCE(agg.m2_exactos, (0)::numeric) / 4000.0)) AS s_m2,
                 CASE
-                    WHEN ((agg.viviendas_unidades > 0) AND (agg.m2_exactos IS NOT NULL)) THEN GREATEST((0)::numeric, (1.0 - LEAST(1.0, ((agg.m2_exactos / (NULLIF(agg.viviendas_unidades, 0))::numeric) / 150.0))))
+                    WHEN (agg.division_horizontal IS FALSE) THEN 1.0
                     ELSE (0)::numeric
-                END AS s_ratio,
+                END AS s_no_dh,
                 CASE
                     WHEN (agg.owners_count >= 10) THEN 1.00
                     WHEN (agg.owners_count >= 7) THEN 0.90
@@ -5972,16 +6124,42 @@ CREATE VIEW public.v_building_score AS
                     WHEN (agg.owners_count = 4) THEN 0.55
                     WHEN (agg.owners_count >= 2) THEN 0.30
                     ELSE (0)::numeric
-                END AS s_owners,
-                CASE
-                    WHEN (agg.division_horizontal IS FALSE) THEN 1.0
-                    ELSE (0)::numeric
-                END AS s_no_dh,
-            (NULLIF((agg.md ->> 'metros_cuadrados_comercio'::text), ''::text))::numeric AS m2_comercio_x,
-            (COALESCE(NULLIF((agg.md ->> 'metros_cuadrados_oficina'::text), ''::text), NULLIF((agg.md ->> 'metros_cuadrado_oficina'::text), ''::text)))::numeric AS m2_oficina_x,
-            (NULLIF((agg.md ->> 'metros_cuadrados_almacen'::text), ''::text))::numeric AS m2_almacen_x,
-            (NULLIF((agg.md ->> 'metros_cuadrados_industrial'::text), ''::text))::numeric AS m2_industrial_x
+                END AS s_owners
            FROM agg
+        ), scored2 AS (
+         SELECT scored.id,
+            scored.direccion,
+            scored.ciudad,
+            scored.division_horizontal,
+            scored.md,
+            scored.numero_propietarios,
+            scored.b_score_activo,
+            scored.b_score_propietarios,
+            scored.b_score_total,
+            scored.m2_exactos,
+            scored.m2_rango,
+            scored.viviendas_unidades,
+            scored.owners_count,
+            scored.m2_total,
+            scored.num_viviendas,
+            scored.m2_comercio_x,
+            scored.m2_oficina_x,
+            scored.m2_almacen_x,
+            scored.m2_industrial_x,
+            scored.m2_vivienda_calc,
+            scored.s_viviendas,
+            scored.s_m2,
+            scored.s_no_dh,
+            scored.s_owners,
+                CASE
+                    WHEN ((scored.viviendas_unidades > 0) AND (scored.m2_vivienda_calc IS NOT NULL)) THEN GREATEST((0)::numeric, (1.0 - LEAST(1.0, ((scored.m2_vivienda_calc / (NULLIF(scored.viviendas_unidades, 0))::numeric) / 150.0))))
+                    ELSE (0)::numeric
+                END AS s_ratio,
+                CASE
+                    WHEN ((scored.viviendas_unidades > 0) AND (scored.m2_vivienda_calc IS NOT NULL)) THEN round((scored.m2_vivienda_calc / (NULLIF(scored.viviendas_unidades, 0))::numeric), 1)
+                    ELSE NULL::numeric
+                END AS ratio_m2_viv
+           FROM scored
         ), ai AS (
          SELECT s.id,
             s.direccion,
@@ -5989,21 +6167,26 @@ CREATE VIEW public.v_building_score AS
             s.division_horizontal,
             s.md,
             s.numero_propietarios,
+            s.b_score_activo,
+            s.b_score_propietarios,
+            s.b_score_total,
             s.m2_exactos,
             s.m2_rango,
             s.viviendas_unidades,
             s.owners_count,
             s.m2_total,
             s.num_viviendas,
-            s.s_viviendas,
-            s.s_m2,
-            s.s_ratio,
-            s.s_owners,
-            s.s_no_dh,
             s.m2_comercio_x,
             s.m2_oficina_x,
             s.m2_almacen_x,
             s.m2_industrial_x,
+            s.m2_vivienda_calc,
+            s.s_viviendas,
+            s.s_m2,
+            s.s_no_dh,
+            s.s_owners,
+            s.s_ratio,
+            s.ratio_m2_viv,
             (ba.id IS NOT NULL) AS has_ai_analysis,
             ba.ventanas_fachada_total,
             ba.esquina,
@@ -6016,7 +6199,7 @@ CREATE VIEW public.v_building_score AS
                     WHEN (ba.metricas_extra ? 'intencion_venta'::text) THEN (NULLIF((ba.metricas_extra ->> 'intencion_venta'::text), ''::text))::boolean
                     ELSE NULL::boolean
                 END AS intencion_venta
-           FROM (scored s
+           FROM (scored2 s
              LEFT JOIN public.building_analysis ba ON ((ba.building_id = s.id)))
         ), calc AS (
          SELECT ai.id,
@@ -6025,21 +6208,26 @@ CREATE VIEW public.v_building_score AS
             ai.division_horizontal,
             ai.md,
             ai.numero_propietarios,
+            ai.b_score_activo,
+            ai.b_score_propietarios,
+            ai.b_score_total,
             ai.m2_exactos,
             ai.m2_rango,
             ai.viviendas_unidades,
             ai.owners_count,
             ai.m2_total,
             ai.num_viviendas,
-            ai.s_viviendas,
-            ai.s_m2,
-            ai.s_ratio,
-            ai.s_owners,
-            ai.s_no_dh,
             ai.m2_comercio_x,
             ai.m2_oficina_x,
             ai.m2_almacen_x,
             ai.m2_industrial_x,
+            ai.m2_vivienda_calc,
+            ai.s_viviendas,
+            ai.s_m2,
+            ai.s_no_dh,
+            ai.s_owners,
+            ai.s_ratio,
+            ai.ratio_m2_viv,
             ai.has_ai_analysis,
             ai.ventanas_fachada_total,
             ai.esquina,
@@ -6088,7 +6276,12 @@ CREATE VIEW public.v_building_score AS
     intencion_venta,
     score_raw,
     score_raw AS score,
-    jsonb_build_array(jsonb_build_object('key', 'm2', 'label', 'Tamaño', 'pct', round((s_m2 * (100)::numeric), 0), 'weight', 25), jsonb_build_object('key', 'viv', 'label', 'Nº viviendas', 'pct', round((s_viviendas * (100)::numeric), 0), 'weight', 15), jsonb_build_object('key', 'ratio', 'label', 'Ratio m²/viv', 'pct', round((s_ratio * (100)::numeric), 0), 'weight', 20), jsonb_build_object('key', 'owners', 'label', 'Propietarios', 'pct', round((s_owners * (100)::numeric), 0), 'weight', 20), jsonb_build_object('key', 'no_dh', 'label', 'Sin DH', 'pct', round((s_no_dh * (100)::numeric), 0), 'weight', 10), jsonb_build_object('key', 'ai', 'label', 'Confianza IA', 'pct', round((COALESCE(confidence, 0.5) * (100)::numeric), 0), 'weight', 10)) AS score_breakdown
+    jsonb_build_array(jsonb_build_object('key', 'm2', 'label', 'Tamaño', 'pct', round((s_m2 * (100)::numeric), 0), 'weight', 25), jsonb_build_object('key', 'viv', 'label', 'Nº viviendas', 'pct', round((s_viviendas * (100)::numeric), 0), 'weight', 15), jsonb_build_object('key', 'ratio', 'label', 'Ratio m²/viv', 'pct', round((s_ratio * (100)::numeric), 0), 'weight', 20), jsonb_build_object('key', 'owners', 'label', 'Propietarios', 'pct', round((s_owners * (100)::numeric), 0), 'weight', 20), jsonb_build_object('key', 'no_dh', 'label', 'Sin DH', 'pct', round((s_no_dh * (100)::numeric), 0), 'weight', 10), jsonb_build_object('key', 'ai', 'label', 'Confianza IA', 'pct', round((COALESCE(confidence, 0.5) * (100)::numeric), 0), 'weight', 10)) AS score_breakdown,
+    b_score_activo AS score_activo,
+    b_score_propietarios AS score_propietarios,
+    b_score_total AS score_total,
+    m2_vivienda_calc,
+    ratio_m2_viv
    FROM calc c;
 
 
@@ -6145,6 +6338,52 @@ CREATE VIEW public.v_building_score_gate AS
      LEFT JOIN r ON ((r.building_id = b.id)))
      LEFT JOIN c ON ((c.building_id = b.id)))
      LEFT JOIN public.v_building_rights_status s ON ((s.building_id = b.id)));
+
+
+--
+-- Name: v_building_sucesion; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.v_building_sucesion WITH (security_invoker='true') AS
+ WITH per_owner AS (
+         SELECT bo.building_id,
+            o.id AS owner_id,
+            o.estado_vital,
+            o.edad_anios,
+            o.fecha_nacimiento
+           FROM (public.building_owners bo
+             JOIN public.owners o ON ((o.id = bo.owner_id)))
+          WHERE (o.merged_into IS NULL)
+        ), agg AS (
+         SELECT per_owner.building_id,
+            (count(*))::integer AS n_propietarios,
+            (count(*) FILTER (WHERE (per_owner.estado_vital = 'fallecido'::text)))::integer AS n_fallecidos,
+            (count(*) FILTER (WHERE (per_owner.estado_vital = 'probable_fallecido'::text)))::integer AS n_probables,
+            (count(*) FILTER (WHERE (per_owner.fecha_nacimiento IS NOT NULL)))::integer AS n_con_fecha,
+            (count(*) FILTER (WHERE (per_owner.edad_anios >= 85)))::integer AS n_mayores_85,
+            (count(*) FILTER (WHERE (per_owner.edad_anios >= 90)))::integer AS n_mayores_90,
+            round(avg(per_owner.edad_anios) FILTER (WHERE (per_owner.edad_anios IS NOT NULL)), 1) AS edad_media
+           FROM per_owner
+          GROUP BY per_owner.building_id
+        )
+ SELECT building_id,
+    n_propietarios,
+    n_fallecidos,
+    n_probables,
+    n_mayores_85,
+    n_mayores_90,
+    edad_media,
+        CASE
+            WHEN (n_propietarios > 0) THEN (round(((100.0 * (n_con_fecha)::numeric) / (n_propietarios)::numeric), 0))::integer
+            ELSE 0
+        END AS pct_con_fecha,
+        CASE
+            WHEN (n_fallecidos >= 1) THEN 'herencia_abierta'::text
+            WHEN (n_probables >= 1) THEN 'sospecha'::text
+            WHEN ((n_con_fecha >= 1) AND (((n_mayores_85)::numeric / (GREATEST(n_con_fecha, 1))::numeric) >= 0.30)) THEN 'envejecimiento_alto'::text
+            ELSE 'sin_senales'::text
+        END AS estado_sucesion
+   FROM agg a;
 
 
 --
@@ -6519,6 +6758,385 @@ CREATE VIEW public.v_cohort77_pct_audit WITH (security_invoker='on') AS
   WHERE (b.id IN ( SELECT cohort.building_id
            FROM cohort))
   GROUP BY b.id, b.direccion;
+
+
+--
+-- Name: v_cola_simulada; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.v_cola_simulada AS
+ WITH rel AS (
+         SELECT bo.building_id,
+            bo.owner_id,
+            bo.cuota,
+            bo.metadatos AS rel_metadatos,
+            o.nombre,
+            o.telefono,
+            o.estado_vital,
+            np.pct AS cuota_pct,
+            np.invalido AS cuota_invalida,
+            (COALESCE((bo.metadatos ->> 'cuota_match'::text), ''::text) = 'aproximado'::text) AS es_aprox
+           FROM ((public.building_owners bo
+             JOIN public.owners o ON (((o.id = bo.owner_id) AND (o.merged_into IS NULL))))
+             CROSS JOIN LATERAL public.normalize_pct_propiedad((bo.cuota)::text) np(pct, normalizado, invalido, raw_value))
+        ), agg AS (
+         SELECT rel.building_id,
+            (count(*))::integer AS n_owners,
+            (count(*) FILTER (WHERE (rel.cuota_pct IS NOT NULL)))::integer AS n_con_cuota,
+            (count(*) FILTER (WHERE rel.es_aprox))::integer AS n_aprox,
+            round(COALESCE(sum(rel.cuota_pct), (0)::numeric), 2) AS suma_cuotas
+           FROM rel
+          GROUP BY rel.building_id
+        ), ns AS (
+         SELECT notas_simples.building_id,
+            (count(*))::integer AS n_notas,
+            (count(*) FILTER (WHERE (notas_simples.status = 'listo'::text)))::integer AS n_listas,
+            (count(*) FILTER (WHERE ((notas_simples.status = 'listo'::text) AND (COALESCE(notas_simples.raw_pdf_text, ''::text) <> ''::text))))::integer AS n_listas_texto,
+            max(notas_simples.created_at) FILTER (WHERE (notas_simples.status = 'listo'::text)) AS ultima_nota_at
+           FROM public.notas_simples
+          WHERE (notas_simples.building_id IS NOT NULL)
+          GROUP BY notas_simples.building_id
+        ), coh AS (
+         SELECT bo.building_id,
+            (count(*))::integer AS n_rel,
+            (count(*) FILTER (WHERE (vos.owner_id IS NULL)))::integer AS n_rel_sin_dato,
+            (count(*) FILTER (WHERE (vos.pct_origen = 'nota_simple'::text)))::integer AS n_rel_nota,
+            (count(*) FILTER (WHERE ((vos.pct_origen = 'nota_simple'::text) AND (vos.pct_propiedad IS NOT NULL))))::integer AS n_pct_nota,
+            round(COALESCE(sum(vos.pct_propiedad) FILTER (WHERE (vos.pct_origen = 'nota_simple'::text)), (0)::numeric), 2) AS suma_nota,
+            (count(*) FILTER (WHERE ((vos.pct_origen = 'nota_simple'::text) AND (vos.pct_propiedad IS NOT NULL) AND ((np.pct IS NULL) OR (abs((np.pct - vos.pct_propiedad)) > 0.5)))))::integer AS n_incoherentes
+           FROM (((public.building_owners bo
+             JOIN public.owners o ON (((o.id = bo.owner_id) AND (o.merged_into IS NULL))))
+             CROSS JOIN LATERAL public.normalize_pct_propiedad((bo.cuota)::text) np(pct, normalizado, invalido, raw_value))
+             LEFT JOIN public.v_owner_score vos ON (((vos.owner_id = bo.owner_id) AND (vos.building_id = bo.building_id))))
+          GROUP BY bo.building_id
+        ), gp_b AS (
+         SELECT guard_proposals.edificio_id AS building_id,
+            (count(*))::integer AS n
+           FROM public.guard_proposals
+          WHERE ((guard_proposals.estado = 'pendiente'::text) AND (guard_proposals.edificio_id IS NOT NULL))
+          GROUP BY guard_proposals.edificio_id
+        ), gp_o AS (
+         SELECT guard_proposals.entity_id,
+            (count(*))::integer AS n
+           FROM public.guard_proposals
+          WHERE ((guard_proposals.estado = 'pendiente'::text) AND (guard_proposals.entity_id IS NOT NULL))
+          GROUP BY guard_proposals.entity_id
+        ), gem AS (
+         SELECT deals_gemelos.building_id,
+            (count(*))::integer AS n
+           FROM public.deals_gemelos
+          WHERE (deals_gemelos.building_id IS NOT NULL)
+          GROUP BY deals_gemelos.building_id
+        ), base AS (
+         SELECT r.building_id,
+            r.owner_id,
+            r.nombre,
+            r.telefono,
+            r.cuota,
+            r.cuota_pct,
+            r.es_aprox,
+            r.estado_vital,
+            b.direccion,
+            b.division_horizontal,
+            b.hs_deal_id,
+            COALESCE(a.n_owners, 0) AS n_owners,
+            COALESCE(a.n_con_cuota, 0) AS n_con_cuota,
+            COALESCE(a.n_aprox, 0) AS n_aprox,
+            COALESCE(a.suma_cuotas, (0)::numeric) AS suma_cuotas,
+            COALESCE(ns.n_notas, 0) AS n_notas,
+            COALESCE(ns.n_listas, 0) AS n_notas_listas,
+            COALESCE(ns.n_listas_texto, 0) AS n_notas_texto,
+            ns.ultima_nota_at,
+            COALESCE(coh.n_rel, 0) AS n_rel,
+            COALESCE(coh.n_rel_sin_dato, 0) AS n_rel_sin_dato,
+            COALESCE(coh.n_rel_nota, 0) AS n_rel_nota,
+            COALESCE(coh.n_pct_nota, 0) AS n_pct_nota,
+            COALESCE(coh.suma_nota, (0)::numeric) AS suma_nota,
+            COALESCE(coh.n_incoherentes, 0) AS n_incoherentes,
+            (COALESCE(gp_b.n, 0) + COALESCE(gp_o.n, 0)) AS n_guardas,
+            COALESCE(gem.n, 0) AS n_gemelos,
+            COALESCE(vbs.score_raw, (0)::numeric) AS score_activo_raw,
+            COALESCE(vos.score, (0)::numeric) AS score_owner,
+            vos.last_call_at,
+            COALESCE(vos.contactos_previos, 0) AS contactos_previos,
+            vos.pct_origen,
+            ext.provider_id AS deal_ext_provider_id,
+            rev.entity_id AS deal_map_building_id,
+            GREATEST((0)::numeric, ((EXTRACT(epoch FROM (now() - COALESCE(vos.last_call_at, (now() - '365 days'::interval)))) / (86400)::numeric) - (30)::numeric)) AS dias_cadencia_vencida
+           FROM (((((((((((rel r
+             JOIN public.buildings b ON ((b.id = r.building_id)))
+             LEFT JOIN agg a ON ((a.building_id = r.building_id)))
+             LEFT JOIN ns ON ((ns.building_id = r.building_id)))
+             LEFT JOIN coh ON ((coh.building_id = r.building_id)))
+             LEFT JOIN gp_b ON ((gp_b.building_id = r.building_id)))
+             LEFT JOIN gp_o ON ((gp_o.entity_id = (r.owner_id)::text)))
+             LEFT JOIN gem ON ((gem.building_id = r.building_id)))
+             LEFT JOIN public.v_building_score vbs ON ((vbs.id = r.building_id)))
+             LEFT JOIN public.v_owner_score vos ON (((vos.owner_id = r.owner_id) AND (vos.building_id = r.building_id))))
+             LEFT JOIN LATERAL ( SELECT e.provider_id
+                   FROM public.external_ids e
+                  WHERE ((e.provider = 'hubspot'::text) AND (e.entity_type = 'building'::text) AND (e.provider_object_type = 'deal'::text) AND (e.entity_id = b.id))
+                  ORDER BY e.updated_at DESC NULLS LAST
+                 LIMIT 1) ext ON (true))
+             LEFT JOIN LATERAL ( SELECT e2.entity_id
+                   FROM public.external_ids e2
+                  WHERE ((e2.provider = 'hubspot'::text) AND (e2.entity_type = 'building'::text) AND (e2.provider_object_type = 'deal'::text) AND (e2.provider_id = b.hs_deal_id))
+                 LIMIT 1) rev ON (((b.hs_deal_id IS NOT NULL) AND (b.hs_deal_id <> ''::text))))
+        ), flags AS (
+         SELECT base.building_id,
+            base.owner_id,
+            base.nombre,
+            base.telefono,
+            base.cuota,
+            base.cuota_pct,
+            base.es_aprox,
+            base.estado_vital,
+            base.direccion,
+            base.division_horizontal,
+            base.hs_deal_id,
+            base.n_owners,
+            base.n_con_cuota,
+            base.n_aprox,
+            base.suma_cuotas,
+            base.n_notas,
+            base.n_notas_listas,
+            base.n_notas_texto,
+            base.ultima_nota_at,
+            base.n_rel,
+            base.n_rel_sin_dato,
+            base.n_rel_nota,
+            base.n_pct_nota,
+            base.suma_nota,
+            base.n_incoherentes,
+            base.n_guardas,
+            base.n_gemelos,
+            base.score_activo_raw,
+            base.score_owner,
+            base.last_call_at,
+            base.contactos_previos,
+            base.pct_origen,
+            base.deal_ext_provider_id,
+            base.deal_map_building_id,
+            base.dias_cadencia_vencida,
+            (base.n_notas_listas > 0) AS ck_nota_lista,
+            (base.n_notas_texto > 0) AS ck_nota_texto,
+            (base.n_owners >= 1) AS ck_min_owner,
+            ((base.n_owners > 0) AND (base.n_con_cuota = base.n_owners)) AS ck_cuotas_completas,
+            (base.n_aprox = 0) AS ck_sin_aprox,
+            ((base.suma_cuotas >= (99)::numeric) AND (base.suma_cuotas <= (101)::numeric)) AS ck_suma_ok,
+            ((base.n_pct_nota > 0) AND (base.suma_nota >= (99)::numeric) AND (base.suma_nota <= (101)::numeric)) AS ck_suma_nota_ok,
+            ((base.n_pct_nota > 0) AND (base.n_incoherentes = 0)) AS ck_coherencia,
+            (base.n_pct_nota = 0) AS coherencia_desconocida,
+            ((base.telefono IS NOT NULL) AND (base.telefono <> ''::text)) AS ck_telefono,
+            (base.n_guardas = 0) AS ck_sin_guardas,
+            ((base.n_rel > 0) AND (base.n_rel_nota = base.n_rel)) AS ck_trazabilidad,
+            (base.n_rel_sin_dato > 0) AS trazabilidad_desconocida,
+            ((base.hs_deal_id IS NOT NULL) AND (base.hs_deal_id <> ''::text) AND (base.deal_ext_provider_id = base.hs_deal_id)) AS ck_deal,
+                CASE
+                    WHEN ((base.hs_deal_id IS NULL) OR (base.hs_deal_id = ''::text)) THEN 'sin_deal'::text
+                    WHEN (base.deal_ext_provider_id IS NULL) THEN 'sin_mapa'::text
+                    WHEN (base.deal_ext_provider_id <> base.hs_deal_id) THEN 'conflicto'::text
+                    ELSE 'ok'::text
+                END AS deal_estado,
+            (COALESCE(base.division_horizontal, false) = false) AS ck_sin_dh,
+            (base.n_gemelos = 0) AS ck_sin_gemelo
+           FROM base
+        )
+ SELECT building_id,
+    direccion,
+    owner_id,
+    nombre,
+    telefono,
+    cuota,
+    cuota_pct,
+    suma_cuotas,
+    suma_nota,
+    n_pct_nota,
+    n_incoherentes,
+    n_owners,
+    n_con_cuota,
+    n_aprox,
+    n_notas,
+    n_notas_listas,
+    n_notas_texto,
+    ultima_nota_at,
+    n_rel,
+    n_rel_nota,
+    n_rel_sin_dato,
+    n_guardas,
+    n_gemelos,
+    pct_origen,
+    hs_deal_id,
+    deal_ext_provider_id,
+    deal_map_building_id,
+    deal_estado,
+    score_activo_raw,
+    score_owner,
+    contactos_previos,
+    last_call_at,
+    round(dias_cadencia_vencida, 1) AS dias_cadencia_vencida,
+    (ck_nota_lista AND ck_nota_texto AND ck_min_owner AND ck_cuotas_completas AND ck_sin_aprox AND ck_suma_ok AND ck_suma_nota_ok AND ck_coherencia AND ck_telefono AND ck_sin_guardas AND ck_trazabilidad AND ck_deal AND ck_sin_dh AND ck_sin_gemelo) AS apto_publicar_estricto,
+    ((NOT (ck_nota_lista AND ck_nota_texto AND ck_min_owner AND ck_cuotas_completas AND ck_sin_aprox AND ck_suma_ok AND ck_suma_nota_ok AND ck_coherencia AND ck_telefono AND ck_sin_guardas AND ck_trazabilidad AND ck_deal AND ck_sin_dh AND ck_sin_gemelo)) AND ck_min_owner AND ck_cuotas_completas AND ck_sin_aprox AND ck_suma_ok AND ck_telefono AND ck_sin_guardas AND ck_deal AND (n_incoherentes = 0) AND (NOT ck_trazabilidad)) AS apto_observacion,
+    jsonb_build_array(jsonb_build_object('key', 'nota_lista', 'label', 'Nota simple asociada en estado listo', 'estado',
+        CASE
+            WHEN ck_nota_lista THEN 'PASS'::text
+            WHEN (n_notas > 0) THEN 'UNKNOWN'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (((n_notas_listas || ' de '::text) || n_notas) || ' notas en estado listo'::text), 'fuente', 'notas_simples.status'), jsonb_build_object('key', 'nota_texto', 'label', 'Nota lista con texto extraído', 'estado',
+        CASE
+            WHEN ck_nota_texto THEN 'PASS'::text
+            WHEN ck_nota_lista THEN 'FAIL'::text
+            ELSE 'UNKNOWN'::text
+        END, 'valor', (n_notas_texto || ' notas con texto'::text), 'fuente', 'notas_simples.raw_pdf_text'), jsonb_build_object('key', 'min_owner', 'label', 'Al menos un propietario', 'estado',
+        CASE
+            WHEN ck_min_owner THEN 'PASS'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (n_owners || ' propietarios'::text), 'fuente', 'building_owners'), jsonb_build_object('key', 'cuotas_completas', 'label', 'Todos los propietarios con porcentaje', 'estado',
+        CASE
+            WHEN ck_cuotas_completas THEN 'PASS'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (((n_con_cuota || ' de '::text) || n_owners) || ' con porcentaje'::text), 'fuente', 'building_owners.cuota'), jsonb_build_object('key', 'sin_aprox', 'label', 'Ningún porcentaje aproximado', 'estado',
+        CASE
+            WHEN ck_sin_aprox THEN 'PASS'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (n_aprox || ' porcentajes aproximados'::text), 'fuente', 'building_owners.metadatos.cuota_match'), jsonb_build_object('key', 'suma_ok', 'label', 'Suma de porcentajes operativos entre 99 y 101', 'estado',
+        CASE
+            WHEN ck_suma_ok THEN 'PASS'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (to_char(suma_cuotas, 'FM990D00'::text) || ' %'::text), 'fuente', 'building_owners.cuota (normalizado)'), jsonb_build_object('key', 'suma_nota', 'label', 'Suma de porcentajes de nota simple entre 99 y 101', 'estado',
+        CASE
+            WHEN ck_suma_nota_ok THEN 'PASS'::text
+            WHEN coherencia_desconocida THEN 'UNKNOWN'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (((to_char(suma_nota, 'FM990D00'::text) || ' % ('::text) || n_pct_nota) || ' relaciones con % de nota)'::text), 'fuente', 'v_owner_score.pct_propiedad (pct_origen = nota_simple)'), jsonb_build_object('key', 'coherencia_cuota_nota', 'label', 'Cuota operativa coherente con la nota simple', 'estado',
+        CASE
+            WHEN ck_coherencia THEN 'PASS'::text
+            WHEN coherencia_desconocida THEN 'UNKNOWN'::text
+            ELSE 'FAIL'::text
+        END, 'valor',
+        CASE
+            WHEN coherencia_desconocida THEN 'Sin porcentajes de nota simple'::text
+            ELSE (((((((n_incoherentes || ' de '::text) || n_pct_nota) || ' relaciones discrepantes · operativo '::text) || to_char(suma_cuotas, 'FM990D00'::text)) || ' % vs nota '::text) || to_char(suma_nota, 'FM990D00'::text)) || ' %'::text)
+        END, 'fuente', 'building_owners.cuota vs v_owner_score.pct_propiedad'), jsonb_build_object('key', 'trazabilidad', 'label', 'Porcentaje con trazabilidad registral (nota simple)', 'estado',
+        CASE
+            WHEN ck_trazabilidad THEN 'PASS'::text
+            WHEN trazabilidad_desconocida THEN 'UNKNOWN'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (((n_rel_nota || ' de '::text) || n_rel) || ' relaciones con origen nota simple'::text), 'fuente', 'v_owner_score.pct_origen'), jsonb_build_object('key', 'telefono', 'label', 'Propietario con teléfono', 'estado',
+        CASE
+            WHEN ck_telefono THEN 'PASS'::text
+            ELSE 'FAIL'::text
+        END, 'valor',
+        CASE
+            WHEN ck_telefono THEN 'Teléfono disponible'::text
+            ELSE 'Sin teléfono'::text
+        END, 'fuente', 'owners.telefono'), jsonb_build_object('key', 'deal', 'label', 'Mapeo del negocio de HubSpot del edificio', 'estado',
+        CASE
+            WHEN (deal_estado = 'ok'::text) THEN 'PASS'::text
+            WHEN (deal_estado = 'sin_mapa'::text) THEN 'UNKNOWN'::text
+            ELSE 'FAIL'::text
+        END, 'valor',
+        CASE
+            WHEN (deal_estado = 'sin_deal'::text) THEN 'El edificio no tiene hs_deal_id'::text
+            WHEN (deal_estado = 'sin_mapa'::text) THEN (('Sin fila en external_ids para este edificio (hs_deal_id '::text || COALESCE(hs_deal_id, ''::text)) || ')'::text)
+            WHEN (deal_estado = 'conflicto'::text) THEN (((('external_ids apunta al negocio '::text || COALESCE(deal_ext_provider_id, '?'::text)) || ' y la ficha al '::text) || COALESCE(hs_deal_id, '?'::text)) ||
+            CASE
+                WHEN (deal_map_building_id IS NULL) THEN ' (el hs_deal_id no está mapeado a ningún edificio)'::text
+                WHEN (deal_map_building_id <> building_id) THEN ((' (el hs_deal_id pertenece al edificio '::text || (deal_map_building_id)::text) || ')'::text)
+                ELSE ''::text
+            END)
+            ELSE (('Negocio '::text || COALESCE(hs_deal_id, ''::text)) || ' coherente'::text)
+        END, 'fuente', 'external_ids(provider=hubspot, entity_type=building, provider_object_type=deal, entity_id=buildings.id).provider_id vs buildings.hs_deal_id'), jsonb_build_object('key', 'sin_dh', 'label', 'Sin división horizontal', 'estado',
+        CASE
+            WHEN (division_horizontal IS NULL) THEN 'UNKNOWN'::text
+            WHEN ck_sin_dh THEN 'PASS'::text
+            ELSE 'FAIL'::text
+        END, 'valor',
+        CASE
+            WHEN (division_horizontal IS NULL) THEN 'desconocido'::text
+            WHEN division_horizontal THEN 'Con división horizontal'::text
+            ELSE 'Sin división horizontal'::text
+        END, 'fuente', 'buildings.division_horizontal'), jsonb_build_object('key', 'sin_gemelo', 'label', 'Sin negocio gemelo detectado', 'estado',
+        CASE
+            WHEN ck_sin_gemelo THEN 'PASS'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (n_gemelos || ' gemelos'::text), 'fuente', 'deals_gemelos'), jsonb_build_object('key', 'sin_guardas', 'label', 'Sin guardas pendientes', 'estado',
+        CASE
+            WHEN ck_sin_guardas THEN 'PASS'::text
+            ELSE 'FAIL'::text
+        END, 'valor', (n_guardas || ' propuestas pendientes'::text), 'fuente', 'guard_proposals')) AS checkpoints,
+    array_remove(ARRAY[
+        CASE
+            WHEN (NOT ck_nota_lista) THEN 'Sin nota simple en estado listo'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (ck_nota_lista AND (NOT ck_nota_texto)) THEN 'La nota simple no tiene texto extraído'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_min_owner) THEN 'Sin propietarios'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_cuotas_completas) THEN (((n_con_cuota || ' de '::text) || n_owners) || ' propietarios con porcentaje'::text)
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_sin_aprox) THEN (n_aprox || ' porcentajes marcados como aproximados'::text)
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_suma_ok) THEN (('Suma de porcentajes operativos '::text || to_char(suma_cuotas, 'FM990D00'::text)) || ' %'::text)
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN ((NOT ck_suma_nota_ok) AND (NOT coherencia_desconocida)) THEN (('Suma de porcentajes de nota simple '::text || to_char(suma_nota, 'FM990D00'::text)) || ' %'::text)
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN coherencia_desconocida THEN 'Sin porcentajes de nota simple para contrastar'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (n_incoherentes > 0) THEN (((('cuota_operativa_incoherente_con_nota ('::text || to_char(suma_cuotas, 'FM990D00'::text)) || ' % vs '::text) || to_char(suma_nota, 'FM990D00'::text)) || ' %)'::text)
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_telefono) THEN 'Propietario sin teléfono'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_sin_guardas) THEN (n_guardas || ' guardas pendientes'::text)
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_trazabilidad) THEN 'porcentaje_sin_trazabilidad_nota'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (deal_estado = 'sin_deal'::text) THEN 'Sin negocio de HubSpot en la ficha'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (deal_estado = 'sin_mapa'::text) THEN 'Edificio sin fila de negocio en external_ids'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (deal_estado = 'conflicto'::text) THEN (((('Mapeo de negocio incoherente (external_ids '::text || COALESCE(deal_ext_provider_id, '?'::text)) || ' vs ficha '::text) || COALESCE(hs_deal_id, '?'::text)) || ')'::text)
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_sin_dh) THEN 'Edificio con división horizontal'::text
+            ELSE NULL::text
+        END,
+        CASE
+            WHEN (NOT ck_sin_gemelo) THEN 'Negocio gemelo sin resolver'::text
+            ELSE NULL::text
+        END], NULL::text) AS bloqueos,
+    round(((GREATEST(score_activo_raw, (10)::numeric) * GREATEST(score_owner, (1)::numeric)) * ((1)::numeric + (dias_cadencia_vencida / 30.0))), 2) AS prioridad,
+    (((((('Se propone porque el activo puntúa '::text || round(score_activo_raw)) || ' (score_raw, sin propietarios), el propietario '::text) || round(score_owner)) || ' y lleva '::text) || round(dias_cadencia_vencida)) || ' días de cadencia vencida. La prioridad multiplica score del activo por score del propietario y suma un 3,3 % por cada día de cadencia vencida.'::text) AS prioridad_explicacion
+   FROM flags f;
 
 
 --
@@ -7121,6 +7739,241 @@ CREATE VIEW public.v_titularidad_registral AS
 
 
 --
+-- Name: wa_consent_signals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wa_consent_signals (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    owner_id uuid,
+    hs_call_id text NOT NULL,
+    veredicto text NOT NULL,
+    cita_textual text,
+    telefono text,
+    confianza numeric,
+    fecha_llamada timestamp with time zone,
+    detectado_at timestamp with time zone DEFAULT now(),
+    escrito_en_hubspot boolean DEFAULT false,
+    review_status text,
+    review_reason text,
+    review_updated_at timestamp with time zone
+);
+
+
+--
+-- Name: whatsapp_messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.whatsapp_messages (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    owner_id uuid,
+    cuerpo text NOT NULL,
+    status public.whatsapp_status DEFAULT 'borrador'::public.whatsapp_status NOT NULL,
+    programado_para timestamp with time zone,
+    enviado_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    hs_id text,
+    direccion text,
+    metadatos jsonb DEFAULT '{}'::jsonb NOT NULL,
+    building_id uuid,
+    hubspot_owner_id text
+);
+
+
+--
+-- Name: v_v5_task_candidates; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.v_v5_task_candidates AS
+ WITH base AS (
+         SELECT bo.building_id,
+            bo.owner_id,
+            o.nombre,
+            o.telefono,
+            o.email,
+            (o.rol)::text AS rol,
+            (o.buyer_persona)::text AS buyer_persona,
+            o.fecha_nacimiento,
+            o.edad_anios,
+            COALESCE(o.estado_vital, 'activo'::text) AS estado_vital,
+            o.consentimiento,
+            bo.cuota,
+            bo.rol_notas,
+            b.direccion,
+            b.comercial,
+            COALESCE(b.score_total, b.score, (0)::numeric) AS score
+           FROM ((public.building_owners bo
+             JOIN public.owners o ON (((o.id = bo.owner_id) AND (o.merged_into IS NULL))))
+             JOIN public.buildings b ON ((b.id = bo.building_id)))
+        ), cl AS (
+         SELECT calls.owner_id,
+            (count(*))::integer AS n_calls,
+            max(calls.fecha) AS last_fecha
+           FROM public.calls
+          GROUP BY calls.owner_id
+        ), lo AS (
+         SELECT DISTINCT ON (calls.owner_id) calls.owner_id,
+            calls.outcome AS last_outcome,
+            calls.fecha AS last_outcome_fecha
+           FROM public.calls
+          WHERE (calls.outcome IS NOT NULL)
+          ORDER BY calls.owner_id, calls.fecha DESC
+        ), cons AS (
+         SELECT DISTINCT ON (wa_consent_signals.owner_id) wa_consent_signals.owner_id,
+            wa_consent_signals.veredicto,
+            wa_consent_signals.cita_textual,
+            COALESCE(wa_consent_signals.fecha_llamada, wa_consent_signals.detectado_at) AS senal_fecha
+           FROM public.wa_consent_signals
+          ORDER BY wa_consent_signals.owner_id, COALESCE(wa_consent_signals.fecha_llamada, wa_consent_signals.detectado_at) DESC
+        ), wa AS (
+         SELECT whatsapp_messages.owner_id,
+            max(COALESCE(whatsapp_messages.enviado_at, whatsapp_messages.created_at)) AS last_wa
+           FROM public.whatsapp_messages
+          GROUP BY whatsapp_messages.owner_id
+        ), na AS (
+         SELECT next_actions.owner_id,
+            min(next_actions.vencimiento) AS venc,
+            min(next_actions.titulo) AS titulo
+           FROM public.next_actions
+          WHERE ((next_actions.estado = 'pendiente'::public.next_action_status) AND (next_actions.owner_id IS NOT NULL))
+          GROUP BY next_actions.owner_id
+        ), gp AS (
+         SELECT guard_proposals.edificio_id,
+            (count(*))::integer AS n,
+            min(guard_proposals.titulo) AS titulo,
+            min(guard_proposals.detalle) AS detalle
+           FROM public.guard_proposals
+          WHERE ((guard_proposals.estado = 'pendiente'::text) AND (guard_proposals.edificio_id IS NOT NULL))
+          GROUP BY guard_proposals.edificio_id
+        ), pleno AS (
+         SELECT v_rights_cuota_eligible.building_id,
+            sum(v_rights_cuota_eligible.pct_pleno) AS suma_pleno,
+            (count(*))::integer AS n_pleno
+           FROM public.v_rights_cuota_eligible
+          GROUP BY v_rights_cuota_eligible.building_id
+        ), rg AS (
+         SELECT s.building_id,
+            s.apto_para_cuota,
+            s.bloqueos,
+            COALESCE(p.suma_pleno, (0)::numeric) AS suma_pleno,
+            COALESCE(p.n_pleno, 0) AS n_pleno,
+            (s.apto_para_cuota AND (COALESCE(p.n_pleno, 0) > 0) AND (COALESCE(p.suma_pleno, (0)::numeric) >= (99)::numeric) AND (COALESCE(p.suma_pleno, (0)::numeric) <= (101)::numeric)) AS rights_ok
+           FROM (public.v_building_rights_status s
+             LEFT JOIN pleno p ON ((p.building_id = s.building_id)))
+        ), cob AS (
+         SELECT bo.building_id,
+            (count(*) FILTER (WHERE ((o.telefono IS NOT NULL) AND (o.telefono <> ''::text))))::integer AS n_con_tel,
+            (count(*) FILTER (WHERE (c2.n_calls > 0)))::integer AS n_contactados,
+            max(c2.last_fecha) AS last_activity
+           FROM ((public.building_owners bo
+             JOIN public.owners o ON (((o.id = bo.owner_id) AND (o.merged_into IS NULL))))
+             LEFT JOIN cl c2 ON ((c2.owner_id = bo.owner_id)))
+          GROUP BY bo.building_id
+        ), enr AS (
+         SELECT b.building_id,
+            b.owner_id,
+            b.nombre,
+            b.telefono,
+            b.email,
+            b.rol,
+            b.buyer_persona,
+            b.fecha_nacimiento,
+            b.edad_anios,
+            b.estado_vital,
+            b.consentimiento,
+            b.cuota,
+            b.rol_notas,
+            b.direccion,
+            b.comercial,
+            b.score,
+            COALESCE(cl.n_calls, 0) AS n_calls,
+            cl.last_fecha,
+            lo.last_outcome,
+            lo.last_outcome_fecha,
+            cons.veredicto,
+            cons.cita_textual,
+            cons.senal_fecha,
+            wa.last_wa,
+            na.venc AS na_venc,
+            na.titulo AS na_titulo,
+            gp.n AS n_guardas,
+            gp.titulo AS guarda_titulo,
+            gp.detalle AS guarda_detalle,
+            COALESCE(rg.rights_ok, false) AS rights_ok,
+            rg.suma_pleno,
+            rg.n_pleno,
+            rg.bloqueos AS bloqueos_derechos,
+            cob.n_con_tel,
+            cob.n_contactados,
+            cob.last_activity,
+            (length(regexp_replace(COALESCE(b.telefono, ''::text), '\D'::text, ''::text, 'g'::text)) >= 9) AS tel_valido,
+            GREATEST(0, ((EXTRACT(epoch FROM (now() - COALESCE(lo.last_outcome_fecha, cl.last_fecha))) / (86400)::numeric))::integer) AS dias_ultima,
+            array_remove(ARRAY[
+                CASE
+                    WHEN ((b.rol IS NULL) OR (b.rol = 'desconocido'::text)) THEN 'rol/tipología'::text
+                    ELSE NULL::text
+                END,
+                CASE
+                    WHEN (b.cuota IS NULL) THEN 'cuota de propiedad'::text
+                    ELSE NULL::text
+                END,
+                CASE
+                    WHEN ((b.email IS NULL) OR (b.email = ''::text)) THEN 'email'::text
+                    ELSE NULL::text
+                END,
+                CASE
+                    WHEN ((b.buyer_persona IS NULL) OR (b.buyer_persona = 'sin_clasificar'::text)) THEN 'buyer persona'::text
+                    ELSE NULL::text
+                END,
+                CASE
+                    WHEN ((b.fecha_nacimiento IS NULL) AND (b.edad_anios IS NULL)) THEN 'edad / fecha de nacimiento'::text
+                    ELSE NULL::text
+                END], NULL::text) AS huecos
+           FROM ((((((((base b
+             LEFT JOIN cl ON ((cl.owner_id = b.owner_id)))
+             LEFT JOIN lo ON ((lo.owner_id = b.owner_id)))
+             LEFT JOIN cons ON ((cons.owner_id = b.owner_id)))
+             LEFT JOIN wa ON ((wa.owner_id = b.owner_id)))
+             LEFT JOIN na ON ((na.owner_id = b.owner_id)))
+             LEFT JOIN gp ON ((gp.edificio_id = b.building_id)))
+             LEFT JOIN rg ON ((rg.building_id = b.building_id)))
+             LEFT JOIN cob ON ((cob.building_id = b.building_id)))
+        )
+ SELECT e.building_id,
+    e.owner_id,
+    e.nombre,
+    e.direccion,
+    e.comercial,
+    e.score,
+    e.telefono,
+    e.tel_valido,
+    e.n_calls,
+    e.last_fecha,
+    e.last_outcome,
+    e.last_outcome_fecha,
+    e.dias_ultima,
+    e.huecos,
+    e.estado_vital,
+    e.rights_ok,
+    e.suma_pleno,
+    e.n_pleno,
+    e.bloqueos_derechos,
+    t.task_code,
+    t.motivo,
+    t.evidencia,
+    t.objetivo,
+    round((t.peso * GREATEST(e.score, (5)::numeric)), 2) AS prioridad
+   FROM (enr e
+     CROSS JOIN LATERAL ( SELECT v.task_code,
+            v.peso,
+            v.motivo,
+            v.evidencia,
+            v.objetivo,
+            v.aplica
+           FROM ( VALUES ('T-01'::text,(60)::numeric,'Propietario asociado al edificio sin teléfono válido en el CRM.'::text,jsonb_build_object('telefono', e.telefono, 'llamadas', e.n_calls),'Localizar y verificar un teléfono válido y el contexto del propietario. No llamar todavía.'::text,((NOT e.tel_valido) AND e.rights_ok)), ('T-02'::text,(90)::numeric,'Teléfono válido y cero llamadas registradas.'::text,jsonb_build_object('telefono', e.telefono, 'llamadas', 0),'Primera llamada de contacto y cualificación inicial.'::text,(e.tel_valido AND (e.n_calls = 0) AND (e.estado_vital = 'activo'::text) AND e.rights_ok)), ('T-03'::text,(70)::numeric,'Consentimiento de WhatsApp detectado y sin envío posterior a la señal.'::text,jsonb_build_object('veredicto', e.veredicto, 'cita', e.cita_textual, 'senal_fecha', e.senal_fecha, 'ultimo_whatsapp', e.last_wa),'Enviar el contenido acordado por WhatsApp y dejar registro.'::text,(((e.veredicto = 'autorizado'::text) OR (e.consentimiento IS TRUE)) AND (e.senal_fecha IS NOT NULL) AND ((e.last_wa IS NULL) OR (e.last_wa < e.senal_fecha)) AND (e.estado_vital = 'activo'::text) AND e.rights_ok)), ('T-04'::text,(65)::numeric,'Cadencia vencida según la última señal del propietario.'::text,jsonb_build_object('ultimo_outcome', e.last_outcome, 'fecha', e.last_outcome_fecha, 'dias', e.dias_ultima, 'accion_vencida', e.na_titulo, 'vencimiento', e.na_venc),'Retomar el contacto y fijar próxima acción con fecha.'::text,((e.estado_vital = 'activo'::text) AND (COALESCE(e.last_outcome, ''::text) <> 'interesado'::text) AND e.rights_ok AND (((e.na_venc IS NOT NULL) AND (e.na_venc < CURRENT_DATE)) OR ((e.last_outcome = 'no_contestado'::text) AND (e.dias_ultima >= 30)) OR ((e.last_outcome = ANY (ARRAY['dudoso'::text, 'otro'::text, 'no_interesado'::text])) AND (e.dias_ultima >= 45))))), ('T-05'::text,(40)::numeric,'Propietario ya contactado con huecos en la ficha (Nivel A/B).'::text,jsonb_build_object('faltan', to_jsonb(e.huecos), 'llamadas', e.n_calls, 'ultima_llamada', e.last_fecha),'Completar los campos que faltan en la ficha del propietario.'::text,((e.n_calls > 0) AND (array_length(e.huecos, 1) >= 2) AND e.rights_ok)), ('T-06'::text,(55)::numeric,'Datos del edificio pendientes de verificación (guardas o derechos registrales sin capa verificada).'::text,jsonb_build_object('guardas_pendientes', e.n_guardas, 'guarda', e.guarda_titulo, 'detalle', e.guarda_detalle, 'derechos_verificados', e.n_pleno, 'suma_pleno_verificado', e.suma_pleno, 'bloqueos_derechos', to_jsonb(e.bloqueos_derechos)),'Verificar y corregir los derechos registrales del edificio antes de operar sobre él.'::text,((COALESCE(e.n_guardas, 0) > 0) OR (NOT e.rights_ok))), ('T-08'::text,(100)::numeric,'La última llamada del propietario terminó como interesado.'::text,jsonb_build_object('ultimo_outcome', e.last_outcome, 'fecha', e.last_outcome_fecha, 'dias', e.dias_ultima),'Confirmar cita y dejar próxima acción con fecha.'::text,((e.last_outcome = 'interesado'::text) AND (e.estado_vital = 'activo'::text) AND e.rights_ok)), ('T-09'::text,(30)::numeric,'Edificio con cobertura completa de titulares y sin novedad reciente.'::text,jsonb_build_object('titulares_con_telefono', e.n_con_tel, 'contactados', e.n_contactados, 'ultima_actividad', e.last_activity),'Revisar si procede aparcar o reactivar el edificio. No es un cierre automático.'::text,((COALESCE(e.n_con_tel, 0) > 0) AND (e.n_contactados >= e.n_con_tel) AND (e.last_activity IS NOT NULL) AND (e.last_activity < (now() - '90 days'::interval)) AND e.rights_ok))) v(task_code, peso, motivo, evidencia, objetivo, aplica)
+          WHERE v.aplica) t);
+
+
+--
 -- Name: wa_ai_jobs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7193,27 +8046,6 @@ CREATE TABLE public.wa_campaigns (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: wa_consent_signals; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.wa_consent_signals (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    owner_id uuid,
-    hs_call_id text NOT NULL,
-    veredicto text NOT NULL,
-    cita_textual text,
-    telefono text,
-    confianza numeric,
-    fecha_llamada timestamp with time zone,
-    detectado_at timestamp with time zone DEFAULT now(),
-    escrito_en_hubspot boolean DEFAULT false,
-    review_status text,
-    review_reason text,
-    review_updated_at timestamp with time zone
 );
 
 
@@ -7320,26 +8152,6 @@ CREATE TABLE public.wa_messages (
 
 
 --
--- Name: whatsapp_messages; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.whatsapp_messages (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    owner_id uuid,
-    cuerpo text NOT NULL,
-    status public.whatsapp_status DEFAULT 'borrador'::public.whatsapp_status NOT NULL,
-    programado_para timestamp with time zone,
-    enviado_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    hs_id text,
-    direccion text,
-    metadatos jsonb DEFAULT '{}'::jsonb NOT NULL,
-    building_id uuid,
-    hubspot_owner_id text
-);
-
-
---
 -- Name: buckets; Type: TABLE; Schema: storage; Owner: -
 --
 
@@ -7395,6 +8207,14 @@ ALTER TABLE ONLY public._a1_dangling_review
 
 ALTER TABLE ONLY public._fn_backups
     ADD CONSTRAINT _fn_backups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: _wave1a_drift_marks _wave1a_drift_marks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public._wave1a_drift_marks
+    ADD CONSTRAINT _wave1a_drift_marks_pkey PRIMARY KEY (mark);
 
 
 --
@@ -7491,6 +8311,22 @@ ALTER TABLE ONLY public.building_hs_deal_link_audit
 
 ALTER TABLE ONLY public.building_imagery
     ADD CONSTRAINT building_imagery_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: building_overrides building_overrides_building_id_dimension_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.building_overrides
+    ADD CONSTRAINT building_overrides_building_id_dimension_key UNIQUE (building_id, dimension);
+
+
+--
+-- Name: building_overrides building_overrides_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.building_overrides
+    ADD CONSTRAINT building_overrides_pkey PRIMARY KEY (id);
 
 
 --
@@ -8785,6 +9621,13 @@ CREATE INDEX idx_bpr_owner ON public.building_property_rights USING btree (owner
 
 
 --
+-- Name: idx_building_analysis_building_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_building_analysis_building_id ON public.building_analysis USING btree (building_id);
+
+
+--
 -- Name: idx_building_analysis_metricas_extra_gin; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8810,6 +9653,13 @@ CREATE INDEX idx_building_assignments_user ON public.building_assignments USING 
 --
 
 CREATE INDEX idx_building_assignments_user_status ON public.building_assignments USING btree (user_id, status);
+
+
+--
+-- Name: idx_building_companies_building_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_building_companies_building_id ON public.building_companies USING btree (building_id);
 
 
 --
@@ -8887,6 +9737,13 @@ CREATE INDEX idx_buildings_ciudad_trgm ON public.buildings USING gin (ciudad pub
 --
 
 CREATE INDEX idx_buildings_cluster ON public.buildings USING btree (cluster_asignado);
+
+
+--
+-- Name: idx_buildings_comercial; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_buildings_comercial ON public.buildings USING btree (comercial);
 
 
 --
@@ -9107,6 +9964,13 @@ CREATE INDEX idx_catastro_authority_cache_ref20 ON public.catastro_authority_cac
 
 
 --
+-- Name: idx_catastro_authority_rc14; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_catastro_authority_rc14 ON public.catastro_authority_cache USING btree (refcatastral_14);
+
+
+--
 -- Name: idx_coach_reports_comercial_week; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9244,6 +10108,20 @@ CREATE INDEX idx_external_ids_entity ON public.external_ids USING btree (entity_
 --
 
 CREATE INDEX idx_external_ids_provider ON public.external_ids USING btree (provider, provider_object_type, provider_id);
+
+
+--
+-- Name: idx_hs_calls_assoc_contacts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_hs_calls_assoc_contacts ON public.hubspot_calls USING gin (associated_contact_ids);
+
+
+--
+-- Name: idx_hs_calls_assoc_deals; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_hs_calls_assoc_deals ON public.hubspot_calls USING gin (associated_deal_ids);
 
 
 --
@@ -9391,6 +10269,13 @@ CREATE INDEX idx_hs_wa_hs_lastmod ON public.hubspot_whatsapp USING btree (hs_las
 --
 
 CREATE INDEX idx_hs_wa_hs_timestamp ON public.hubspot_whatsapp USING btree (hs_timestamp DESC);
+
+
+--
+-- Name: idx_hs_whatsapp_assoc_contacts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_hs_whatsapp_assoc_contacts ON public.hubspot_whatsapp USING gin (associated_contact_ids);
 
 
 --
@@ -10469,6 +11354,13 @@ CREATE TRIGGER trg_oc_updated_at BEFORE UPDATE ON public.owner_companies FOR EAC
 --
 
 CREATE TRIGGER trg_or_updated_at BEFORE UPDATE ON public.owner_relations FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: owners trg_owners_maintain_display; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_owners_maintain_display BEFORE INSERT OR UPDATE OF nombre, fecha_nacimiento, estado_vital ON public.owners FOR EACH ROW EXECUTE FUNCTION public.owners_maintain_display_and_estado();
 
 
 --
