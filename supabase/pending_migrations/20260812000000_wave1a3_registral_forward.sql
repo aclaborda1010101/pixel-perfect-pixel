@@ -918,6 +918,34 @@ WITH notas AS (
     (b.ev ->> 'evidence_ok')::boolean        AS evidence_ok,
     (b.ev ->> 'evidence_ambiguous')::boolean AS evidence_ambiguous,
     (b.ev ->> 'bad_evidence')::boolean       AS bad_evidence,
+    coalesce((b.ev ->> 'structured_unverified')::boolean, false) AS structured_unverified,
+    -- (3) FILA PROBLEMÁTICA: cualquier defecto, INDEPENDIENTE del derecho.
+    -- Una sola fila así envenena TODA la unidad, no sólo su capa.
+    (
+      b.role_conflict
+      OR b.regime_conflict
+      OR b.date_conflict
+      OR b.unidad_date_conflict
+      OR b.unidad_key_conflict
+      OR b.identity_conflict
+      OR b.conflicto_ids
+      OR b.identidad_ambigua
+      OR b.building_block
+      OR b.right_type = 'otro'
+      OR b.coownership_regime = 'gananciales'
+      OR b.invalid_pct
+      OR coalesce((b.ev ->> 'structured_unverified')::boolean, false)
+      OR NOT coalesce((b.ev ->> 'evidence_ok')::boolean, false)
+      OR coalesce((b.ev ->> 'evidence_ambiguous')::boolean, false)
+      OR coalesce((b.ev ->> 'bad_evidence')::boolean, false)
+      OR b.es_sociedad
+      OR (b.f_owner_id IS NULL AND b.f_company_id IS NULL)
+      OR NOT b.dni_inequivoco
+      OR b.unidad_contradictoria
+      OR b.unidad_con_lista_sin_titulares
+      OR b.unit_key IS NULL
+      OR b.dh
+    ) AS fila_problematica,
     (
       b.is_canonical
       AND b.right_type = 'pleno_dominio'
@@ -925,6 +953,9 @@ WITH notas AS (
       AND NOT b.regime_conflict
       AND NOT b.date_conflict
       AND NOT b.unidad_date_conflict
+      AND NOT b.unidad_key_conflict
+      AND NOT b.building_block
+      AND NOT b.identity_conflict
       AND b.coownership_regime <> 'gananciales'
       AND NOT b.conflicto_ids
       AND NOT b.identidad_ambigua
@@ -935,6 +966,7 @@ WITH notas AS (
       AND coalesce((b.ev ->> 'evidence_ok')::boolean, false)
       AND NOT coalesce((b.ev ->> 'evidence_ambiguous')::boolean, false)
       AND NOT coalesce((b.ev ->> 'bad_evidence')::boolean, false)
+      AND NOT coalesce((b.ev ->> 'structured_unverified')::boolean, false)
       AND NOT b.invalid_pct
       AND b.unit_key IS NOT NULL
       AND NOT b.dh
@@ -942,6 +974,21 @@ WITH notas AS (
       AND NOT b.unidad_con_lista_sin_titulares
     ) AS row_safe_pre_layer
   FROM base b
+), unidad_eval AS (
+  -- (3) SEGURIDAD DE UNIDAD COMPLETA: se mira TODA la unidad canónica, no
+  -- sólo la capa de pleno_dominio. Una fila 'otro'/conflictiva convive con
+  -- un pleno al 100 % y aun así deja la unidad en CERO feeds. Nunca se
+  -- suman nuda + usufructo + pleno: si la unidad no es íntegramente pleno
+  -- operativo, no hay proyección personal.
+  SELECT unit_key,
+         count(*)                                            AS unidad_filas,
+         count(*) FILTER (WHERE fila_problematica)            AS unidad_filas_problematicas,
+         count(*) FILTER (WHERE right_type <> 'pleno_dominio') AS unidad_filas_no_pleno,
+         count(DISTINCT right_type)                          AS unidad_derechos,
+         bool_and(NOT fila_problematica AND right_type = 'pleno_dominio') AS unidad_segura
+  FROM fila
+  WHERE is_canonical AND unit_key IS NOT NULL
+  GROUP BY unit_key
 ), capa AS (
   -- (1) CAPA INDIVISIBLE: un solo fallo invalida la capa entera.
   SELECT unit_key, nota_id, right_type,
