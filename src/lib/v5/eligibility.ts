@@ -432,6 +432,9 @@ export function evaluateBuildingT6(building: V5BuildingContext): V5T6Result {
     reason: `Incidencias registrales/datos por resolver: ${incidents.length}.`,
     evidence: incidents.flatMap((i) => i.evidence).filter(isValidEvidence),
     trigger: {
+      // Firma CANÓNICA completa: incluye la evidencia (reference/at/quote),
+      // de modo que un cambio material sólo en la evidencia cambia el
+      // trigger_fingerprint de la T6.
       incidencias: incidents.map((i) => ({
         id: i.id,
         campo: i.field,
@@ -440,10 +443,16 @@ export function evaluateBuildingT6(building: V5BuildingContext): V5T6Result {
         fuente: i.source,
         accion: i.action,
         bloqueante: i.blocking === true,
+        firma: incidentSignature(i),
       })),
+      firma_agrupada: t6GroupSignature(incidents),
       alineacion,
     },
-    snapshotExtra: { alineacion, incidencias_count: incidents.length },
+    snapshotExtra: {
+      alineacion,
+      incidencias_count: incidents.length,
+      firma_agrupada: t6GroupSignature(incidents),
+    },
   });
   return { candidate, hardBlocking, incidents, reason: hardBlocking ? "T6 bloqueante" : "T6 no bloqueante" };
 }
