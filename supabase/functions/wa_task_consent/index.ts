@@ -24,6 +24,8 @@ Deno.serve(async (req) => {
       .from('wa_consent_signals')
       .insert({
         owner_id: ctx.owner.id,
+        // Identificador sintético: el consentimiento nace en la tarjeta, no en una llamada de HubSpot.
+        hs_call_id: `tarjeta:${ctx.tarea.id}:${ahora}`,
         veredicto: 'si',
         cita_textual: 'El propietario ha autorizado por teléfono el envío de WhatsApp.',
         telefono: ctx.owner.telefono ?? null,
