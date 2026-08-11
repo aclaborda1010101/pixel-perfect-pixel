@@ -95,6 +95,8 @@ export type LegacyHistoricTaskRow = {
  */
 export const LEGACY_CALL_QUEUE_WRITER_RETIRED = true;
 
+type ClientLike = { from: (table: string) => any };
+
 /**
  * Fila CANÓNICA del Motor V5 (generation_mode='production'). Exige la clave
  * completa de 6 segmentos Y todas las columnas Motor en concordancia exacta
