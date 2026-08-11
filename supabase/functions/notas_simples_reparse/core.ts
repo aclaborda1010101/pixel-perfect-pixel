@@ -238,15 +238,16 @@ export function computeNextMatchPending(args: {
   ran: boolean;
   outcome?: MatchOutcome | null;
 }): NextMatchPending {
-  const readError = args.previous.known ? null : args.previous.reason;
+  const previous = args.previous;
+  const readError = previous.known === true ? null : previous.reason;
   if (args.ran && args.outcome) {
     if (args.outcome.status === "ok") {
       return { pending: false, degraded: false, stateReadError: readError, reason: "rpc_ok" };
     }
     return { pending: true, degraded: false, stateReadError: readError, reason: "rpc_fail" };
   }
-  if (args.previous.known) {
-    return { pending: args.previous.pending, degraded: false, stateReadError: null, reason: "conservado" };
+  if (previous.known === true) {
+    return { pending: previous.pending, degraded: false, stateReadError: null, reason: "conservado" };
   }
   return { pending: true, degraded: true, stateReadError: readError, reason: "conservado_sin_estado" };
 }
