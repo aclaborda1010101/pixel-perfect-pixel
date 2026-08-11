@@ -2,6 +2,7 @@
 // Catálogo operativo: T-01, T-02, T-03, T-04, T-05, T-06, T-08, T-09.
 // T-07 excluido por decisión del cliente. No publica nada en HubSpot.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
+import { insertV5CallQueueTask } from '../_shared/taskWriters.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
