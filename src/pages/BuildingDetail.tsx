@@ -68,6 +68,7 @@ export default function BuildingDetail() {
   const [hsTasks, setHsTasks] = useState<any[]>([]);
   const [nextActions, setNextActions] = useState<any[]>([]);
   const [titStats, setTitStats] = useState<{ total: number; conPct: number } | null>(null);
+  const [rights, setRights] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // pagination per tab
@@ -84,7 +85,7 @@ export default function BuildingDetail() {
 
     const [{ data: bo }, { data: bc }, { data: ns }, { data: na }] = await Promise.all([
       supabase.from("building_owners")
-        .select("building_id, owner_id, cuota, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona, metadatos)")
+        .select("building_id, owner_id, cuota, cuota_estado, cuota_estado_motivo, subrole, rol_notas, es_influencer, influencer_score, influencer_reason, owners:owner_id(id, nombre, rol, email, telefono, buyer_persona, metadatos)")
         .eq("building_id", id),
       supabase.from("building_companies")
         .select("id, role, percentage, fecha_inicio, fecha_fin, source, company:company_id(id, nombre, cif, email, telefono)")
@@ -102,6 +103,13 @@ export default function BuildingDetail() {
     setBcs(bc ?? []);
     setNotas(ns ?? []);
     setNextActions(na ?? []);
+
+    // Derechos registrales materializados (Wave 1B): única fuente de verdad
+    // de la titularidad. Se muestran por capas, nunca sumados entre sí.
+    const { data: rg } = await supabase.from("building_property_rights")
+      .select("id, owner_id, company_id, right_type, percentage, status, feeds_cuota, review_flag, titular_nombre, note_simple_id")
+      .eq("building_id", id);
+    setRights(rg ?? []);
 
     // % titulares con porcentaje declarado en el registro (todas las notas del edificio)
     const notaIds = (ns ?? []).map((n: any) => n.id);
