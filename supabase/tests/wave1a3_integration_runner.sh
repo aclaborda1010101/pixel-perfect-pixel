@@ -168,6 +168,7 @@ asegurar_placeholder() {
     IF to_regclass('public.buildings') IS NOT NULL THEN
       BEGIN
         ALTER TABLE public.buildings ADD COLUMN IF NOT EXISTS comercial text;
+        ALTER TABLE public.buildings ADD COLUMN IF NOT EXISTS hs_deal_id text;
       EXCEPTION WHEN others THEN NULL;
       END;
     END IF;
