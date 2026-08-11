@@ -29,6 +29,8 @@ import { insertManualBuildingTask } from "@/lib/taskWriters";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
+import { useInterlocutores } from "@/hooks/useInterlocutores";
 import {
   startBuildingTask,
   canStartTask,
@@ -125,6 +127,9 @@ export function BuildingTasksSection({
 
   const sortedPending = sortByDueThenPriority(pending);
 
+  const { data: interlocutores = {} } = useInterlocutores([buildingId]);
+  const interlocutor = interlocutores[buildingId] ?? null;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -133,6 +138,11 @@ export function BuildingTasksSection({
             {pending.length} pendientes · {completed.length} completadas
           </Eyebrow>
           <CardTitle>Tareas del edificio</CardTitle>
+          {interlocutor && (
+            <div className="mt-1.5">
+              <InterlocutorFlag nombre={interlocutor.nombre} />
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <NewTaskDialog

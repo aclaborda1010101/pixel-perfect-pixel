@@ -39,6 +39,10 @@ import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
 import { AlarmChips } from "@/components/comercial/AlarmChips";
 import { TitularidadRegistral } from "@/components/comercial/TitularidadRegistral";
 import { Switch } from "@/components/ui/switch";
+import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
+import { InterlocutorCard } from "@/components/buildings/InterlocutorCard";
+import { SituacionEdificioCard } from "@/components/buildings/SituacionEdificioCard";
+import { situacionLabel } from "@/lib/situacionComercial";
 import { Label } from "@/components/ui/label";
 
 type SortKey = "score" | "pct" | "last" | "estado";
@@ -129,7 +133,7 @@ export default function ComercialEdificioDetalle() {
 
   // Legacy auto-task generation retired: opening a building no longer writes tasks.
 
-  const { data } = useQuery({
+  const { data, refetch } = useQuery({
     queryKey: ["comercial:edificio", id, user?.id],
     enabled: !!id,
     queryFn: async () => {
@@ -272,12 +276,22 @@ export default function ComercialEdificioDetalle() {
             {assigned ? (
               <Badge variant="gold">Tu cartera</Badge>
             ) : null}
+            <Badge variant="outline">{situacionLabel(b.estado)}</Badge>
             <Badge variant={b.division_horizontal ? "outline" : "gold"}>
               {b.division_horizontal ? "División horizontal" : "Sin DH"}
             </Badge>
           </div>
         }
       />
+
+      {b.interlocutor_owner_id && (
+        <InterlocutorFlag nombre={ownersExtra[b.interlocutor_owner_id]?.nombre_display ?? owners.find((o: any) => o.owner_id === b.interlocutor_owner_id)?.nombre ?? null} />
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <SituacionEdificioCard buildingId={b.id} situacion={b.estado} onChanged={() => refetch()} />
+        <InterlocutorCard buildingId={b.id} onChanged={() => refetch()} />
+      </div>
 
       {/* Resumen narrativo + scoring visual */}
       {/* Resumen del edificio: qué es y por qué es (o no) oportunidad */}

@@ -25,6 +25,11 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useOwnersCount } from "@/hooks/useOwnersCount";
 
+import { situacionLabel } from "@/lib/situacionComercial";
+import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
+import { SituacionEdificioCard } from "@/components/buildings/SituacionEdificioCard";
+import { InterlocutorCard } from "@/components/buildings/InterlocutorCard";
+
 const PAGE_SIZE = 50;
 
 function Chip({ children, tone = "default" }: { children: React.ReactNode; tone?: "default" | "gold" | "warning" | "danger" }) {
@@ -270,7 +275,10 @@ export default function BuildingDetail() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Chip>{building.estado}</Chip>
+        <Chip tone={building.estado === "posible_interes" ? "gold" : undefined}>{situacionLabel(building.estado)}</Chip>
+        {building.interlocutor_owner_id && (
+          <InterlocutorFlag nombre={bos.find((r: any) => r.owner_id === building.interlocutor_owner_id)?.owners?.nombre ?? null} />
+        )}
         {building.division_horizontal && <Chip tone="gold">División horizontal</Chip>}
         {(ownersCount ?? building.numero_propietarios) != null && (
           <Chip>{ownersCount ?? building.numero_propietarios} propietarios</Chip>
@@ -290,6 +298,11 @@ export default function BuildingDetail() {
           {titularidadSegura ? "Titularidad registral demostrada" : "Pendiente de titularidad"}
         </Chip>
         {derechosEnReview > 0 && <Chip tone="warning">{derechosEnReview} derecho{derechosEnReview === 1 ? "" : "s"} en revisión</Chip>}
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <SituacionEdificioCard buildingId={building.id} situacion={building.estado} onChanged={() => load()} />
+        <InterlocutorCard buildingId={building.id} onChanged={() => load()} />
       </div>
 
       {/* KPIs reales */}
