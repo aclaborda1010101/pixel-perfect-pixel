@@ -261,6 +261,16 @@ run_suite() {
   grep -E '^(CASO|NOTICE:  CASO)' "$WORK/$nombre.log" || true
 }
 
+# --- 4.b Las fixtures deben terminar en ROLLBACK ----------------------
+for f in "$ROOT/supabase/tests/wave1a3_fixtures.sql" \
+         "$ROOT/supabase/tests/wave1a_property_rights_cases.sql"; do
+  [ -f "$f" ] || continue
+  grep -qiE '^[[:space:]]*ROLLBACK[[:space:]]*;' "$f" \
+    || die "las fixtures deben terminar en ROLLBACK: $f"
+  grep -qiE '^[[:space:]]*COMMIT[[:space:]]*;' "$f" \
+    && die "las fixtures deben terminar en ROLLBACK y no pueden confirmar: $f"
+done
+
 run_suite "puros_1a3"    "$ROOT/supabase/tests/wave1a3_pure_cases.sql"
 run_suite "invariantes_1a2" "$ROOT/supabase/tests/wave1a_property_rights_cases.sql"
 run_suite "fixtures_1a3" "$ROOT/supabase/tests/wave1a3_fixtures.sql"

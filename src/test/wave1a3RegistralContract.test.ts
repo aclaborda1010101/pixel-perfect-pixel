@@ -153,12 +153,14 @@ describe("Wave 1A.3 · tests incapaces de tocar producción", () => {
   });
 
   it("el runner rechaza destinos remotos y bases arbitrarias", () => {
-    expect(runner).toContain("no es loopback");
+    // Clúster efímero sin red: ninguna conexión externa puede influir.
     expect(runner).toContain("SUPABASE_DB_URL");
-    expect(runner).toContain("unset PGDATABASE");
-    expect(runner).toContain('TESTDB="wave1a_test_${SUFIJO}"');
+    expect(runner).toContain("no acepta destinos externos");
+    expect(runner).toContain("unset PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD");
+    expect(runner).toContain("listen_addresses=''");
+    expect(runner).toContain('TESTDB="wave1a_test_${RAND}"');
     expect(runner).toContain("trap cleanup EXIT");
-    expect(runner).toContain("El rol dedicado no puede ser 'postgres'");
+    expect(runner).toContain("el rol de pruebas no puede ser superusuario");
   });
 
   it("el runner verifica que las fixtures no puedan confirmar", () => {
