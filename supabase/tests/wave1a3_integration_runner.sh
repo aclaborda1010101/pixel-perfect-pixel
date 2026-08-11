@@ -111,7 +111,22 @@ SKIP_LOCAL=(
   "20260805051330_381b4dcd-9ef7-496c-bc7e-02824c3c48cc.sql" # reescribe v_building_score desde una definición no versionada
 )
 
-CHAIN=("$BASELINE")
+# El baseline NO es una migración: reproduce lo que la plataforma gestionada
+# provisiona (roles anon/authenticated/service_role, esquemas auth/storage,
+# extensiones). Es, por definición, trabajo de administración del clúster
+# efímero, igual que crear la base y el rol. TODA la cadena de migraciones
+# 1A.2 -> 1A.3 se ejecuta después con el rol dedicado no-superusuario.
+echo "ADMIN    $(sha256sum "$BASELINE" | cut -c1-16)  $(basename "$BASELINE") (provisión de plataforma)"
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q -f "$BASELINE" >"$WORK/baseline.log" 2>&1 \
+  || { sed -n '1,40p' "$WORK/baseline.log" >&2; die "el baseline de plataforma no aplica en el clúster efímero."; }
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
+  -c "GRANT ALL ON SCHEMA public, auth, storage, extensions TO \"$ROLE\";" >/dev/null 2>&1 || true
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
+  -c "GRANT ALL ON ALL TABLES IN SCHEMA public, auth, storage TO \"$ROLE\";" >/dev/null 2>&1 || true
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
+  -c "GRANT anon, authenticated, service_role, supabase_auth_admin TO \"$ROLE\";" >/dev/null 2>&1 || true
+
+CHAIN=()
 if [ -d "$ROOT/supabase/migrations" ]; then
   while IFS= read -r f; do CHAIN+=("$f"); done < <(ls "$ROOT/supabase/migrations"/*.sql 2>/dev/null | sort)
 fi
