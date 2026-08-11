@@ -56,7 +56,7 @@ BEGIN
   IF afflux_audit.wave1b_ticket_valido() THEN
     RETURN NEW;
   END IF;
-  IF TG_OP = 'INSERT' AND (NEW.cuota IS NOT NULL OR NEW.cuota_estado IS DISTINCT FROM 'review'
+  IF TG_OP = 'INSERT' AND (NEW.cuota IS NOT NULL OR NEW.cuota_estado = 'vigente'
                            OR NEW.cuota_auditada_at IS NOT NULL) THEN
     RAISE EXCEPTION 'WAVE1B_CUOTA_BLOQUEADA: sólo la RPC Wave 1B escribe cuota/estado/motivo/auditoría';
   END IF;
