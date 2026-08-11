@@ -81,9 +81,7 @@ echo "$PROV_CUT" | grep -qE '^[0-9]{14}$' || die "procedencia: corte '$PROV_CUT'
 
 # Lista EXACTA y ORDENADA: ni una migración de más, ni una de menos, y el
 # sha256 de cada fichero debe coincidir con el declarado.
-sed -n '/^--- migraciones aplicadas/,$p' "$SNAP_PROV" | tail -n +2 > "$WORK_PROV_TMP=$(mktemp)" 2>/dev/null || true
 PROV_LIST="$(mktemp)"; REPO_LIST="$(mktemp)"
-trap 'rm -f "$PROV_LIST" "$REPO_LIST"' EXIT
 sed -n '/^--- migraciones aplicadas/,$p' "$SNAP_PROV" | tail -n +2 > "$PROV_LIST"
 for f in $(ls "$ROOT"/supabase/migrations/*.sql | LC_ALL=C sort); do
   b="$(basename "$f")"
@@ -101,6 +99,7 @@ if ! diff -u "$REPO_LIST" "$PROV_LIST" > "$ROOT/.wave1a3_prov.diff" 2>&1; then
   die "procedencia: la lista ordenada de migraciones (nombre + sha256) NO coincide con el corte real del repositorio."
 fi
 rm -f "$ROOT/.wave1a3_prov.diff"
+rm -f "$PROV_LIST" "$REPO_LIST"
 echo "PROCEDENCIA PASS  commit=$PROV_COMMIT  migraciones=$PROV_N  omitidas=0  lista y sha256 exactos"
 
 # --- 0.b Extensiones REALES exigidas POR EL PROPIO SNAPSHOT -----------
