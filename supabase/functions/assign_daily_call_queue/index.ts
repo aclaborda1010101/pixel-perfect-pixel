@@ -313,6 +313,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       ok: true, fecha: hoy, due_date: dueIso, replace_today: replaceToday, dry_run: dryRun,
+      runtime_v5: runtime,
       borradas: deleted, inserted: insertados.length, resumen, items: insertados,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (e: any) {
