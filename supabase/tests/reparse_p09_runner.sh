@@ -44,6 +44,7 @@ MIGS=(
   supabase/migrations/20260811085231_03499c01-d84f-47d6-9296-88fac9cb208f.sql
   supabase/pending_migrations/20260816000000_reparse_p08_precision_and_completeness.sql
   supabase/pending_migrations/20260818000000_reparse_p09_reemplazo_registral.sql
+  supabase/pending_migrations/20260819000000_reparse_p10_exact_set.sql
 )
 psql -v ON_ERROR_STOP=1 -q -f supabase/tests/reparse_p05_shim.sql
 psql -v ON_ERROR_STOP=1 -q -f supabase/tests/reparse_p09_shim.sql

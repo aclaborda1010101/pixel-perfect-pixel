@@ -80,7 +80,11 @@ const seedNota = () =>
 
 /** Estado forense actual: 29 derechos con porcentajes REDONDEADOS a 2 dec. */
 function seedLegacy29(notaId: string) {
-  const vals = HECHOS_CANARY.slice(0, 29).map((h) =>
+  // Snapshot forense: 27 claves identidad+derecho y dos duplicados reales
+  // con porcentajes 1,17/3,5 y 0,33/1,04.
+  const base = HECHOS_CANARY.slice(0, 27);
+  const legacy = [...base, { ...base[0], porcentaje: 3.5 }, { ...base[2], porcentaje: 1.04 }];
+  const vals = legacy.map((h) =>
     `(${q(notaId)}::uuid, ${q(h.nombre)}, ${q(h.dni)}, ${h.porcentaje.toFixed(2)}, 'otro'::public.nota_titular_rol, NULL)`).join(",");
   owner(`INSERT INTO public.nota_simple_titulares(nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, rol_literal) VALUES ${vals}`);
 }
