@@ -367,20 +367,31 @@ describe("writers autorizados · contrato de payload", () => {
   it("writer manual escribe task_type manual sin task_key", async () => {
     const repo = fakeRepo();
     await insertManualBuildingTask(repo as any, {
-      building_id: "b1", user_id: "u1", title: " Llamar ", priority: "high", due_date: "",
+      building_id: "b1", user_id: "u1", created_by: "u1",
+      subject_type: "building", subject_id: "b1", manual_subtype: "otro",
+      title: " Llamar ", priority: "high",
+      starts_at: "2026-08-15T09:00:00.000Z", due_date: "2026-08-16T09:00:00.000Z",
     });
     expect(repo.rows[0]).toMatchObject({
-      task_type: "manual", task_key: null, status: "pending", title: "Llamar", due_date: null,
+      task_type: "manual", generation_mode: "manual", task_key: null,
+      status: "pending", title: "Llamar", manual_subtype: "otro",
+      due_date: "2026-08-16T09:00:00.000Z",
     });
   });
 
   it("writer manual rechaza payload automático", async () => {
     const repo = fakeRepo();
     await expect(insertManualBuildingTask(repo as any, {
-      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_type: "call_queue",
+      building_id: "b1", user_id: "u1", created_by: "u1", subject_type: "building",
+      subject_id: "b1", manual_subtype: "otro", title: "x", priority: "high",
+      starts_at: "2026-08-15T09:00:00.000Z", due_date: "2026-08-16T09:00:00.000Z",
+      task_type: "call_queue",
     })).rejects.toThrow(/manual/);
     await expect(insertManualBuildingTask(repo as any, {
-      building_id: "b1", user_id: "u1", title: "x", priority: "high", task_key: "v5:v5a.1:T4:b1:o1:fp",
+      building_id: "b1", user_id: "u1", created_by: "u1", subject_type: "building",
+      subject_id: "b1", manual_subtype: "otro", title: "x", priority: "high",
+      starts_at: "2026-08-15T09:00:00.000Z", due_date: "2026-08-16T09:00:00.000Z",
+      task_key: "v5:v5a.1:T4:b1:o1:fp",
     })).rejects.toThrow(/task_key/);
     expect(repo.rows).toHaveLength(0);
   });

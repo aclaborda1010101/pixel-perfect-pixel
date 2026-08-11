@@ -142,7 +142,7 @@ export default function ComercialTareas() {
       // Cierre ÚNICO vía RPC transaccional (estado + reposición).
       const done = await resolveBuildingTask(id, "completed");
       if (!done.ok) {
-        toast({ title: "No se pudo completar", description: done.error });
+        toast.error(done.error ?? "No se pudo completar la tarea");
         return;
       }
     } else {

@@ -173,7 +173,9 @@ describe("V5 P0.3 — T6 exclusiva", () => {
           source: "catastro",
           action: "verificar",
           blocking: false,
-          evidence: [{ reference: "catastro:b1", at: new Date().toISOString(), quote: "superficie 100 m2" }],
+          evidence: [
+            { field: "superficie", observed: 100, expected: 120, source: "catastro", reference: "catastro:b1#p1" },
+          ],
         } as any,
       ],
     } as any);
