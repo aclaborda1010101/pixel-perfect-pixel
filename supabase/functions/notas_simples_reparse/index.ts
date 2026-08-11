@@ -372,18 +372,17 @@ export async function processNotaWithClaim(sb: any, n: any) {
 
 // ---------- handler ----------
 
-Deno.serve(async (req) => {
+/**
+ * Handler REAL y testeable: es EXACTAMENTE el que sirve Deno.serve.
+ * Usa el adaptador de producción (createReparseDeps) y processNotaWithClaim;
+ * no existe una segunda ruta de ejecución para los tests.
+ */
+export async function handleReparseRequest(req: Request, sb: any): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
-  const sb = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
 
   let body: any = {};
   try { body = await req.json(); } catch { /* ok */ }
   const limit = Math.max(1, Math.min(MAX_LIMIT, Number(body?.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT));
-
 
   const deps = createReparseDeps(sb, {
     claimMinutes: CLAIM_MINUTES,
@@ -395,4 +394,18 @@ Deno.serve(async (req) => {
     status: cycle.http,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-});
+}
+
+declare const Deno: any;
+
+if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
+  Deno.serve((req: Request) =>
+    handleReparseRequest(
+      req,
+      createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      ),
+    ),
+  );
+}
