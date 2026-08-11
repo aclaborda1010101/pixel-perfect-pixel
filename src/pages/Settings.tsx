@@ -7,6 +7,7 @@ import { useI18n } from "@/i18n/I18nProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { Languages, Palette, User, Users } from "lucide-react";
 import { HubspotPanel } from "@/components/settings/HubspotPanel";
+import { WhatsappPlantillaPanel } from "@/components/settings/WhatsappPlantillaPanel";
 
 export default function Settings() {
   const { t, locale, setLocale } = useI18n();
@@ -20,6 +21,7 @@ export default function Settings() {
       />
       <div className="grid gap-4 md:grid-cols-2">
         <HubspotPanel />
+        <WhatsappPlantillaPanel />
         <Card>
           <CardHeader>
             <Eyebrow><Languages className="mr-1 inline h-3 w-3" /> Idioma</Eyebrow>

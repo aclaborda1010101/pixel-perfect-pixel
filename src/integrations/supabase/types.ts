@@ -8209,12 +8209,15 @@ export type Database = {
           detectado_at: string | null
           escrito_en_hubspot: boolean | null
           fecha_llamada: string | null
+          fuente: string | null
           hs_call_id: string
           id: string
           owner_id: string | null
+          registrado_por: string | null
           review_reason: string | null
           review_status: string | null
           review_updated_at: string | null
+          task_id: string | null
           telefono: string | null
           veredicto: string
         }
@@ -8224,12 +8227,15 @@ export type Database = {
           detectado_at?: string | null
           escrito_en_hubspot?: boolean | null
           fecha_llamada?: string | null
+          fuente?: string | null
           hs_call_id: string
           id?: string
           owner_id?: string | null
+          registrado_por?: string | null
           review_reason?: string | null
           review_status?: string | null
           review_updated_at?: string | null
+          task_id?: string | null
           telefono?: string | null
           veredicto: string
         }
@@ -8239,12 +8245,15 @@ export type Database = {
           detectado_at?: string | null
           escrito_en_hubspot?: boolean | null
           fecha_llamada?: string | null
+          fuente?: string | null
           hs_call_id?: string
           id?: string
           owner_id?: string | null
+          registrado_por?: string | null
           review_reason?: string | null
           review_status?: string | null
           review_updated_at?: string | null
+          task_id?: string | null
           telefono?: string | null
           veredicto?: string
         }

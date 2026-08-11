@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 import { Sparkles, Loader2 } from "lucide-react";
+import { TareaWhatsappBlock, PrepararLlamadaButton } from "@/components/comercial/TareaWhatsappBlock";
 
 const ICONS: Record<string, any> = {
   Phone, PhoneCall, Mail, ClipboardList, FileSearch, AlertTriangle, Brain, MapPin,
@@ -319,6 +320,16 @@ export default function ComercialTareas() {
                               <div className="mt-0.5 text-xs text-muted-foreground">{t.description}</div>
                             )}
                             <TaskScheduleMeta task={t} />
+                            {t.task_type === "T-02_03" && (
+                              <TareaWhatsappBlock
+                                task={t}
+                                onCompleted={async () => {
+                                  await qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+                                  await generarSiguiente(true);
+                                }}
+                              />
+                            )}
+                            {t.task_type === "T-04" && <PrepararLlamadaButton task={t} />}
                             {canStartTask(t) && (
                               <Button
                                 size="sm"
