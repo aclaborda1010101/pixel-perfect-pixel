@@ -29,7 +29,6 @@ import {
   type TitularNormalizado,
 } from "./lib.ts";
 import {
-  summarizeBatch,
   type OpResult,
 } from "./reconcile.ts";
 import {
@@ -45,7 +44,6 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
-const ENTITY = "notas_simples_reparse";
 const DEFAULT_LIMIT = 2;
 const MAX_LIMIT = 5;
 const CLAIM_MINUTES = 30;
