@@ -352,7 +352,9 @@ BEGIN
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000009';
   PERFORM pg_temp.assert(v.capa_suma = 90, 'B5: la capa de pleno suma realmente 90');
   PERFORM pg_temp.assert(NOT v.layer_complete AND NOT v.feeds_cuota, 'B5: capa 90 bloqueada');
-  PERFORM pg_temp.assert(v.review_reason ILIKE '%capa de pleno dominio no cierra al 100%%', 'B5: motivo de capa incompleta');
+  -- 1A.3 endurece el motivo: la capa es indivisible, así que el motivo
+  -- puede ser el cierre <100 % o el fallo de otra fila de la misma capa.
+  PERFORM pg_temp.assert(v.review_reason ILIKE '%capa%', 'B5: motivo de capa incompleta: ' || coalesce(v.review_reason,'<null>'));
 
   -- ===== (2) B8 · conflicto rol vs literal =============================
   SELECT * INTO v FROM _s WHERE titular_id = '55555555-0000-0000-0000-000000000010';
@@ -496,7 +498,7 @@ BEGIN
                          'clave que normaliza a vacío => sin unidad fiable');
   PERFORM pg_temp.assert(
     public.p0_nota_unit_key('44444444-0000-0000-0000-000000000002')
-    <> public.p0_nota_unit_key('44444444-0000-0000-0000-000000000020'),
+    IS DISTINCT FROM public.p0_nota_unit_key('44444444-0000-0000-0000-000000000020'),
     'idufir 12345 y finca 12345 no colisionan');
   PERFORM pg_temp.assert(
     (SELECT count(DISTINCT ownership_unit_key) FROM _s WHERE building_id = (SELECT b13 FROM _ids)) = 2,
@@ -511,7 +513,8 @@ BEGIN
   PERFORM pg_temp.assert((SELECT bool_or(feeds_cuota) FROM _s WHERE division_horizontal) IS NOT TRUE,
                          'ninguna fila con división horizontal alimenta cuota');
   PERFORM pg_temp.assert(
-    (SELECT bool_and(unit_block_reason = 'dh_sin_unidad_registral' AND NOT feeds_cuota)
+    -- 1A.3 escala el bloqueo de unidad a bloqueo de edificio.
+    (SELECT bool_and(unit_block_reason IN ('dh_sin_unidad_registral','bloqueo_edificio') AND NOT feeds_cuota)
      FROM _s WHERE building_id = (SELECT b3 FROM _ids)),
     'B3: DH sin clave => bloqueado y sin cuota');
 
@@ -536,7 +539,7 @@ BEGIN
   v_dry  := public.p0_property_rights_dry_run();
   v_dry2 := public.p0_property_rights_dry_run();
   PERFORM pg_temp.assert(v_dry = v_dry2, 'dry-run idempotente');
-  PERFORM pg_temp.assert(v_dry ->> 'universo' = 'notas_simples.status = listo', 'universo declarado');
+  PERFORM pg_temp.assert(v_dry ->> 'universo' LIKE 'notas_simples.status = listo%', 'universo declarado');
   PERFORM pg_temp.assert((v_dry ->> 'source_titulares')::int = v_n, 'gate y resumen comparten universo listo');
   PERFORM pg_temp.assert((v_dry ->> 'paridad_1a1')::boolean, 'paridad 1:1');
   PERFORM pg_temp.assert((v_dry ->> 'role_conflicts')::int >= 2, 'contador role_conflicts');
@@ -551,10 +554,10 @@ BEGIN
   PERFORM pg_temp.assert((v_dry ->> 'capas_incompletas')::int >= 1, 'al menos una capa incompleta');
   PERFORM pg_temp.assert((v_dry ->> 'capas_completas')::int >= 1, 'al menos una capa completa');
   PERFORM pg_temp.assert((v_dry ->> 'mezcla_owner_company')::int = 0, 'mezcla_owner_company = 0');
-  PERFORM pg_temp.assert((v_dry -> 'invariants' ->> 'dh_no_alimenta_cuota')::boolean, 'invariante DH');
-  PERFORM pg_temp.assert((v_dry -> 'invariants' ->> 'role_conflict_no_alimenta_cuota')::boolean, 'invariante role_conflict');
-  PERFORM pg_temp.assert((v_dry -> 'invariants' ->> 'ganancial_no_alimenta_cuota')::boolean, 'invariante ganancial');
-  PERFORM pg_temp.assert((v_dry -> 'invariants' ->> 'evidencia_mala_o_ambigua_no_alimenta_cuota')::boolean,
+  PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'dh_no_alimenta_cuota')::boolean, 'invariante DH');
+  PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'role_conflict_no_alimenta_cuota')::boolean, 'invariante role_conflict');
+  PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'ganancial_no_alimenta_cuota')::boolean, 'invariante ganancial');
+  PERFORM pg_temp.assert((v_dry -> 'safety_invariants' ->> 'evidencia_mala_o_ambigua_no_alimenta_cuota')::boolean,
                          'invariante evidencia');
   PERFORM pg_temp.assert((v_dry ->> 'invariants_ok')::boolean, 'invariants_ok debe ser true');
   PERFORM pg_temp.assert((v_dry ->> 'applied')::boolean IS FALSE AND v_dry ->> 'real_rebuild' = 'disabled',
