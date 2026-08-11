@@ -130,9 +130,27 @@ export function identidadAntesDelToken(tramo: string): Identidad {
   while ((m = RE_DOC_G.exec(tramo))) docs.push({ doc: m[1], index: m.index });
   const ultimo = docs.length ? docs[docs.length - 1] : null;
   const zona = ultimo ? tramo.slice(0, ultimo.index) : tramo;
-  const nombre = nombreAlFinal(zona);
+  const nombre = nombreTrasMarcador(zona) ?? nombreAlFinal(zona);
   if (!nombre && !ultimo) return { nombre: null, doc: null, motivo: "identidad_no_localizada" };
   return { nombre, doc: ultimo?.doc ?? null, motivo: nombre ? undefined : "nombre_no_localizado" };
+}
+
+/**
+ * Notas con marcador explícito "TITULAR:" (morfología legacy): la identidad es
+ * el texto entre el último marcador y el documento, sin conectores ni DNI/NIF.
+ */
+function nombreTrasMarcador(zona: string): string | null {
+  const idx = zona.toUpperCase().lastIndexOf("TITULAR:");
+  if (idx < 0) return null;
+  const bruto = zona
+    .slice(idx + "TITULAR:".length)
+    .replace(/\b(con|y|el|la|los|las|de|del)\b/gi, " ")
+    .replace(/\b(DNI|NIF|CIF|NIE|N\.I\.F\.|D\.N\.I\.)\b/gi, " ")
+    .replace(/[,;:]+\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (bruto.replace(/[^A-ZÁÉÍÓÚÑÜÇ]/gi, "").length < 3) return null;
+  return bruto;
 }
 
 function nombreAlFinal(zona: string): string | null {
