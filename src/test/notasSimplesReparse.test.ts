@@ -20,6 +20,7 @@ import {
   buildReconcilePlan,
   summarizeBatch,
   needsTitularesRefetch,
+  titularPersistidoEsFiable,
   dedupeDeseados,
   runReconciliation,
   type OpResult,
@@ -31,6 +32,9 @@ import {
   decidirTitulares,
   decideMatching,
   decidePendingMatchOnDrain,
+  decidePendingMatchOnDrainState,
+  foldMatchPendingHistory,
+  computeNextMatchPending,
   runMatching,
   type NotaRepo,
 } from "../../supabase/functions/notas_simples_reparse/core";
@@ -259,11 +263,48 @@ describe("semántica de respuesta", () => {
 });
 
 describe("reextracción", () => {
-  it("pide titulares si faltan, si falta literal/evidencia o si la versión es antigua", () => {
+  const v2 = (titulares: unknown[]) => ({ reparse_schema_version: 2, titulares });
+  const fiable = (o: any = {}) => ({ nombre: "Ana", rol_literal: "pleno dominio", evidencia: { cita: "URBANA", pagina: 1 }, ...o });
+
+  it("sin titulares o schema antiguo => refetch", () => {
     expect(needsTitularesRefetch({ titulares: [] })).toBe(true);
-    expect(needsTitularesRefetch({ titulares: [{ rol_literal: "x", evidencia: { cita: "y" } }] })).toBe(true);
-    expect(needsTitularesRefetch({ reparse_schema_version: 2, titulares: [{ rol_literal: null, evidencia: { cita: "y" } }] })).toBe(true);
-    expect(needsTitularesRefetch({ reparse_schema_version: 2, titulares: [{ rol_literal: "x", evidencia: { cita: "y", pagina: 1 } }] })).toBe(false);
+    expect(needsTitularesRefetch({ titulares: [fiable()] })).toBe(true); // v<2
+    expect(needsTitularesRefetch({ reparse_schema_version: 1, titulares: [fiable()] })).toBe(true);
+  });
+
+  it("v2 NO basta: cita sola (sin localizador) sigue exigiendo refetch", () => {
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { cita: "URBANA" } })]))).toBe(true);
+  });
+
+  it("v2 + metadatos de normalización solos => refetch", () => {
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { normalizacion: { fuente: "llm" } } })]))).toBe(true);
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: {} })]))).toBe(true);
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { fuentes: [] } })]))).toBe(true);
+  });
+
+  it("v2 + localizador inválido (pagina 0, ruta vacía) => refetch", () => {
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { cita: "A", pagina: 0 } })]))).toBe(true);
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { cita: "A", ruta: "  " } })]))).toBe(true);
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { cita: "A", pagina: -3 } })]))).toBe(true);
+  });
+
+  it("v2 + nombre o rol_literal ausentes => refetch", () => {
+    expect(needsTitularesRefetch(v2([fiable({ nombre: "  " })]))).toBe(true);
+    expect(needsTitularesRefetch(v2([fiable({ rol_literal: null })]))).toBe(true);
+    expect(needsTitularesRefetch(v2([fiable({ rol_literal: "   " })]))).toBe(true);
+  });
+
+  it("v2 + evidencia real completa => sin refetch", () => {
+    expect(needsTitularesRefetch(v2([fiable()]))).toBe(false);
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { cita: "A", ruta: "SECCION B" } })]))).toBe(false);
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { cita: "A", offset: 0 } })]))).toBe(false);
+    expect(needsTitularesRefetch(v2([fiable({ evidencia: { fuentes: [{ cita: "A", pagina: 2 }] } })]))).toBe(false);
+  });
+
+  it("mezcla: un titular inseguro obliga a refetch de TODA la nota", () => {
+    expect(needsTitularesRefetch(v2([fiable(), fiable({ nombre: "Luis", evidencia: { cita: "B" } })]))).toBe(true);
+    expect(titularPersistidoEsFiable(fiable())).toBe(true);
+    expect(titularPersistidoEsFiable({ nombre: "Ana", rol_literal: "pleno" })).toBe(false);
   });
 });
 
