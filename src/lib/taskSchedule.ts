@@ -62,8 +62,12 @@ export function taskSubjectId(task: any): string | null {
   return legacy ? legacy[1] : null;
 }
 
+/**
+ * Abierta = no terminal según el vocabulario canónico V5 (status.ts).
+ * `cancelled` y `superseded` son terminales: nunca se muestran vencidas.
+ */
 export function isTaskOpen(task: any): boolean {
-  return task?.status !== "completed" && task?.status !== "skipped";
+  return !V5_TERMINAL_STATUSES.includes(String(task?.status) as never);
 }
 
 export function temporalState(task: any, now: Date = new Date()): TemporalState {
