@@ -191,14 +191,15 @@ export default function ComercialTareas() {
         eyebrow="Operativa · Tareas"
         title="Mis tareas"
         subtitle={`${totalPending} pendientes en tu cartera`}
-      >
-        {totalPending === 0 && (
-          <Button variant="gold" onClick={() => generarSiguiente(false)} disabled={generando}>
-            {generando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            Generar mi siguiente tarea
-          </Button>
-        )}
-      </PageHeader>
+        actions={
+          totalPending === 0 ? (
+            <Button variant="gold" onClick={() => generarSiguiente(false)} disabled={generando}>
+              {generando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Generar mi siguiente tarea
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {kpis.map((k) => (
