@@ -1,3 +1,24 @@
+-- =====================================================================
+-- WAVE 1A · BASELINE LOCAL PARA BASE DESECHABLE (nunca producción)
+-- =====================================================================
+-- supabase/migrations/ NO es autosuficiente: asume (a) la plataforma
+-- gestionada (roles anon/authenticated/service_role, esquemas auth y
+-- storage, extensiones, publicación supabase_realtime) y (b) objetos
+-- creados fuera del historial versionado (deriva de baseline). Este
+-- fichero reproduce ese estado previo en una base LOCAL desechable para
+-- poder reproducir la cadena EXACTA 1A.2 -> 1A.3.
+--
+-- Es idempotente: el runner lo aplica antes de la cadena y lo reaplica
+-- una sola vez si una migración histórica falla por deriva.
+-- NUNCA debe ejecutarse contra una base real.
+-- =====================================================================
+DO $$
+BEGIN
+  IF current_database() NOT LIKE 'wave1a\_test\_%' THEN
+    RAISE EXCEPTION 'ABORTADO: baseline local solo en base desechable wave1a_test_*, base actual = %', current_database();
+  END IF;
+END $$;
+
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
