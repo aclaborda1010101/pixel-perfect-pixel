@@ -1,61 +1,95 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle } from "lucide-react";
-import { useSalesManagerDashboard } from "@/hooks/useSalesManagerDashboard";
-import { ModosTareasCard } from "@/components/gestor/ModosTareasCard";
+import { AlertTriangle, Clock } from "lucide-react";
+import { ModosGeneracionCard } from "@/components/tareas/ModosGeneracionCard";
+import { PERIODS, periodRange, type PeriodKey } from "@/lib/salesManagerMetrics";
 import {
-  PERIODS,
-  completionRate,
-  coberturaInicioNota,
-  coberturaDuracionNota,
-  snapshotNota,
-  fmtHoras,
-  mezclaEntries,
-  periodRange,
-  type PeriodKey,
-  type SalesManagerRow,
-} from "@/lib/salesManagerMetrics";
+  agruparPorComercial,
+  etiquetaTipo,
+  fmtFecha,
+  totales,
+  type PanelData,
+  type TareaPanel,
+} from "@/lib/gestorPanel";
+
+function usePanel(period: PeriodKey) {
+  const { from, to } = periodRange(period);
+  return useQuery({
+    queryKey: ["gestor-panel", from.toISOString(), to.toISOString()],
+    queryFn: async (): Promise<PanelData> => {
+      const { data, error } = await (supabase.rpc as any)("get_sales_manager_panel", {
+        p_from: from.toISOString(),
+        p_to: to.toISOString(),
+      });
+      if (error) throw new Error(error.message);
+      return (data ?? { from: "", to: "", generated_at: "", activas: [], realizadas: [] }) as PanelData;
+    },
+    retry: 1,
+  });
+}
+
+function TablaTareas({ rows, mostrarCierre }: { rows: TareaPanel[]; mostrarCierre?: boolean }) {
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">Ninguna.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-muted-foreground">
+            <th className="py-1 pr-3 font-medium">Tarea</th>
+            <th className="py-1 pr-3 font-medium">Edificio</th>
+            <th className="py-1 pr-3 font-medium">Inicio</th>
+            <th className="py-1 pr-3 font-medium">{mostrarCierre ? "Realizada" : "Fecha límite"}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((t) => (
+            <tr key={t.id} className="border-t">
+              <td className="py-1.5 pr-3">{etiquetaTipo(t.task_type)}</td>
+              <td className="py-1.5 pr-3">{t.direccion || "—"}</td>
+              <td className="py-1.5 pr-3 tabular-nums">{fmtFecha(t.started_at ?? t.created_at)}</td>
+              <td className="py-1.5 pr-3 tabular-nums">
+                {mostrarCierre ? fmtFecha(t.completed_at) : fmtFecha(t.due_date)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function GestorComerciales() {
   const [period, setPeriod] = useState<PeriodKey>("semana");
-  const [comercial, setComercial] = useState<string>("todos");
-  const q = useSalesManagerDashboard(period);
-
-  const range = useMemo(() => periodRange(period), [period]);
-  const rows: SalesManagerRow[] = q.data?.rows ?? [];
-  const visibles = comercial === "todos" ? rows : rows.filter((r) => r.user_id === comercial);
+  const q = usePanel(period);
+  const grupos = useMemo(() => agruparPorComercial(q.data), [q.data]);
+  const tot = totales(grupos);
   const error = q.error as Error | null;
 
   return (
     <div className="space-y-6 p-4 md:p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Gestión comercial</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Panel del gestor comercial</h1>
         <p className="text-sm text-muted-foreground">
-          Agregados servidos por el backend (sin acceso a títulos, edificios ni propietarios).
-          Intervalo (máx. 31 días) [{range.from.toLocaleDateString("es-ES")} – {range.to.toLocaleDateString("es-ES")}) en hora de Madrid.
+          Trabajo del equipo comercial: lo que tienen entre manos, lo que se ha retrasado y lo que ya
+          han terminado.
         </p>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Histórico de tareas realizadas:</span>
         {PERIODS.map((p) => (
-          <Button key={p.key} size="sm" variant={period === p.key ? "default" : "outline"} onClick={() => setPeriod(p.key)}>
-            {p.label}
-          </Button>
-        ))}
-        <span className="mx-2 hidden h-5 w-px bg-border md:block" />
-        <Button size="sm" variant={comercial === "todos" ? "default" : "outline"} onClick={() => setComercial("todos")}>
-          Todos
-        </Button>
-        {rows.map((r) => (
           <Button
-            key={r.user_id}
+            key={p.key}
             size="sm"
-            variant={comercial === r.user_id ? "default" : "outline"}
-            onClick={() => setComercial(r.user_id)}
+            variant={period === p.key ? "default" : "outline"}
+            onClick={() => setPeriod(p.key)}
           >
-            {r.full_name || r.user_id.slice(0, 8)}
+            {p.key === "hoy" ? "Hoy" : p.key === "semana" ? "Esta semana" : "Este mes"}
           </Button>
         ))}
       </div>
@@ -64,121 +98,95 @@ export default function GestorComerciales() {
         <Card className="border-destructive/40">
           <CardHeader className="flex flex-row items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive" />
-            <CardTitle className="text-base">Error al cargar los datos</CardTitle>
+            <CardTitle className="text-base">No se han podido cargar los datos</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">{error.message}</CardContent>
         </Card>
       )}
 
       {q.isLoading && !error && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <Skeleton className="h-56 w-full" />
-          <Skeleton className="h-56 w-full" />
+        <div className="grid gap-4 md:grid-cols-3">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
         </div>
       )}
 
-      {!q.isLoading && !error && visibles.length === 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Sin tareas en el periodo seleccionado</CardTitle>
-            <CardDescription>Prueba a ampliar el periodo o quitar el filtro por comercial.</CardDescription>
-          </CardHeader>
-        </Card>
-      )}
+      {!q.isLoading && !error && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-md border p-4">
+              <div className="text-xs text-muted-foreground">Tareas activas (todo el equipo)</div>
+              <div className="text-2xl font-semibold tabular-nums">{tot.activas}</div>
+            </div>
+            <div className={tot.retrasadas > 0 ? "rounded-md border border-destructive/50 p-4" : "rounded-md border p-4"}>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Clock className="h-3 w-3" /> Con retraso
+              </div>
+              <div className={tot.retrasadas > 0 ? "text-2xl font-semibold tabular-nums text-destructive" : "text-2xl font-semibold tabular-nums"}>
+                {tot.retrasadas}
+              </div>
+            </div>
+            <div className="rounded-md border p-4">
+              <div className="text-xs text-muted-foreground">Realizadas en el periodo</div>
+              <div className="text-2xl font-semibold tabular-nums">{tot.realizadas}</div>
+            </div>
+          </div>
 
-      {!q.isLoading && !error && visibles.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {visibles.map((u) => (
-            <Card key={u.user_id}>
+          {grupos.length === 0 && (
+            <Card>
               <CardHeader>
-                <CardTitle className="text-base">{u.full_name || u.user_id.slice(0, 8)}</CardTitle>
+                <CardTitle className="text-base">Sin tareas que mostrar</CardTitle>
                 <CardDescription>
-                  {u.created_in_period} creadas · {u.completed_in_period} cerradas en el periodo
+                  No hay tareas activas ni realizadas en el periodo seleccionado.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="mb-1 text-xs font-medium text-muted-foreground">
-                    Actividad del periodo
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {([
-                      ["Creadas", u.created_in_period],
-                      ["Cerradas", u.completed_in_period],
-                      ["Cerradas con plazo", u.con_plazo],
-                    ] as const).map(([label, value]) => (
-                      <div key={label} className="rounded-md border p-3">
-                        <div className="text-xs text-muted-foreground">{label}</div>
-                        <div className="text-xl font-semibold tabular-nums">{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mb-1 text-xs font-medium text-muted-foreground">
-                    Estado actual (foto de hoy)
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {([
-                      ["Pendientes", u.snapshot.pending],
-                      ["En curso", u.snapshot.in_progress],
-                      ["Bloqueadas", u.snapshot.blocked],
-                      ["Saltadas", u.snapshot.skipped],
-                      ["No procede", u.snapshot.no_procede],
-                      ["Completadas", u.snapshot.completed],
-                      ["Desconocido", u.snapshot.unknown],
-                      ["Vencidas ahora", u.snapshot.vencidas_ahora],
-                      ["Bloqueadas vencidas", u.snapshot.bloqueadas_vencidas],
-                      ["Terminales sin cierre", u.snapshot.terminadas_sin_cierre],
-                    ] as const).map(([label, value]) => (
-                      <div key={label} className="rounded-md border p-3">
-                        <div className="text-xs text-muted-foreground">{label}</div>
-                        <div className="text-xl font-semibold tabular-nums">{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{snapshotNota(u)}</p>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="rounded-md border p-3">
-                    <div className="text-xs text-muted-foreground">Cumplimiento de plazo (cierres del periodo)</div>
-                    <div className="text-xl font-semibold tabular-nums">
-                      {completionRate(u) == null ? "—" : `${completionRate(u)}%`}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {u.en_plazo}/{u.con_plazo} cierres con fecha límite
-                    </div>
-                  </div>
-                  <div className="rounded-md border p-3">
-                    <div className="text-xs text-muted-foreground">Duración inicio → cierre</div>
-                    <div className="text-sm font-semibold tabular-nums">
-                      media {fmtHoras(u.media_horas)} · mediana {fmtHoras(u.mediana_horas)}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">{coberturaDuracionNota(u)}</div>
-                    <div className="text-[11px] text-muted-foreground">{coberturaInicioNota(u)}</div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">Mezcla por grupo (creadas en el periodo)</div>
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    {mezclaEntries(u).length === 0 && <span className="text-muted-foreground">—</span>}
-                    {mezclaEntries(u).map(([code, n]) => (
-                      <span key={code} className="rounded-md border px-2 py-1 tabular-nums">
-                        {code}: {n}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
             </Card>
-          ))}
-        </div>
+          )}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {grupos.map((g) => (
+              <Card key={g.user_id}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    {g.nombre}
+                    {g.retrasadas.length > 0 && (
+                      <Badge variant="destructive">{g.retrasadas.length} con retraso</Badge>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    {g.activas.length} activas · {g.realizadas.length} realizadas en el periodo
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-muted-foreground">
+                      Tareas activas (pendientes y en curso)
+                    </div>
+                    <TablaTareas rows={g.activas} />
+                  </div>
+                  {g.retrasadas.length > 0 && (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-destructive">
+                        Tareas con retraso ({g.retrasadas.length})
+                      </div>
+                      <TablaTareas rows={g.retrasadas} />
+                    </div>
+                  )}
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-muted-foreground">
+                      Tareas realizadas en el periodo
+                    </div>
+                    <TablaTareas rows={g.realizadas} mostrarCierre />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
       )}
 
-      <ModosTareasCard />
+      <ModosGeneracionCard />
     </div>
   );
 }

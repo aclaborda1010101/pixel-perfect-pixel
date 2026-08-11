@@ -10414,6 +10414,10 @@ export type Database = {
           transcripcion: string
         }[]
       }
+      get_sales_manager_panel: {
+        Args: { p_from: string; p_to: string }
+        Returns: Json
+      }
       has_gestor_access: { Args: { _user_id: string }; Returns: boolean }
       has_oportunidades_access: { Args: { _user_id: string }; Returns: boolean }
       has_role: {
