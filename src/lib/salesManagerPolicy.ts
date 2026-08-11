@@ -254,7 +254,10 @@ export function getSalesManagerDashboardSim(
   const rows: SalesManagerRow[] = members.map((m) => {
     const mine = tasks.filter((t) => t.user_id === m.user_id);
     const creadas = mine.filter((t) => inWin(t.created_at));
-    const cerradas = mine.filter((t) => inWin(t.completed_at));
+    // SÓLO cierres reales: skipped / no_procede NO son cierres productivos.
+    const cerradas = mine.filter((t) => t.status === "completed" && inWin(t.completed_at));
+    const saltadas = mine.filter((t) => t.status === "skipped" && inWin(t.completed_at));
+    const noProcede = mine.filter((t) => t.status === "no_procede" && inWin(t.completed_at));
 
     const conPlazo = cerradas.filter((t) => !!t.due_date);
     const enPlazo = conPlazo.filter((t) => new Date(t.completed_at!) <= new Date(t.due_date!));
@@ -281,6 +284,8 @@ export function getSalesManagerDashboardSim(
       full_name: m.full_name,
       created_in_period: creadas.length,
       completed_in_period: cerradas.length,
+      skipped_in_period: saltadas.length,
+      no_procede_in_period: noProcede.length,
       con_plazo: conPlazo.length,
       en_plazo: enPlazo.length,
       con_duracion: conDuracion.length,
@@ -295,7 +300,8 @@ export function getSalesManagerDashboardSim(
         pending: snapCount("pending"),
         in_progress: snapCount("in_progress"),
         blocked: snapCount("blocked"),
-        skipped: snapCount("skipped") + snapCount("no_procede"),
+        skipped: snapCount("skipped"),
+        no_procede: snapCount("no_procede"),
         completed: snapCount("completed"),
         unknown: mine.filter((t) => !known.includes(t.status)).length,
         vencidas_ahora: mine.filter(
@@ -303,6 +309,9 @@ export function getSalesManagerDashboardSim(
             (t.status === "pending" || t.status === "in_progress") &&
             t.due_date &&
             new Date(t.due_date) < now,
+        ).length,
+        bloqueadas_vencidas: mine.filter(
+          (t) => t.status === "blocked" && t.due_date && new Date(t.due_date) < now,
         ).length,
         as_of: now.toISOString(),
       },
