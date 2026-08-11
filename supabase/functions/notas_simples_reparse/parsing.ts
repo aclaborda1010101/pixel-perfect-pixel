@@ -24,8 +24,8 @@ export type Bloque = {
 const RE_PAGINA_MARCA = /\f|(?:-{0,3}\s*)?P[áa]g(?:ina)?\.?\s*(\d{1,3})(?:\s*(?:de|\/)\s*\d{1,3})?/gi;
 
 /** Sólo cabeceras estructurales; palabras narrativas nunca cambian sección. */
-const RE_TITULARIDADES_HEADER = /(?:MAPA\s+DE\s+)?TITULARIDADES?\s*:?/gi;
-const RE_CARGAS_HEADER = /CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?\s*:?/gi;
+const RE_TITULARIDADES_HEADER = /(?:MAPA\s+DE\s+)?TITULARIDADES?\s*:?/g;
+const RE_CARGAS_HEADER = /CARGAS(?:\s+Y\s+GRAV[ÁA]MENES)?\s*:?/g;
 
 export const RE_PARTICIPACION_G = /PARTICIPACI[ÓO]N/gi;
 
