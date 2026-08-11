@@ -12,6 +12,9 @@ export const CANARY_NUDA = 20;
 export const CANARY_USUFRUCTO = 8;
 export const CANARY_DERECHOS = CANARY_PLENO + CANARY_NUDA + CANARY_USUFRUCTO; // 66
 export const CANARY_CARGAS = 2;
+export const CANARY_TITULARIDADES_OFFSET = 2632;
+export const CANARY_HIPOTECA_NARRATIVA_OFFSET = 15569;
+export const CANARY_CARGAS_OFFSET = 20227;
 
 const NOMBRES = [
   "MARIA LOPEZ SERRANO", "JUAN PEREZ CALVO", "ANA RUIZ MOLINA", "LUIS GARCIA ORTEGA",
@@ -31,6 +34,8 @@ function dniDe(i: number): string {
 }
 /** Porcentajes con 6 decimales reales: nada de 0,11 ni 1,04. */
 function pctDe(i: number): string {
+  const forenses = ["1,170000", "3,500000", "0,330000", "1,040000"];
+  if (i < forenses.length) return forenses[i];
   const v = ((i * 7919) % 900000) / 1000000 + 0.05; // 0,05…0,95 aprox
   return v.toFixed(6).replace(".", ",");
 }
@@ -68,6 +73,8 @@ export const HECHOS_CANARY: HechoFixture[] = DERECHOS.map((d, i) => {
 export function buildCanaryText(): string {
   let s = "REGISTRO DE LA PROPIEDAD DE VILLANUEVA NUMERO 3. NOTA SIMPLE INFORMATIVA. IDUFIR 28001000123456. FINCA 12345. ";
   s += "DESCRIPCION: URBANA. EDIFICIO SITO EN CALLE MAYOR NUMERO 33, COMPUESTO DE DOCE VIVIENDAS Y DOS LOCALES. ";
+  s += ".".repeat(CANARY_TITULARIDADES_OFFSET - s.length);
+  if (s.length !== CANARY_TITULARIDADES_OFFSET) throw new Error("offset TITULARIDADES inválido");
   s += "TITULARIDADES: ";
   const porPagina = Math.ceil(HECHOS_CANARY.length / (CANARY_PAGINAS - 1));
   HECHOS_CANARY.forEach((h, i) => {
@@ -75,8 +82,16 @@ export function buildCanaryText(): string {
       s += `Pagina ${Math.floor(i / porPagina) + 1} de ${CANARY_PAGINAS} `;
     }
     s += `${h.cita} `;
+    s += "Texto registral de continuidad, asiento vigente y referencia de inscripcion. ";
+    if (i === 39) {
+      s += ".".repeat(CANARY_HIPOTECA_NARRATIVA_OFFSET - s.length);
+      if (s.length !== CANARY_HIPOTECA_NARRATIVA_OFFSET) throw new Error("offset HIPOTECA inválido");
+      s += "HIPOTECA mencionada exclusivamente en el titulo de adquisicion y cancelada con anterioridad; esta frase narrativa no abre la seccion de cargas. ";
+    }
   });
   s += `Pagina ${CANARY_PAGINAS} de ${CANARY_PAGINAS} `;
+  s += ".".repeat(CANARY_CARGAS_OFFSET - s.length);
+  if (s.length !== CANARY_CARGAS_OFFSET) throw new Error("offset CARGAS inválido");
   s += "CARGAS Y GRAVAMENES: HIPOTECA a favor de BANCO DEL NORTE SA, responsabilidad hipotecaria con PARTICIPACION 100,000000% sobre la finca, inscripcion 7a; ";
   s += "AFECCION fiscal por liquidacion del impuesto con PARTICIPACION 12,500000% durante cinco anos, nota al margen. ";
   s += "FIN DE LA NOTA SIMPLE INFORMATIVA. ESTE DOCUMENTO NO ES CERTIFICACION. ";

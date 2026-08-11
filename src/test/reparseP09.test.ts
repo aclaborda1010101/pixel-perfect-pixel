@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildCanaryText, HECHOS_CANARY, CANARY_CHARS, CANARY_PAGINAS,
   CANARY_DERECHOS, CANARY_PLENO, CANARY_NUDA, CANARY_USUFRUCTO, CANARY_CARGAS,
+  CANARY_TITULARIDADES_OFFSET, CANARY_HIPOTECA_NARRATIVA_OFFSET, CANARY_CARGAS_OFFSET,
 } from "./helpers/notaCanaryFixture";
 import { extraerInventario, contarCapas, reconciliarCompletitud } from "../../supabase/functions/notas_simples_reparse/completeness";
 import {
@@ -21,6 +22,9 @@ describe("P0.9 · morfología real del canario", () => {
     expect((TEXTO.match(/\n/g) ?? []).length).toBe(0);
     expect(Math.max(...segmentarPaginas(TEXTO).map((p) => p.page))).toBe(CANARY_PAGINAS);
     expect(contarTokensParticipacion(TEXTO)).toBe(CANARY_DERECHOS + CANARY_CARGAS); // 68
+    expect(TEXTO.indexOf("TITULARIDADES")).toBe(CANARY_TITULARIDADES_OFFSET);
+    expect(TEXTO.indexOf("HIPOTECA mencionada")).toBe(CANARY_HIPOTECA_NARRATIVA_OFFSET);
+    expect(TEXTO.indexOf("CARGAS Y GRAVAMENES")).toBe(CANARY_CARGAS_OFFSET);
   });
 
   it("el inventario productivo devuelve EXACTO 66/38/20/8 y 2 cargas excluidas", () => {
