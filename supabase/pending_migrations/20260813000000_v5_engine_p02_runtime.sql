@@ -66,6 +66,34 @@ BEGIN
 END
 $legacy$;
 
+-- Neutralización explícita del formato histórico: se TOLERA (sólo lectura)
+-- cuando está etiquetado como legacy; en cualquier otro modo es inválido.
+DO $legacychk$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.building_tasks'::regclass
+      AND conname = 'building_tasks_v5_key_code_chk'
+  ) THEN
+    ALTER TABLE public.building_tasks DROP CONSTRAINT building_tasks_v5_key_code_chk;
+  END IF;
+
+  ALTER TABLE public.building_tasks
+    ADD CONSTRAINT building_tasks_v5_key_code_chk
+    CHECK (
+      task_key IS NULL
+      OR task_key NOT LIKE 'v5:%'
+      -- Histórico etiquetado legacy: neutralizado, sólo lectura.
+      OR (generation_mode = 'legacy' AND task_key ~ '^v5:\d{4}-\d{2}-\d{2}:T-0[1-9]:')
+      OR (
+        task_code IS NOT NULL
+        AND split_part(task_key, ':', 3) = task_code
+        AND task_code IN ('T1','T2_T3','T4','T5','T6','T8','T9')
+      )
+    );
+END
+$legacychk$;
+
 -- ---------------------------------------------------------------------
 -- 2. Clave canónica: 6 segmentos, códigos válidos, concordancia exacta.
 --    El formato histórico queda excluido de production por construcción.
