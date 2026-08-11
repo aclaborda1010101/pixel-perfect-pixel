@@ -14,8 +14,8 @@ Deno.serve(async (req) => {
     if (error) throw error;
     const c = createClient(url, anon, { auth: { persistSession: false } });
     const { data: s, error: e2 } = await c.auth.verifyOtp({
-      type: "magiclink", email, token_hash: (data as any).properties.hashed_token,
-    });
+      type: "email", token_hash: (data as any).properties.hashed_token,
+    } as any);
     if (e2) throw e2;
     return createClient(url, anon, {
       auth: { persistSession: false },
