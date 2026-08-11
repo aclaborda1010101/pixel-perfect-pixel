@@ -28,7 +28,7 @@ import { sortByDueThenPriority } from "@/lib/taskSchedule";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { startBuildingTask, canStartTask } from "@/lib/taskStart";
+import { startBuildingTask, canStartTask, reopenBuildingTask } from "@/lib/taskStart";
 
 const ICONS: Record<string, any> = {
   Phone, PhoneCall, Mail, ClipboardList, FileSearch, AlertTriangle, Brain, MapPin,
