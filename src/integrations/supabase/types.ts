@@ -10430,6 +10430,7 @@ export type Database = {
           severidad: string
         }[]
       }
+      is_internal_member: { Args: never; Returns: boolean }
       madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
       mantenimiento_datos_horario: { Args: never; Returns: Json }
       match_building_fuzzy: {
