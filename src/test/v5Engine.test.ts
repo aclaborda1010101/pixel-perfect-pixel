@@ -488,7 +488,10 @@ describe("V5 T9 estricta", () => {
 // =====================================================================
 describe("V5 modos", () => {
   it("los modos predefinidos existen pero no son activables sin pesos guardados", () => {
-    expect(Object.keys(V5_PREDEFINED_MODES).sort()).toEqual(["equilibrado", "iniciar_conversaciones", "seguimiento"]);
+    // P0.2: los CUATRO modos comerciales, incluido personalizado, generan automáticas.
+    expect(Object.keys(V5_PREDEFINED_MODES).sort()).toEqual(
+      ["equilibrado", "iniciar_conversaciones", "personalizado", "seguimiento"],
+    );
     for (const [, def] of Object.entries(V5_PREDEFINED_MODES)) expect(def.mix).toBeNull();
     const check = isModeActivatable("equilibrado", null);
     expect(check.activatable).toBe(false);
@@ -500,7 +503,9 @@ describe("V5 modos", () => {
 
   it("validación exacta de buckets", () => {
     expect(validateMix(MIX).valid).toBe(true);
-    expect(validateMix({ ...MIX, T7: 0 }).errors.join()).toContain("T7");
+    // T7 sólo se admite si llega a 0; cualquier peso positivo es inválido.
+    expect(validateMix({ ...MIX, T7: 0 }).valid).toBe(true);
+    expect(validateMix({ ...MIX, T7: 5 }).errors.join()).toContain("T7");
     expect(validateMix({ ...MIX, TX: 0 }).errors.join()).toContain("desconocido");
     const { T9: _omit, ...sinT9 } = MIX;
     expect(validateMix(sinT9).errors.join()).toContain("Falta el bucket T9");
@@ -508,14 +513,21 @@ describe("V5 modos", () => {
     expect(validateMix({ ...MIX, T4: 11 }).errors.join()).toContain("exactamente 100");
   });
 
-  it("modo manual: cero automáticas", () => {
+  it("modo personalizado (alias histórico `manual`) SÍ genera automáticas", () => {
     const res = selectNextByMode({
+      comercialId: "C1",
+      candidates: [fakeCandidate("T4", "O1")],
+      config: { global: { mode: "manual", mix: MIX } },
+    });
+    expect(res.modeSnapshot.mode).toBe("personalizado");
+    expect(res.selected?.taskCode).toBe("T4");
+    // Sin mapa de pesos no se puede activar: no se inventan pesos.
+    const sinMix = selectNextByMode({
       comercialId: "C1",
       candidates: [fakeCandidate("T4", "O1")],
       config: { global: { mode: "manual" } },
     });
-    expect(res.selected).toBeNull();
-    expect(res.modeSnapshot.automaticas).toBe(0);
+    expect(sinMix.selected).toBeNull();
   });
 
   it("override de comercial gana al global y queda en el snapshot", () => {
