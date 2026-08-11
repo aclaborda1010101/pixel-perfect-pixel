@@ -448,6 +448,17 @@ BEGIN
   ASSERT (d ->> 'identidades_ambiguas')::int >= 1, 'contador de identidades ambiguas';
   ASSERT (d ->> 'filas_bloqueadas_por_edificio')::int >= 1, 'contador de bloqueos de edificio';
 
+  -- 12 bis) CASOS 13 y 14: convergencia de identidad.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+     AND identity_conflict AND owner_id IS NULL AND company_id IS NULL AND NOT feeds_cuota;
+  ASSERT n = 1, 'documento y nombre apuntan a owners distintos => identity_conflict y cero feeds';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+     AND identity_conflict AND owner_id IS NULL AND company_id IS NULL AND NOT feeds_cuota;
+  ASSERT n = 1, 'documento que casa con owner y company a la vez => identity_conflict y cero feeds';
+  ASSERT (d ->> 'identity_conflicts')::int >= 2, 'contador de identity_conflicts';
+
   -- 13) POSITIVO 100 %: exactamente una fila segura que alimenta cuota.
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
