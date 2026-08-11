@@ -15,9 +15,12 @@ export type SalesManagerSnapshot = {
   in_progress: number;
   blocked: number;
   skipped: number;
+  no_procede: number;
   completed: number;
   unknown: number;
   vencidas_ahora: number;
+  /** Bloqueadas fuera de plazo: se informan APARTE, no penalizan al comercial. */
+  bloqueadas_vencidas: number;
   as_of: string;
 };
 
@@ -26,6 +29,9 @@ export type SalesManagerRow = {
   full_name: string | null;
   created_in_period: number;
   completed_in_period: number;
+  /** Cierres NO productivos del periodo: se cuentan aparte de completed. */
+  skipped_in_period: number;
+  no_procede_in_period: number;
   con_plazo: number;
   en_plazo: number;
   con_duracion: number;
