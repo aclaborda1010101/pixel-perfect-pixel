@@ -630,7 +630,7 @@ describe("métricas del panel", () => {
     cobertura_inicio_creadas: 5, cobertura_inicio_pct: 50, cobertura_duracion_pct: 50,
     snapshot: {
       pending: 2, in_progress: 1, blocked: 1, skipped: 0, no_procede: 0, completed: 8, unknown: 0,
-      vencidas_ahora: 1, bloqueadas_vencidas: 1, as_of: "2026-03-09T10:00:00.000Z",
+      vencidas_ahora: 1, bloqueadas_vencidas: 1, terminadas_sin_cierre: 0, as_of: "2026-03-09T10:00:00.000Z",
     },
     mezcla_creadas: { T1: 4, T2_T3: 6 },
   };
