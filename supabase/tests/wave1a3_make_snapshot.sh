@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # =====================================================================
-# WAVE 1A.3 P0.4 · GENERADOR REPRODUCIBLE DEL SNAPSHOT PRE-1A.2
+# WAVE 1A.3 P0.6 · GENERADOR REPRODUCIBLE DEL SNAPSHOT PRE-1A.2
 # =====================================================================
-# Reconstruye, en un clúster efímero propio, el esquema EXACTO anterior
-# a 1A.2 a partir del material versionado del repositorio:
+# P0.6 · CERO SHIMS. Se ha ELIMINADO wave1a_baseline_drift.sql y toda
+# reaplicación de deriva: nada de columnas/tablas/vistas inventadas, ni
+# stubs de cron.schedule / net.http_*, ni filas placeholder, ni sed sobre
+# el SQL versionado. Si el material versionado no basta para reconstruir
+# el esquema pre-1A.2, el generador termina NO_VERIFICADO y NO escribe
+# snapshot: un snapshot maquillado no representa ningún estado real.
+#
+# Reconstruye, en un clúster efímero propio, el esquema anterior a 1A.2
+# a partir del material versionado del repositorio:
 #   1. supabase/tests/wave1a_local_baseline.sql  (prólogo de plataforma)
 #   2. todas las supabase/migrations/*.sql con timestamp < 20260810164500
 # y vuelca el resultado con pg_dump --schema-only.
@@ -37,6 +44,17 @@ W="$(mktemp -d "${TMPDIR:-/tmp}/wave1a3snap.XXXXXX")"; mkdir -p "$W/sock"
 trap 'pg_ctl -D "$W/data" -m immediate stop >/dev/null 2>&1; rm -rf "$W"' EXIT
 DB="wave1a_test_snapgen"
 
+# NO_VERIFICADO: borra cualquier artefacto previo (para que ningún runner
+# pueda apoyarse en un snapshot antiguo) y deja constancia del motivo.
+no_verificado() {
+  rm -f "$OUT" "$OUT.extensions" "$OUT.roles" "$OUT.sha256" "$OUT.provenance"
+  { echo "estado=NO_VERIFICADO"; echo "motivo=$*";
+    echo "generador=supabase/tests/wave1a3_make_snapshot.sh";
+    echo "regla=P0.6 prohíbe shims, stubs, placeholders y omisiones"; } > "$OUT.NO_VERIFICADO"
+  echo "NO_VERIFICADO: $*" >&2
+  exit 4
+}
+
 initdb -D "$W/data" -U snapadm -A trust --no-locale --encoding=UTF8 >"$W/initdb.log" 2>&1 || { tail -20 "$W/initdb.log" >&2; exit 1; }
 pg_ctl -D "$W/data" -w -l "$W/pg.log" \
   -o "-c listen_addresses='' -k '$W/sock' -c fsync=off -c shared_preload_libraries='pg_cron,pg_net' -c cron.database_name=$DB" \
@@ -52,40 +70,32 @@ done
   || { tail -20 "$W/base.log" >&2; echo "ABORTADO: el prólogo de plataforma no aplica." >&2; exit 1; }
 
 # --- Cadena del corte: FAIL AL PRIMER ERROR --------------------------
-# Sin continue, sin skip, sin tragar stderr. Si una migración del corte no
-# aplica, el generador termina NO_VERIFICADO y NO escribe snapshot: un
-# snapshot con migraciones omitidas no representa ningún estado real.
-DRIFT="$HERE/wave1a_baseline_drift.sql"
-[ -s "$DRIFT" ] || { echo "NO_VERIFICADO: falta wave1a_baseline_drift.sql" >&2; exit 4; }
+# Sin continue, sin skip, sin deriva y sin tragar stderr.
+[ -e "$HERE/wave1a_baseline_drift.sql" ] \
+  && no_verificado "existe wave1a_baseline_drift.sql: P0.6 lo prohíbe."
+grep -qi 'drift\|placeholder\|stub' "$HERE/wave1a_local_baseline.sql" \
+  && grep -qiE '^[[:space:]]*(\\ir|CREATE (OR REPLACE )?FUNCTION (cron|net)\.)' "$HERE/wave1a_local_baseline.sql" \
+  && no_verificado "el prólogo de plataforma contiene shims."
 
 MIGS=()
 while IFS= read -r f; do
   b="$(basename "$f")"
   [ "${b:0:14}" \< "$CUT" ] && MIGS+=("$f")
 done < <(ls "$ROOT"/supabase/migrations/*.sql | LC_ALL=C sort)
-[ "${#MIGS[@]}" -gt 0 ] || { echo "NO_VERIFICADO: el corte no selecciona ninguna migración" >&2; exit 4; }
+[ "${#MIGS[@]}" -gt 0 ] || no_verificado "el corte no selecciona ninguna migración"
 
 : > "$W/aplicadas.txt"; APPLIED=0
 for f in "${MIGS[@]}"; do
   b="$(basename "$f")"
-  # La deriva se reaplica antes de cada migración: es idempotente y
-  # condicional, y así está disponible en el momento exacto en que la
-  # cadena histórica la necesita.
-  if ! "${PA[@]}" -d "$DB" -f "$DRIFT" >"$W/drift.log" 2>&1; then
-    grep -iE 'ERROR|FATAL' "$W/drift.log" | head -5 >&2
-    echo "NO_VERIFICADO: la deriva de baseline no aplica antes de $b." >&2
-    exit 4
-  fi
-  if ! "${PA[@]}" -d "$DB" -f "$f" >"$W/m.log" 2>&1; then
+  # Cada migración se aplica TAL CUAL, dentro de su propia transacción.
+  if ! psql -v ON_ERROR_STOP=1 -h "$W/sock" -U snapadm -q -1 -d "$DB" -f "$f" >"$W/m.log" 2>&1; then
     grep -iE 'ERROR|FATAL' "$W/m.log" | head -5 >&2
-    grep -iE 'diferida|DERIVA_DEBUG' "$W/drift.log" | tail -3 >&2 || true
-    echo "NO_VERIFICADO: la migración $b del corte NO aplica. Corrige la cadena o la deriva declarada; jamás se emite un snapshot con migraciones omitidas." >&2
-    exit 4
+    no_verificado "la migración $b del corte NO aplica sobre material exclusivamente versionado. P0.6 prohíbe shims/derivas: hace falta un snapshot real (pg_dump --schema-only de un estado pre-1A.2) o un clon fiel."
   fi
   APPLIED=$((APPLIED+1))
   echo "$(sha256sum "$f" | cut -d" " -f1)  $b" >> "$W/aplicadas.txt"
 done
-[ "$APPLIED" = "${#MIGS[@]}" ] || { echo "NO_VERIFICADO: aplicadas=$APPLIED de ${#MIGS[@]}" >&2; exit 4; }
+[ "$APPLIED" = "${#MIGS[@]}" ] || no_verificado "aplicadas=$APPLIED de ${#MIGS[@]}"
 
 # Roles de plataforma: son GLOBALES del clúster y por eso no viajan en
 # pg_dump. Se vuelcan aparte, sin contraseñas, para que el runner los
@@ -130,7 +140,7 @@ HDR
 COMMIT="$(cd "$ROOT" && git -c safe.directory="$ROOT" rev-parse HEAD)"
 case "$COMMIT" in
   [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-  *) echo "NO_VERIFICADO: git no devuelve un commit de 40 hex ($COMMIT); la procedencia no sería verificable." >&2; exit 4;;
+  *) no_verificado "git no devuelve un commit de 40 hex ($COMMIT); la procedencia no sería verificable.";;
 esac
 PRIMERA="$(basename "${MIGS[0]}")"; ULTIMA="$(basename "${MIGS[$((${#MIGS[@]}-1))]}")"
 {
@@ -140,7 +150,7 @@ PRIMERA="$(basename "${MIGS[0]}")"; ULTIMA="$(basename "${MIGS[$((${#MIGS[@]}-1)
   echo "corte=migraciones versionadas con timestamp < $CUT"
   echo "rango=$PRIMERA .. $ULTIMA"
   echo "prologo=supabase/tests/wave1a_local_baseline.sql"
-  echo "deriva=supabase/tests/wave1a_baseline_drift.sql (reaplicada antes de cada migración)"
+  echo "deriva=ninguna (P0.6: shims eliminados)"
   echo "migraciones_aplicadas=$APPLIED"
   echo "migraciones_no_aplicables=0"
   echo "extensiones_reales=$("${PA[@]}" -d "$DB" -At -c "SELECT string_agg(extname,',' ORDER BY extname) FROM pg_extension WHERE extname <> 'plpgsql'")"
@@ -153,5 +163,6 @@ PRIMERA="$(basename "${MIGS[0]}")"; ULTIMA="$(basename "${MIGS[$((${#MIGS[@]}-1)
 # alterar la procedencia a mano rompe el checksum.
 ( cd "$HERE" && sha256sum "$(basename "$OUT")" "$(basename "$OUT").extensions" "$(basename "$OUT").roles" "$(basename "$OUT").provenance" > "$(basename "$OUT").sha256" )
 
+rm -f "$OUT.NO_VERIFICADO"
 echo "SNAPSHOT OK  aplicadas=$APPLIED  no_aplicables=0  commit=$COMMIT"
 cat "$OUT.sha256"

@@ -2,14 +2,14 @@
 -- WAVE 1A · BASELINE LOCAL PARA BASE DESECHABLE (nunca producción)
 -- =====================================================================
 -- supabase/migrations/ NO es autosuficiente: asume (a) la plataforma
--- gestionada (roles anon/authenticated/service_role, esquemas auth y
--- storage, extensiones, publicación supabase_realtime) y (b) objetos
--- creados fuera del historial versionado (deriva de baseline). Este
--- fichero reproduce ese estado previo en una base LOCAL desechable para
--- poder reproducir la cadena EXACTA 1A.2 -> 1A.3.
+-- gestionada: roles anon/authenticated/service_role, esquemas auth y
+-- storage, extensiones y publicación supabase_realtime. NADA MÁS.
 --
--- Es idempotente: el runner lo aplica antes de la cadena y lo reaplica
--- una sola vez si una migración histórica falla por deriva.
+-- P0.6: se ha ELIMINADO por completo la antigua deriva de baseline
+-- (wave1a_baseline_drift.sql). Aquí no se declaran columnas, tablas,
+-- vistas, stubs de cron/net ni filas placeholder: eso era un shim y
+-- falseaba la cadena. Este prólogo NO se usa para declarar aplicabilidad
+-- de la cadena 1A.2 -> 1A.3.
 -- NUNCA debe ejecutarse contra una base real.
 -- =====================================================================
 DO $$
@@ -64,7 +64,3 @@ CREATE TABLE IF NOT EXISTS auth.identities(
   last_sign_in_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now());
-
--- La deriva de baseline vive en un fichero propio porque el generador del
--- snapshot la reaplica antes de CADA migración del corte.
-\ir wave1a_baseline_drift.sql

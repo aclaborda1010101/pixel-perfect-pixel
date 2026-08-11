@@ -1965,9 +1965,15 @@ BEGIN
       USING ERRCODE = 'raise_exception';
   END IF;
 
-  RETURN public.p0_property_rights_dry_run()
-         || jsonb_build_object('applied', false, 'reason', p_reason,
-                               'motivo', 'Wave 1A.3: rebuild real deshabilitado, solo dry-run');
+  -- P0.6: el wrapper NO enriquece la respuesta. Devuelve EXACTAMENTE el
+  -- mismo JSONB que p0_property_rights_dry_run(): ni 'reason' ni 'motivo'
+  -- ni ninguna otra clave. p_reason solo se valida (trazabilidad del
+  -- llamante) y jamás altera el contrato de salida.
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'P0_REBUILD_REASON_REQUERIDO' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN public.p0_property_rights_dry_run();
 END $$;
 
 REVOKE ALL ON FUNCTION public.p0_rebuild_property_rights(text, boolean) FROM PUBLIC, anon, authenticated;
