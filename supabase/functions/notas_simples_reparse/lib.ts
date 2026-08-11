@@ -1,6 +1,8 @@
 // Utilidades puras del reparseo de notas simples.
 // Sin dependencias de Deno ni de red: testeable con vitest.
 
+import { redondearExacto } from "./porcentaje.ts";
+
 export const ROLES_CANONICOS = ["pleno", "usufructo", "nuda_propiedad", "ganancial", "otro"] as const;
 export type RolCanonico = (typeof ROLES_CANONICOS)[number];
 
@@ -145,7 +147,9 @@ export function normalizePorcentaje(raw: unknown): number | null {
   }
   if (n == null || !Number.isFinite(n)) return null;
   if (n <= 0 || n > 100) return null;
-  return Math.round(n * 100) / 100;
+  // P0.8: NUNCA round(2). La nota dice 0,109649 y 1,041667: se conservan al
+  // menos 6 decimales; redondear aquí destruía precisión registral.
+  return redondearExacto(n);
 }
 
 /**
