@@ -440,7 +440,7 @@ describe("core: refetch estricto", () => {
   it("role_conflict bloquea antes de cualquier escritura", async () => {
     const f = repoMemoria();
     const r = await processNotaCore(
-      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ rol: "pleno", rol_literal: "Sociedad de gananciales" })] }) },
+      { repo: f.repo, extract: extractorDe({ titulares: [titularValido({ rol: "pleno", rol_literal: "usufructo vitalicio" })] }) },
       argsNota({}),
     );
     expect(r.reason).toBe("role_conflict");
