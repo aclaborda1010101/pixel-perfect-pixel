@@ -100,8 +100,8 @@ done
 
 # A partir de aquí TODO se ejecuta con el rol dedicado.
 PSQL_TEST=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ROLE" -d "$TESTDB" -q)
-"${PSQL_TEST[@]}" -At -c "SELECT CASE WHEN rolsuper THEN 1/0 ELSE 1 END FROM pg_roles WHERE rolname = current_user" >/dev/null \
-  || die "el rol de pruebas no puede ser superusuario"
+IS_SUPER="$("${PSQL_TEST[@]}" -At -c "SELECT rolsuper FROM pg_roles WHERE rolname = current_user")"
+[ "$IS_SUPER" = "f" ] || die "el rol de pruebas no puede ser superusuario (rolsuper=$IS_SUPER)"
 
 # --- 3. Cadena EXACTA 1A.2 -> 1A.3 con manifiesto y checksums ---------
 BASELINE="$ROOT/supabase/tests/wave1a_local_baseline.sql"
