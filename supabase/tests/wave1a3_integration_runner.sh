@@ -82,7 +82,19 @@ END \$\$;"
 
 PSQL_TEST=(psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$TESTDB" -q)
 
-# --- 3. Cadena EXACTA de checkout ------------------------------------
+# --- 3. Baseline local + cadena EXACTA de checkout -------------------
+BASELINE="$ROOT/supabase/tests/wave1a_local_baseline.sql"
+[ -f "$BASELINE" ] || die "Falta el baseline local $BASELINE"
+"${PSQL_TEST[@]}" -f "$BASELINE" >/dev/null
+
+# Migraciones históricas que dependen de estado creado fuera del
+# historial versionado (mutan una vista que nunca crea ninguna
+# migración) y que NO tocan ningún objeto registral. Se omiten en la
+# reproducción local y se verifica que no rozan el dominio de la Wave.
+SKIP_LOCAL=(
+  "20260805051330_381b4dcd-9ef7-496c-bc7e-02824c3c48cc.sql" # reescribe v_building_score a partir de una definición no versionada
+)
+
 CHAIN=(
   "$ROOT/supabase/migrations"
   "$ROOT/supabase/pending_migrations/20260810164500_wave1a_registral_rebuild_seguro.sql"
@@ -91,7 +103,22 @@ CHAIN=(
 
 if [ -d "${CHAIN[0]}" ]; then
   for f in $(ls "${CHAIN[0]}"/*.sql 2>/dev/null | sort); do
-    "${PSQL_TEST[@]}" -f "$f" >/dev/null
+    base="$(basename "$f")"
+    skip=0
+    for s in "${SKIP_LOCAL[@]}"; do [ "$base" = "$s" ] && skip=1; done
+    if [ "$skip" = "1" ]; then
+      # Ninguna migración omitida puede tocar el dominio registral.
+      if grep -qiE 'p0_|property_rights|notas_simples|nota_simple_titulares|building_owners' "$f"; then
+        die "La migración omitida $base toca objetos registrales: la cadena 1A.2->1A.3 dejaría de ser exacta."
+      fi
+      echo "OMITIDA (deriva no versionada, sin impacto registral): $base"
+      continue
+    fi
+    if ! "${PSQL_TEST[@]}" -f "$f" >/dev/null 2>&1; then
+      # Reintento único tras reaplicar el baseline (deriva de producción).
+      "${PSQL_TEST[@]}" -f "$BASELINE" >/dev/null
+      "${PSQL_TEST[@]}" -f "$f" >/dev/null || die "La migración $base no aplica en la base desechable."
+    fi
   done
 fi
 "${PSQL_TEST[@]}" -f "${CHAIN[1]}" >/dev/null
@@ -118,6 +145,8 @@ END \$\$;"
 
 # --- 5. Tests puros y fixtures ---------------------------------------
 "${PSQL_TEST[@]}" -f "$ROOT/supabase/tests/wave1a3_pure_cases.sql"
+# Invariantes portadas de la suite 1A.2, ejecutadas sobre el contrato 1A.3.
+"${PSQL_TEST[@]}" -f "$ROOT/supabase/tests/wave1a_property_rights_cases.sql"
 "${PSQL_TEST[@]}" -f "$ROOT/supabase/tests/wave1a3_fixtures.sql"
 
 echo "WAVE 1A.3 · integración: PASS (base $TESTDB)"

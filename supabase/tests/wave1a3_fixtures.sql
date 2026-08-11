@@ -20,17 +20,22 @@ BEGIN;
 -- ---------------------------------------------------------------------
 -- Edificios: uno sin división horizontal y uno con DH.
 -- ---------------------------------------------------------------------
-INSERT INTO public.buildings (id, direccion, division_horizontal) VALUES
-  ('11111111-1111-1111-1111-111111111111', 'Abel 7',           false),
-  ('22222222-2222-2222-2222-222222222222', 'Palencia 3',       false),
-  ('33333333-3333-3333-3333-333333333333', 'Sorgo 25',         false),
-  ('44444444-4444-4444-4444-444444444444', 'María Pedraza 17', false),
-  ('55555555-5555-5555-5555-555555555555', 'Bruno Ayllón 10',  true),
-  ('66666666-6666-6666-6666-666666666666', 'Retiro 1',         false),
-  ('77777777-7777-7777-7777-777777777777', 'Alcalá 9',         false),
-  ('88888888-8888-8888-8888-888888888888', 'Goya 4',           true),
-  ('99999999-9999-9999-9999-999999999999', 'Serrano 2',        false),
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Velázquez 8',      true);
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'Abel 7',           'Madrid', false),
+  ('22222222-2222-2222-2222-222222222222', 'Palencia 3',       'Madrid', false),
+  ('33333333-3333-3333-3333-333333333333', 'Sorgo 25',         'Madrid', false),
+  ('44444444-4444-4444-4444-444444444444', 'María Pedraza 17', 'Madrid', false),
+  ('55555555-5555-5555-5555-555555555555', 'Bruno Ayllón 10',  'Madrid', true),
+  ('66666666-6666-6666-6666-666666666666', 'Retiro 1',         'Madrid', false),
+  ('77777777-7777-7777-7777-777777777777', 'Alcalá 9',         'Madrid', false),
+  ('88888888-8888-8888-8888-888888888888', 'Goya 4',           'Madrid', true),
+  ('99999999-9999-9999-9999-999999999999', 'Serrano 2',        'Madrid', false),
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Velázquez 8',      'Madrid', true);
+
+-- Edificios de los casos POSITIVOS (no-DH, sin conflicto alguno).
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Positivo 100', 'Madrid', false),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Positivo 60/40', 'Madrid', false);
 
 INSERT INTO public.owners (id, nombre, metadatos) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'ANA LOPEZ',  '{"dni__nif__cif":"00000001A"}'::jsonb),
@@ -245,6 +250,50 @@ INSERT INTO public.nota_simple_titulares
    'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
    '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
 
+-- ---------------------------------------------------------------------
+-- CASO 11 (POSITIVO, Positivo 100): no-DH, una sola nota canónica,
+-- persona física con DNI único en el CRM, pleno dominio 100 %, cita
+-- anclada literalmente en raw_pdf_text con titular + derecho + 100 %.
+-- Debe producir EXACTAMENTE una fila segura con feeds_cuota = true.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000010', 'ROSA VEGA', '{"dni__nif__cif":"00000010C"}'::jsonb);
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('bbbbbbbb-0000-0000-0000-0000000000a1',
+   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'ROSA VEGA es titular del 100 % del pleno dominio de la finca.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('bbbbbbbb-0000-0000-0000-0000000000b1', 'bbbbbbbb-0000-0000-0000-0000000000a1',
+   'ROSA VEGA', '00000010C', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ROSA VEGA es titular del 100 % del pleno dominio","pagina":"1"}'::jsonb);
+
+-- ---------------------------------------------------------------------
+-- CASO 12 (POSITIVO, Positivo 60/40): dos titulares seguros que suman
+-- 100 %. AMBAS filas deben alimentar cuota.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000011', 'PABLO SOTO', '{"dni__nif__cif":"00000011D"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000012', 'ELENA RUIZ', '{"dni__nif__cif":"00000012E"}'::jsonb);
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('cccccccc-0000-0000-0000-0000000000a1',
+   'cccccccc-cccc-cccc-cccc-cccccccccccc', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'PABLO SOTO es titular del 60 % del pleno dominio. ELENA RUIZ es titular del 40 % del pleno dominio.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  ('cccccccc-0000-0000-0000-0000000000b1', 'cccccccc-0000-0000-0000-0000000000a1',
+   'PABLO SOTO', '00000011D', 60, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"PABLO SOTO es titular del 60 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('cccccccc-0000-0000-0000-0000000000b2', 'cccccccc-0000-0000-0000-0000000000a1',
+   'ELENA RUIZ', '00000012E', 40, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"ELENA RUIZ es titular del 40 % del pleno dominio","pagina":"1"}'::jsonb);
+
 -- =====================================================================
 -- ASERCIONES DE REGRESIÓN
 -- =====================================================================
@@ -265,7 +314,7 @@ BEGIN
      AND unit_block_reason = 'nota_lista_sin_titulares';
   ASSERT n > 0, 'motivo nota_lista_sin_titulares presente';
   SELECT count(*) INTO n FROM public.v_p0_notas_listo_sin_titulares;
-  ASSERT n = 1, 'la nota sin titulares aparece en el dry-run';
+  ASSERT n = 2, 'las dos notas listas sin titulares (no-DH y DH) aparecen en el dry-run';
 
   -- 3) Fechas/fracciones basura, cita inventada y localizadores inválidos.
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
@@ -293,17 +342,18 @@ BEGIN
   SELECT public.p0_property_rights_dry_run() INTO d;
   ASSERT (d ->> 'safety_invariants_ok')::boolean, 'safety_invariants_ok debe ser true: '|| d::text;
   ASSERT NOT (d ->> 'readiness_ok')::boolean, 'readiness_ok debe ser false con bloqueos presentes';
-  ASSERT (d ->> 'feeds_cuota')::int = 0, 'ninguna fila insegura se proyecta';
+  ASSERT (d ->> 'feeds_cuota')::int = 3,
+    'solo alimentan las 3 filas seguras de los casos positivos: ' || (d ->> 'feeds_cuota');
   ASSERT (d ->> 'paridad_1a1')::boolean, 'paridad titulares + notas 1:1';
   ASSERT (d ->> 'notas_listo_sin_titulares')::int = 2, 'contador de listas sin titulares (no-DH y DH)';
   ASSERT (d ->> 'date_conflicts')::int >= 1, 'contador de date_conflicts';
   ASSERT (d ->> 'regime_conflicts')::int >= 1, 'contador de regime_conflicts';
 
-  -- 7) CASO 6: ruta/offset/página SIN cita anclada => structured_unverified.
+  -- 7) CASO 6: ruta/offset/página SIN cita anclada => evidencia inválida.
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = '66666666-0000-0000-0000-0000000000b2'
-     AND structured_unverified AND NOT evidence_ok AND NOT feeds_cuota;
-  ASSERT n = 1, 'ruta válida hacia otro titular + offset sin cita => structured_unverified, cero feed';
+     AND bad_evidence AND NOT evidence_ok AND NOT feeds_cuota;
+  ASSERT n = 1, 'ruta válida hacia otro titular + offset sin cita => bad_evidence, cero feed';
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE building_id = '66666666-6666-6666-6666-666666666666' AND feeds_cuota;
   ASSERT n = 0, 'sintaxis válida no es evidencia: la unidad no proyecta';
@@ -347,6 +397,41 @@ BEGIN
   ASSERT (d ->> 'structured_unverified')::int >= 1, 'contador de structured_unverified';
   ASSERT (d ->> 'identidades_ambiguas')::int >= 1, 'contador de identidades ambiguas';
   ASSERT (d ->> 'filas_bloqueadas_por_edificio')::int >= 1, 'contador de bloqueos de edificio';
+
+  -- 13) POSITIVO 100 %: exactamente una fila segura que alimenta cuota.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  ASSERT n = 1, 'el caso positivo produce exactamente una fila';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+     AND feeds_cuota AND row_safe_pre_layer AND layer_safe AND unidad_segura
+     AND is_canonical AND evidence_ok AND NOT structured_unverified
+     AND right_type = 'pleno_dominio' AND percentage = 100
+     AND owner_id = 'a0000000-0000-0000-0000-000000000010'
+     AND company_id IS NULL AND NOT identidad_ambigua;
+  ASSERT n = 1, 'pleno 100 % con cita anclada y DNI único DEBE alimentar cuota';
+  SELECT coalesce(sum(percentage), 0) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND feeds_cuota;
+  ASSERT n = 100, 'la capa segura suma 100';
+
+  -- 14) POSITIVO 60/40: ambas filas seguras alimentan y suman 100.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+     AND feeds_cuota AND row_safe_pre_layer AND layer_safe AND unidad_segura;
+  ASSERT n = 2, '60/40 seguros: ambas filas alimentan cuota';
+  SELECT coalesce(sum(percentage), 0) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota;
+  ASSERT n = 100, '60 + 40 = 100 en la capa segura';
+
+  -- 15) El motor NO es un "siempre false": hay proyección real y el
+  --     conjunto de filas seguras es exactamente el de los positivos.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging WHERE feeds_cuota;
+  ASSERT n = 3, 'exactamente 3 filas alimentan cuota en todo el fixture';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE feeds_cuota
+     AND building_id NOT IN ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                             'cccccccc-cccc-cccc-cccc-cccccccccccc');
+  ASSERT n = 0, 'ningún caso negativo alimenta cuota';
 
   RAISE NOTICE 'WAVE 1A.3 · regresiones de integración: OK';
 END $$;
