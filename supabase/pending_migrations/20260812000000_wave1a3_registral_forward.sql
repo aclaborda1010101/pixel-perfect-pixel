@@ -1500,6 +1500,8 @@ REVOKE ALL ON FUNCTION public.p0_regime_conflict(text, text, text)        FROM P
 REVOKE ALL ON FUNCTION public.p0_frac_contexto_ok(text)                   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_locator_valid(text, text, text)          FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_unit_locator_valid(text, text)           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_nota_unit_claves(uuid)                   FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_nota_unit_key_conflict(uuid)             FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_nota_ownership_signature(uuid)           FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.p0_norm_text(text)                       TO service_role;
@@ -1510,4 +1512,6 @@ GRANT EXECUTE ON FUNCTION public.p0_regime_conflict(text, text, text)     TO ser
 GRANT EXECUTE ON FUNCTION public.p0_frac_contexto_ok(text)                TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_locator_valid(text, text, text)       TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_unit_locator_valid(text, text)        TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_nota_unit_claves(uuid)                TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_nota_unit_key_conflict(uuid)          TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_ownership_signature(uuid)        TO service_role;
