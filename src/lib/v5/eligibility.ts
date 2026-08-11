@@ -506,15 +506,19 @@ export function evaluateBuildingT9(
     (o) =>
       o.contactedEver !== true ||
       !o.lastContact ||
-      ts(o.lastContact.at) === null ||
-      !o.lastContact.source ||
-      !o.lastContact.eventId,
+      !isValidPastTimestamp(o.lastContact.at, now) ||
+      !isTraceableId(o.lastContact.source) ||
+      !isTraceableId(o.lastContact.eventId),
   );
   if (sinEvento.length > 0) {
     return {
       candidate: null,
       reason: `T9 no procede: titulares sin evento de contacto real (${sinEvento.map((o) => o.ownerId).join(", ")})`,
     };
+  }
+  const eventIds = building.owners.map((o) => o.lastContact!.eventId.trim());
+  if (new Set(eventIds).size !== eventIds.length) {
+    return { candidate: null, reason: "T9 no procede: eventos de contacto duplicados entre titulares" };
   }
   if (personalCandidates.length > 0) {
     return { candidate: null, reason: "T9 no procede: existe candidato personal abierto" };
@@ -523,10 +527,11 @@ export function evaluateBuildingT9(
     return { candidate: null, reason: "T9 no procede: existe acción personal abierta" };
   }
   const noveltyMs = ts(building.lastNoveltyAt);
-  if (noveltyMs === null) {
+  if (noveltyMs === null || !isValidPastTimestamp(building.lastNoveltyAt, now)) {
     return { candidate: null, reason: "T9 no procede: última novedad ausente o inválida" };
   }
-  if (now.getTime() - noveltyMs < 90 * DAY_MS) {
+  // Novedad ESTRICTAMENTE mayor de 90 días (>90, no >=).
+  if (now.getTime() - noveltyMs <= 90 * DAY_MS) {
     return { candidate: null, reason: "T9 no procede: hay novedad en los últimos 90 días" };
   }
 
