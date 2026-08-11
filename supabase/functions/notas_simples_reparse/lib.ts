@@ -319,6 +319,8 @@ export type TitularNormalizado = {
   rol: RolCanonico;
   rol_literal: string | null;
   evidencia: Evidencia;
+  /** Diagnóstico NO registral (nunca evidencia, nunca se persiste como fuente). */
+  rol_diagnostico?: string | null;
 };
 
 /**
@@ -356,8 +358,12 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
   const rolDesdeRol = rawRol == null ? null : normalizeRol(rawRol);
   const rolDesdeLiteral = rol_literal == null ? null : normalizeRol(rol_literal);
 
-  // Conflicto rol declarado vs literal reconocido: BLOQUEA antes de escribir.
-  if (rolDesdeLiteral != null && rolDesdeRol != null && rolDesdeLiteral !== rolDesdeRol) {
+  // Sólo hay conflicto si AMBOS expresan derechos jurídicos específicos y distintos.
+  // "otro"/"ganancial" (desconocido / régimen) nunca bloquean ni ascienden a pleno.
+  if (
+    esRolEspecifico(rolDesdeLiteral) && esRolEspecifico(rolDesdeRol) &&
+    rolDesdeLiteral !== rolDesdeRol
+  ) {
     return {
       ok: false,
       reason: "role_conflict",
@@ -365,8 +371,22 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
     };
   }
 
-  // El literal jurídico manda si existe.
-  const rol: RolCanonico = rolDesdeLiteral ?? rolDesdeRol ?? "otro";
+  // El literal jurídico reconocible PREVALECE; si no lo es, se conserva el rol declarado.
+  let rol: RolCanonico;
+  let rol_diagnostico: string | null = null;
+  if (esRolEspecifico(rolDesdeLiteral)) {
+    rol = rolDesdeLiteral as RolCanonico;
+    if (rolDesdeRol != null && rolDesdeRol !== rol) {
+      rol_diagnostico = `literal_prevalece:raw=${rolDesdeRol}->${rol}`;
+    }
+  } else if (rolDesdeRol != null) {
+    rol = rolDesdeRol;
+    if (rolDesdeLiteral != null && rolDesdeLiteral !== rol) {
+      rol_diagnostico = `literal_no_especifico:${rolDesdeLiteral}`;
+    }
+  } else {
+    rol = rolDesdeLiteral ?? "otro";
+  }
   const evidencia = buildEvidencia(t);
 
   return {
@@ -378,6 +398,7 @@ export function normalizeTitularChecked(raw: any): Result<TitularNormalizado> {
       rol,
       rol_literal,
       evidencia,
+      rol_diagnostico,
     },
   };
 }
