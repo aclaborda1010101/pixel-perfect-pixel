@@ -6,13 +6,22 @@ import { fetchVisibleUserTasks } from "@/lib/dashboardTasks";
 import { handleTecnofindCore } from "../../supabase/functions/enrichment-agent/tecnofind";
 import { tecnofindIncidenciaTrasVerificacion } from "../../supabase/functions/enrichment-apply-verification/tasks";
 import { insertManualBuildingTask } from "@/lib/taskWriters";
-import { insertV5CallQueueTask, insertV5CanonicalTask } from "../../supabase/functions/_shared/taskWriters";
+import {
+  insertV5CanonicalTask,
+  assertLegacyHistoricTaskRow,
+  parseLegacyHistoricTaskKey,
+  LEGACY_GENERABLE_TASK_CODES,
+  LEGACY_CALL_QUEUE_WRITER_RETIRED,
+} from "../../supabase/functions/_shared/taskWriters";
 import { buildV5TaskKey } from "@/lib/v5/model";
 import {
   scanBuildingTaskWrites,
   classifyBuildingTaskWrites,
+  scanRetiredWriterUsage,
+  sqlFunctionRanges,
   AUTHORIZED_WRITERS,
   AUTHORIZED_SQL_WRITERS,
+  AUTHORIZED_TASK_RPCS,
 } from "./helpers/taskWriteGuard";
 
 const ROOT = process.cwd();
@@ -154,14 +163,16 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     const { authorized, violations } = classifyBuildingTaskWrites(ops, sources);
     expect(violations.map((v) => `${v.file}:${v.line} ${v.reason}`)).toEqual([]);
     // Autorizadas EXCLUSIVAMENTE por función, no por archivo.
-    expect(authorized.map((o) => `${o.file}#${o.fn}`).sort()).toEqual([
+    const creaciones = authorized.filter((o) => o.op === "insert" || o.op === "upsert" || o.op === "merge");
+    expect([...new Set(creaciones.map((o) => `${o.file}#${o.fn}`))].sort()).toEqual([
       "src/lib/taskWriters.ts#insertManualBuildingTask",
-      "supabase/functions/_shared/taskWriters.ts#insertV5CallQueueTask",
       "supabase/functions/_shared/taskWriters.ts#insertV5CanonicalTask",
       "supabase/pending_migrations/20260815000000_v5_engine_p03_runtime_connect.sql#public.commit_v5_generation_plan",
     ]);
+    // El inventario NO se congela en "3 writers": incluye ciclo de vida y RPC.
+    expect(new Set(authorized.map((o) => o.op)).size).toBeGreaterThan(1);
     expect(
-      authorized.every((o) =>
+      creaciones.every((o) =>
         o.kind === "sql"
           ? Boolean(AUTHORIZED_SQL_WRITERS[o.fn ?? ""])
           : Boolean(AUTHORIZED_WRITERS[`${o.file}#${o.fn}`]),
@@ -169,19 +180,59 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     ).toBe(true);
   });
 
-  it("los updates de ciclo de vida no cuentan como creación", () => {
+  it("la UI no puede hacer DML directa: update/delete se inventarían y fallan", () => {
     const ciclo =
       'await db.from("building_tasks").update({ status: "completed" }).eq("id", id);\n' +
       'await db.from("building_tasks").delete().eq("id", id);';
-    expect(scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", ciclo)).toEqual([]);
-    // Y además las pantallas reales ya no escriben: cierran vía RPC.
+    const found = scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", ciclo);
+    expect(found.map((o) => o.op)).toEqual(["update", "delete"]);
+    const { violations, authorized } = classifyBuildingTaskWrites(found, {
+      "src/pages/comercial/Tareas.tsx": ciclo,
+    });
+    expect(authorized).toEqual([]);
+    expect(violations).toHaveLength(2);
+    expect(violations.map((v) => v.reason).join(" ")).toContain("DML directa");
+    // Y las pantallas reales cierran vía RPC.
     expect(sources["src/pages/comercial/Tareas.tsx"]).toContain("resolveBuildingTask(");
     expect(sources["src/pages/comercial/Tareas.tsx"]).not.toContain(".update({");
   });
 
+  it("las RPC de tareas están clasificadas por nombre y callsite", () => {
+    const malo = 'await supabase.rpc("borrar_building_tasks_todas", {});';
+    const { violations } = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", malo),
+      { "src/pages/comercial/Tareas.tsx": malo },
+    );
+    expect(violations.map((v) => v.reason).join(" ")).toContain("RPC de tareas no autorizada");
+
+    const desdeUI = 'export function x() { return supabase.rpc("start_building_task", { p_task_id: 1 }); }';
+    const { violations: v2 } = classifyBuildingTaskWrites(
+      scanBuildingTaskWrites("src/pages/comercial/Tareas.tsx", desdeUI),
+      { "src/pages/comercial/Tareas.tsx": desdeUI },
+    );
+    expect(v2.map((v) => v.reason).join(" ")).toContain("callsite no autorizado");
+
+    // Todas las RPC reales de ciclo/manual/runtime están declaradas.
+    for (const n of ["start_building_task", "reopen_building_task", "resolve_building_task",
+      "commit_v5_generation_plan", "claim_v5_generation_requests"]) {
+      expect(AUTHORIZED_TASK_RPCS[n], n).toBeTruthy();
+    }
+  });
+
+  it("el writer legacy está RETIRADO y ningún módulo lo importa o llama", () => {
+    expect(LEGACY_CALL_QUEUE_WRITER_RETIRED).toBe(true);
+    const usos = Object.entries(sources).flatMap(([f, src]) => scanRetiredWriterUsage(f, src));
+    expect(usos.map((u) => `${u.file}:${u.line}`)).toEqual([]);
+    // Un edge que intente resucitarlo falla cerrado.
+    const edge = 'import { insertV5CallQueueTask } from "../_shared/taskWriters.ts";\n' +
+      'await insertV5CallQueueTask(sb, row);';
+    expect(scanRetiredWriterUsage("supabase/functions/nuevo/index.ts", edge)).toHaveLength(2);
+  });
+
   it("los callsites autorizados pasan por su helper con payload válido", () => {
     const v5 = sources["supabase/functions/assign_daily_call_queue/index.ts"];
-    expect(v5).toContain("insertV5CallQueueTask(sb, row)");
+    expect(v5).not.toContain("insertV5CallQueueTask");
+    expect(v5).toContain("const dryRun = true;");
     expect(v5).toContain("task_type: 'call_queue'");
     expect(v5).toMatch(/const taskKey = `v5:\$\{hoy\}:\$\{c\.task_code\}:\$\{idKey\}`/);
     const manual = sources["src/components/comercial/BuildingTasksSection.tsx"];
