@@ -108,11 +108,11 @@ Deno.serve(async (req) => {
     // 4. Propietarios con derecho vigente en la nota, ordenados por score.
     const propietarios: any[] = [];
     const edifIds = edificios.map((b: any) => b.id);
-    for (let i = 0; i < edifIds.length; i += 500) {
+    for (let i = 0; i < edifIds.length; i += 100) {
       const { data } = await admin
         .from('v_owner_score')
         .select('owner_id,nombre,telefono,building_id,pct_propiedad,pct_origen,score,contactos_previos,last_call_at')
-        .in('building_id', edifIds.slice(i, i + 500));
+        .in('building_id', edifIds.slice(i, i + 100));
       propietarios.push(...(data ?? []));
     }
     const porEdificio = new Map<string, any[]>();
