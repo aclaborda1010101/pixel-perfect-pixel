@@ -11,8 +11,9 @@ const RUNNER = "supabase/tests/wave1a3_integration_runner.sh";
 
 /** Devuelve los alias de columna, en orden, del SELECT final `... FROM e;`. */
 function finalViewColumns(sql: string): string[] {
-  const end = sql.lastIndexOf("FROM e;");
-  expect(end).toBeGreaterThan(0);
+  const terminador = [...sql.matchAll(/\nFROM +(?:[a-z_]+ +)?e;/g)].pop();
+  expect(terminador, "no se encontró el SELECT final de la vista").toBeTruthy();
+  const end = terminador!.index!;
   const head = sql.slice(0, end);
   const start = head.lastIndexOf("\nSELECT\n");
   expect(start).toBeGreaterThan(0);
