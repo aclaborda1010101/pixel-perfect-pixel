@@ -39,30 +39,46 @@ function walkSql(dir: string, out: string[] = []): string[] {
 // 1) PRODUCTORES EDGE: cero inserts en building_tasks
 // ---------------------------------------------------------------------------
 describe("contención legacy · productores enrichment", () => {
-  it("enrichment-agent (tecnofind) no escribe tareas y termina el job igual", async () => {
-    const from = vi.fn(() => {
-      throw new Error("ningún productor de enrichment puede tocar la base de tareas");
-    });
-    const supabase = { from };
-    const timeline: any[] = [];
-    const finished: any[] = [];
+  it("enrichment-agent (tecnofind) usa el repo inyectado y jamás toca building_tasks", async () => {
+    // Repo REAL inyectado: el core escribe timeline y cierre a través de él.
+    const ops: Array<{ table: string; op: string; payload: any }> = [];
+    const fakeDb = {
+      from(table: string) {
+        const chain: any = {
+          insert: (payload: any) => { ops.push({ table, op: "insert", payload }); return chain; },
+          update: (payload: any) => { ops.push({ table, op: "update", payload }); return chain; },
+          eq: () => chain,
+          then: (res: any) => Promise.resolve({ data: null, error: null }).then(res),
+        };
+        return chain;
+      },
+    };
+    const fromSpy = vi.spyOn(fakeDb, "from");
 
     const res = await handleTecnofindCore(
       { id: "job-1", building_id: "b1", titular_nombre: "ANA", datos: { telefono: null } },
       {
-        pushTimeline: (_j, e) => { timeline.push(e); },
-        finishJob: async (_j, patch) => { finished.push(patch); (supabase as any); return null; },
+        pushTimeline: (job, e) => {
+          fakeDb.from("enrichment_jobs").update({ id: job.id, timeline_entry: e });
+        },
+        finishJob: async (job, patch) => {
+          await fakeDb.from("enrichment_jobs").update({ id: job.id, ...patch });
+          return null;
+        },
       },
     );
 
-    expect(from).not.toHaveBeenCalled();
+    // El enriquecimiento SÍ ocurre a través del repo inyectado…
+    expect(fromSpy).toHaveBeenCalled();
+    expect(ops.map((o) => o.table)).toEqual(["enrichment_jobs", "enrichment_jobs"]);
+    // …y CERO escrituras sobre tareas.
+    expect(ops.filter((o) => o.table === "building_tasks")).toEqual([]);
+    expect(fromSpy.mock.calls.flat()).not.toContain("building_tasks");
     expect(res.task_created).toBe(false);
     expect(res.incidencia?.incidencia).toBe("telefono_pendiente_tecnofind");
-    // El enriquecimiento continúa: el job se cierra y avanza de fase.
-    expect(finished).toHaveLength(1);
-    expect(finished[0]).toMatchObject({ estado: "ok", fase: "verificacion" });
-    // Nunca vuelve a afirmar "tarea creada".
-    expect(JSON.stringify(timeline)).not.toContain("tarea creada");
+    // El job se cierra y avanza de fase.
+    expect(ops.at(-1)?.payload).toMatchObject({ estado: "ok", fase: "verificacion" });
+    expect(JSON.stringify(ops)).not.toContain("tarea creada");
     expect(JSON.stringify(res)).not.toContain("tarea creada");
   });
 
