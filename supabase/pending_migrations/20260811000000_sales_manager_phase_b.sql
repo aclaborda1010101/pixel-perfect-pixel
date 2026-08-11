@@ -432,6 +432,8 @@ BEGIN
     SELECT
       user_id,
       COUNT(*) AS n,
+      COUNT(*) FILTER (WHERE status = 'skipped')    AS n_skipped,
+      COUNT(*) FILTER (WHERE status = 'no_procede') AS n_no_procede,
       COUNT(*) FILTER (WHERE due_date IS NOT NULL) AS con_plazo,
       COUNT(*) FILTER (WHERE due_date IS NOT NULL AND completed_at <= due_date) AS en_plazo,
       COUNT(*) FILTER (WHERE started_at IS NOT NULL AND completed_at >= started_at) AS con_duracion,
@@ -496,6 +498,8 @@ BEGIN
       'full_name',            p.full_name,
       'created_in_period',    COALESCE(c.n, 0),
       'completed_in_period',  COALESCE(k.n, 0),
+      'skipped_in_period',    COALESCE(k.n_skipped, 0),
+      'no_procede_in_period', COALESCE(k.n_no_procede, 0),
       'con_plazo',            COALESCE(k.con_plazo, 0),
       'en_plazo',             COALESCE(k.en_plazo, 0),
       'con_duracion',         COALESCE(k.con_duracion, 0),
