@@ -20,6 +20,10 @@
 # =====================================================================
 set -euo pipefail
 
+# Ninguna variable heredada puede decidir el destino: todas las llamadas
+# a psql pasan host/puerto/base de forma explícita.
+unset PGDATABASE PGSERVICE PGSERVICEFILE PGOPTIONS 2>/dev/null || true
+
 PGHOST="${PGHOST:-127.0.0.1}"
 PGPORT="${PGPORT:-54322}"
 PGUSER="${PGUSER:-postgres}"
@@ -39,8 +43,22 @@ esac
 [ -n "${DATABASE_URL:-}" ] && case "$DATABASE_URL" in
   *supabase.co*|*supabase.in*|*.pooler.*) die "DATABASE_URL apunta a un proyecto remoto." ;;
 esac
+case "${SUPABASE_DB_URL:-}" in
+  ?*) die "SUPABASE_DB_URL presente: este runner nunca opera contra un proyecto gestionado." ;;
+esac
 [ -n "$ROLE" ] || die "Define WAVE1A_TEST_ROLE con un rol dedicado de pruebas."
 [ "$ROLE" != "postgres" ] || die "El rol dedicado no puede ser 'postgres'."
+case "$TESTDB" in
+  wave1a_test_*) ;;
+  *) die "El nombre de la base desechable es inválido: $TESTDB" ;;
+esac
+
+# --- 1.b Las fixtures NO pueden confirmar nada -----------------------
+if grep -qiE '^[[:space:]]*COMMIT[[:space:]]*;' "$ROOT/supabase/tests/wave1a3_fixtures.sql"; then
+  die "wave1a3_fixtures.sql contiene COMMIT: las fixtures deben terminar en ROLLBACK."
+fi
+grep -qiE '^[[:space:]]*ROLLBACK[[:space:]]*;' "$ROOT/supabase/tests/wave1a3_fixtures.sql" || \
+  die "wave1a3_fixtures.sql no termina en ROLLBACK."
 
 PSQL_ADMIN=(psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" -q)
 

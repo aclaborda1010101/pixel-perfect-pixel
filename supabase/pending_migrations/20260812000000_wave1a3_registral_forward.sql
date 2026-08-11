@@ -235,10 +235,17 @@ COMMENT ON FUNCTION public.p0_locator_valid(text, text, text) IS
 -- ---------------------------------------------------------------------
 -- 6) EVIDENCIA CONSERVADORA
 -- ---------------------------------------------------------------------
--- Cita apta = contiene el MISMO titular + SU derecho + SU porcentaje y está
--- ANCLADA (normalización tolerante) en raw_pdf_text, o procede de un elemento
--- structured_json inequívoco (exactamente uno) con localizador verificable.
--- Se cuentan candidatos y se exige EXACTAMENTE UNO: nunca LIMIT 1.
+-- P0.1 · REGLA ÚNICA E INNEGOCIABLE DE ESTA WAVE:
+--   La ÚNICA evidencia que puede alimentar cuota es una CITA NO VACÍA,
+--   realmente ANCLADA en raw_pdf_text (normalización tolerante), y esa
+--   MISMA cita debe contener titular inequívoco + SU derecho + SU
+--   porcentaje. Exactamente UN candidato coherente (nunca LIMIT 1).
+--
+--   structured_json, ruta, pagina y offset son SOLO AUDITORÍA. Por sí
+--   solos NUNCA producen evidence_ok ni feeds_cuota: sintaxis válida no
+--   es evidencia. Un localizador no demuestra, en SQL, que apunta al
+--   MISMO elemento/titular; cuando no puede probarse se marca
+--   structured_unverified y se BLOQUEA.
 CREATE OR REPLACE FUNCTION public.p0_evidence_check(p_titular_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
@@ -266,6 +273,7 @@ DECLARE
   v_traz       boolean := false;
   v_amb        boolean := false;
   v_bad        boolean := false;
+  v_struct_unv boolean := false;
   v_evid_presente boolean := false;
   v_fuente     text := 'ninguna';
   v_ref        text := NULL;
@@ -279,6 +287,7 @@ BEGIN
     RETURN jsonb_build_object('titular_ok', false, 'derecho_ok', false, 'porcentaje_ok', false,
                               'anclada', false, 'trazable', false, 'evidence_ok', false,
                               'evidence_ambiguous', false, 'bad_evidence', true,
+                              'structured_unverified', false,
                               'fuente', 'ninguna', 'cita', NULL, 'candidatos', 0);
   END IF;
 
@@ -396,9 +405,15 @@ BEGIN
     END IF;
   END IF;
 
-  -- (c) FALLBACK 2: structured_json. Política inequívoca y VERIFICABLE:
-  --     exactamente UN elemento del MISMO titular con el MISMO derecho, el
-  --     MISMO porcentaje y un localizador válido o una cita anclada.
+  -- (c) FALLBACK 2: structured_json. SOLO AUDITORÍA.
+  --     Un elemento estructurado con ruta/página/offset "bien formados" NO
+  --     demuestra vínculo con ESTE titular: en SQL no podemos comprobar que
+  --     la ruta apunte al mismo elemento. Por eso:
+  --       - sólo se acepta si el elemento trae una CITA no vacía, ANCLADA en
+  --         raw_pdf_text, y esa misma cita contiene titular + derecho + pct;
+  --       - cualquier otro caso (ruta válida a otro titular, offset sin cita,
+  --         mismo 50 % en otro elemento, página sin vínculo) se marca
+  --         structured_unverified y BLOQUEA.
   IF NOT v_evid_presente AND NOT (v_ok_tit AND v_ok_der AND v_ok_pct)
      AND jsonb_typeof(v_sj -> 'titulares') = 'array' THEN
     WITH cand AS (
@@ -415,10 +430,12 @@ BEGIN
         AND public.p0_parse_pct(tj ->> 'porcentaje') IS NOT NULL
         AND abs(public.p0_parse_pct(tj ->> 'porcentaje') - v_pct) <= 0.01
     ), valida AS (
+      -- El localizador NO habilita nada: sólo cuenta la cita anclada.
       SELECT * FROM cand
-      WHERE public.p0_locator_valid(pagina, off, ruta)
-         OR (cita IS NOT NULL AND v_raw_norm IS NOT NULL
-             AND position(public.p0_norm_text(cita) IN v_raw_norm) > 0)
+      WHERE cita IS NOT NULL
+        AND v_raw_norm IS NOT NULL
+        AND public.p0_norm_text(cita) IS NOT NULL
+        AND position(public.p0_norm_text(cita) IN v_raw_norm) > 0
     )
     SELECT count(*),
            jsonb_build_object('cita', min(cita), 'ruta', coalesce(min(pagina), min(off), min(ruta)))
@@ -429,22 +446,42 @@ BEGIN
       v_fuente  := 'structured_json';
       v_cita    := r ->> 'cita';
       v_ref     := r ->> 'ruta';
-      v_ok_tit  := true; v_ok_der := true; v_ok_pct := true;
-      v_anclada := v_cita IS NOT NULL AND v_raw_norm IS NOT NULL
-                   AND position(coalesce(public.p0_norm_text(v_cita), '\x00') IN v_raw_norm) > 0;
-      v_traz    := v_ref IS NOT NULL OR v_anclada;
-      IF v_cita IS NOT NULL THEN
-        v_vals   := public.p0_cita_pct_values(v_cita);
-        v_ok_pct := EXISTS (SELECT 1 FROM unnest(v_vals) x WHERE abs(x - v_pct) <= 0.01);
-        v_ok_tit := public.norm_person_name(v_cita) LIKE '%' || v_nn || '%';
-        v_ok_der := v_rx_right IS NOT NULL AND v_cita ~* v_rx_right;
-        IF NOT (v_ok_pct AND v_ok_tit AND v_ok_der) THEN v_bad := true; END IF;
-        v_n_derechos := coalesce(array_length(public.p0_right_candidates(v_cita), 1), 0);
-        v_amb := coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_derechos > 1;
+      -- La traza es SIEMPRE el anclaje; ruta/página/offset son auditoría.
+      v_anclada := true;
+      v_traz    := true;
+      v_vals    := public.p0_cita_pct_values(v_cita);
+      v_ok_pct  := EXISTS (SELECT 1 FROM unnest(v_vals) x WHERE abs(x - v_pct) <= 0.01);
+      v_ok_tit  := v_nn IS NOT NULL AND public.norm_person_name(v_cita) LIKE '%' || v_nn || '%';
+      v_ok_der  := v_rx_right IS NOT NULL AND v_cita ~* v_rx_right;
+      -- El titular debe ser INEQUÍVOCO dentro de la propia cita.
+      SELECT count(*) INTO v_n_nombres
+      FROM public.nota_simple_titulares o
+      WHERE o.nota_simple_id = v_nota
+        AND public.norm_person_name(o.nombre_extraido) IS NOT NULL
+        AND public.norm_person_name(v_cita) LIKE '%' || public.norm_person_name(o.nombre_extraido) || '%';
+      v_n_derechos := coalesce(array_length(public.p0_right_candidates(v_cita), 1), 0);
+      v_amb := coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_nombres > 1 OR v_n_derechos > 1;
+      IF NOT (v_ok_pct AND v_ok_tit AND v_ok_der) THEN
+        v_bad := true; v_struct_unv := true;
       END IF;
     ELSIF v_n_cand > 1 THEN
-      v_fuente := 'structured_json'; v_amb := true; v_bad := true;
+      v_fuente := 'structured_json'; v_amb := true; v_bad := true; v_struct_unv := true;
+    ELSE
+      -- Había elementos estructurados coherentes en metadatos, pero NINGUNO
+      -- con cita anclada: auditoría, jamás evidencia.
+      IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_sj -> 'titulares') tj
+                 WHERE public.norm_person_name(tj ->> 'nombre') IS NOT NULL) THEN
+        v_fuente := 'structured_json_sin_anclaje';
+        v_struct_unv := true;
+        v_bad := true;
+      END IF;
     END IF;
+  END IF;
+
+  -- CIERRE FAIL-CLOSED: sin cita anclada no hay evidencia posible.
+  IF v_cita IS NULL OR NOT coalesce(v_anclada, false) THEN
+    v_traz := false;
+    v_bad  := true;
   END IF;
 
   IF v_fuente = 'ninguna' THEN
@@ -460,8 +497,11 @@ BEGIN
     'candidatos',    coalesce(v_n_cand,0),
     'evidence_ambiguous', coalesce(v_amb,false),
     'bad_evidence',  coalesce(v_bad,false),
+    'structured_unverified', coalesce(v_struct_unv,false),
     'evidence_ok',   coalesce(v_ok_tit,false) AND coalesce(v_ok_der,false)
                      AND coalesce(v_ok_pct,false) AND coalesce(v_traz,false)
+                     AND coalesce(v_anclada,false) AND v_cita IS NOT NULL
+                     AND NOT coalesce(v_struct_unv,false)
                      AND NOT coalesce(v_amb,false) AND NOT coalesce(v_bad,false),
     'fuente',        v_fuente,
     'cita',          v_cita,
@@ -471,7 +511,7 @@ BEGIN
 END $$;
 
 COMMENT ON FUNCTION public.p0_evidence_check(uuid) IS
-  'Wave 1A.3: la cita debe traer titular + SU derecho + SU porcentaje y estar ANCLADA en raw_pdf_text (normalización tolerante) o proceder de un único elemento structured_json verificable con localizador válido. Se cuentan candidatos y se exige exactamente uno.';
+  'Wave 1A.3 P0.1: SOLO una cita no vacía ANCLADA en raw_pdf_text que contenga titular inequívoco + SU derecho + SU porcentaje puede dar evidence_ok, y con exactamente un candidato coherente. structured_json/ruta/pagina/offset son auditoría: por sí solos marcan structured_unverified y bloquean.';
 
 -- ---------------------------------------------------------------------
 -- 7) FIRMAS: contenido (sin fecha) y fecha por separado
@@ -531,6 +571,54 @@ $$;
 COMMENT ON FUNCTION public.p0_unit_locator_valid(text, text) IS
   'Formato mínimo de IDUFIR (8-14 dígitos), finca (hasta 8 dígitos + letra opcional) y referencia catastral (14-20 alfanuméricos). Clave dudosa => la unidad va a revisión.';
 
+-- Todas las claves registrales VÁLIDAS declaradas por la nota, normalizadas
+-- y desduplicadas, como 'fuente:clave'. Sirve para detectar contradicción.
+CREATE OR REPLACE FUNCTION public.p0_nota_unit_claves(p_nota_id uuid)
+RETURNS text[]
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  WITH n AS (
+    SELECT ns.structured_json AS sj FROM public.notas_simples ns WHERE ns.id = p_nota_id
+  ), v AS (
+    SELECT DISTINCT x.ns_fuente,
+           nullif(upper(regexp_replace(x.valor, '[^A-Za-z0-9]', '', 'g')), '') AS clave
+    FROM n
+    CROSS JOIN LATERAL (
+      VALUES
+        ('idufir', nullif(btrim(coalesce(n.sj ->> 'idufir','')), '')),
+        ('idufir', nullif(btrim(coalesce(n.sj ->> 'idufir_cru','')), '')),
+        ('idufir', nullif(btrim(coalesce(n.sj ->> 'cru','')), '')),
+        ('idufir', nullif(btrim(coalesce(n.sj #>> '{finca,idufir}','')), '')),
+        ('finca',  nullif(btrim(coalesce(n.sj ->> 'finca_registral','')), '')),
+        ('finca',  nullif(btrim(coalesce(n.sj ->> 'numero_finca','')), '')),
+        ('finca',  nullif(btrim(coalesce(n.sj #>> '{finca,numero}','')), '')),
+        ('finca',  nullif(btrim(coalesce(n.sj #>> '{registro,finca}','')), '')),
+        ('refcat', nullif(btrim(coalesce(n.sj ->> 'referencia_catastral','')), '')),
+        ('refcat', nullif(btrim(coalesce(n.sj #>> '{finca,referencia_catastral}','')), ''))
+    ) AS x(ns_fuente, valor)
+    WHERE x.valor IS NOT NULL
+      AND public.p0_unit_locator_valid(
+            x.ns_fuente, nullif(upper(regexp_replace(x.valor, '[^A-Za-z0-9]', '', 'g')), ''))
+  )
+  SELECT coalesce(array_agg(v.ns_fuente || ':' || v.clave ORDER BY v.ns_fuente, v.clave), '{}'::text[])
+  FROM v WHERE v.clave IS NOT NULL;
+$$;
+
+-- (5) DOS localizadores VÁLIDOS y DISTINTOS de la misma clase (dos IDUFIR,
+-- dos fincas, dos refcat) => unit_key_conflict. NO se elige el primero.
+CREATE OR REPLACE FUNCTION public.p0_nota_unit_key_conflict(p_nota_id uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM unnest(public.p0_nota_unit_claves(p_nota_id)) AS c(v)
+    GROUP BY split_part(c.v, ':', 1)
+    HAVING count(DISTINCT split_part(c.v, ':', 2)) > 1
+  );
+$$;
+
+COMMENT ON FUNCTION public.p0_nota_unit_key_conflict(uuid) IS
+  'true si la nota declara dos IDUFIR / dos fincas / dos refcat válidos y distintos: la unidad NO puede identificarse y no se elige el primero.';
+
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key(p_nota_id uuid)
 RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
@@ -570,7 +658,10 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   )
   SELECT CASE
     WHEN k.building_id IS NULL THEN NULL
+    -- (4) No-DH: la unidad SIEMPRE es el edificio. Nunca NULL.
     WHEN NOT k.dh THEN 'building:' || k.building_id::text
+    -- (5) DH con localizadores contradictorios: no hay clave inequívoca.
+    WHEN public.p0_nota_unit_key_conflict(k.id) THEN NULL
     WHEN k.clave_norm IS NOT NULL
       THEN 'dh:' || k.building_id::text || ':' || k.ns_fuente || ':' || k.clave_norm
     ELSE NULL
@@ -588,6 +679,7 @@ WITH notas AS (
          ns.structured_json AS sj, ns.processed_at, ns.created_at,
          coalesce(b.division_horizontal, false) AS dh,
          public.p0_nota_unit_key(ns.id)                       AS unit_key,
+         public.p0_nota_unit_key_conflict(ns.id)              AS unit_key_conflict,
          public.p0_nota_ownership_signature(ns.id)            AS nota_signature,
          public.p0_nota_fecha_registral(ns.structured_json)   AS fecha_registral,
          public.p0_nota_date_conflict(ns.structured_json)     AS date_conflict,
@@ -595,6 +687,16 @@ WITH notas AS (
   FROM public.notas_simples ns
   LEFT JOIN public.buildings b ON b.id = ns.building_id
   WHERE ns.building_id IS NOT NULL AND ns.status = 'listo'
+), edificio AS (
+  -- (4)(5) BLOQUEO A NIVEL EDIFICIO. Un problema que impide siquiera saber
+  -- de qué unidad hablamos no puede "desaparecer" por unit_key NULL: deja
+  -- CERO canónicas y CERO feeds para TODAS las unidades del edificio.
+  SELECT n.building_id,
+         bool_or(n.unit_key_conflict)                          AS b_unit_key_conflict,
+         bool_or(n.dh AND n.unit_key IS NULL)                  AS b_dh_sin_clave,
+         bool_or(n.n_titulares = 0 AND n.unit_key IS NULL)     AS b_lista_sin_titulares_sin_unidad,
+         bool_or(n.n_titulares = 0)                            AS b_alguna_lista_sin_titulares
+  FROM notas n GROUP BY n.building_id
 ), tit AS (
   SELECT
     t.id AS titular_id, n.nota_id, n.building_id, n.nota_status,
@@ -621,6 +723,7 @@ WITH notas AS (
       coalesce(nullif(btrim(to_jsonb(t) ->> 'rol_literal'), ''), t.metadatos ->> 'rol_literal'),
       t.metadatos ->> 'regimen') AS regime_conflict,
     n.unit_key, n.nota_signature, n.fecha_registral, n.date_conflict,
+    n.unit_key_conflict,
     public.p0_evidence_check(t.id) AS ev,
     n.dh, n.sj, n.processed_at, n.created_at
   FROM public.nota_simple_titulares t
@@ -633,7 +736,8 @@ WITH notas AS (
   FROM tit
 ), nota_meta AS (
   -- (2) Parte de notas, NO del inner join: las listas sin titulares existen.
-  SELECT n.nota_id, n.unit_key, n.nota_signature, n.nota_status,
+  SELECT n.nota_id, n.building_id, n.unit_key, n.unit_key_conflict,
+         n.nota_signature, n.nota_status,
          n.fecha_registral, n.date_conflict, n.processed_at, n.created_at,
          n.n_titulares,
          (n.n_titulares = 0) AS sin_titulares,
@@ -646,6 +750,7 @@ WITH notas AS (
          count(DISTINCT nota_signature)             AS n_firmas,
          count(*) FILTER (WHERE sin_titulares)      AS n_sin_titulares,
          bool_or(date_conflict)                     AS unidad_date_conflict,
+         bool_or(unit_key_conflict)                 AS unidad_key_conflict,
          max(fecha_registral)                       AS max_fecha
   FROM nota_meta WHERE unit_key IS NOT NULL GROUP BY unit_key
 ), top_sig AS (
@@ -660,13 +765,14 @@ WITH notas AS (
   GROUP BY nm.unit_key
 ), unit_state AS (
   SELECT uf.unit_key, uf.n_firmas, uf.n_notas, uf.n_sin_titulares,
-         uf.unidad_date_conflict, uf.max_fecha, ts.top_signature,
+         uf.unidad_date_conflict, uf.unidad_key_conflict, uf.max_fecha, ts.top_signature,
     -- Contenido distinto sólo se supersede con cronología registral
     -- inequívoca. Mismo contenido con fechas distintas NO contradice
     -- (la firma ya no incluye la fecha).
     (
       uf.n_sin_titulares = 0
       AND NOT uf.unidad_date_conflict
+      AND NOT uf.unidad_key_conflict
       AND (
         uf.n_firmas = 1
         OR (
@@ -685,12 +791,17 @@ WITH notas AS (
   LEFT JOIN top_sig ts ON ts.unit_key = uf.unit_key
 ), canon AS (
   -- (2) Contradicción no resuelta o lista sin titulares => CERO canónicas.
+  -- (4)(5) Y un bloqueo de edificio deja CERO canónicas en todo el edificio.
   SELECT DISTINCT ON (nm.unit_key) nm.unit_key, nm.nota_id
   FROM nota_meta nm
   JOIN unit_state us ON us.unit_key = nm.unit_key
+  JOIN edificio ed ON ed.building_id = nm.building_id
   WHERE nm.unit_key IS NOT NULL
     AND us.resuelta
     AND NOT nm.sin_titulares
+    AND NOT coalesce(ed.b_unit_key_conflict, false)
+    AND NOT coalesce(ed.b_dh_sin_clave, false)
+    AND NOT coalesce(ed.b_lista_sin_titulares_sin_unidad, false)
   ORDER BY nm.unit_key,
            (us.top_signature IS NOT NULL AND nm.nota_signature = us.top_signature) DESC,
            nm.fecha_registral DESC NULLS LAST,
@@ -725,30 +836,58 @@ WITH notas AS (
 ), base AS (
   SELECT s.*,
     (c.nota_id IS NOT NULL) AS is_canonical,
+    -- (4)(5) Bloqueos que viven en el edificio, no en la unidad.
+    (coalesce(ed.b_unit_key_conflict, false)
+     OR coalesce(ed.b_dh_sin_clave, false)
+     OR coalesce(ed.b_lista_sin_titulares_sin_unidad, false)) AS building_block,
     (coalesce(us.n_firmas, 0) > 1 AND NOT coalesce(us.resuelta, false)) AS unidad_contradictoria,
     (coalesce(us.n_firmas, 0) > 1 AND coalesce(us.resuelta, false))     AS unidad_resuelta_por_fecha,
-    (coalesce(us.n_sin_titulares, 0) > 0)                               AS unidad_con_lista_sin_titulares,
+    (coalesce(us.n_sin_titulares, 0) > 0
+     OR coalesce(ed.b_lista_sin_titulares_sin_unidad, false))           AS unidad_con_lista_sin_titulares,
     coalesce(us.unidad_date_conflict, false)                            AS unidad_date_conflict,
+    (s.unit_key_conflict OR coalesce(us.unidad_key_conflict, false)
+     OR coalesce(ed.b_unit_key_conflict, false))                        AS unidad_key_conflict,
     (s.porcentaje IS NULL OR s.porcentaje <= 0 OR s.porcentaje > 100)   AS invalid_pct,
     (s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL)       AS conflicto_ids,
+    -- (5) IDENTIDAD: exactamente UNA coincidencia total. Duplicado => ambiguo.
+    (coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
+     OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1)                   AS identidad_ambigua,
+    -- (5) Discrepancia entre el ID preexistente y lo que dice el documento.
+    (
+      (s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL)
+      OR (s.pre_owner_id IS NOT NULL AND md.n = 1 AND md.owner_id IS DISTINCT FROM s.pre_owner_id)
+      OR (s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id)
+      OR (s.es_sociedad AND s.pre_owner_id IS NOT NULL)
+      OR (NOT s.es_sociedad AND s.pre_company_id IS NOT NULL)
+    )                                                                    AS identity_conflict,
     CASE
+      WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
+        OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN NULL
+      WHEN s.pre_owner_id IS NOT NULL AND md.n = 1 AND md.owner_id IS DISTINCT FROM s.pre_owner_id THEN NULL
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN NULL
+      WHEN s.es_sociedad AND s.pre_owner_id IS NOT NULL THEN NULL
       WHEN s.pre_owner_id IS NOT NULL THEN s.pre_owner_id
       WHEN s.pre_company_id IS NOT NULL THEN NULL
       WHEN NOT s.es_sociedad THEN
         CASE WHEN md.n = 1 THEN md.owner_id WHEN mn.n = 1 THEN mn.owner_id END
     END AS f_owner_id,
     CASE
+      WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
+        OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN NULL
+      WHEN s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id THEN NULL
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN NULL
+      WHEN NOT s.es_sociedad AND s.pre_company_id IS NOT NULL THEN NULL
       WHEN s.pre_company_id IS NOT NULL THEN s.pre_company_id
       WHEN s.pre_owner_id IS NOT NULL THEN NULL
       WHEN s.es_sociedad THEN
         CASE WHEN mf.n = 1 THEN mf.company_id WHEN mc.n = 1 THEN mc.company_id END
     END AS f_company_id,
     (md.n = 1 AND s.pre_company_id IS NULL
+     AND coalesce(mn.n,0) <= 1
      AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
-    (coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1 OR coalesce(mc.n,0) > 1) AS identidad_ambigua,
     CASE
+      WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
+        OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN 'ambiguo'
       WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN 'conflicto_owner_y_company'
       WHEN s.es_sociedad AND s.pre_company_id IS NOT NULL THEN 'company_preexistente'
       WHEN s.es_sociedad AND mf.n = 1 THEN 'cif'
@@ -757,7 +896,6 @@ WITH notas AS (
       WHEN md.n = 1 THEN 'dni'
       WHEN s.pre_owner_id IS NOT NULL THEN 'owner_preexistente'
       WHEN mn.n = 1 THEN 'nombre_exacto'
-      WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1 THEN 'ambiguo'
       ELSE 'ninguno'
     END AS identity_match,
     CASE WHEN md.n = 1 THEN 1.0 WHEN mf.n = 1 THEN 0.9
@@ -769,6 +907,7 @@ WITH notas AS (
   FROM soc s
   LEFT JOIN canon c ON c.unit_key = s.unit_key AND c.nota_id = s.nota_id
   LEFT JOIN unit_state us ON us.unit_key = s.unit_key
+  LEFT JOIN edificio ed ON ed.building_id = s.building_id
   LEFT JOIN m_dni md ON md.titular_id = s.titular_id
   LEFT JOIN m_nom mn ON mn.titular_id = s.titular_id
   LEFT JOIN m_cif mf ON mf.titular_id = s.titular_id
@@ -779,6 +918,34 @@ WITH notas AS (
     (b.ev ->> 'evidence_ok')::boolean        AS evidence_ok,
     (b.ev ->> 'evidence_ambiguous')::boolean AS evidence_ambiguous,
     (b.ev ->> 'bad_evidence')::boolean       AS bad_evidence,
+    coalesce((b.ev ->> 'structured_unverified')::boolean, false) AS structured_unverified,
+    -- (3) FILA PROBLEMÁTICA: cualquier defecto, INDEPENDIENTE del derecho.
+    -- Una sola fila así envenena TODA la unidad, no sólo su capa.
+    (
+      b.role_conflict
+      OR b.regime_conflict
+      OR b.date_conflict
+      OR b.unidad_date_conflict
+      OR b.unidad_key_conflict
+      OR b.identity_conflict
+      OR b.conflicto_ids
+      OR b.identidad_ambigua
+      OR b.building_block
+      OR b.right_type = 'otro'
+      OR b.coownership_regime = 'gananciales'
+      OR b.invalid_pct
+      OR coalesce((b.ev ->> 'structured_unverified')::boolean, false)
+      OR NOT coalesce((b.ev ->> 'evidence_ok')::boolean, false)
+      OR coalesce((b.ev ->> 'evidence_ambiguous')::boolean, false)
+      OR coalesce((b.ev ->> 'bad_evidence')::boolean, false)
+      OR b.es_sociedad
+      OR (b.f_owner_id IS NULL AND b.f_company_id IS NULL)
+      OR NOT b.dni_inequivoco
+      OR b.unidad_contradictoria
+      OR b.unidad_con_lista_sin_titulares
+      OR b.unit_key IS NULL
+      OR b.dh
+    ) AS fila_problematica,
     (
       b.is_canonical
       AND b.right_type = 'pleno_dominio'
@@ -786,6 +953,9 @@ WITH notas AS (
       AND NOT b.regime_conflict
       AND NOT b.date_conflict
       AND NOT b.unidad_date_conflict
+      AND NOT b.unidad_key_conflict
+      AND NOT b.building_block
+      AND NOT b.identity_conflict
       AND b.coownership_regime <> 'gananciales'
       AND NOT b.conflicto_ids
       AND NOT b.identidad_ambigua
@@ -796,6 +966,7 @@ WITH notas AS (
       AND coalesce((b.ev ->> 'evidence_ok')::boolean, false)
       AND NOT coalesce((b.ev ->> 'evidence_ambiguous')::boolean, false)
       AND NOT coalesce((b.ev ->> 'bad_evidence')::boolean, false)
+      AND NOT coalesce((b.ev ->> 'structured_unverified')::boolean, false)
       AND NOT b.invalid_pct
       AND b.unit_key IS NOT NULL
       AND NOT b.dh
@@ -803,6 +974,21 @@ WITH notas AS (
       AND NOT b.unidad_con_lista_sin_titulares
     ) AS row_safe_pre_layer
   FROM base b
+), unidad_eval AS (
+  -- (3) SEGURIDAD DE UNIDAD COMPLETA: se mira TODA la unidad canónica, no
+  -- sólo la capa de pleno_dominio. Una fila 'otro'/conflictiva convive con
+  -- un pleno al 100 % y aun así deja la unidad en CERO feeds. Nunca se
+  -- suman nuda + usufructo + pleno: si la unidad no es íntegramente pleno
+  -- operativo, no hay proyección personal.
+  SELECT unit_key,
+         count(*)                                            AS unidad_filas,
+         count(*) FILTER (WHERE fila_problematica)            AS unidad_filas_problematicas,
+         count(*) FILTER (WHERE right_type <> 'pleno_dominio') AS unidad_filas_no_pleno,
+         count(DISTINCT right_type)                          AS unidad_derechos,
+         bool_and(NOT fila_problematica AND right_type = 'pleno_dominio') AS unidad_segura
+  FROM fila
+  WHERE is_canonical AND unit_key IS NOT NULL
+  GROUP BY unit_key
 ), capa AS (
   -- (1) CAPA INDIVISIBLE: un solo fallo invalida la capa entera.
   SELECT unit_key, nota_id, right_type,
@@ -817,6 +1003,8 @@ WITH notas AS (
          count(*) FILTER (WHERE dh)                                   AS capa_dh,
          count(*) FILTER (WHERE role_conflict OR regime_conflict
                              OR conflicto_ids OR date_conflict
+                             OR unidad_key_conflict OR identity_conflict
+                             OR building_block OR structured_unverified
                              OR unidad_contradictoria
                              OR unidad_con_lista_sin_titulares)       AS capa_conflictos,
          count(*) FILTER (WHERE NOT coalesce(evidence_ok,false))      AS capa_sin_evidencia
@@ -840,46 +1028,63 @@ WITH notas AS (
   FROM capa
 ), e AS (
   SELECT f.*, k.capa_suma, k.capa_filas, k.capa_pct_malos AS capa_nulos,
-         coalesce(k.layer_safe, false) AS layer_safe,
-         coalesce(k.layer_safe, false) AS layer_complete
+         coalesce(ue.unidad_segura, false)  AS unidad_segura,
+         coalesce(ue.unidad_filas_problematicas, 0) AS unidad_filas_problematicas,
+         coalesce(ue.unidad_filas_no_pleno, 0)      AS unidad_filas_no_pleno,
+         -- (3) layer_safe SÓLO es cierto si la capa cierra Y la UNIDAD
+         -- entera es segura. Nunca se calcula "dentro de pleno_dominio"
+         -- ignorando filas problemáticas de la misma unidad.
+         (coalesce(k.layer_safe, false) AND coalesce(ue.unidad_segura, false)) AS layer_safe,
+         (coalesce(k.layer_safe, false) AND coalesce(ue.unidad_segura, false)) AS layer_complete
   FROM fila f
+  LEFT JOIN unidad_eval ue ON ue.unit_key = f.unit_key AND f.is_canonical
   LEFT JOIN capa_eval k
     ON k.unit_key = f.unit_key AND k.nota_id = f.nota_id AND k.right_type = f.right_type
    AND f.is_canonical
 )
+-- =====================================================================
+-- CONTRATO DE FIRMA (P0.1): las 39 primeras columnas son EXACTAMENTE las
+-- de 1A.2 (mismo nombre, mismo orden, mismo tipo). Las columnas nuevas de
+-- 1A.3 van SIEMPRE al final. Cualquier desplazamiento rompe
+-- CREATE OR REPLACE VIEW y a los consumidores existentes.
+-- =====================================================================
 SELECT
   e.titular_id, e.nota_id AS note_simple_id, e.building_id,
-  e.unit_key AS ownership_unit_key, e.is_canonical,
-  e.nota_signature, e.nota_signature AS ownership_signature,
+  e.unit_key AS ownership_unit_key, e.is_canonical, e.nota_signature,
   e.fecha_registral AS nota_fecha_registral,
-  e.date_conflict, e.unidad_date_conflict, e.regime_conflict,
   e.nombre_extraido AS titular_nombre, e.dni AS titular_dni,
   e.right_type, e.porcentaje AS percentage,
-  e.coownership_regime, e.role_conflict,
+  e.coownership_regime,
+  e.role_conflict,
   e.f_owner_id AS owner_id, e.f_company_id AS company_id,
-  e.conflicto_ids, e.identidad_ambigua, e.identity_match, e.confidence,
+  e.conflicto_ids, e.identity_match, e.confidence,
   e.evidence_ok, e.evidence_ambiguous, e.bad_evidence,
   e.ev AS evidence_ref, e.audit_ids,
   e.rol_literal AS right_literal,
   e.es_sociedad, e.dh AS division_horizontal, e.dh, e.nota_status,
-  e.unidad_contradictoria, e.unidad_resuelta_por_fecha,
-  e.unidad_con_lista_sin_titulares, e.invalid_pct,
-  e.capa_suma, e.capa_nulos, e.capa_filas,
-  e.row_safe_pre_layer, e.layer_safe, e.layer_complete,
+  e.unidad_contradictoria, e.unidad_resuelta_por_fecha, e.invalid_pct,
+  e.capa_suma, e.capa_nulos, coalesce(e.layer_complete, false) AS layer_complete,
   CASE
+    WHEN e.building_block THEN 'bloqueo_edificio'
     WHEN e.unidad_con_lista_sin_titulares THEN 'nota_lista_sin_titulares'
+    WHEN e.unidad_key_conflict THEN 'unit_key_conflict'
     WHEN e.unit_key IS NULL AND e.dh THEN 'dh_sin_unidad_registral'
     WHEN e.dh THEN 'dh_no_proyectable_a_cuota_edificio'
     WHEN e.unidad_date_conflict THEN 'date_conflict'
   END AS unit_block_reason,
   CASE
     WHEN e.unidad_contradictoria OR e.unidad_con_lista_sin_titulares
-         OR e.unidad_date_conflict THEN 'blocked_conflict'
+         OR e.unidad_date_conflict OR e.unidad_key_conflict
+         OR e.building_block THEN 'blocked_conflict'
     WHEN e.is_canonical THEN 'active'
     ELSE 'superseded'
   END AS status,
-  (NOT (e.row_safe_pre_layer AND e.layer_safe)) AS review_flag,
+  (NOT (e.row_safe_pre_layer AND e.layer_safe AND e.unidad_segura)) AS review_flag,
   nullif(concat_ws(' · ',
+    CASE WHEN e.building_block
+         THEN 'bloqueo a nivel de edificio: hay una nota cuya unidad no puede identificarse; cero canónicas y cero cuota en TODO el edificio' END,
+    CASE WHEN e.unidad_key_conflict
+         THEN 'dos localizadores registrales válidos y distintos (IDUFIR/finca/refcat): la unidad no es inequívoca (unit_key_conflict)' END,
     CASE WHEN e.unidad_con_lista_sin_titulares
          THEN 'la unidad tiene una nota "listo" sin titulares: bloquea cuota, unidad y nota anterior (nota_lista_sin_titulares)' END,
     CASE WHEN e.date_conflict OR e.unidad_date_conflict
@@ -887,7 +1092,11 @@ SELECT
     CASE WHEN e.regime_conflict
          THEN 'régimen contradictorio en los campos registrales (regime_conflict)' END,
     CASE WHEN e.conflicto_ids THEN 'el titular trae owner_id y company_id a la vez' END,
+    CASE WHEN e.identity_conflict
+         THEN 'discrepancia entre el vínculo preexistente y lo que dice el documento (identity_conflict)' END,
     CASE WHEN e.identidad_ambigua THEN 'identidad ambigua: varios candidatos en el CRM' END,
+    CASE WHEN e.structured_unverified
+         THEN 'structured_json/ruta/página/offset sin cita anclada: auditoría, nunca evidencia (structured_unverified)' END,
     CASE WHEN e.role_conflict THEN 'conflicto de fuentes de derecho: se clasifica como "otro"' END,
     CASE WHEN e.right_type = 'otro' THEN 'derecho no reconocido: nunca es pleno dominio' END,
     CASE WHEN e.coownership_regime = 'gananciales' THEN 'carácter ganancial: no alimenta cuota personal' END,
@@ -903,18 +1112,109 @@ SELECT
     CASE WHEN e.unit_key IS NULL THEN 'sin unidad de titularidad resoluble o localizador registral inválido' END,
     CASE WHEN e.unidad_contradictoria THEN 'contradicción de contenido sin cronología registral inequívoca: cero notas canónicas' END,
     CASE WHEN NOT e.is_canonical THEN 'nota no canónica de la unidad: se conserva para auditoría, no opera' END,
+    CASE WHEN e.is_canonical AND NOT coalesce(e.unidad_segura,false) AND NOT e.fila_problematica
+         THEN 'otra fila canónica de la MISMA unidad es insegura o no es pleno operativo: la unidad completa no proyecta' END,
     CASE WHEN e.row_safe_pre_layer AND NOT e.layer_safe
          THEN 'capa no segura: otra fila de la misma capa falla, la capa es indivisible' END
   ), '') AS review_reason,
-  -- (1) feeds_cuota = fila segura Y capa segura.
-  (e.row_safe_pre_layer AND e.layer_safe) AS feeds_cuota
+  -- (1)(3) feeds_cuota = fila segura Y capa segura Y unidad completa segura.
+  (e.row_safe_pre_layer AND e.layer_safe AND e.unidad_segura) AS feeds_cuota,
+  -- ---------------- COLUMNAS NUEVAS DE 1A.3 (siempre al final) --------
+  e.nota_signature AS ownership_signature,
+  e.date_conflict,
+  e.unidad_date_conflict,
+  e.regime_conflict,
+  e.unidad_key_conflict,
+  e.identidad_ambigua,
+  e.identity_conflict,
+  e.structured_unverified,
+  e.building_block,
+  e.unidad_con_lista_sin_titulares,
+  e.fila_problematica,
+  e.unidad_segura,
+  e.unidad_filas_problematicas,
+  e.unidad_filas_no_pleno,
+  e.capa_filas,
+  e.row_safe_pre_layer,
+  e.layer_safe
 FROM e;
 
 REVOKE ALL ON public.v_p0_rights_staging FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.v_p0_rights_staging TO service_role;
 
 COMMENT ON VIEW public.v_p0_rights_staging IS
-  'Wave 1A.3: staging read-only 1:1 con nota_simple_titulares de notas listo. feeds_cuota = row_safe_pre_layer AND layer_safe; la capa es indivisible.';
+  'Wave 1A.3 P0.1: staging read-only 1:1 con nota_simple_titulares de notas listo. feeds_cuota = row_safe_pre_layer AND layer_safe AND unidad_segura: fila, capa y UNIDAD COMPLETA. Las 39 primeras columnas conservan exactamente la firma de 1A.2.';
+
+-- ---------------------------------------------------------------------
+-- 9.b) VALIDADOR DE CONTRATO DE FIRMA 1A.2 -> 1A.3 (fail-closed)
+-- ---------------------------------------------------------------------
+-- Si una columna de 1A.2 se desplaza, se renombra o cambia de tipo, esta
+-- migración FALLA aquí y no deja la vista en un estado incompatible.
+DO $contrato$
+DECLARE
+  v_esperado text[] := ARRAY[
+    'titular_id:uuid',
+    'note_simple_id:uuid',
+    'building_id:uuid',
+    'ownership_unit_key:text',
+    'is_canonical:boolean',
+    'nota_signature:text',
+    'nota_fecha_registral:date',
+    'titular_nombre:text',
+    'titular_dni:text',
+    'right_type:text',
+    'percentage:numeric',
+    'coownership_regime:text',
+    'role_conflict:boolean',
+    'owner_id:uuid',
+    'company_id:uuid',
+    'conflicto_ids:boolean',
+    'identity_match:text',
+    'confidence:numeric',
+    'evidence_ok:boolean',
+    'evidence_ambiguous:boolean',
+    'bad_evidence:boolean',
+    'evidence_ref:jsonb',
+    'audit_ids:jsonb',
+    'right_literal:text',
+    'es_sociedad:boolean',
+    'division_horizontal:boolean',
+    'dh:boolean',
+    'nota_status:text',
+    'unidad_contradictoria:boolean',
+    'unidad_resuelta_por_fecha:boolean',
+    'invalid_pct:boolean',
+    'capa_suma:numeric',
+    'capa_nulos:bigint',
+    'layer_complete:boolean',
+    'unit_block_reason:text',
+    'status:text',
+    'review_flag:boolean',
+    'review_reason:text',
+    'feeds_cuota:boolean'
+  ];
+  v_real  text[];
+  v_i     int;
+BEGIN
+  SELECT array_agg(c.column_name || ':' || c.data_type ORDER BY c.ordinal_position)
+    INTO v_real
+  FROM information_schema.columns c
+  WHERE c.table_schema = 'public' AND c.table_name = 'v_p0_rights_staging'
+    AND c.ordinal_position <= array_length(v_esperado, 1);
+
+  IF v_real IS NULL THEN
+    RAISE EXCEPTION 'CONTRATO 1A.2: la vista v_p0_rights_staging no existe';
+  END IF;
+
+  FOR v_i IN 1 .. array_length(v_esperado, 1) LOOP
+    IF v_real[v_i] IS DISTINCT FROM v_esperado[v_i] THEN
+      RAISE EXCEPTION
+        'CONTRATO 1A.2 ROTO en la posición %: se esperaba "%" y hay "%". Las columnas de 1A.2 no pueden desplazarse, renombrarse ni cambiar de tipo; las nuevas van al final.',
+        v_i, v_esperado[v_i], v_real[v_i];
+    END IF;
+  END LOOP;
+END
+$contrato$;
 
 -- Notas 'listo' SIN titulares: existen, se cuentan y bloquean su unidad.
 CREATE OR REPLACE VIEW public.v_p0_notas_listo_sin_titulares AS
@@ -960,6 +1260,10 @@ WITH src AS (
     count(*) FILTER (WHERE conflicto_ids) AS conflicto_owner_y_company,
     count(*) FILTER (WHERE owner_id IS NOT NULL AND company_id IS NOT NULL) AS mezcla_owner_company,
     count(*) FILTER (WHERE identidad_ambigua) AS identidades_ambiguas,
+    count(*) FILTER (WHERE identity_conflict) AS identity_conflicts,
+    count(*) FILTER (WHERE unidad_key_conflict) AS unit_key_conflicts,
+    count(*) FILTER (WHERE building_block) AS filas_bloqueadas_por_edificio,
+    count(*) FILTER (WHERE structured_unverified) AS structured_unverified,
     count(*) FILTER (WHERE date_conflict OR unidad_date_conflict) AS date_conflicts,
     count(*) FILTER (WHERE regime_conflict) AS regime_conflicts,
     count(*) FILTER (WHERE unidad_con_lista_sin_titulares) AS filas_bloqueadas_por_lista_sin_titulares,
@@ -982,6 +1286,12 @@ WITH src AS (
     count(*) FILTER (WHERE feeds_cuota AND unidad_contradictoria) AS bad_contradiccion_feeds,
     count(*) FILTER (WHERE feeds_cuota AND NOT is_canonical) AS bad_no_canonica_feeds,
     count(*) FILTER (WHERE feeds_cuota AND NOT layer_safe) AS bad_capa_insegura_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND NOT unidad_segura) AS bad_unidad_insegura_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND unidad_key_conflict) AS bad_unit_key_conflict_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND building_block) AS bad_building_block_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND identity_conflict) AS bad_identity_conflict_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND structured_unverified) AS bad_structured_unverified_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND fila_problematica) AS bad_fila_problematica_feeds,
     count(*) FILTER (WHERE feeds_cuota AND NOT row_safe_pre_layer) AS bad_fila_insegura_feeds,
     count(*) FILTER (WHERE feeds_cuota AND role_conflict) AS bad_role_conflict_feeds,
     count(*) FILTER (WHERE feeds_cuota AND regime_conflict) AS bad_regime_conflict_feeds,
@@ -1040,6 +1350,10 @@ SELECT jsonb_build_object(
   'unmatched', agg.unmatched,
   'conflicto_owner_y_company', agg.conflicto_owner_y_company,
   'identidades_ambiguas', agg.identidades_ambiguas,
+  'identity_conflicts', agg.identity_conflicts,
+  'unit_key_conflicts', agg.unit_key_conflicts,
+  'filas_bloqueadas_por_edificio', agg.filas_bloqueadas_por_edificio,
+  'structured_unverified', agg.structured_unverified,
   'date_conflicts', agg.date_conflicts,
   'regime_conflicts', agg.regime_conflicts,
   'localizadores_invalidos', agg.localizadores_invalidos,
@@ -1072,6 +1386,12 @@ SELECT jsonb_build_object(
     'solo_pleno_alimenta_cuota', agg.bad_no_pleno_feeds = 0,
     'solo_fila_segura_alimenta_cuota', agg.bad_fila_insegura_feeds = 0,
     'solo_capa_segura_alimenta_cuota', agg.bad_capa_insegura_feeds = 0,
+    'solo_unidad_completa_segura_alimenta_cuota', agg.bad_unidad_insegura_feeds = 0,
+    'fila_problematica_no_alimenta_cuota', agg.bad_fila_problematica_feeds = 0,
+    'unit_key_conflict_no_alimenta_cuota', agg.bad_unit_key_conflict_feeds = 0,
+    'bloqueo_edificio_no_alimenta_cuota', agg.bad_building_block_feeds = 0,
+    'identity_conflict_no_alimenta_cuota', agg.bad_identity_conflict_feeds = 0,
+    'structured_solo_no_alimenta_cuota', agg.bad_structured_unverified_feeds = 0,
     'solo_canonica_alimenta_cuota', agg.bad_no_canonica_feeds = 0,
     'max_una_canonica_por_unidad', u.unidades_multi_canonica = 0,
     'contradiccion_sin_canonica', u.contradicciones_con_canonica = 0,
@@ -1097,6 +1417,12 @@ SELECT jsonb_build_object(
     AND agg.bad_no_pleno_feeds = 0
     AND agg.bad_fila_insegura_feeds = 0
     AND agg.bad_capa_insegura_feeds = 0
+    AND agg.bad_unidad_insegura_feeds = 0
+    AND agg.bad_fila_problematica_feeds = 0
+    AND agg.bad_unit_key_conflict_feeds = 0
+    AND agg.bad_building_block_feeds = 0
+    AND agg.bad_identity_conflict_feeds = 0
+    AND agg.bad_structured_unverified_feeds = 0
     AND agg.bad_no_canonica_feeds = 0
     AND u.unidades_multi_canonica = 0
     AND u.contradicciones_con_canonica = 0
@@ -1122,6 +1448,10 @@ SELECT jsonb_build_object(
     AND agg.regime_conflicts = 0
     AND agg.role_conflicts = 0
     AND agg.identidades_ambiguas = 0
+    AND agg.identity_conflicts = 0
+    AND agg.unit_key_conflicts = 0
+    AND agg.filas_bloqueadas_por_edificio = 0
+    AND agg.structured_unverified = 0
     AND agg.conflicto_owner_y_company = 0
     AND agg.localizadores_invalidos = 0
     AND agg.citas_no_ancladas = 0
@@ -1170,6 +1500,8 @@ REVOKE ALL ON FUNCTION public.p0_regime_conflict(text, text, text)        FROM P
 REVOKE ALL ON FUNCTION public.p0_frac_contexto_ok(text)                   FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_locator_valid(text, text, text)          FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_unit_locator_valid(text, text)           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_nota_unit_claves(uuid)                   FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.p0_nota_unit_key_conflict(uuid)             FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.p0_nota_ownership_signature(uuid)           FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.p0_norm_text(text)                       TO service_role;
@@ -1180,4 +1512,6 @@ GRANT EXECUTE ON FUNCTION public.p0_regime_conflict(text, text, text)     TO ser
 GRANT EXECUTE ON FUNCTION public.p0_frac_contexto_ok(text)                TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_locator_valid(text, text, text)       TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_unit_locator_valid(text, text)        TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_nota_unit_claves(uuid)                TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_nota_unit_key_conflict(uuid)          TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_ownership_signature(uuid)        TO service_role;
