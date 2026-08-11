@@ -86,7 +86,10 @@ function seedLegacy29(notaId: string) {
 }
 const nTit = (id: string) => Number(owner(`SELECT count(*) FROM public.nota_simple_titulares WHERE nota_simple_id=${q(id)}::uuid`));
 const sumTit = () => owner(`SELECT md5(coalesce(string_agg(t::text,'|' ORDER BY t.id),'')) FROM public.nota_simple_titulares t`);
-const sumNotas = () => owner(`SELECT md5(coalesce(string_agg(n::text,'|' ORDER BY n.id),'')) FROM public.notas_simples n`);
+/** Contenido de las notas (sin la contabilidad del lease, que sí se libera). */
+const sumNotas = () => owner(`SELECT md5(coalesce(string_agg(n.id::text || n.status || n.structured_json::text || coalesce(n.raw_pdf_text,'') || n.attempt_count::text || n.dead_letter::text, '|' ORDER BY n.id),'')) FROM public.notas_simples n`);
+/** Ninguna nota puede quedar retenida por un lease tras un fallo exact-set. */
+const conClaim = () => Number(owner(`SELECT count(*) FROM public.notas_simples WHERE claim_token IS NOT NULL`));
 const claim = (id: string) =>
   worker(`SELECT claim_token FROM public.reparse_claim_ids(ARRAY[${q(id)}::uuid], 10)`);
 
@@ -173,6 +176,8 @@ d("P0.9 · ids explícitos: conjunto exacto o CERO escrituras", () => {
           sql = `SELECT coalesce(json_agg(r), '[]'::json) FROM (SELECT * FROM public.reparse_claim_ids(ARRAY[${list}], 10)) r`;
         } else if (fn === "reparse_claim_batch") {
           sql = `SELECT coalesce(json_agg(r), '[]'::json) FROM (SELECT * FROM public.reparse_claim_batch(1, 10)) r`;
+        } else if (fn === "release_nota_reparse_claim") {
+          sql = `SELECT coalesce(json_agg(r), '[]'::json) FROM (SELECT public.release_nota_reparse_claim(${q(args.p_id)}::uuid, ${q(args.p_expected_token)}::uuid)) r`;
         } else {
           sql = `SELECT coalesce(json_agg(r), '[]'::json) FROM (SELECT public.${fn}() ) r`;
         }
@@ -200,6 +205,7 @@ d("P0.9 · ids explícitos: conjunto exacto o CERO escrituras", () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(procesadas).toBe(0);
     expect([sumTit(), sumNotas()]).toEqual(antes);
+    expect(conClaim()).toBe(0); // los claims adquiridos se liberan
   });
 
   it("credencial ausente ⇒ 401, sin claim ni escrituras", async () => {
