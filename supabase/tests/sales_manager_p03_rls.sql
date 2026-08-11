@@ -3,6 +3,16 @@
 \set ON_ERROR_STOP on
 BEGIN;
 
+-- Al salir de una sesión simulada hay que BORRAR los claims: si no, la
+-- siguiente sentencia del test (ejecutada como propietario) seguiría viendo
+-- un auth.uid() ajeno y dispararía triggers de cliente.
+CREATE OR REPLACE FUNCTION pg_temp.sin_sesion() RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  PERFORM set_config('request.jwt.claim.role', '', true);
+END $$;
+
 CREATE OR REPLACE FUNCTION pg_temp.como(_uid uuid, _sql text) RETURNS text
 LANGUAGE plpgsql AS $$
 DECLARE v text;
@@ -14,10 +24,12 @@ BEGIN
   EXECUTE _sql INTO v;
   PERFORM set_config('role', 'none', true);
   RESET ROLE;
+  PERFORM pg_temp.sin_sesion();
   RETURN v;
 EXCEPTION WHEN others THEN
   PERFORM set_config('role', 'none', true);
   RESET ROLE;
+  PERFORM pg_temp.sin_sesion();
   RETURN 'ERROR:' || SQLSTATE;
 END $$;
 
@@ -95,9 +107,7 @@ BEGIN
   r := pg_temp.como(u_com, format(
     '(WITH x AS (UPDATE public.profiles SET must_change_password = false WHERE id = %L::uuid RETURNING 1) SELECT count(*)::text FROM x)', u_com));
   IF NOT (SELECT must_change_password FROM public.profiles WHERE id = u_com) THEN
-    RAISE EXCEPTION 'CASO 7 FAIL: el usuario se quitó el flag (triggers=%, r=%)',
-      (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname='public' AND p.proname='profiles_guard_must_change_password'), r;
+    RAISE EXCEPTION 'CASO 7 FAIL: el usuario se quitó el flag (filas afectadas=%)', r;
   END IF;
   RAISE NOTICE 'CASO 7 PASS · must_change_password sólo por flujo privilegiado';
 END $$;
