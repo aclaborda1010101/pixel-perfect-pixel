@@ -210,6 +210,13 @@ describe("P0.7 · evidencia obligatoria", () => {
     expect(citaVerificable("", "lo que sea")).toBe(true);
   });
 
+  it("tolera cortes de página dentro de la cita pero no el texto inventado", () => {
+    const real = "PITA ROMERO, LUCIANO NC 342 342 141 1 Pag. 2 de 12 C.S.V.: 2281082823910611 PARTICIPACION: 6,250000% de la nuda propiedad con caracter privativo.";
+    const citaLegitima = "PITA ROMERO, LUCIANO NC 342 342 141 1 PARTICIPACION: 6,250000% de la nuda propiedad con caracter privativo";
+    expect(citaVerificable(real, citaLegitima)).toBe(true);
+    expect(citaVerificable(real, "MARIA LOPEZ ostenta el pleno dominio del 100% por herencia de su padre")).toBe(false);
+  });
+
   it("pleno / nuda / usufructo del mismo titular son filas separadas y todas válidas", () => {
     const filas = [
       norm({ ...base, rol: "nuda_propiedad", rol_literal: "nuda propiedad", porcentaje: 50, evidencia: { cita: "nuda propiedad del 50%", pagina: 2 } }),
