@@ -29,7 +29,38 @@
 --     validados; sociedad conciliada por CIF se conserva pero bloquea la
 --     capa personal.
 --  7) DRY-RUN: safety_invariants_ok y readiness_ok separados.
+--
+-- Correcciones P0.3:
+--  8) NAMESPACES DE UNIDAD: IDUFIR, finca y referencia catastral son
+--     espacios de nombres DISTINTOS y sus literales NO se comparan entre
+--     sí. Sólo hay unit_key_conflict cuando aparecen DOS valores
+--     normalizados distintos DENTRO DEL MISMO tipo. IDUFIR=A + finca=B +
+--     refcat=C pueden ser alias de la misma unidad: se conservan TODOS en
+--     unit_aliases y la clave estable se elige con prioridad documentada
+--     IDUFIR > finca > refcat.
+--  9) CO-LOCALIZACIÓN: si identificadores de tipos distintos viven en
+--     nodos estructurados distintos y no puede demostrarse que describen
+--     la misma unidad => cross_type_unverified: se marca, se revisa y se
+--     BLOQUEA. Jamás se comparan literales de tipos distintos.
+-- 10) PARSEO TOTAL: ningún helper de localizador hace cast numérico
+--     directo. p0_safe_int valida regex + longitud ANTES de convertir, de
+--     modo que texto enorme, exponentes o Unicode devuelven NULL/false y
+--     nunca lanzan.
+-- 11) ATOMICIDAD: toda la migración va dentro de BEGIN/COMMIT. Cualquier
+--     fallo (incluido el validador de contrato) revierte el conjunto.
 -- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- P0.3 · ATOMICIDAD. La migración completa se aplica dentro de UNA
+-- transacción explícita: cualquier fallo (validador, preflight, DDL o
+-- assert) hace ROLLBACK total y el esquema queda EXACTAMENTE como estaba.
+-- Todos los validadores/preflight se ejecutan ANTES de cualquier cambio
+-- irreversible. No hay DDL no transaccional en este fichero.
+-- ---------------------------------------------------------------------
+BEGIN;
+
+
+BEGIN;
 
 -- ---------------------------------------------------------------------
 -- 0) Vocabulario y columnas de apoyo (idempotente, sin datos)
@@ -220,11 +251,33 @@ COMMENT ON FUNCTION public.p0_cita_pct_values(text) IS
 -- ---------------------------------------------------------------------
 -- 5) LOCALIZADORES: página entero positivo, offset entero >= 0, ruta cerrada
 -- ---------------------------------------------------------------------
+-- P0.3 · PARSEO TOTAL SIN EXCEPCIONES.
+-- Ningún helper puede lanzar por un cast: primero regex, después
+-- longitud/rango y sólo entonces la conversión. Texto enorme, exponentes,
+-- Unicode, signos o números fuera de rango devuelven NULL.
+CREATE OR REPLACE FUNCTION public.p0_safe_int(p_txt text)
+RETURNS integer LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE s text;
+BEGIN
+  s := btrim(coalesce(p_txt,''));
+  IF s = '' THEN RETURN NULL; END IF;
+  -- Sólo dígitos ASCII. '1e3', '½', '१२', '+1', '-1', '1.0' quedan fuera.
+  IF s !~ '^[0-9]+$' THEN RETURN NULL; END IF;
+  -- Longitud acotada ANTES de convertir: 9 dígitos caben siempre en int4.
+  IF char_length(s) > 9 THEN RETURN NULL; END IF;
+  RETURN s::int;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
+END $$;
+
+COMMENT ON FUNCTION public.p0_safe_int(text) IS
+  'Wave 1A.3 P0.3: entero seguro. Valida regex y longitud ANTES de convertir; nunca lanza. Texto enorme/malformado/Unicode => NULL.';
+
 CREATE OR REPLACE FUNCTION public.p0_locator_valid(p_pagina text, p_offset text, p_ruta text)
 RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
   SELECT
-    (btrim(coalesce(p_pagina,'')) ~ '^[0-9]+$' AND btrim(coalesce(p_pagina,''))::numeric >= 1)
-    OR (btrim(coalesce(p_offset,'')) ~ '^[0-9]+$')
+    coalesce(public.p0_safe_int(p_pagina) >= 1, false)
+    OR public.p0_safe_int(p_offset) IS NOT NULL
     -- Ruta con sintaxis cerrada: $.a.b, $.a[0].b o titulares[2].porcentaje
     OR (btrim(coalesce(p_ruta,'')) ~ '^(\$\.)?[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?)*$');
 $$;
@@ -242,15 +295,16 @@ RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
      OR nullif(btrim(coalesce(p_offset,'')),'') IS NOT NULL
      OR nullif(btrim(coalesce(p_ruta,'')),'') IS NOT NULL)
     AND (nullif(btrim(coalesce(p_pagina,'')),'') IS NULL
-         OR (btrim(p_pagina) ~ '^[0-9]+$' AND btrim(p_pagina)::numeric >= 1))
+         OR coalesce(public.p0_safe_int(p_pagina) >= 1, false))
     AND (nullif(btrim(coalesce(p_offset,'')),'') IS NULL
-         OR btrim(p_offset) ~ '^[0-9]+$')
+         OR public.p0_safe_int(p_offset) IS NOT NULL)
     AND (nullif(btrim(coalesce(p_ruta,'')),'') IS NULL
-         OR btrim(p_ruta) ~ '^(\$\.)?[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?)*$');
+         OR (char_length(btrim(p_ruta)) <= 512
+             AND btrim(p_ruta) ~ '^(\$\.)?[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?)*$'));
 $$;
 
 COMMENT ON FUNCTION public.p0_locator_all_valid(text, text, text) IS
-  'Wave 1A.3 P0.2: TODOS los localizadores aportados deben ser sintácticamente válidos; una página correcta NO rescata una ruta u offset erróneos.';
+  'Wave 1A.3 P0.3: TODOS los localizadores aportados deben ser sintácticamente válidos; una página correcta NO rescata una ruta u offset erróneos. El parseo es total: sin casts directos, nunca lanza.';
 
 -- Resolución REAL de una ruta JSON dentro de structured_json. Devuelve el
 -- nodo apuntado o NULL si la ruta no existe. Sin json_path para no depender
@@ -298,46 +352,132 @@ END $$;
 -- VÍNCULO EXACTO: si se aporta ruta u offset, debe resolver al MISMO
 -- titular / derecho / porcentaje que la cita. La página no es demostrable
 -- en SQL: es auditoría neutra (nunca rescata, nunca inventa vínculo).
-CREATE OR REPLACE FUNCTION public.p0_locator_link_ok(
+-- P0.3: la ruta debe resolver a EXACTAMENTE UN elemento y la triple
+-- (titular, derecho, porcentaje) debe identificar a ese elemento de forma
+-- única dentro de structured_json. Si la misma triple aparece en dos nodos,
+-- el vínculo es AMBIGUO y no alimenta nada aunque la ruta sea correcta.
+CREATE OR REPLACE FUNCTION public.p0_sj_triple_nodos(
+  p_sj jsonb, p_nn text, p_right text, p_pct numeric)
+RETURNS integer LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE
+    WHEN p_sj IS NULL OR jsonb_typeof(p_sj -> 'titulares') <> 'array' THEN 0
+    ELSE (
+      SELECT count(*)::int
+      FROM jsonb_array_elements(p_sj -> 'titulares') tj
+      WHERE p_nn IS NOT NULL
+        AND public.norm_person_name(tj ->> 'nombre') = p_nn
+        AND p_right IS NOT NULL
+        AND public.p0_right_type_canonico(NULL, coalesce(tj ->> 'derecho', tj ->> 'rol')) = p_right
+        AND p_pct IS NOT NULL
+        AND public.p0_parse_pct(tj ->> 'porcentaje') IS NOT NULL
+        AND abs(public.p0_parse_pct(tj ->> 'porcentaje') - p_pct) <= 0.01
+    )
+  END;
+$$;
+
+COMMENT ON FUNCTION public.p0_sj_triple_nodos(jsonb, text, text, numeric) IS
+  'Wave 1A.3 P0.3: numero de elementos de structured_json.titulares que casan con la MISMA triple titular+derecho+porcentaje. >1 => vinculo ambiguo, cero feed.';
+
+-- Diagnóstico completo y auditable del vínculo: devuelve TODOS los datos por
+-- separado (cita, página, offset, ruta, nodo resuelto y flags de cada
+-- localizador), sin coalesce que pierda información.
+CREATE OR REPLACE FUNCTION public.p0_locator_link_diag(
   p_sj jsonb, p_raw text, p_cita text,
   p_pagina text, p_offset text, p_ruta text,
   p_nn text, p_right text, p_pct numeric)
-RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
-DECLARE el jsonb; off int; frag text;
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  el          jsonb;
+  off         int;
+  frag        text;
+  v_ruta      text := nullif(btrim(coalesce(p_ruta,'')), '');
+  v_off_txt   text := nullif(btrim(coalesce(p_offset,'')), '');
+  v_pag_txt   text := nullif(btrim(coalesce(p_pagina,'')), '');
+  v_ruta_ok   boolean := NULL;
+  v_off_ok    boolean := NULL;
+  v_pag_ok    boolean := NULL;
+  v_nodo      jsonb   := NULL;
+  v_nodo_cita text    := NULL;
+  v_ambiguo   boolean := false;
+  v_triple    int     := public.p0_sj_triple_nodos(p_sj, p_nn, p_right, p_pct);
 BEGIN
-  -- RUTA: debe existir y describir exactamente a este titular.
-  IF nullif(btrim(coalesce(p_ruta,'')),'') IS NOT NULL THEN
-    el := public.p0_ruta_elemento(p_sj, p_ruta);
-    IF el IS NULL THEN RETURN false; END IF;
-    IF p_nn IS NULL OR public.norm_person_name(el ->> 'nombre') IS DISTINCT FROM p_nn THEN
-      RETURN false;
-    END IF;
-    IF p_right IS NULL
-       OR public.p0_right_type_canonico(NULL, coalesce(el ->> 'derecho', el ->> 'rol'))
-          IS DISTINCT FROM p_right THEN
-      RETURN false;
-    END IF;
-    IF p_pct IS NULL
-       OR public.p0_parse_pct(el ->> 'porcentaje') IS NULL
-       OR abs(public.p0_parse_pct(el ->> 'porcentaje') - p_pct) > 0.01 THEN
-      RETURN false;
+  -- PÁGINA: sólo auditoría sintáctica. Nunca demuestra vínculo.
+  IF v_pag_txt IS NOT NULL THEN
+    v_pag_ok := coalesce(public.p0_safe_int(v_pag_txt) >= 1, false);
+  END IF;
+
+  -- RUTA: debe resolver a UN elemento y describir exactamente a este titular.
+  IF v_ruta IS NOT NULL THEN
+    v_ruta_ok := false;
+    el := public.p0_ruta_elemento(p_sj, v_ruta);
+    IF el IS NOT NULL THEN
+      v_nodo := el;
+      v_nodo_cita := nullif(btrim(coalesce(el ->> 'cita', el ->> 'texto','')), '');
+      IF p_nn IS NOT NULL
+         AND public.norm_person_name(el ->> 'nombre') IS NOT DISTINCT FROM p_nn
+         AND p_right IS NOT NULL
+         AND public.p0_right_type_canonico(NULL, coalesce(el ->> 'derecho', el ->> 'rol'))
+             IS NOT DISTINCT FROM p_right
+         AND p_pct IS NOT NULL
+         AND public.p0_parse_pct(el ->> 'porcentaje') IS NOT NULL
+         AND abs(public.p0_parse_pct(el ->> 'porcentaje') - p_pct) <= 0.01
+      THEN
+        v_ruta_ok := true;
+      END IF;
+      -- La cita usada debe pertenecer a ESTE nodo cuando el nodo trae cita.
+      IF v_ruta_ok AND v_nodo_cita IS NOT NULL AND p_cita IS NOT NULL
+         AND public.p0_norm_text(v_nodo_cita) IS DISTINCT FROM public.p0_norm_text(p_cita) THEN
+        v_ruta_ok := false;
+      END IF;
+      -- Misma triple en dos elementos: la ruta ya no identifica nada.
+      IF v_ruta_ok AND v_triple > 1 THEN
+        v_ruta_ok := false;
+        v_ambiguo := true;
+      END IF;
     END IF;
   END IF;
 
   -- OFFSET: debe apuntar al arranque real de la cita en raw_pdf_text.
-  IF nullif(btrim(coalesce(p_offset,'')),'') IS NOT NULL THEN
-    IF p_cita IS NULL OR p_raw IS NULL OR btrim(p_offset) !~ '^[0-9]+$' THEN RETURN false; END IF;
-    off := btrim(p_offset)::int;
-    frag := substr(p_raw, off + 1, char_length(p_cita) + 40);
-    IF frag IS NULL OR public.p0_norm_text(frag) IS NULL
-       OR public.p0_norm_text(p_cita) IS NULL
-       OR position(public.p0_norm_text(p_cita) IN public.p0_norm_text(frag)) <> 1 THEN
-      RETURN false;
+  IF v_off_txt IS NOT NULL THEN
+    v_off_ok := false;
+    off := public.p0_safe_int(v_off_txt);
+    IF off IS NOT NULL AND p_cita IS NOT NULL AND p_raw IS NOT NULL THEN
+      frag := substr(p_raw, off + 1, char_length(p_cita) + 40);
+      IF frag IS NOT NULL AND public.p0_norm_text(frag) IS NOT NULL
+         AND public.p0_norm_text(p_cita) IS NOT NULL
+         AND position(public.p0_norm_text(p_cita) IN public.p0_norm_text(frag)) = 1 THEN
+        v_off_ok := true;
+      END IF;
     END IF;
   END IF;
 
-  RETURN true;
+  RETURN jsonb_build_object(
+    'cita',          p_cita,
+    'pagina',        v_pag_txt,
+    'offset',        v_off_txt,
+    'ruta',          v_ruta,
+    'pagina_ok',     v_pag_ok,
+    'offset_ok',     v_off_ok,
+    'ruta_ok',       v_ruta_ok,
+    'nodo_resuelto', v_nodo,
+    'nodo_cita',     v_nodo_cita,
+    'triple_nodos',  v_triple,
+    'link_ambiguo',  v_ambiguo,
+    'link_ok',       coalesce(v_ruta_ok, true) AND coalesce(v_off_ok, true) AND NOT v_ambiguo);
 END $$;
+
+COMMENT ON FUNCTION public.p0_locator_link_diag(jsonb, text, text, text, text, text, text, text, numeric) IS
+  'Wave 1A.3 P0.3: diagnostico separado y auditable de cada localizador (cita, pagina, offset, ruta, nodo resuelto y flags). Sin coalesce que pierda informacion.';
+
+CREATE OR REPLACE FUNCTION public.p0_locator_link_ok(
+  p_sj jsonb, p_raw text, p_cita text,
+  p_pagina text, p_offset text, p_ruta text,
+  p_nn text, p_right text, p_pct numeric)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+  SELECT coalesce((public.p0_locator_link_diag(
+           p_sj, p_raw, p_cita, p_pagina, p_offset, p_ruta,
+           p_nn, p_right, p_pct) ->> 'link_ok')::boolean, false);
+$$;
 
 COMMENT ON FUNCTION public.p0_locator_link_ok(jsonb, text, text, text, text, text, text, text, numeric) IS
   'Wave 1A.3 P0.2: ruta y offset deben resolver EXACTAMENTE al mismo titular/derecho/porcentaje de la cita. Si no se puede probar el vínculo, la evidencia estructurada es solo auditoría (structured_unverified).';
@@ -385,6 +525,9 @@ DECLARE
   v_bad        boolean := false;
   v_struct_unv boolean := false;
   v_evid_presente boolean := false;
+  v_diag       jsonb := NULL;   -- diagnóstico completo del localizador
+  v_diag_sj    jsonb := NULL;   -- diagnóstico del fallback structured_json
+  v_n_triple   int := 0;
   v_fuente     text := 'ninguna';
   v_ref        text := NULL;
   v_pagina     text;
@@ -445,12 +588,20 @@ BEGIN
       -- El localizador, si viene, debe ser válido EN TODAS sus partes y
       -- resolver al MISMO elemento que la cita. Una página válida no tapa
       -- una ruta u offset erróneos.
+      v_diag := public.p0_locator_link_diag(v_sj, v_raw, v_cita, v_pagina, v_offset, v_ruta,
+                                            v_nn, v_right, v_pct);
       IF v_ref IS NOT NULL THEN
         IF NOT public.p0_locator_all_valid(v_pagina, v_offset, v_ruta) THEN
+          v_diag := v_diag || jsonb_build_object('sintaxis_ok', false);
           v_bad := true; v_struct_unv := true;
-        ELSIF NOT public.p0_locator_link_ok(v_sj, v_raw, v_cita, v_pagina, v_offset, v_ruta,
-                                            v_nn, v_right, v_pct) THEN
-          v_bad := true; v_struct_unv := true;
+        ELSE
+          v_diag := v_diag || jsonb_build_object('sintaxis_ok', true);
+          IF NOT coalesce((v_diag ->> 'link_ok')::boolean, false) THEN
+            v_bad := true; v_struct_unv := true;
+            IF coalesce((v_diag ->> 'link_ambiguo')::boolean, false) THEN
+              v_amb := true;
+            END IF;
+          END IF;
         END IF;
       END IF;
       v_traz := v_anclada;
@@ -561,14 +712,29 @@ BEGIN
         )
     )
     SELECT count(*),
-           jsonb_build_object('cita', min(cita), 'ruta', coalesce(min(pagina), min(off), min(ruta)))
+           jsonb_build_object('cita', min(cita), 'pagina', min(pagina),
+                              'offset', min(off), 'ruta', min(ruta))
       INTO v_n_cand, r
     FROM valida;
 
-    IF v_n_cand = 1 THEN
+    -- La MISMA triple (titular+derecho+porcentaje) en dos elementos es
+    -- ambigua por definición: ningún localizador puede desempatarla.
+    v_n_triple := public.p0_sj_triple_nodos(v_sj, v_nn, v_right, v_pct);
+    IF v_n_triple > 1 THEN
+      v_fuente := 'structured_json'; v_amb := true; v_bad := true; v_struct_unv := true;
+      v_n_cand := v_n_triple;
+    END IF;
+
+    IF v_n_cand = 1 AND v_n_triple <= 1 THEN
       v_fuente  := 'structured_json';
       v_cita    := r ->> 'cita';
-      v_ref     := r ->> 'ruta';
+      v_pagina  := r ->> 'pagina';
+      v_offset  := r ->> 'offset';
+      v_ruta    := r ->> 'ruta';
+      v_ref     := coalesce(v_ruta, v_offset, v_pagina);
+      v_diag_sj := public.p0_locator_link_diag(v_sj, v_raw, v_cita, v_pagina, v_offset, v_ruta,
+                                               v_nn, v_right, v_pct);
+      v_diag    := coalesce(v_diag, v_diag_sj);
       -- La traza es SIEMPRE el anclaje; ruta/página/offset son auditoría.
       v_anclada := true;
       v_traz    := true;
@@ -628,7 +794,19 @@ BEGIN
                      AND NOT coalesce(v_amb,false) AND NOT coalesce(v_bad,false),
     'fuente',        v_fuente,
     'cita',          v_cita,
+    -- P0.3: cada localizador se guarda POR SEPARADO y con sus flags. 'ruta'
+    -- conserva la firma histórica (referencia usada); 'locator' guarda el
+    -- JSON completo: cita, pagina, offset, ruta, nodo resuelto y flags.
     'ruta',          v_ref,
+    'pagina',        v_pagina,
+    'offset',        v_offset,
+    'ruta_declarada', v_ruta,
+    'locator',       coalesce(v_diag, jsonb_build_object(
+                       'cita', v_cita, 'pagina', v_pagina, 'offset', v_offset,
+                       'ruta', v_ruta, 'pagina_ok', NULL, 'offset_ok', NULL,
+                       'ruta_ok', NULL, 'nodo_resuelto', NULL, 'nodo_cita', NULL,
+                       'triple_nodos', v_n_triple, 'link_ambiguo', false,
+                       'link_ok', v_ref IS NULL)),
     'right_type',    v_right,
     'porcentaje',    v_pct);
 END $$;
@@ -692,107 +870,164 @@ RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
 $$;
 
 COMMENT ON FUNCTION public.p0_unit_locator_valid(text, text) IS
-  'Formato mínimo de IDUFIR (8-14 dígitos), finca (hasta 8 dígitos + letra opcional) y referencia catastral (14-20 alfanuméricos). Clave dudosa => la unidad va a revisión.';
+  'Formato minimo de IDUFIR (8-14 digitos), finca (hasta 8 digitos + letra opcional) y referencia catastral (14-20 alfanumericos). Clave dudosa => la unidad va a revision.';
 
--- Todas las claves registrales VÁLIDAS declaradas por la nota, normalizadas
--- y desduplicadas, como 'fuente:clave'. Sirve para detectar contradicción.
-CREATE OR REPLACE FUNCTION public.p0_nota_unit_claves(p_nota_id uuid)
-RETURNS text[]
+CREATE OR REPLACE FUNCTION public.p0_unit_clave_norm(p_valor text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT nullif(upper(regexp_replace(coalesce(p_valor,''), '[^A-Za-z0-9]', '', 'g')), '');
+$$;
+
+-- ---------------------------------------------------------------------
+-- P0.3 · NAMESPACES DE UNIDAD
+-- ---------------------------------------------------------------------
+-- IDUFIR, finca registral y referencia catastral son ESPACIOS DE NOMBRES
+-- DISTINTOS. Sus literales NO se comparan entre sí jamás: IDUFIR=A,
+-- finca=B y refcat=C pueden ser alias legítimos de la MISMA unidad.
+--
+-- Cada localizador se conserva con su tipo, su clave normalizada, el NODO
+-- estructurado del que procede y el campo exacto. Nada se pierde.
+CREATE OR REPLACE FUNCTION public.p0_nota_unit_locators(p_nota_id uuid)
+RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   WITH n AS (
     SELECT ns.structured_json AS sj FROM public.notas_simples ns WHERE ns.id = p_nota_id
   ), v AS (
-    SELECT DISTINCT x.ns_fuente,
-           nullif(upper(regexp_replace(x.valor, '[^A-Za-z0-9]', '', 'g')), '') AS clave
+    SELECT DISTINCT x.prioridad, x.tipo, x.nodo, x.campo,
+           public.p0_unit_clave_norm(x.valor) AS clave
     FROM n
     CROSS JOIN LATERAL (
       VALUES
-        ('idufir', nullif(btrim(coalesce(n.sj ->> 'idufir','')), '')),
-        ('idufir', nullif(btrim(coalesce(n.sj ->> 'idufir_cru','')), '')),
-        ('idufir', nullif(btrim(coalesce(n.sj ->> 'cru','')), '')),
-        ('idufir', nullif(btrim(coalesce(n.sj #>> '{finca,idufir}','')), '')),
-        ('finca',  nullif(btrim(coalesce(n.sj ->> 'finca_registral','')), '')),
-        ('finca',  nullif(btrim(coalesce(n.sj ->> 'numero_finca','')), '')),
-        ('finca',  nullif(btrim(coalesce(n.sj #>> '{finca,numero}','')), '')),
-        ('finca',  nullif(btrim(coalesce(n.sj #>> '{registro,finca}','')), '')),
-        ('refcat', nullif(btrim(coalesce(n.sj ->> 'referencia_catastral','')), '')),
-        ('refcat', nullif(btrim(coalesce(n.sj #>> '{finca,referencia_catastral}','')), ''))
-    ) AS x(ns_fuente, valor)
+        (1, 'idufir', '$',          'idufir',               nullif(btrim(coalesce(n.sj ->> 'idufir','')), '')),
+        (1, 'idufir', '$',          'idufir_cru',           nullif(btrim(coalesce(n.sj ->> 'idufir_cru','')), '')),
+        (1, 'idufir', '$',          'cru',                  nullif(btrim(coalesce(n.sj ->> 'cru','')), '')),
+        (1, 'idufir', '$.finca',    'finca.idufir',         nullif(btrim(coalesce(n.sj #>> '{finca,idufir}','')), '')),
+        (2, 'finca',  '$',          'finca_registral',      nullif(btrim(coalesce(n.sj ->> 'finca_registral','')), '')),
+        (2, 'finca',  '$',          'numero_finca',         nullif(btrim(coalesce(n.sj ->> 'numero_finca','')), '')),
+        (2, 'finca',  '$.finca',    'finca.numero',         nullif(btrim(coalesce(n.sj #>> '{finca,numero}','')), '')),
+        (2, 'finca',  '$.registro', 'registro.finca',       nullif(btrim(coalesce(n.sj #>> '{registro,finca}','')), '')),
+        (3, 'refcat', '$',          'referencia_catastral', nullif(btrim(coalesce(n.sj ->> 'referencia_catastral','')), '')),
+        (3, 'refcat', '$.finca',    'finca.referencia_catastral',
+                                                            nullif(btrim(coalesce(n.sj #>> '{finca,referencia_catastral}','')), ''))
+    ) AS x(prioridad, tipo, nodo, campo, valor)
     WHERE x.valor IS NOT NULL
-      AND public.p0_unit_locator_valid(
-            x.ns_fuente, nullif(upper(regexp_replace(x.valor, '[^A-Za-z0-9]', '', 'g')), ''))
+      AND public.p0_unit_locator_valid(x.tipo, public.p0_unit_clave_norm(x.valor))
   )
-  SELECT coalesce(array_agg(v.ns_fuente || ':' || v.clave ORDER BY v.ns_fuente, v.clave), '{}'::text[])
-  FROM v WHERE v.clave IS NOT NULL;
+  SELECT coalesce(
+    (SELECT jsonb_agg(jsonb_build_object(
+              'tipo', v.tipo, 'clave', v.clave, 'nodo', v.nodo,
+              'campo', v.campo, 'prioridad', v.prioridad)
+            ORDER BY v.prioridad, v.tipo, v.clave, v.campo)
+     FROM v WHERE v.clave IS NOT NULL),
+    '[]'::jsonb);
 $$;
 
--- (5) DOS localizadores VÁLIDOS y DISTINTOS de la misma clase (dos IDUFIR,
--- dos fincas, dos refcat) => unit_key_conflict. NO se elige el primero.
--- P0.2: el CONJUNTO COMPLETO de localizadores jurídicos de la nota se trata
--- como un todo. Dos valores inequívocos distintos son conflicto AUNQUE sean
--- de tipos distintos (IDUFIR vs finca, IDUFIR vs refcat). No se agrupa por
--- tipo ni se elige el primero. Un mismo valor repetido/sinónimo es válido.
+COMMENT ON FUNCTION public.p0_nota_unit_locators(uuid) IS
+  'Wave 1A.3 P0.3: TODOS los localizadores validos de la nota con su tipo, clave normalizada, nodo y campo. Nunca se pierde el namespace.';
+
+-- Compatibilidad: la lista 'tipo:clave' que ya consumian los invariantes.
+CREATE OR REPLACE FUNCTION public.p0_nota_unit_claves(p_nota_id uuid)
+RETURNS text[]
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  SELECT coalesce(
+    (SELECT array_agg(DISTINCT (l ->> 'tipo') || ':' || (l ->> 'clave'))
+     FROM jsonb_array_elements(public.p0_nota_unit_locators(p_nota_id)) l),
+    '{}'::text[]);
+$$;
+
+-- CONFLICTO DE UNIDAD: SÓLO dentro del mismo namespace. Dos IDUFIR, dos
+-- fincas o dos refcat distintos para la misma nota/unidad => conflicto.
+-- Un IDUFIR y una finca distintos NO son conflicto: son alias posibles.
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key_conflict(p_nota_id uuid)
 RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   SELECT coalesce((
-    SELECT count(DISTINCT split_part(c.v, ':', 2))
-    FROM unnest(public.p0_nota_unit_claves(p_nota_id)) AS c(v)
-  ), 0) > 1;
+    SELECT bool_or(n_claves > 1)
+    FROM (
+      SELECT (l ->> 'tipo') AS tipo, count(DISTINCT l ->> 'clave') AS n_claves
+      FROM jsonb_array_elements(public.p0_nota_unit_locators(p_nota_id)) l
+      GROUP BY (l ->> 'tipo')
+    ) t
+  ), false);
 $$;
 
 COMMENT ON FUNCTION public.p0_nota_unit_key_conflict(uuid) IS
-  'true si la nota declara DOS localizadores registrales válidos y distintos, del tipo que sean (IDUFIR, finca o refcat): la unidad NO puede identificarse y jamás se elige el primero.';
+  'Wave 1A.3 P0.3: true SOLO si hay dos valores normalizados distintos DENTRO DEL MISMO tipo (dos IDUFIR, dos fincas o dos refcat). Tipos distintos jamas se comparan entre si.';
+
+-- CO-LOCALIZACIÓN: identificadores de tipos distintos sólo son alias de la
+-- misma unidad si proceden del MISMO nodo estructurado. Si viven en nodos
+-- distintos no puede demostrarse que describan la misma unidad =>
+-- cross_type_unverified: se marca, va a revisión y BLOQUEA. Nunca se
+-- comparan literales de namespaces distintos.
+CREATE OR REPLACE FUNCTION public.p0_nota_unit_cross_type_unverified(p_nota_id uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  SELECT coalesce((
+    SELECT count(DISTINCT l ->> 'tipo') > 1 AND count(DISTINCT l ->> 'nodo') > 1
+    FROM jsonb_array_elements(public.p0_nota_unit_locators(p_nota_id)) l
+  ), false);
+$$;
+
+COMMENT ON FUNCTION public.p0_nota_unit_cross_type_unverified(uuid) IS
+  'Wave 1A.3 P0.3: true si hay identificadores de tipos distintos en nodos estructurados distintos: no se puede demostrar que describan la misma unidad => review y bloqueo.';
+
+-- PRIORIDAD DOCUMENTADA DE CLAVE ESTABLE: IDUFIR > finca > refcat.
+-- El resto de identificadores NO se descarta: se conserva en unit_aliases.
+CREATE OR REPLACE FUNCTION public.p0_nota_unit_aliases(p_nota_id uuid)
+RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  WITH l AS (
+    SELECT x FROM jsonb_array_elements(public.p0_nota_unit_locators(p_nota_id)) x
+  )
+  SELECT jsonb_build_object(
+    'prioridad', 'idufir>finca>refcat',
+    'idufir', coalesce((SELECT jsonb_agg(DISTINCT x ->> 'clave') FROM l WHERE x ->> 'tipo' = 'idufir'), '[]'::jsonb),
+    'finca',  coalesce((SELECT jsonb_agg(DISTINCT x ->> 'clave') FROM l WHERE x ->> 'tipo' = 'finca'),  '[]'::jsonb),
+    'refcat', coalesce((SELECT jsonb_agg(DISTINCT x ->> 'clave') FROM l WHERE x ->> 'tipo' = 'refcat'), '[]'::jsonb),
+    'nodos',  coalesce((SELECT jsonb_agg(DISTINCT x ->> 'nodo') FROM l), '[]'::jsonb),
+    'locators', public.p0_nota_unit_locators(p_nota_id),
+    'type_conflict', public.p0_nota_unit_key_conflict(p_nota_id),
+    'cross_type_unverified', public.p0_nota_unit_cross_type_unverified(p_nota_id));
+$$;
+
+COMMENT ON FUNCTION public.p0_nota_unit_aliases(uuid) IS
+  'Wave 1A.3 P0.3: unit_aliases completo por namespace (idufir/finca/refcat) + nodos + flags. La clave estable se elige por prioridad IDUFIR>finca>refcat y NUNCA se pierde ningun alias.';
 
 CREATE OR REPLACE FUNCTION public.p0_nota_unit_key(p_nota_id uuid)
 RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   WITH n AS (
-    SELECT ns.id, ns.building_id, ns.structured_json AS sj,
+    SELECT ns.id, ns.building_id,
            coalesce(b.division_horizontal, false) AS dh
     FROM public.notas_simples ns
     LEFT JOIN public.buildings b ON b.id = ns.building_id
     WHERE ns.id = p_nota_id
   ), k AS (
-    SELECT n.*, c.ns_fuente, c.clave_norm
+    SELECT n.*, c.tipo, c.clave
     FROM n
     LEFT JOIN LATERAL (
-      SELECT v.ns_fuente,
-             nullif(upper(regexp_replace(v.valor, '[^A-Za-z0-9]', '', 'g')), '') AS clave_norm
-      FROM (
-        VALUES
-          (1, 'idufir', nullif(btrim(coalesce(n.sj ->> 'idufir','')), '')),
-          (2, 'idufir', nullif(btrim(coalesce(n.sj ->> 'idufir_cru','')), '')),
-          (3, 'idufir', nullif(btrim(coalesce(n.sj ->> 'cru','')), '')),
-          (4, 'idufir', nullif(btrim(coalesce(n.sj #>> '{finca,idufir}','')), '')),
-          (5, 'finca',  nullif(btrim(coalesce(n.sj ->> 'finca_registral','')), '')),
-          (6, 'finca',  nullif(btrim(coalesce(n.sj ->> 'numero_finca','')), '')),
-          (7, 'finca',  nullif(btrim(coalesce(n.sj #>> '{finca,numero}','')), '')),
-          (8, 'finca',  nullif(btrim(coalesce(n.sj #>> '{registro,finca}','')), '')),
-          (9, 'refcat', nullif(btrim(coalesce(n.sj ->> 'referencia_catastral','')), '')),
-          (10,'refcat', nullif(btrim(coalesce(n.sj #>> '{finca,referencia_catastral}','')), ''))
-      ) AS v(prioridad, ns_fuente, valor)
-      WHERE v.valor IS NOT NULL
-        -- (6) Sólo claves con FORMATO MÍNIMO válido pueden identificar unidad.
-        AND public.p0_unit_locator_valid(
-              v.ns_fuente,
-              nullif(upper(regexp_replace(v.valor, '[^A-Za-z0-9]', '', 'g')), ''))
-      ORDER BY v.prioridad
+      SELECT (l ->> 'tipo') AS tipo, (l ->> 'clave') AS clave
+      FROM jsonb_array_elements(public.p0_nota_unit_locators(n.id)) l
+      ORDER BY (l ->> 'prioridad')::int, (l ->> 'clave')
       LIMIT 1
     ) c ON true
   )
   SELECT CASE
     WHEN k.building_id IS NULL THEN NULL
-    -- (4) No-DH: la unidad SIEMPRE es el edificio. Nunca NULL.
+    -- No-DH: la unidad SIEMPRE es el edificio. Nunca NULL.
     WHEN NOT k.dh THEN 'building:' || k.building_id::text
-    -- (5) DH con localizadores contradictorios: no hay clave inequívoca.
+    -- DH con dos claves del MISMO tipo: no hay clave inequívoca.
     WHEN public.p0_nota_unit_key_conflict(k.id) THEN NULL
-    WHEN k.clave_norm IS NOT NULL
-      THEN 'dh:' || k.building_id::text || ':' || k.ns_fuente || ':' || k.clave_norm
+    -- DH con tipos distintos en nodos distintos: alias no demostrable.
+    WHEN public.p0_nota_unit_cross_type_unverified(k.id) THEN NULL
+    WHEN k.clave IS NOT NULL
+      THEN 'dh:' || k.building_id::text || ':' || k.tipo || ':' || k.clave
     ELSE NULL
   END
   FROM k;
 $$;
+
+COMMENT ON FUNCTION public.p0_nota_unit_key(uuid) IS
+  'Wave 1A.3 P0.3: clave estable de unidad con prioridad documentada IDUFIR>finca>refcat. Conflicto dentro del mismo tipo o alias cross-type no verificable => NULL (bloqueo).';
 
 -- ---------------------------------------------------------------------
 -- 9) STAGING 1A.3
@@ -805,6 +1040,8 @@ WITH notas AS (
          coalesce(b.division_horizontal, false) AS dh,
          public.p0_nota_unit_key(ns.id)                       AS unit_key,
          public.p0_nota_unit_key_conflict(ns.id)              AS unit_key_conflict,
+         public.p0_nota_unit_cross_type_unverified(ns.id)     AS unit_cross_unverified,
+         public.p0_nota_unit_aliases(ns.id)                   AS unit_aliases,
          public.p0_nota_ownership_signature(ns.id)            AS nota_signature,
          public.p0_nota_fecha_registral(ns.structured_json)   AS fecha_registral,
          public.p0_nota_date_conflict(ns.structured_json)     AS date_conflict,
@@ -818,6 +1055,7 @@ WITH notas AS (
   -- CERO canónicas y CERO feeds para TODAS las unidades del edificio.
   SELECT n.building_id,
          bool_or(n.unit_key_conflict)                          AS b_unit_key_conflict,
+         bool_or(n.unit_cross_unverified)                      AS b_cross_type_unverified,
          bool_or(n.dh AND n.unit_key IS NULL)                  AS b_dh_sin_clave,
          bool_or(n.n_titulares = 0 AND n.unit_key IS NULL)     AS b_lista_sin_titulares_sin_unidad,
          bool_or(n.n_titulares = 0)                            AS b_alguna_lista_sin_titulares
@@ -848,7 +1086,7 @@ WITH notas AS (
       coalesce(nullif(btrim(to_jsonb(t) ->> 'rol_literal'), ''), t.metadatos ->> 'rol_literal'),
       t.metadatos ->> 'regimen') AS regime_conflict,
     n.unit_key, n.nota_signature, n.fecha_registral, n.date_conflict,
-    n.unit_key_conflict,
+    n.unit_key_conflict, n.unit_cross_unverified, n.unit_aliases,
     public.p0_evidence_check(t.id) AS ev,
     n.dh, n.sj, n.processed_at, n.created_at
   FROM public.nota_simple_titulares t
@@ -926,6 +1164,7 @@ WITH notas AS (
     AND us.resuelta
     AND NOT nm.sin_titulares
     AND NOT coalesce(ed.b_unit_key_conflict, false)
+    AND NOT coalesce(ed.b_cross_type_unverified, false)
     AND NOT coalesce(ed.b_dh_sin_clave, false)
     AND NOT coalesce(ed.b_lista_sin_titulares_sin_unidad, false)
   ORDER BY nm.unit_key,
@@ -1001,6 +1240,7 @@ WITH notas AS (
     (c.nota_id IS NOT NULL) AS is_canonical,
     -- (4)(5) Bloqueos que viven en el edificio, no en la unidad.
     (coalesce(ed.b_unit_key_conflict, false)
+     OR coalesce(ed.b_cross_type_unverified, false)
      OR coalesce(ed.b_dh_sin_clave, false)
      OR coalesce(ed.b_lista_sin_titulares_sin_unidad, false)) AS building_block,
     (coalesce(us.n_firmas, 0) > 1 AND NOT coalesce(us.resuelta, false)) AS unidad_contradictoria,
@@ -1008,8 +1248,13 @@ WITH notas AS (
     (coalesce(us.n_sin_titulares, 0) > 0
      OR coalesce(ed.b_lista_sin_titulares_sin_unidad, false))           AS unidad_con_lista_sin_titulares,
     coalesce(us.unidad_date_conflict, false)                            AS unidad_date_conflict,
+    -- P0.3: conflicto SOLO dentro del mismo namespace (dos IDUFIR, dos
+    -- fincas o dos refcat). Tipos distintos jamás se comparan entre sí.
     (s.unit_key_conflict OR coalesce(us.unidad_key_conflict, false)
      OR coalesce(ed.b_unit_key_conflict, false))                        AS unidad_key_conflict,
+    -- P0.3: alias cross-type no demostrable => revisión y bloqueo.
+    (s.unit_cross_unverified
+     OR coalesce(ed.b_cross_type_unverified, false))                    AS cross_type_unverified,
     (s.porcentaje IS NULL OR s.porcentaje <= 0 OR s.porcentaje > 100)   AS invalid_pct,
     (s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL)       AS conflicto_ids,
     -- (5) IDENTIDAD: exactamente UNA coincidencia total. Duplicado => ambiguo.
@@ -1073,7 +1318,10 @@ WITH notas AS (
                        'dni_matches', coalesce(md.n,0), 'nombre_matches', coalesce(mn.n,0),
                        'cif_matches', coalesce(mf.n,0), 'nombre_sociedad_matches', coalesce(mc.n,0),
                        'owner_doc_matches', coalesce(xo.n,0), 'company_doc_matches', coalesce(xc.n,0),
-                       'identity_divergent', coalesce(cv.identity_divergent,false)) AS audit_ids
+                       'identity_divergent', coalesce(cv.identity_divergent,false),
+                       'unit_aliases', s.unit_aliases,
+                       'unit_key_type_conflict', s.unit_key_conflict,
+                       'unit_cross_type_unverified', s.unit_cross_unverified) AS audit_ids
   FROM soc s
   LEFT JOIN canon c ON c.unit_key = s.unit_key AND c.nota_id = s.nota_id
   LEFT JOIN unit_state us ON us.unit_key = s.unit_key
@@ -1100,6 +1348,7 @@ WITH notas AS (
       OR b.date_conflict
       OR b.unidad_date_conflict
       OR b.unidad_key_conflict
+      OR b.cross_type_unverified
       OR b.identity_conflict
       OR b.conflicto_ids
       OR b.identidad_ambigua
@@ -1127,6 +1376,7 @@ WITH notas AS (
       AND NOT b.date_conflict
       AND NOT b.unidad_date_conflict
       AND NOT b.unidad_key_conflict
+      AND NOT b.cross_type_unverified
       AND NOT b.building_block
       AND NOT b.identity_conflict
       AND b.coownership_regime <> 'gananciales'
@@ -1176,7 +1426,8 @@ WITH notas AS (
          count(*) FILTER (WHERE dh)                                   AS capa_dh,
          count(*) FILTER (WHERE role_conflict OR regime_conflict
                              OR conflicto_ids OR date_conflict
-                             OR unidad_key_conflict OR identity_conflict
+                             OR unidad_key_conflict OR cross_type_unverified
+                             OR identity_conflict
                              OR building_block OR structured_unverified
                              OR unidad_contradictoria
                              OR unidad_con_lista_sin_titulares)       AS capa_conflictos,
@@ -1238,6 +1489,7 @@ SELECT
   e.unidad_contradictoria, e.unidad_resuelta_por_fecha, e.invalid_pct,
   e.capa_suma, e.capa_nulos, coalesce(e.layer_complete, false) AS layer_complete,
   CASE
+    WHEN e.cross_type_unverified THEN 'cross_type_unverified'
     WHEN e.building_block THEN 'bloqueo_edificio'
     WHEN e.unidad_con_lista_sin_titulares THEN 'nota_lista_sin_titulares'
     WHEN e.unidad_key_conflict THEN 'unit_key_conflict'
@@ -1248,6 +1500,7 @@ SELECT
   CASE
     WHEN e.unidad_contradictoria OR e.unidad_con_lista_sin_titulares
          OR e.unidad_date_conflict OR e.unidad_key_conflict
+         OR e.cross_type_unverified
          OR e.building_block THEN 'blocked_conflict'
     WHEN e.is_canonical THEN 'active'
     ELSE 'superseded'
@@ -1257,7 +1510,9 @@ SELECT
     CASE WHEN e.building_block
          THEN 'bloqueo a nivel de edificio: hay una nota cuya unidad no puede identificarse; cero canónicas y cero cuota en TODO el edificio' END,
     CASE WHEN e.unidad_key_conflict
-         THEN 'dos localizadores registrales válidos y distintos (IDUFIR/finca/refcat): la unidad no es inequívoca (unit_key_conflict)' END,
+         THEN 'dos valores válidos y distintos DEL MISMO tipo (dos IDUFIR, dos fincas o dos refcat): la unidad no es inequívoca (unit_key_conflict)' END,
+    CASE WHEN e.cross_type_unverified
+         THEN 'identificadores de tipos distintos en nodos estructurados distintos: no se puede demostrar que describan la misma unidad (cross_type_unverified)' END,
     CASE WHEN e.unidad_con_lista_sin_titulares
          THEN 'la unidad tiene una nota "listo" sin titulares: bloquea cuota, unidad y nota anterior (nota_lista_sin_titulares)' END,
     CASE WHEN e.date_conflict OR e.unidad_date_conflict
@@ -1696,3 +1951,25 @@ GRANT EXECUTE ON FUNCTION public.p0_unit_locator_valid(text, text)        TO ser
 GRANT EXECUTE ON FUNCTION public.p0_nota_unit_claves(uuid)                TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_unit_key_conflict(uuid)          TO service_role;
 GRANT EXECUTE ON FUNCTION public.p0_nota_ownership_signature(uuid)        TO service_role;
+
+-- ---------------------------------------------------------------------
+-- P0.3 · GRANTS de los helpers nuevos (mismo criterio: solo service_role).
+-- ---------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.p0_safe_int(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.p0_sj_triple_nodos(jsonb, text, text, numeric) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.p0_locator_link_diag(jsonb, text, text, text, text, text, text, text, numeric) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.p0_unit_clave_norm(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.p0_nota_unit_locators(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.p0_nota_unit_cross_type_unverified(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.p0_nota_unit_aliases(uuid) FROM PUBLIC;
+
+GRANT EXECUTE ON FUNCTION public.p0_safe_int(text)                        TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_sj_triple_nodos(jsonb, text, text, numeric) TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_locator_link_diag(jsonb, text, text, text, text, text, text, text, numeric) TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_unit_clave_norm(text)                 TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_nota_unit_locators(uuid)              TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_nota_unit_cross_type_unverified(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.p0_nota_unit_aliases(uuid)               TO service_role;
+
+-- Fin de la transacción única: o entra todo, o no entra nada.
+COMMIT;

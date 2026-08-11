@@ -148,6 +148,51 @@ BEGIN
   ASSERT public.p0_norm_text('Bruno  Ayllón 10') = 'bruno ayllon 10', 'acentos y espacios';
   ASSERT public.p0_norm_text('...') IS NULL, 'sin contenido => NULL';
 
+  -- ---------------- P0.3 · PARSEO TOTAL SIN EXCEPCIONES ----------------
+  -- Ningún input puede hacer que un helper lance. Fuzz de strings,
+  -- exponentes, Unicode, signos y números fuera de rango.
+  ASSERT public.p0_safe_int('7') = 7, 'entero simple';
+  ASSERT public.p0_safe_int('007') = 7, 'ceros a la izquierda';
+  ASSERT public.p0_safe_int('') IS NULL, 'vacío => NULL';
+  ASSERT public.p0_safe_int(NULL) IS NULL, 'NULL => NULL';
+  ASSERT public.p0_safe_int('  12  ') = 12, 'espacios recortados';
+  ASSERT public.p0_safe_int('1e3') IS NULL, 'exponente => NULL';
+  ASSERT public.p0_safe_int('1E308') IS NULL, 'exponente enorme => NULL';
+  ASSERT public.p0_safe_int('-1') IS NULL, 'signo => NULL';
+  ASSERT public.p0_safe_int('+1') IS NULL, 'signo positivo => NULL';
+  ASSERT public.p0_safe_int('1.0') IS NULL, 'decimal => NULL';
+  ASSERT public.p0_safe_int('1,0') IS NULL, 'decimal coma => NULL';
+  ASSERT public.p0_safe_int('١٢٣') IS NULL, 'dígitos árabes Unicode => NULL';
+  ASSERT public.p0_safe_int('१२') IS NULL, 'dígitos devanagari => NULL';
+  ASSERT public.p0_safe_int('½') IS NULL, 'fracción Unicode => NULL';
+  ASSERT public.p0_safe_int('NaN') IS NULL, 'NaN => NULL';
+  ASSERT public.p0_safe_int('Infinity') IS NULL, 'Infinity => NULL';
+  ASSERT public.p0_safe_int('2147483648') IS NULL, 'fuera de rango int4 => NULL';
+  ASSERT public.p0_safe_int('2147483647') = 2147483647, 'límite int4 válido';
+  ASSERT public.p0_safe_int(repeat('9', 5000)) IS NULL, 'texto numérico enorme => NULL';
+  ASSERT public.p0_safe_int(repeat('x', 100000)) IS NULL, 'texto enorme malformado => NULL';
+
+  -- p0_locator_all_valid nunca lanza: devuelve false ante basura.
+  ASSERT NOT public.p0_locator_all_valid('1e3', NULL, NULL), 'página exponencial => false';
+  ASSERT NOT public.p0_locator_all_valid('99999999999999999999', NULL, NULL), 'página fuera de rango => false';
+  ASSERT NOT public.p0_locator_all_valid('0', NULL, NULL), 'página 0 => false';
+  ASSERT NOT public.p0_locator_all_valid(repeat('9', 5000), NULL, NULL), 'página enorme => false';
+  ASSERT NOT public.p0_locator_all_valid(NULL, '-3', NULL), 'offset negativo => false';
+  ASSERT NOT public.p0_locator_all_valid(NULL, '½', NULL), 'offset Unicode => false';
+  ASSERT public.p0_locator_all_valid('3', '0', '$.titulares[0]'), 'localizadores sintácticos válidos';
+  ASSERT NOT public.p0_locator_all_valid(NULL, NULL, 'titulares[0'), 'ruta abierta => false';
+
+  -- ---------------- P0.3 · NAMESPACES DE UNIDAD ------------------------
+  ASSERT public.p0_unit_clave_norm(' es-1234/5678 ') = 'ES12345678', 'normalización de clave';
+  ASSERT public.p0_unit_locator_valid('idufir', '28001000123456'), 'IDUFIR válido';
+  ASSERT NOT public.p0_unit_locator_valid('idufir', '123'), 'IDUFIR corto inválido';
+  ASSERT public.p0_unit_locator_valid('finca', '12345'), 'finca válida';
+  ASSERT public.p0_unit_locator_valid('refcat', '9872023VH5797S0001WX'), 'refcat válida';
+  -- Literales de namespaces distintos NUNCA se comparan entre sí.
+  ASSERT public.p0_unit_locator_valid('finca', '12345')
+         AND public.p0_unit_locator_valid('idufir', '28001000123456'),
+         'IDUFIR y finca conviven: son espacios de nombres distintos';
+
   RAISE NOTICE 'WAVE 1A.3 · casos puros: OK';
 END $$;
 
