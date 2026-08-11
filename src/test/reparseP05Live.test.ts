@@ -134,7 +134,7 @@ d("P0.5 · claim token opaco contra PostgreSQL real", () => {
     expect(n.claim_token).toMatch(/^[0-9a-f-]{36}$/);
     // La firma nueva no admite texto: la antigua (jsonb sola) ya no existe.
     expect(psql(`SELECT count(*) FROM pg_proc WHERE proname='apply_nota_reparse_plan' AND pg_get_function_identity_arguments(oid)='jsonb'`)).toBe("0");
-    expect(psql(`SELECT pg_get_function_identity_arguments(oid) FROM pg_proc WHERE proname='apply_nota_reparse_plan'`)).toBe("uuid, uuid, jsonb");
+    expect(psql(`SELECT pg_get_function_identity_arguments(oid) FROM pg_proc WHERE proname='apply_nota_reparse_plan'`)).toBe("p_nota_id uuid, p_claim_token uuid, p_payload jsonb");
     // Un ISO de JS como token es sencillamente inválido.
     const bad = await sb.rpc("apply_nota_reparse_plan", { p_nota_id: n.id, p_claim_token: new Date().toISOString(), p_payload: plan() });
     expect(bad.error).toBeTruthy();
