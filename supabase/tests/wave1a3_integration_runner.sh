@@ -161,8 +161,8 @@ asegurar_placeholder() {
   BEGIN
     IF to_regclass('public.buildings') IS NOT NULL THEN
       BEGIN
-        INSERT INTO public.buildings (id, direccion)
-        VALUES ('0485d8cf-c1a2-4412-b38f-e37fb18961a2', 'BASELINE LOCAL PLACEHOLDER')
+        INSERT INTO public.buildings (id, direccion, ciudad)
+        VALUES ('0485d8cf-c1a2-4412-b38f-e37fb18961a2', 'BASELINE LOCAL PLACEHOLDER', 'LOCAL')
         ON CONFLICT (id) DO NOTHING;
       EXCEPTION WHEN others THEN NULL;
       END;
