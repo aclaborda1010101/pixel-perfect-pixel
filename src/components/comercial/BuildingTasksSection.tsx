@@ -127,6 +127,9 @@ export function BuildingTasksSection({
 
   const sortedPending = sortByDueThenPriority(pending);
 
+  const { data: interlocutores = {} } = useInterlocutores([buildingId]);
+  const interlocutor = interlocutores[buildingId] ?? null;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -135,6 +138,11 @@ export function BuildingTasksSection({
             {pending.length} pendientes · {completed.length} completadas
           </Eyebrow>
           <CardTitle>Tareas del edificio</CardTitle>
+          {interlocutor && (
+            <div className="mt-1.5">
+              <InterlocutorFlag nombre={interlocutor.nombre} />
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <NewTaskDialog
