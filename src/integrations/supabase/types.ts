@@ -10646,6 +10646,10 @@ export type Database = {
         }[]
       }
       reparse_reap_expired_claims: { Args: never; Returns: number }
+      resolve_building_task: {
+        Args: { p_note?: string; p_status: string; p_task_id: string }
+        Returns: boolean
+      }
       rpc_inversores_paginated:
         | {
             Args: { p_limit?: number; p_offset?: number; p_search?: string }
