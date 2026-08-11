@@ -1,9 +1,20 @@
 import { supabase } from "@/integrations/supabase/client";
+import {
+  V5_REOPENABLE_STATUSES,
+  isV5TaskStatus,
+  occupiesAutomaticSlot,
+} from "@/lib/v5/status";
+import { V5_STARTABLE_GENERATION_MODES } from "@/lib/v5/model";
 
 /** Estados terminales/bloqueados desde los que SÍ se admite reapertura. */
-export const REOPENABLE_STATUSES = ["completed", "skipped", "no_procede", "blocked"] as const;
-/** Modos de generación que admiten inicio real. */
-export const STARTABLE_GENERATION_MODES = ["production", "manual"] as const;
+export const REOPENABLE_STATUSES = V5_REOPENABLE_STATUSES;
+/**
+ * Modos de generación con tareas REALES e iniciables.
+ * Las manuales son tareas reales: sí pueden iniciarse. legacy/demo no.
+ */
+export const STARTABLE_GENERATION_MODES = V5_STARTABLE_GENERATION_MODES;
+
+export { occupiesAutomaticSlot };
 
 export type TaskLike = {
   status?: string | null;
@@ -44,11 +55,14 @@ export function canReopenTask(task: TaskLike | null | undefined): boolean {
 export type TaskStartDecision =
   | { action: "start"; reason: "pending" }
   | { action: "noop_ok"; reason: "ya_iniciada" }
-  | { action: "reject"; reason: "estado_no_iniciable" | "modo_no_iniciable" | "requiere_reapertura" };
+  | {
+      action: "reject";
+      reason: "estado_no_iniciable" | "estado_no_canonico" | "modo_no_iniciable" | "requiere_reapertura";
+    };
 
 export type TaskReopenDecision =
   | { action: "reopen"; reason: "estado_terminal" }
-  | { action: "reject"; reason: "estado_no_reabrible" };
+  | { action: "reject"; reason: "estado_no_reabrible" | "estado_no_canonico" };
 
 /**
  * Decisión pura equivalente a la del RPC start_building_task.
@@ -62,6 +76,8 @@ export function decideTaskStart(task: TaskLike | null | undefined): TaskStartDec
   if (!(STARTABLE_GENERATION_MODES as readonly string[]).includes(mode)) {
     return { action: "reject", reason: "modo_no_iniciable" };
   }
+  // Un typo o un 'queued' NO puede colarse como pendiente.
+  if (!isV5TaskStatus(status)) return { action: "reject", reason: "estado_no_canonico" };
   if (status === "pending") return { action: "start", reason: "pending" };
   if (status === "in_progress") {
     // Histórico sin started_at: NO se inventa duración; exige reapertura.
@@ -75,7 +91,8 @@ export function decideTaskStart(task: TaskLike | null | undefined): TaskStartDec
 /** Reapertura SÓLO desde estados terminales o bloqueados. */
 export function decideTaskReopen(task: TaskLike | null | undefined): TaskReopenDecision {
   const status = task?.status ?? null;
-  if (status && (REOPENABLE_STATUSES as readonly string[]).includes(status)) {
+  if (!isV5TaskStatus(status)) return { action: "reject", reason: "estado_no_canonico" };
+  if ((REOPENABLE_STATUSES as readonly string[]).includes(status)) {
     return { action: "reopen", reason: "estado_terminal" };
   }
   return { action: "reject", reason: "estado_no_reabrible" };

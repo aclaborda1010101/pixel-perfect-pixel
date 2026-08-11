@@ -11,6 +11,7 @@ import {
 import {
   buildV5TaskKey,
   V5_RULES_VERSION,
+  V5_GENERATION_MODES,
   isValidEvidence,
   type V5BuildingContext,
   type V5Candidate,
@@ -29,9 +30,20 @@ import {
 } from "@/lib/v5/modes";
 import {
   buildDemoProposals,
+  assertPersistableGenerationMode,
   planRecomputeDeletions,
   validateManualDraft,
 } from "@/lib/v5/manualDemo";
+import {
+  V5_TASK_STATUSES,
+  assertV5TaskStatus,
+  countOccupiedSlots,
+  isOpenStatus,
+  isTerminalStatus,
+  isV5TaskStatus,
+  occupiesAutomaticSlot,
+} from "@/lib/v5/status";
+import { canReopenTask, decideTaskReopen, decideTaskStart } from "@/lib/taskStart";
 import { FEATURE_V5_ENGINE_PHASE_A } from "@/lib/featureFlags";
 
 const NOW = new Date("2026-08-11T10:00:00Z");
@@ -619,7 +631,7 @@ describe("V5 manual y demo", () => {
       { taskKey: "a", generationMode: "manual" },
       { taskKey: "b", generationMode: "production" },
       { taskKey: "c", generationMode: "legacy" },
-      { taskKey: "d", generationMode: "demo" },
+      { taskKey: "d", generationMode: "production" },
     ]);
     expect(plan.protectedTasks.map((t) => t.taskKey).sort()).toEqual(["a", "c"]);
     expect(plan.deletable.map((t) => t.taskKey).sort()).toEqual(["b", "d"]);
@@ -638,7 +650,14 @@ describe("V5 manual y demo", () => {
     expect(res.report).toBe("20/20");
     expect(res.shortfall).toBe(0);
     expect(res.writes).toBe(0);
-    expect(new Set(res.proposals.map((p) => p.taskKey)).size).toBe(20);
+    expect(res.persisted).toBe(false);
+    // La demo NO compite por task_key: es un DTO de preview.
+    expect(new Set(res.proposals.map((p) => p.previewKey)).size).toBe(20);
+    for (const p of res.proposals) {
+      expect((p as Record<string, unknown>).taskKey).toBeUndefined();
+      expect(p.generationMode).toBe("demo");
+      expect(p.persistable).toBe(false);
+    }
     for (const spy of Object.values(repo)) expect(spy).not.toHaveBeenCalled();
   });
 
@@ -652,6 +671,72 @@ describe("V5 manual y demo", () => {
     expect(res.report).toBe("1/20");
     expect(res.shortfall).toBe(19);
     expect(res.writes).toBe(0);
+  });
+
+  it("demo nunca es persistible: generation_mode='demo' se rechaza en código", () => {
+    expect(() => assertPersistableGenerationMode("demo")).toThrow(/no es persistible/);
+    expect(() => assertPersistableGenerationMode("queued")).toThrow(/no persistible/);
+    expect(V5_GENERATION_MODES as readonly string[]).not.toContain("demo");
+    for (const m of ["legacy", "production", "manual"]) {
+      expect(assertPersistableGenerationMode(m)).toBe(m);
+    }
+  });
+
+  it("manual es tarea real e iniciable; legacy no se interpreta como manual", () => {
+    expect(decideTaskStart({ status: "pending", generation_mode: "manual" }).action).toBe("start");
+    expect(decideTaskStart({ status: "pending", generation_mode: "legacy" })).toMatchObject({
+      action: "reject", reason: "modo_no_iniciable",
+    });
+    expect(decideTaskStart({ status: "pending", generation_mode: "demo" })).toMatchObject({
+      action: "reject", reason: "modo_no_iniciable",
+    });
+    expect(decideTaskStart({ status: "blocked", generation_mode: "manual" })).toMatchObject({
+      action: "reject", reason: "estado_no_iniciable",
+    });
+  });
+});
+
+// =====================================================================
+// Vocabulario canónico de estados y slot automático
+// =====================================================================
+describe("V5 estados canónicos y slot automático", () => {
+  it("no admite typos ni alias libres como 'queued'", () => {
+    expect(V5_TASK_STATUSES).toEqual([
+      "pending", "in_progress", "blocked", "completed",
+      "skipped", "no_procede", "superseded", "cancelled",
+    ]);
+    for (const bad of ["queued", "Pending", "in-progress", "done", "", null, 3]) {
+      expect(isV5TaskStatus(bad)).toBe(false);
+      expect(occupiesAutomaticSlot({ generationMode: "production", status: bad as string })).toBe(false);
+      expect(() => assertV5TaskStatus(bad)).toThrow(/no canónico/);
+    }
+    expect(decideTaskStart({ status: "queued", generation_mode: "production" })).toMatchObject({
+      action: "reject", reason: "estado_no_canonico",
+    });
+    expect(decideTaskReopen({ status: "queued" })).toMatchObject({ action: "reject", reason: "estado_no_canonico" });
+  });
+
+  it("slot ocupado = production pending|in_progress; blocked NO congela la generación", () => {
+    expect(occupiesAutomaticSlot({ generationMode: "production", status: "pending" })).toBe(true);
+    expect(occupiesAutomaticSlot({ generationMode: "production", status: "in_progress" })).toBe(true);
+    // Decisión documentada: la bloqueada es visible como incidencia pero libera el slot.
+    expect(occupiesAutomaticSlot({ generationMode: "production", status: "blocked" })).toBe(false);
+    for (const s of ["completed", "skipped", "no_procede", "superseded", "cancelled"]) {
+      expect(occupiesAutomaticSlot({ generationMode: "production", status: s })).toBe(false);
+    }
+    for (const m of ["manual", "legacy"]) {
+      expect(occupiesAutomaticSlot({ generationMode: m, status: "pending" })).toBe(false);
+    }
+    expect(
+      countOccupiedSlots([
+        { generationMode: "production", status: "blocked" },
+        { generationMode: "production", status: "pending" },
+        { generationMode: "manual", status: "in_progress" },
+      ]),
+    ).toBe(1);
+    expect(isOpenStatus("blocked")).toBe(true);
+    expect(isTerminalStatus("blocked")).toBe(false);
+    expect(canReopenTask({ status: "blocked" })).toBe(true);
   });
 });
 
@@ -667,7 +752,8 @@ describe("V5 migración pendiente (estructural)", () => {
   it("generation_mode usa legacy como default y dominio con legacy", () => {
     expect(sql).toMatch(/generation_mode\s+text NOT NULL DEFAULT 'legacy'/);
     expect(sql).toMatch(/ALTER COLUMN generation_mode SET DEFAULT 'legacy'/);
-    expect(sql).toMatch(/generation_mode IN \('legacy','production','demo','manual'\)/);
+    expect(sql).toMatch(/generation_mode IN \('legacy','production','manual'\)/);
+    expect(sql).not.toMatch(/generation_mode IN \([^)]*'demo'/);
     expect(sql).not.toMatch(/DEFAULT 'manual'/);
     expect(sql).not.toMatch(/UPDATE public\.building_tasks/);
     expect(sql).not.toMatch(/DELETE FROM public\.building_tasks/);
@@ -706,11 +792,29 @@ describe("V5 migración pendiente (estructural)", () => {
     expect(sql).toMatch(/building_tasks_one_active_production_uidx[\s\S]*?user_id IS NOT NULL/);
   });
 
-  it("manual y demo tienen contrato propio y hay preflight fail-closed", () => {
+  it("manual tiene contrato propio y la demo está PROHIBIDA en la tabla", () => {
     expect(sql).toMatch(/building_tasks_manual_contract_chk/);
     expect(sql).toMatch(/created_by\s+IS NOT NULL/);
-    expect(sql).toMatch(/generation_mode <> 'demo' OR simulation_run_id IS NOT NULL/);
+    expect(sql).toMatch(/manual_subtype IN \('posible_interes','otro'\)/);
+    // manual exige ventana coherente; production prohíbe manual_subtype.
+    expect(sql).toMatch(/AND due_date >= starts_at/);
+    expect(sql).toMatch(/AND manual_subtype IS NULL/);
+    // demo fuera del dominio persistible.
+    expect(sql).toMatch(/CHECK \(generation_mode <> 'demo'\)/);
+    expect(sql).toMatch(/DROP CONSTRAINT building_tasks_demo_contract_chk/);
+    expect(sql).not.toMatch(/generation_mode = 'demo'/);
     expect((sql.match(/RAISE EXCEPTION/g) ?? []).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("la migración usa el MISMO vocabulario de status y la misma definición de slot", () => {
+    const canon = V5_TASK_STATUSES.map((s) => `'${s}'`).join(",");
+    expect(sql).toContain(canon);
+    expect(sql).toMatch(/building_tasks_v5_status_chk/);
+    // Slot = production pending|in_progress; blocked NO entra.
+    const slotIdx = sql.indexOf("building_tasks_one_active_production_uidx");
+    const slot = sql.slice(slotIdx, slotIdx + 400);
+    expect(slot).toMatch(/status IN \('pending','in_progress'\)/);
+    expect(slot).not.toMatch(/'blocked'/);
   });
 });
 

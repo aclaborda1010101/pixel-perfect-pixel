@@ -4,8 +4,8 @@
 
 import { computeEligibility } from "./eligibility";
 import { selectNextByMode, V5_WINDOW_SIZE, type V5ModeConfig, type V5WindowEntry } from "./modes";
-import type { V5BuildingContext, V5Candidate, V5ManualSubtype } from "./model";
-import { V5_RULES_VERSION } from "./model";
+import type { V5BuildingContext, V5Candidate, V5GenerationMode, V5ManualSubtype } from "./model";
+import { V5_RULES_VERSION, V5_PREVIEW_MODE, isPersistableGenerationMode } from "./model";
 
 export type V5ManualDraft = {
   buildingId: string;
@@ -63,6 +63,21 @@ export function validateManualDraft(draft: Partial<V5ManualDraft>): V5ManualVali
 
 export type V5RecomputeTask = { taskKey: string; generationMode?: string | null };
 
+/**
+ * Guardia de dominio: la demo NUNCA se persiste. Si algún camino intentara
+ * escribir generation_mode='demo' en building_tasks, falla en código antes
+ * de llegar a la base (donde además hay un CHECK que lo prohíbe).
+ */
+export function assertPersistableGenerationMode(mode: unknown): V5GenerationMode {
+  if (mode === V5_PREVIEW_MODE) {
+    throw new Error("La demo es preview puro: generation_mode='demo' no es persistible.");
+  }
+  if (!isPersistableGenerationMode(mode)) {
+    throw new Error(`generation_mode no persistible: ${JSON.stringify(mode)}`);
+  }
+  return mode;
+}
+
 /** Las manuales (y el legado) NUNCA se borran en un recompute. */
 export function isProtectedFromRecompute(task: { generationMode?: string | null }): boolean {
   return task.generationMode === "manual" || task.generationMode === "legacy";
@@ -78,14 +93,25 @@ export function planRecomputeDeletions<T extends V5RecomputeTask>(
   return { deletable, protectedTasks };
 }
 
+/**
+ * PROPUESTA DE DEMO: DTO en memoria. NO tiene task_key (no compite por la
+ * clave idempotente ni bloquea production) y se marca como no persistible.
+ */
+export type V5DemoProposal = Omit<V5Candidate, "taskKey"> & {
+  previewKey: string;
+  generationMode: typeof V5_PREVIEW_MODE;
+  persistable: false;
+};
+
 export type V5DemoResult = {
   comercialId: string | null;
   requested: number;
-  proposals: V5Candidate[];
+  proposals: V5DemoProposal[];
   shortfall: number;
   report: string;
   reasons: string[];
   writes: 0;
+  persisted: false;
 };
 
 export const V5_DEMO_LIMIT = 20;
@@ -128,22 +154,32 @@ export function buildDemoProposals(input: {
     }
     used.add(step.selected.taskKey);
     virtualWindow = step.window;
-    proposals.push({
-      ...step.selected,
-      eligibilitySnapshot: { ...step.selected.eligibilitySnapshot, generation_mode: "demo" },
-    });
+    proposals.push(step.selected);
   }
 
-  const shortfall = Math.max(0, limit - proposals.length);
-  const report = `${proposals.length}/${limit}`;
+  const dtos: V5DemoProposal[] = proposals.slice(0, V5_DEMO_LIMIT).map((c, i) => {
+    const { taskKey, ...rest } = c;
+    return {
+      ...rest,
+      // Identidad SÓLO de preview: no es una task_key y nunca se persiste.
+      previewKey: `preview:${i}:${taskKey.slice(3)}`,
+      generationMode: V5_PREVIEW_MODE,
+      persistable: false,
+      eligibilitySnapshot: { ...rest.eligibilitySnapshot, preview: true },
+    };
+  });
+
+  const shortfall = Math.max(0, limit - dtos.length);
+  const report = `${dtos.length}/${limit}`;
   if (shortfall > 0) reasons.unshift(`Sólo ${report} propuestas disponibles.`);
   return {
     comercialId: input.comercialId,
     requested: limit,
-    proposals: proposals.slice(0, V5_DEMO_LIMIT),
+    proposals: dtos,
     shortfall,
     report,
     reasons: [...new Set(reasons)],
     writes: 0,
+    persisted: false,
   };
 }

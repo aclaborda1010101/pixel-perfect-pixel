@@ -11,6 +11,17 @@
 --   * Preflight FAIL-CLOSED: si algún dato existente violase una
 --     restricción, la migración aborta (RAISE EXCEPTION) sin tocar nada.
 --   * T7, T2 y T3 quedan prohibidas también dentro de la task_key.
+--
+-- ENMIENDA A.1 (estados y demo):
+--   * VOCABULARIO CANÓNICO de status para tareas NO-legacy:
+--       pending, in_progress, blocked, completed, skipped, no_procede,
+--       superseded, cancelled.  No hay alias: 'queued'/typos quedan fuera.
+--   * SLOT AUTOMÁTICO OCUPADO = generation_mode='production' AND
+--     status IN ('pending','in_progress').  DECISIÓN EXPLÍCITA: 'blocked'
+--     NO ocupa slot — sigue visible como incidencia, pero no congela para
+--     siempre la generación del comercial.
+--   * 'demo' SALE del dominio persistible: la demo es preview puro en
+--     memoria (DTO), no compite por task_key ni bloquea production.
 -- =====================================================================
 
 BEGIN;
@@ -40,7 +51,9 @@ ALTER TABLE public.building_tasks ALTER COLUMN generation_mode SET DEFAULT 'lega
 COMMENT ON COLUMN public.building_tasks.task_code IS
   'Código canónico V5: T1, T2_T3, T4, T5, T6, T8, T9. T7/T2/T3 prohibidas.';
 COMMENT ON COLUMN public.building_tasks.generation_mode IS
-  'legacy (default, filas no migradas) | production | demo | manual. Sólo production entra en la restricción de una activa por comercial.';
+  'legacy (default, filas no migradas) | production | manual. demo NO es persistible (preview en memoria). Sólo production ocupa slot automático.';
+COMMENT ON COLUMN public.building_tasks.manual_subtype IS
+  'Obligatorio en manual; PROHIBIDO en production y legacy.';
 COMMENT ON COLUMN public.building_tasks.started_at IS
   'Inicio REAL de la tarea. NULL en el histórico: esas tareas no computan duración.';
 
@@ -66,11 +79,28 @@ BEGIN
       v_duetype;
   END IF;
 
-  -- 2.2 Ninguna fila existente puede tener generation_mode fuera del dominio.
+  -- 2.2 Ninguna fila existente puede tener generation_mode fuera del dominio
+  --     persistible (demo YA NO es persistible).
   SELECT count(*) INTO v_bad FROM public.building_tasks
-  WHERE generation_mode IS NULL OR generation_mode NOT IN ('legacy','production','demo','manual');
+  WHERE generation_mode IS NULL OR generation_mode NOT IN ('legacy','production','manual');
   IF v_bad > 0 THEN
-    RAISE EXCEPTION 'PREFLIGHT V5: % filas con generation_mode fuera de dominio', v_bad;
+    RAISE EXCEPTION 'PREFLIGHT V5: % filas con generation_mode fuera de dominio (demo incluido: la demo no se persiste)', v_bad;
+  END IF;
+
+  -- 2.2.b Vocabulario canónico de status en filas NO-legacy.
+  SELECT count(*) INTO v_bad FROM public.building_tasks
+  WHERE generation_mode <> 'legacy'
+    AND (status IS NULL OR status NOT IN
+         ('pending','in_progress','blocked','completed','skipped','no_procede','superseded','cancelled'));
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'PREFLIGHT V5: % filas no-legacy con status fuera del vocabulario canónico', v_bad;
+  END IF;
+
+  -- 2.2.c production nunca lleva manual_subtype.
+  SELECT count(*) INTO v_bad FROM public.building_tasks
+  WHERE generation_mode = 'production' AND manual_subtype IS NOT NULL;
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'PREFLIGHT V5: % filas production con manual_subtype', v_bad;
   END IF;
 
   -- 2.3 Claves V5 existentes: código válido y concordante, sin T7/T2/T3.
@@ -88,14 +118,14 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT V5: % filas con due_date < starts_at', v_bad;
   END IF;
 
-  -- 2.5 Más de una production activa por comercial (no debería existir aún).
+  -- 2.5 Más de una production ocupando slot por comercial (pending|in_progress).
   SELECT count(*) INTO v_bad FROM (
     SELECT user_id FROM public.building_tasks
     WHERE generation_mode = 'production' AND status IN ('pending','in_progress')
     GROUP BY user_id HAVING count(*) > 1
   ) q;
   IF v_bad > 0 THEN
-    RAISE EXCEPTION 'PREFLIGHT V5: % comerciales con más de una production activa', v_bad;
+    RAISE EXCEPTION 'PREFLIGHT V5: % comerciales con más de una production ocupando slot', v_bad;
   END IF;
 
   -- 2.6 Duplicados de task_key V5 en production.
@@ -118,7 +148,18 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_generation_mode_chk') THEN
     ALTER TABLE public.building_tasks
       ADD CONSTRAINT building_tasks_generation_mode_chk
-      CHECK (generation_mode IN ('legacy','production','demo','manual'));
+      CHECK (generation_mode IN ('legacy','production','manual'));
+  END IF;
+
+  -- Vocabulario canónico de status para todo lo NO-legacy: un typo o un
+  -- 'queued' no puede eludir las invariantes de slot ni de arranque.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_v5_status_chk') THEN
+    ALTER TABLE public.building_tasks
+      ADD CONSTRAINT building_tasks_v5_status_chk
+      CHECK (
+        generation_mode = 'legacy'
+        OR status IN ('pending','in_progress','blocked','completed','skipped','no_procede','superseded','cancelled')
+      );
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_subject_type_chk') THEN
@@ -182,11 +223,14 @@ BEGIN
           AND mode_snapshot    IS NOT NULL
           AND task_key         IS NOT NULL
           AND task_key LIKE 'v5:%'
+          -- production NUNCA lleva subtipo manual.
+          AND manual_subtype IS NULL
         )
       );
   END IF;
 
-  -- manual: autor, subtipo y sujeto obligatorios.
+  -- manual: autor, subtipo, sujeto y ventana coherente obligatorios.
+  -- legacy NO se interpreta como manual: exige el modo explícito.
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_manual_contract_chk') THEN
     ALTER TABLE public.building_tasks
       ADD CONSTRAINT building_tasks_manual_contract_chk
@@ -197,15 +241,22 @@ BEGIN
           AND manual_subtype IN ('posible_interes','otro')
           AND subject_type IN ('owner','building')
           AND subject_id   IS NOT NULL
+          AND starts_at    IS NOT NULL
+          AND due_date     IS NOT NULL
+          AND due_date >= starts_at
         )
       );
   END IF;
 
-  -- demo: siempre ligada a una simulación, nunca a producción.
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_demo_contract_chk') THEN
+  -- demo: PROHIBIDA en la tabla. La demo es preview puro en memoria y se
+  -- devuelve como DTO; cualquier INSERT/UPDATE con 'demo' es rechazado.
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_demo_contract_chk') THEN
+    ALTER TABLE public.building_tasks DROP CONSTRAINT building_tasks_demo_contract_chk;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'building_tasks_no_demo_chk') THEN
     ALTER TABLE public.building_tasks
-      ADD CONSTRAINT building_tasks_demo_contract_chk
-      CHECK (generation_mode <> 'demo' OR simulation_run_id IS NOT NULL);
+      ADD CONSTRAINT building_tasks_no_demo_chk
+      CHECK (generation_mode <> 'demo');
   END IF;
 END
 $constraints$;
@@ -241,14 +292,16 @@ $fks$;
 
 -- ---------------------------------------------------------------------
 -- 5. Idempotencia: task_key V5 única SÓLO en production.
---    legacy y demo no colisionan entre sí ni con production.
+--    La demo no existe aquí: no compite por task_key.
 -- ---------------------------------------------------------------------
 CREATE UNIQUE INDEX IF NOT EXISTS building_tasks_v5_production_key_uidx
   ON public.building_tasks (task_key)
   WHERE generation_mode = 'production' AND task_key LIKE 'v5:%';
 
 -- ---------------------------------------------------------------------
--- 6. Máximo UNA tarea production activa por comercial (user_id NOT NULL).
+-- 6. SLOT AUTOMÁTICO: máximo UNA production en pending|in_progress por
+--    comercial. 'blocked' queda deliberadamente FUERA (no congela la
+--    generación); misma definición que occupiesAutomaticSlot() en código.
 -- ---------------------------------------------------------------------
 CREATE UNIQUE INDEX IF NOT EXISTS building_tasks_one_active_production_uidx
   ON public.building_tasks (user_id)
