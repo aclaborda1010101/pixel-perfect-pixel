@@ -1,8 +1,10 @@
 -- =====================================================================
 -- WAVE 1A.3 P0.5 · WRAPPER E IDEMPOTENCIA DEL DRY-RUN
 -- =====================================================================
---  1) p0_rebuild_property_rights('x', false) es JSONB-idéntico al
---     dry-run salvo las claves informativas del wrapper (reason/motivo).
+--  1) P0.6: p0_rebuild_property_rights('x', false) es JSONB EXACTAMENTE
+--     igual a p0_property_rights_dry_run(). Sin exclusiones, sin restar
+--     claves, sin reason/motivo: igualdad estricta w = d1 y misma huella
+--     textual jsonb. Cualquier clave extra del wrapper hace FALLAR.
 --  2) Dos dry-run consecutivos son idénticos y no mueven un solo byte de
 --     rights / owners / buildings / tasks (checksums antes y después).
 --  3) p_apply = true aborta con REAL_REBUILD_DISABLED antes de escribir.
@@ -36,11 +38,26 @@ BEGIN
   d1 := public.p0_property_rights_dry_run();
   w  := public.p0_rebuild_property_rights('x', false);
   ASSERT (w ->> 'applied')::boolean IS FALSE, 'el wrapper declara applied=false';
-  ASSERT (w - 'reason' - 'motivo') = d1,
-    'el wrapper debe devolver EXACTAMENTE el dry-run (salvo reason/motivo). wrapper=' || w::text || ' dry_run=' || d1::text;
+  ASSERT w = d1,
+    'IGUALDAD ESTRICTA: el wrapper debe devolver EXACTAMENTE el dry-run. wrapper='
+    || w::text || ' dry_run=' || d1::text;
+  ASSERT w::text = d1::text, 'la huella textual jsonb del wrapper difiere del dry-run';
+  ASSERT NOT (w ? 'reason') AND NOT (w ? 'motivo'),
+    'el wrapper no puede añadir reason/motivo';
+  -- Cero claves extra y cero claves ausentes, en ambos sentidos.
+  ASSERT NOT EXISTS (SELECT 1 FROM jsonb_object_keys(w) k(key)
+                      EXCEPT SELECT key FROM jsonb_object_keys(d1) k2(key)),
+    'el wrapper añade claves que el dry-run no tiene';
+  ASSERT NOT EXISTS (SELECT 1 FROM jsonb_object_keys(d1) k(key)
+                      EXCEPT SELECT key FROM jsonb_object_keys(w) k2(key)),
+    'el wrapper omite claves del dry-run';
   FOR k IN SELECT key FROM jsonb_each(d1) LOOP
     ASSERT w -> k = d1 -> k, format('el wrapper altera la clave %s del dry-run', k);
   END LOOP;
+
+  -- p_reason es trazabilidad, no contrato: cambiarlo no cambia el JSONB.
+  ASSERT public.p0_rebuild_property_rights('otro-motivo', false) = d1,
+    'el JSONB del wrapper no puede depender de p_reason';
 
   -- (2) Idempotencia: dos dry-run consecutivos, JSONB idéntico
   d2 := public.p0_property_rights_dry_run();
