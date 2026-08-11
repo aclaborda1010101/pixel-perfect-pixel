@@ -458,13 +458,22 @@ Deno.serve(async (req) => {
   //    nota finalizada en no finalizada; deja match_pending durable.
   const matchDecision = decideMatching({ ok, failed: resumen.records_failed });
   let matchOutcome: any = null;
-  let matchPending = false;
   if (matchDecision.run) {
     matchOutcome = await runMatching(async () => await sb.rpc("match_notas_pendientes"));
-    matchPending = matchOutcome.pending;
     if (matchOutcome.status === "error") console.error(`[notas_reparse] match rpc:`, matchOutcome.error);
   }
+  // match_pending NUNCA se borra si no hubo RPC con éxito en este ciclo.
+  const nextPending = computeNextMatchPending({
+    previous: prevState,
+    ran: matchDecision.run,
+    outcome: matchOutcome,
+  });
+  const matchPending = nextPending.pending;
   const matchResult = matchOutcome?.data ?? null;
+  // Si no podemos garantizar durabilidad del pendiente, la respuesta es no-2xx.
+  const degradado = nextPending.degraded;
+  const httpStatus = degradado && resumen.http < 400 ? 500 : resumen.http;
+  const statusFinal = degradado && resumen.status === "ok" ? "partial" : resumen.status;
 
   // 4) Log
   try {
@@ -474,8 +483,8 @@ Deno.serve(async (req) => {
       finished_at: new Date().toISOString(),
       records_upserted: resumen.records_upserted,
       records_failed: resumen.records_failed,
-      status: resumen.status,
-      error_message: resumen.error_message,
+      status: statusFinal,
+      error_message: resumen.error_message ?? nextPending.stateReadError,
       metadatos: {
         ok,
         fail: resumen.records_failed,
@@ -486,6 +495,8 @@ Deno.serve(async (req) => {
         match_error: matchOutcome?.error ?? null,
         match_reason: matchDecision.reason,
         match_pending: matchPending,
+        match_pending_reason: nextPending.reason,
+        state_read_error: nextPending.stateReadError,
         fallidas: results.filter((r) => !r.ok).slice(0, 20).map((r) => ({ id: r.id, reason: r.reason })),
       },
     });
@@ -495,20 +506,21 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({
-    ok: resumen.ok,
-    status: resumen.status,
+    ok: resumen.ok && !degradado,
+    status: statusFinal,
     procesadas: results.length,
     correctas: resumen.records_upserted,
     fallidas: resumen.records_failed,
-    error_message: resumen.error_message,
+    error_message: resumen.error_message ?? nextPending.stateReadError,
     retry_state_failed: retryStateFailed,
     match_result: matchResult,
     match_status: matchOutcome?.status ?? "skipped",
     match_pending: matchPending,
+    state_read_error: nextPending.stateReadError,
     elapsed_ms: Date.now() - t0,
     resultados: results,
   }), {
-    status: resumen.http,
+    status: httpStatus,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
