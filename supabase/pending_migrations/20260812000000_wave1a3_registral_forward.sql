@@ -1260,6 +1260,10 @@ WITH src AS (
     count(*) FILTER (WHERE conflicto_ids) AS conflicto_owner_y_company,
     count(*) FILTER (WHERE owner_id IS NOT NULL AND company_id IS NOT NULL) AS mezcla_owner_company,
     count(*) FILTER (WHERE identidad_ambigua) AS identidades_ambiguas,
+    count(*) FILTER (WHERE identity_conflict) AS identity_conflicts,
+    count(*) FILTER (WHERE unidad_key_conflict) AS unit_key_conflicts,
+    count(*) FILTER (WHERE building_block) AS filas_bloqueadas_por_edificio,
+    count(*) FILTER (WHERE structured_unverified) AS structured_unverified,
     count(*) FILTER (WHERE date_conflict OR unidad_date_conflict) AS date_conflicts,
     count(*) FILTER (WHERE regime_conflict) AS regime_conflicts,
     count(*) FILTER (WHERE unidad_con_lista_sin_titulares) AS filas_bloqueadas_por_lista_sin_titulares,
@@ -1282,6 +1286,12 @@ WITH src AS (
     count(*) FILTER (WHERE feeds_cuota AND unidad_contradictoria) AS bad_contradiccion_feeds,
     count(*) FILTER (WHERE feeds_cuota AND NOT is_canonical) AS bad_no_canonica_feeds,
     count(*) FILTER (WHERE feeds_cuota AND NOT layer_safe) AS bad_capa_insegura_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND NOT unidad_segura) AS bad_unidad_insegura_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND unidad_key_conflict) AS bad_unit_key_conflict_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND building_block) AS bad_building_block_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND identity_conflict) AS bad_identity_conflict_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND structured_unverified) AS bad_structured_unverified_feeds,
+    count(*) FILTER (WHERE feeds_cuota AND fila_problematica) AS bad_fila_problematica_feeds,
     count(*) FILTER (WHERE feeds_cuota AND NOT row_safe_pre_layer) AS bad_fila_insegura_feeds,
     count(*) FILTER (WHERE feeds_cuota AND role_conflict) AS bad_role_conflict_feeds,
     count(*) FILTER (WHERE feeds_cuota AND regime_conflict) AS bad_regime_conflict_feeds,
@@ -1340,6 +1350,10 @@ SELECT jsonb_build_object(
   'unmatched', agg.unmatched,
   'conflicto_owner_y_company', agg.conflicto_owner_y_company,
   'identidades_ambiguas', agg.identidades_ambiguas,
+  'identity_conflicts', agg.identity_conflicts,
+  'unit_key_conflicts', agg.unit_key_conflicts,
+  'filas_bloqueadas_por_edificio', agg.filas_bloqueadas_por_edificio,
+  'structured_unverified', agg.structured_unverified,
   'date_conflicts', agg.date_conflicts,
   'regime_conflicts', agg.regime_conflicts,
   'localizadores_invalidos', agg.localizadores_invalidos,
@@ -1372,6 +1386,12 @@ SELECT jsonb_build_object(
     'solo_pleno_alimenta_cuota', agg.bad_no_pleno_feeds = 0,
     'solo_fila_segura_alimenta_cuota', agg.bad_fila_insegura_feeds = 0,
     'solo_capa_segura_alimenta_cuota', agg.bad_capa_insegura_feeds = 0,
+    'solo_unidad_completa_segura_alimenta_cuota', agg.bad_unidad_insegura_feeds = 0,
+    'fila_problematica_no_alimenta_cuota', agg.bad_fila_problematica_feeds = 0,
+    'unit_key_conflict_no_alimenta_cuota', agg.bad_unit_key_conflict_feeds = 0,
+    'bloqueo_edificio_no_alimenta_cuota', agg.bad_building_block_feeds = 0,
+    'identity_conflict_no_alimenta_cuota', agg.bad_identity_conflict_feeds = 0,
+    'structured_solo_no_alimenta_cuota', agg.bad_structured_unverified_feeds = 0,
     'solo_canonica_alimenta_cuota', agg.bad_no_canonica_feeds = 0,
     'max_una_canonica_por_unidad', u.unidades_multi_canonica = 0,
     'contradiccion_sin_canonica', u.contradicciones_con_canonica = 0,
@@ -1397,6 +1417,12 @@ SELECT jsonb_build_object(
     AND agg.bad_no_pleno_feeds = 0
     AND agg.bad_fila_insegura_feeds = 0
     AND agg.bad_capa_insegura_feeds = 0
+    AND agg.bad_unidad_insegura_feeds = 0
+    AND agg.bad_fila_problematica_feeds = 0
+    AND agg.bad_unit_key_conflict_feeds = 0
+    AND agg.bad_building_block_feeds = 0
+    AND agg.bad_identity_conflict_feeds = 0
+    AND agg.bad_structured_unverified_feeds = 0
     AND agg.bad_no_canonica_feeds = 0
     AND u.unidades_multi_canonica = 0
     AND u.contradicciones_con_canonica = 0
@@ -1422,6 +1448,10 @@ SELECT jsonb_build_object(
     AND agg.regime_conflicts = 0
     AND agg.role_conflicts = 0
     AND agg.identidades_ambiguas = 0
+    AND agg.identity_conflicts = 0
+    AND agg.unit_key_conflicts = 0
+    AND agg.filas_bloqueadas_por_edificio = 0
+    AND agg.structured_unverified = 0
     AND agg.conflicto_owner_y_company = 0
     AND agg.localizadores_invalidos = 0
     AND agg.citas_no_ancladas = 0
