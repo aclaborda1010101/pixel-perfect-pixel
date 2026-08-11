@@ -232,6 +232,116 @@ $$;
 COMMENT ON FUNCTION public.p0_locator_valid(text, text, text) IS
   'Localizador válido: página entero >=1, offset entero >=0 o ruta con sintaxis cerrada. "x", "foo", "0" como página y negativos se rechazan.';
 
+-- P0.2: el OR anterior permitía que UNA página válida tapase una ruta u
+-- offset mal formados. Ahora CADA localizador aportado debe ser válido por
+-- separado, y debe haber al menos uno.
+CREATE OR REPLACE FUNCTION public.p0_locator_all_valid(p_pagina text, p_offset text, p_ruta text)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+  SELECT
+    (nullif(btrim(coalesce(p_pagina,'')),'') IS NOT NULL
+     OR nullif(btrim(coalesce(p_offset,'')),'') IS NOT NULL
+     OR nullif(btrim(coalesce(p_ruta,'')),'') IS NOT NULL)
+    AND (nullif(btrim(coalesce(p_pagina,'')),'') IS NULL
+         OR (btrim(p_pagina) ~ '^[0-9]+$' AND btrim(p_pagina)::numeric >= 1))
+    AND (nullif(btrim(coalesce(p_offset,'')),'') IS NULL
+         OR btrim(p_offset) ~ '^[0-9]+$')
+    AND (nullif(btrim(coalesce(p_ruta,'')),'') IS NULL
+         OR btrim(p_ruta) ~ '^(\$\.)?[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?)*$');
+$$;
+
+COMMENT ON FUNCTION public.p0_locator_all_valid(text, text, text) IS
+  'Wave 1A.3 P0.2: TODOS los localizadores aportados deben ser sintácticamente válidos; una página correcta NO rescata una ruta u offset erróneos.';
+
+-- Resolución REAL de una ruta JSON dentro de structured_json. Devuelve el
+-- nodo apuntado o NULL si la ruta no existe. Sin json_path para no depender
+-- de la versión del servidor y para rechazar sintaxis abierta.
+CREATE OR REPLACE FUNCTION public.p0_json_path_resolve(p_sj jsonb, p_ruta text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE s text; seg text; cur jsonb; m text[];
+BEGIN
+  IF p_sj IS NULL THEN RETURN NULL; END IF;
+  s := btrim(coalesce(p_ruta,''));
+  IF s = '' THEN RETURN NULL; END IF;
+  s := regexp_replace(s, '^\$\.?', '');
+  IF s = '' THEN RETURN p_sj; END IF;
+  cur := p_sj;
+  FOREACH seg IN ARRAY string_to_array(s, '.') LOOP
+    m := regexp_match(seg, '^([A-Za-z_][A-Za-z0-9_]*)(\[([0-9]+)\])?$');
+    IF m IS NULL THEN RETURN NULL; END IF;
+    IF cur IS NULL OR jsonb_typeof(cur) <> 'object' THEN RETURN NULL; END IF;
+    cur := cur -> m[1];
+    IF cur IS NULL THEN RETURN NULL; END IF;
+    IF m[3] IS NOT NULL THEN
+      IF jsonb_typeof(cur) <> 'array' THEN RETURN NULL; END IF;
+      cur := cur -> (m[3]::int);
+      IF cur IS NULL THEN RETURN NULL; END IF;
+    END IF;
+  END LOOP;
+  RETURN cur;
+END $$;
+
+-- Elemento (objeto titular) al que pertenece la ruta: si la ruta apunta a
+-- un escalar (p. ej. ".porcentaje") se sube al objeto contenedor.
+CREATE OR REPLACE FUNCTION public.p0_ruta_elemento(p_sj jsonb, p_ruta text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE nodo jsonb; padre text;
+BEGIN
+  nodo := public.p0_json_path_resolve(p_sj, p_ruta);
+  IF nodo IS NOT NULL AND jsonb_typeof(nodo) = 'object' THEN RETURN nodo; END IF;
+  padre := regexp_replace(btrim(coalesce(p_ruta,'')), '\.[A-Za-z_][A-Za-z0-9_]*(\[[0-9]+\])?$', '');
+  IF padre = btrim(coalesce(p_ruta,'')) THEN RETURN NULL; END IF;
+  nodo := public.p0_json_path_resolve(p_sj, padre);
+  IF nodo IS NOT NULL AND jsonb_typeof(nodo) = 'object' THEN RETURN nodo; END IF;
+  RETURN NULL;
+END $$;
+
+-- VÍNCULO EXACTO: si se aporta ruta u offset, debe resolver al MISMO
+-- titular / derecho / porcentaje que la cita. La página no es demostrable
+-- en SQL: es auditoría neutra (nunca rescata, nunca inventa vínculo).
+CREATE OR REPLACE FUNCTION public.p0_locator_link_ok(
+  p_sj jsonb, p_raw text, p_cita text,
+  p_pagina text, p_offset text, p_ruta text,
+  p_nn text, p_right text, p_pct numeric)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE el jsonb; off int; frag text;
+BEGIN
+  -- RUTA: debe existir y describir exactamente a este titular.
+  IF nullif(btrim(coalesce(p_ruta,'')),'') IS NOT NULL THEN
+    el := public.p0_ruta_elemento(p_sj, p_ruta);
+    IF el IS NULL THEN RETURN false; END IF;
+    IF p_nn IS NULL OR public.norm_person_name(el ->> 'nombre') IS DISTINCT FROM p_nn THEN
+      RETURN false;
+    END IF;
+    IF p_right IS NULL
+       OR public.p0_right_type_canonico(NULL, coalesce(el ->> 'derecho', el ->> 'rol'))
+          IS DISTINCT FROM p_right THEN
+      RETURN false;
+    END IF;
+    IF p_pct IS NULL
+       OR public.p0_parse_pct(el ->> 'porcentaje') IS NULL
+       OR abs(public.p0_parse_pct(el ->> 'porcentaje') - p_pct) > 0.01 THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  -- OFFSET: debe apuntar al arranque real de la cita en raw_pdf_text.
+  IF nullif(btrim(coalesce(p_offset,'')),'') IS NOT NULL THEN
+    IF p_cita IS NULL OR p_raw IS NULL OR btrim(p_offset) !~ '^[0-9]+$' THEN RETURN false; END IF;
+    off := btrim(p_offset)::int;
+    frag := substr(p_raw, off + 1, char_length(p_cita) + 40);
+    IF frag IS NULL OR public.p0_norm_text(frag) IS NULL
+       OR public.p0_norm_text(p_cita) IS NULL
+       OR position(public.p0_norm_text(p_cita) IN public.p0_norm_text(frag)) <> 1 THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  RETURN true;
+END $$;
+
+COMMENT ON FUNCTION public.p0_locator_link_ok(jsonb, text, text, text, text, text, text, text, numeric) IS
+  'Wave 1A.3 P0.2: ruta y offset deben resolver EXACTAMENTE al mismo titular/derecho/porcentaje de la cita. Si no se puede probar el vínculo, la evidencia estructurada es solo auditoría (structured_unverified).';
+
 -- ---------------------------------------------------------------------
 -- 6) EVIDENCIA CONSERVADORA
 -- ---------------------------------------------------------------------
