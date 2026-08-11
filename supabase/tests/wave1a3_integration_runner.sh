@@ -152,6 +152,24 @@ fi
 CHAIN+=("$ROOT/supabase/pending_migrations/20260810164500_wave1a_registral_rebuild_seguro.sql")
 CHAIN+=("$ROOT/supabase/pending_migrations/20260812000000_wave1a3_registral_forward.sql")
 
+# Deriva de baseline: la fila "edificio placeholder" existe en el proyecto
+# real desde antes del historial versionado y varias migraciones de datos la
+# referencian por FK. Se re-asegura (idempotente) antes de cada migración,
+# en cuanto la tabla existe. No es un reintento: no reaplica nada fallido.
+asegurar_placeholder() {
+  "${PSQL_TEST[@]}" -c "DO \$ph\$
+  BEGIN
+    IF to_regclass('public.buildings') IS NOT NULL THEN
+      BEGIN
+        INSERT INTO public.buildings (id, direccion)
+        VALUES ('0485d8cf-c1a2-4412-b38f-e37fb18961a2', 'BASELINE LOCAL PLACEHOLDER')
+        ON CONFLICT (id) DO NOTHING;
+      EXCEPTION WHEN others THEN NULL;
+      END;
+    END IF;
+  END \$ph\$;" >/dev/null 2>&1 || true
+}
+
 MANIFEST="$WORK/manifest.txt"
 : > "$MANIFEST"
 # Extensiones de plataforma que no existen en un clúster local: su
