@@ -2855,6 +2855,8 @@ export type Database = {
           description: string | null
           due_date: string | null
           id: string
+          objetivo: string | null
+          pasos_registro: string | null
           priority: string
           started_at: string | null
           status: string
@@ -2871,6 +2873,8 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           id?: string
+          objetivo?: string | null
+          pasos_registro?: string | null
           priority?: string
           started_at?: string | null
           status?: string
@@ -2887,6 +2891,8 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           id?: string
+          objetivo?: string | null
+          pasos_registro?: string | null
           priority?: string
           started_at?: string | null
           status?: string
