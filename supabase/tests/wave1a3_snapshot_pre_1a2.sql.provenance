@@ -1,0 +1,21 @@
+generador=supabase/tests/wave1a3_make_snapshot.sh
+commit=desconocido
+postgres=17.9
+corte=migraciones versionadas con timestamp < 20260810164500
+prologo=supabase/tests/wave1a_local_baseline.sql
+migraciones_aplicadas=182
+migraciones_no_aplicables=11
+extensiones_reales=pgcrypto,uuid-ossp,pg_trgm,vector,pg_cron,pg_net,fuzzystrmatch
+esquemas_excluidos=net,cron (los aportan pg_net y pg_cron)
+--- migraciones no aplicables (deriva de baseline declarada) ---
+20260525213229_836a4f11-28c1-4f30-842c-3242119b9a25.sql :: ERROR:  insert or update on table "catastro_data" violates foreign key constraint "catastro_data_building_id_fkey"
+20260721070356_6d6d247d-d76b-44e9-be33-c5e0fc950816.sql :: ERROR:  column "comercial" does not exist
+20260728150738_1e89dab9-95be-4f25-b586-079ce27c8e8a.sql :: ERROR:  column "fecha_nacimiento" of relation "owners" does not exist
+20260805051304_1ea1f984-7f42-467e-b2f2-9619a8f5c62f.sql :: ERROR:  column o.estado_vital does not exist
+20260805051330_381b4dcd-9ef7-496c-bc7e-02824c3c48cc.sql :: ERROR:  No se encontró la expresión COALESCE(b_score_total, score_raw) AS score en v_building_score
+20260805051452_d6a37424-1469-48f3-9bd6-a619da55b4e1.sql :: ERROR:  column o.estado_vital does not exist
+20260805053651_5e89649e-2d1b-45c6-a7f2-a8b641034fbe.sql :: ERROR:  column o.estado_vital does not exist
+20260805054330_6dcb95ff-e514-444b-8a98-ed80844900e1.sql :: ERROR:  column o.estado_vital does not exist
+20260805075910_c880197a-5372-4f08-a634-52794ec5c588.sql :: ERROR:  column o.fecha_nacimiento does not exist
+20260805080012_cfc70321-19ea-40f2-901c-7f9b9664d31b.sql :: ERROR:  relation "public.v_v5_task_candidates" does not exist
+20260810145734_6f32bcd7-f476-4edf-a376-8c003d7db45e.sql :: ERROR:  column o.fecha_nacimiento does not exist

@@ -1,30 +1,27 @@
 #!/usr/bin/env bash
 # =====================================================================
-# WAVE 1A.3 P0.3 · RUNNER LOCAL DESECHABLE, SIN SHIMS
+# WAVE 1A.3 P0.4 · RUNNER LOCAL DESECHABLE, SIN SHIMS, ATÓMICO
 # =====================================================================
-# Reglas duras de esta versión (P0.3):
+# Reglas duras (P0.4, endurecen las de P0.3):
 #   - CERO shims: no se neutraliza ningún CREATE EXTENSION, no se reescribe
-#     SQL con sed, no se omite ninguna migración, no se inyectan columnas
-#     ni filas de deriva, no se traga ningún error y no hay reintentos.
-#   - Se aplica un SNAPSHOT VERSIONADO EXACTO del esquema inmediatamente
-#     anterior a 1A.2 (con checksum y procedencia declarada) y después,
-#     sin tocar un byte, 1A.2 -> 1A.3.
-#   - Si falta el snapshot exacto, su checksum/procedencia, o alguna
-#     extensión real (pg_cron, pg_net, vector, pgcrypto, pg_trgm),
-#     el runner sale con SKIP / NO VERIFICADO (exit 3) y NO declara
-#     ninguna aplicabilidad.
-#   - Aislamiento: clúster efímero propio creado con initdb, sin red
-#     (listen_addresses='', sólo socket unix en un temporal), base
-#     aleatoria y ROL DEDICADO no superusuario que ejecuta toda la cadena.
-#   - Reporte individual por caso, SIN fail-fast, sentinel final y
-#     exit != 0 si falla cualquiera.
+#     SQL con sed, no se omite ninguna migración y no hay reintentos.
+#   - SNAPSHOT OBLIGATORIO: sin snapshot versionado pre-1A.2 + SHA256 +
+#     procedencia => SKIP / NO VERIFICADO (exit 3). Jamás verde.
+#   - ATOMICIDAD REAL: la cadena snapshot -> 1A.2 -> 1A.3 se aplica en UNA
+#     SOLA transacción (psql -1 -v ON_ERROR_STOP=1). Antes se ejecuta una
+#     prueba de FALLO TARDÍO: la misma cadena más una orden que falla al
+#     final; tras el rollback el catálogo (checksum de objetos de public)
+#     debe ser byte a byte el de partida.
+#   - Aislamiento: clúster efímero propio (initdb), sin red, base aleatoria
+#     y ROL DEDICADO no superusuario que ejecuta toda la cadena.
+#   - Reporte individual por caso, SIN fail-fast, sentinel final.
 # =====================================================================
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-die()  { echo "ABORTADO: $*" >&2; exit 2; }
-skip() { echo "SKIP / NO VERIFICADO: $*" >&2; echo "SENTINEL: WAVE1A3_P03_NO_VERIFICADO"; exit 3; }
+die()  { echo "ABORTADO: $*" >&2; echo "SENTINEL: WAVE1A3_P04_NO_GO"; exit 2; }
+skip() { echo "SKIP / NO VERIFICADO: $*" >&2; echo "SENTINEL: WAVE1A3_P04_NO_VERIFICADO"; exit 3; }
 
 # --- 0. Ninguna conexión suministrada puede influir -------------------
 for v in DATABASE_URL SUPABASE_DB_URL PGHOST PGPORT PGUSER PGDATABASE \
@@ -35,26 +32,40 @@ for v in DATABASE_URL SUPABASE_DB_URL PGHOST PGPORT PGUSER PGDATABASE \
 done
 unset PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD PGSERVICE PGSERVICEFILE PGOPTIONS
 
-for bin in initdb pg_ctl psql pg_config sha256sum; do
+for bin in initdb pg_ctl psql sha256sum; do
   command -v "$bin" >/dev/null 2>&1 || skip "$bin no disponible: no hay entorno local aislado."
 done
 
-# --- 0.a Extensiones REALES o SKIP (nunca shim) -----------------------
-EXTDIR="$(pg_config --sharedir)/extension"
-for ext in pgcrypto pg_trgm vector pg_cron pg_net; do
-  [ -f "$EXTDIR/$ext.control" ] \
-    || skip "la extensión real '$ext' no está instalada en este entorno; sin shims no se puede aplicar la cadena. NO se declara aplicabilidad."
-done
-
-# --- 0.b Snapshot exacto pre-1A.2 con checksum y procedencia ----------
+# --- 0.a Snapshot exacto pre-1A.2: fichero + checksum + procedencia ----
 SNAP="$ROOT/supabase/tests/wave1a3_snapshot_pre_1a2.sql"
+SNAP_EXT="$SNAP.extensions"
+SNAP_ROLES="$SNAP.roles"
 SNAP_SUM="$SNAP.sha256"
 SNAP_PROV="$SNAP.provenance"
-for f in "$SNAP" "$SNAP_SUM" "$SNAP_PROV"; do
-  [ -f "$f" ] || skip "falta $(basename "$f"): no hay snapshot versionado EXACTO del esquema inmediatamente anterior a 1A.2 con checksum y procedencia. NO se declara aplicabilidad."
+for f in "$SNAP" "$SNAP_EXT" "$SNAP_ROLES" "$SNAP_SUM" "$SNAP_PROV"; do
+  [ -s "$f" ] || skip "falta $(basename "$f"): sin snapshot versionado EXACTO pre-1A.2 con checksum y procedencia no se declara aplicabilidad. Regenéralo con wave1a3_make_snapshot.sh."
 done
 ( cd "$(dirname "$SNAP")" && sha256sum -c "$(basename "$SNAP_SUM")" >/dev/null 2>&1 ) \
   || die "el checksum del snapshot pre-1A.2 no coincide: la procedencia no es verificable."
+for campo in generador commit postgres corte migraciones_aplicadas; do
+  grep -q "^$campo=" "$SNAP_PROV" || die "la procedencia del snapshot no declara '$campo'."
+done
+
+# --- 0.b Extensiones REALES exigidas POR EL PROPIO SNAPSHOT -----------
+# El directorio de extensiones se deriva de pg_config y, si no existe, de
+# la ubicación real de initdb. Nunca se sustituye una extensión por un shim.
+if command -v pg_config >/dev/null 2>&1; then
+  EXTDIR="$(pg_config --sharedir)/extension"
+else
+  EXTDIR="$(cd "$(dirname "$(command -v initdb)")/../share/postgresql/extension" 2>/dev/null && pwd)"
+fi
+[ -n "${EXTDIR:-}" ] && [ -d "$EXTDIR" ] || skip "no se localiza el directorio de extensiones de PostgreSQL."
+REQ_EXT="$(sed -n 's/^CREATE EXTENSION IF NOT EXISTS \("\?\)\([A-Za-z0-9_-]*\)\1.*/\2/p' "$SNAP_EXT" | sort -u)"
+[ -n "$REQ_EXT" ] || die "el snapshot no declara ninguna extensión: material incompleto."
+for ext in $REQ_EXT; do
+  [ -f "$EXTDIR/$ext.control" ] \
+    || skip "la extensión real '$ext' (exigida por el snapshot) no está instalada; sin shims no se puede aplicar la cadena. NO se declara aplicabilidad."
+done
 
 # --- 0.c El servidor no puede arrancar como root ----------------------
 if [ "$(id -u)" = "0" ]; then
@@ -63,7 +74,7 @@ if [ "$(id -u)" = "0" ]; then
     skip "PostgreSQL no arranca como root. Define WAVE1A_LOCAL_USER con un usuario local sin privilegios."
   fi
   exec setpriv --reuid="$(id -u "$RUNAS")" --regid="$(id -g "$RUNAS")" --clear-groups \
-       env HOME=/tmp WAVE1A_LOCAL_USER= bash "${BASH_SOURCE[0]}" "$@"
+       env HOME="${TMPDIR:-/tmp}" WAVE1A_LOCAL_USER= bash "${BASH_SOURCE[0]}" "$@"
 fi
 
 RAND="$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"
@@ -86,9 +97,13 @@ trap cleanup EXIT
 initdb -D "$DATA" -U "$ADMIN" -A trust --no-locale --encoding=UTF8 >"$WORK/initdb.log" 2>&1 \
   || { sed -n '1,40p' "$WORK/initdb.log" >&2; skip "initdb falló."; }
 
+PRELOAD=""
+case "$REQ_EXT" in *pg_cron*) PRELOAD="pg_cron";; esac
+case "$REQ_EXT" in *pg_net*)  PRELOAD="${PRELOAD:+$PRELOAD,}pg_net";; esac
+
 pg_ctl -D "$DATA" -w -l "$WORK/pg.log" \
-  -o "-c listen_addresses='' -k '$SOCK' -c fsync=off -c full_page_writes=off -c synchronous_commit=off -c shared_preload_libraries=pg_cron -c cron.database_name=$TESTDB" \
-  start >/dev/null 2>&1 || { sed -n '1,60p' "$WORK/pg.log" >&2; skip "el clúster efímero no arranca con pg_cron precargado."; }
+  -o "-c listen_addresses='' -k '$SOCK' -c fsync=off -c full_page_writes=off -c synchronous_commit=off ${PRELOAD:+-c shared_preload_libraries='$PRELOAD'} -c cron.database_name=$TESTDB" \
+  start >/dev/null 2>&1 || { sed -n '1,60p' "$WORK/pg.log" >&2; skip "el clúster efímero no arranca con las extensiones precargadas."; }
 
 PSQL_ADMIN=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d postgres -q)
 "${PSQL_ADMIN[@]}" -c 'SELECT 1' >/dev/null || skip "el clúster efímero no acepta conexiones."
@@ -99,57 +114,109 @@ PSQL_ADMIN=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d postgres -q)
 "${PSQL_ADMIN[@]}" -c "CREATE DATABASE \"$TESTDB\" OWNER \"$ROLE\";" \
   || die "no se pudo crear la base desechable"
 
-# Extensiones REALES (único paso admin: requieren superusuario). Sin || true.
-for ext in pgcrypto '"uuid-ossp"' pg_trgm vector pg_cron pg_net; do
-  psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q \
-    -c "CREATE EXTENSION IF NOT EXISTS $ext;" >"$WORK/ext.log" 2>&1 \
-    || { sed -n '1,20p' "$WORK/ext.log" >&2; skip "no se pudo crear la extensión real $ext."; }
-done
+# Roles de plataforma declarados por el snapshot (globales del clúster).
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q -f "$SNAP_ROLES" >"$WORK/roles.log" 2>&1 \
+  || { sed -n '1,30p' "$WORK/roles.log" >&2; die "no se pudieron crear los roles de plataforma declarados por el snapshot."; }
+
+# Extensiones REALES tal y como las declara el snapshot (único paso admin:
+# CREATE EXTENSION exige superusuario). Sin || true, sin sustituciones.
+psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ADMIN" -d "$TESTDB" -q -f "$SNAP_EXT" >"$WORK/ext.log" 2>&1 \
+  || { sed -n '1,30p' "$WORK/ext.log" >&2; skip "no se pudieron crear las extensiones reales declaradas por el snapshot."; }
 
 PSQL_TEST=(psql -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ROLE" -d "$TESTDB" -q)
 IS_SUPER="$("${PSQL_TEST[@]}" -At -c "SELECT rolsuper FROM pg_roles WHERE rolname = current_user")"
 [ "$IS_SUPER" = "f" ] || die "el rol de pruebas no puede ser superusuario (rolsuper=$IS_SUPER)"
 
-# --- 3. Snapshot exacto -> 1A.2 -> 1A.3, sin tocar ficheros -----------
+# --- 3. Manifiesto de la cadena --------------------------------------
 CHAIN=(
   "$SNAP"
   "$ROOT/supabase/pending_migrations/20260810164500_wave1a_registral_rebuild_seguro.sql"
   "$ROOT/supabase/pending_migrations/20260812000000_wave1a3_registral_forward.sql"
 )
 echo "--- MANIFIESTO DE LA CADENA (sha256) ---"
-echo "PROCEDENCIA: $(cat "$SNAP_PROV")"
+sed -n 's/^/PROCEDENCIA  /p' "$SNAP_PROV" | sed -n '1,10p'
 for f in "${CHAIN[@]}"; do
   [ -f "$f" ] || die "falta un eslabón de la cadena: $f"
   echo "APLICA   $(sha256sum "$f" | cut -c1-16)  $(basename "$f")"
 done
 echo "--- FIN DEL MANIFIESTO (${#CHAIN[@]} entradas, 0 shims, 0 omisiones) ---"
 
-for f in "${CHAIN[@]}"; do
-  if ! "${PSQL_TEST[@]}" -f "$f" >"$WORK/last.log" 2>&1; then
-    sed -n '1,60p' "$WORK/last.log" >&2
-    die "$(basename "$f") no aplica con el rol dedicado. Sin reintentos: la base se destruye."
-  fi
-done
+# La 1A.3 debe abrir y cerrar UNA sola transacción explícita.
+NBEGIN=$(grep -ciE '^[[:space:]]*BEGIN[[:space:]]*;' "${CHAIN[2]}")
+NCOMMIT=$(grep -ciE '^[[:space:]]*COMMIT[[:space:]]*;' "${CHAIN[2]}")
+[ "$NBEGIN" = "1" ]  || die "la migración 1A.3 debe tener exactamente 1 BEGIN; (encontrados $NBEGIN)"
+[ "$NCOMMIT" = "1" ] || die "la migración 1A.3 debe tener exactamente 1 COMMIT; (encontrados $NCOMMIT)"
 
-# --- 4. Atomicidad y presencia de la 1A.3 EXACTA ----------------------
-grep -qiE '^[[:space:]]*BEGIN[[:space:]]*;' "${CHAIN[2]}" \
-  || die "la migración 1A.3 debe abrir transacción explícita (BEGIN;)"
-grep -qiE '^[[:space:]]*COMMIT[[:space:]]*;' "${CHAIN[2]}" \
-  || die "la migración 1A.3 debe cerrar la transacción (COMMIT;)"
+cat "${CHAIN[@]}" > "$WORK/chain.sql"
+
+# --- 4. ATOMICIDAD: fallo tardío => rollback total --------------------
+CATSQL="SELECT md5(string_agg(t, E'\n' ORDER BY t)) FROM (
+  SELECT 'C:'||c.relkind::text||':'||c.relname AS t FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
+  UNION ALL
+  SELECT 'F:'||p.proname||':'||pg_get_function_identity_arguments(p.oid) FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'
+  UNION ALL
+  SELECT 'T:'||typ.typname FROM pg_type typ
+    JOIN pg_namespace n ON n.oid=typ.typnamespace WHERE n.nspname='public'
+) s"
+
+CAT_ANTES="$("${PSQL_TEST[@]}" -At -c "$CATSQL")"
+[ -n "$CAT_ANTES" ] || die "no se pudo calcular el checksum de catálogo previo"
+
+# La variante de fallo tardío es la MISMA cadena, con la única diferencia
+# de que el COMMIT final de la 1A.3 se sustituye por una excepción. Así
+# ninguna transacción se confirma en toda la cadena y el rollback debe
+# devolver el catálogo exactamente al estado de partida.
+{
+  cat "${CHAIN[0]}" "${CHAIN[1]}"
+  awk 'BEGIN{IGNORECASE=1}
+       /^[[:space:]]*COMMIT[[:space:]]*;[[:space:]]*$/ {
+         print "-- P0.4 . FALLO TARDIO DELIBERADO en lugar del COMMIT final:";
+         print "DO $wave1a3_fallo_tardio$ BEGIN";
+         print "  RAISE EXCEPTION \\047WAVE1A3_FALLO_TARDIO_DELIBERADO\\047;";
+         print "END $wave1a3_fallo_tardio$;";
+         next }
+       { print }' "${CHAIN[2]}"
+} > "$WORK/chain_fail.sql"
+grep -q 'WAVE1A3_FALLO_TARDIO_DELIBERADO' "$WORK/chain_fail.sql" \
+  || die "no se pudo construir la variante de fallo tardío (¿COMMIT final ausente en 1A.3?)"
+
+if psql -1 -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ROLE" -d "$TESTDB" -q -f "$WORK/chain_fail.sql" >"$WORK/atomic.log" 2>&1; then
+  die "la prueba de atomicidad NO falló: la cadena no es una única transacción."
+fi
+grep -q 'WAVE1A3_FALLO_TARDIO_DELIBERADO' "$WORK/atomic.log" \
+  || { sed -n '1,40p' "$WORK/atomic.log" >&2; die "la cadena falló ANTES del fallo tardío: no se puede evaluar la atomicidad."; }
+
+CAT_DESPUES="$("${PSQL_TEST[@]}" -At -c "$CATSQL")"
+if [ "$CAT_ANTES" != "$CAT_DESPUES" ]; then
+  echo "checksum antes=$CAT_ANTES  despues=$CAT_DESPUES" >&2
+  die "ATOMICIDAD ROTA: tras el rollback del fallo tardío el catálogo cambió."
+fi
+RESIDUO="$("${PSQL_TEST[@]}" -At -c "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'p0\_%'")"
+[ "$RESIDUO" = "0" ] || die "ATOMICIDAD ROTA: quedaron $RESIDUO funciones p0_* tras el rollback."
+echo "ATOMICIDAD PASS  fallo tardío revertido, catálogo idéntico ($CAT_ANTES)"
+
+# --- 5. Aplicación REAL de la cadena en UNA sola transacción ----------
+if ! psql -1 -v ON_ERROR_STOP=1 -h "$SOCK" -U "$ROLE" -d "$TESTDB" -q -f "$WORK/chain.sql" >"$WORK/chain.log" 2>&1; then
+  sed -n '1,60p' "$WORK/chain.log" >&2
+  die "la cadena snapshot->1A.2->1A.3 no aplica en una sola transacción con el rol dedicado."
+fi
+echo "CADENA PASS  snapshot -> 1A.2 -> 1A.3 aplicada en una única transacción"
 
 "${PSQL_TEST[@]}" -c "DO \$\$
 BEGIN
   IF to_regprocedure('public.p0_safe_int(text)') IS NULL
-     OR to_regprocedure('public.p0_locator_link_diag(jsonb,text,text,text,text,text,text,text,numeric)') IS NULL
+     OR to_regprocedure('public.p0_json_path_resolve(jsonb,text)') IS NULL
      OR to_regprocedure('public.p0_nota_unit_locators(uuid)') IS NULL
      OR to_regprocedure('public.p0_nota_unit_cross_type_unverified(uuid)') IS NULL
      OR to_regprocedure('public.p0_nota_unit_aliases(uuid)') IS NULL
      OR to_regclass('public.v_p0_rights_staging') IS NULL THEN
-    RAISE EXCEPTION 'La migración 1A.3 P0.3 no está aplicada en la base de prueba';
+    RAISE EXCEPTION 'La migración 1A.3 P0.4 no está aplicada en la base de prueba';
   END IF;
-END \$\$;" || die "verificación de presencia 1A.3 P0.3 fallida"
+END \$\$;" || die "verificación de presencia 1A.3 P0.4 fallida"
 
-# --- 5. Suites: reporte individual, SIN fail-fast ---------------------
+# --- 6. Suites: reporte individual, SIN fail-fast ---------------------
 for f in "$ROOT/supabase/tests/wave1a3_fixtures.sql" \
          "$ROOT/supabase/tests/wave1a_property_rights_cases.sql"; do
   [ -f "$f" ] || continue
@@ -163,6 +230,7 @@ done
 FAILED=0
 run_suite() {
   local nombre="$1" fichero="$2"
+  [ -f "$fichero" ] || { echo "SUITE FAIL  $nombre (fichero ausente)"; FAILED=1; return; }
   if "${PSQL_TEST[@]}" -f "$fichero" >"$WORK/$nombre.log" 2>&1; then
     echo "SUITE PASS  $nombre"
   else
@@ -178,9 +246,9 @@ run_suite "invariantes_1a2" "$ROOT/supabase/tests/wave1a_property_rights_cases.s
 run_suite "fixtures_1a3"    "$ROOT/supabase/tests/wave1a3_fixtures.sql"
 
 if [ "$FAILED" != "0" ]; then
-  echo "WAVE 1A.3 P0.3 · integración: NO-GO (al menos un caso en rojo)"
-  echo "SENTINEL: WAVE1A3_P03_NO_GO"
+  echo "WAVE 1A.3 P0.4 · integración: NO-GO (al menos un caso en rojo)"
+  echo "SENTINEL: WAVE1A3_P04_NO_GO"
   exit 1
 fi
-echo "WAVE 1A.3 P0.3 · integración: PASS (clúster efímero, base $TESTDB, rol $ROLE, 0 shims)"
-echo "SENTINEL: WAVE1A3_P03_PASS"
+echo "WAVE 1A.3 P0.4 · integración: PASS (clúster efímero, base $TESTDB, rol $ROLE, 0 shims, cadena atómica)"
+echo "SENTINEL: WAVE1A3_P04_PASS"

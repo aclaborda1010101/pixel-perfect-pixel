@@ -1,0 +1,5 @@
+-- Roles de plataforma del snapshot pre-1A.2 (globales del clúster).
+DO $r$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE "anon"; END IF; END $r$;
+DO $r$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE "authenticated"; END IF; END $r$;
+DO $r$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE "service_role"; END IF; END $r$;
+DO $r$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='supabase_auth_admin') THEN CREATE ROLE "supabase_auth_admin"; END IF; END $r$;

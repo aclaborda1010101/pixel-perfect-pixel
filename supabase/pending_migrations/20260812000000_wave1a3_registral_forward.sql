@@ -59,9 +59,6 @@
 -- ---------------------------------------------------------------------
 BEGIN;
 
-
-BEGIN;
-
 -- ---------------------------------------------------------------------
 -- 0) Vocabulario y columnas de apoyo (idempotente, sin datos)
 -- ---------------------------------------------------------------------
@@ -257,21 +254,28 @@ COMMENT ON FUNCTION public.p0_cita_pct_values(text) IS
 -- Unicode, signos o números fuera de rango devuelven NULL.
 CREATE OR REPLACE FUNCTION public.p0_safe_int(p_txt text)
 RETURNS integer LANGUAGE plpgsql IMMUTABLE AS $$
-DECLARE s text;
+DECLARE s text; v numeric;
 BEGIN
-  s := btrim(coalesce(p_txt,''));
+  IF p_txt IS NULL THEN RETURN NULL; END IF;
+  -- Longitud acotada ANTES de nada: texto enorme jamás llega al motor regex
+  -- con coste patológico ni al cast.
+  IF char_length(p_txt) > 64 THEN RETURN NULL; END IF;
+  s := btrim(p_txt);
   IF s = '' THEN RETURN NULL; END IF;
-  -- Sólo dígitos ASCII. '1e3', '½', '१२', '+1', '-1', '1.0' quedan fuera.
-  IF s !~ '^[0-9]+$' THEN RETURN NULL; END IF;
-  -- Longitud acotada ANTES de convertir: 9 dígitos caben siempre en int4.
-  IF char_length(s) > 9 THEN RETURN NULL; END IF;
-  RETURN s::int;
+  -- Sólo dígitos ASCII: '1e3', '0x10', '½', '१२', '+1', '-1', '1.0', ' 1 2'
+  -- y cualquier Unicode quedan fuera SIN convertir.
+  IF s !~ '^[0-9]{1,12}$' THEN RETURN NULL; END IF;
+  -- Comparación NUMERIC (no int) antes del cast: rango cerrado 0..2147483647
+  -- inclusive; por encima => NULL, nunca excepción.
+  v := s::numeric;
+  IF v < 0 OR v > 2147483647 THEN RETURN NULL; END IF;
+  RETURN v::int;
 EXCEPTION WHEN others THEN
   RETURN NULL;
 END $$;
 
 COMMENT ON FUNCTION public.p0_safe_int(text) IS
-  'Wave 1A.3 P0.3: entero seguro. Valida regex y longitud ANTES de convertir; nunca lanza. Texto enorme/malformado/Unicode => NULL.';
+  'Wave 1A.3 P0.4: entero TOTAL en [0, 2147483647]. Longitud, regex ASCII y comparacion numeric ANTES del cast; negativos, exponentes, Unicode, desbordes y texto enorme => NULL. Nunca lanza.';
 
 CREATE OR REPLACE FUNCTION public.p0_locator_valid(p_pagina text, p_offset text, p_ruta text)
 RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
@@ -311,7 +315,7 @@ COMMENT ON FUNCTION public.p0_locator_all_valid(text, text, text) IS
 -- de la versión del servidor y para rechazar sintaxis abierta.
 CREATE OR REPLACE FUNCTION public.p0_json_path_resolve(p_sj jsonb, p_ruta text)
 RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
-DECLARE s text; seg text; cur jsonb; m text[];
+DECLARE s text; seg text; cur jsonb; m text[]; idx integer;
 BEGIN
   IF p_sj IS NULL THEN RETURN NULL; END IF;
   s := btrim(coalesce(p_ruta,''));
@@ -327,7 +331,10 @@ BEGIN
     IF cur IS NULL THEN RETURN NULL; END IF;
     IF m[3] IS NOT NULL THEN
       IF jsonb_typeof(cur) <> 'array' THEN RETURN NULL; END IF;
-      cur := cur -> (m[3]::int);
+      -- P0.4: JAMÁS m[3]::int. Índice fuera de rango o gigante => NULL.
+      idx := public.p0_safe_int(m[3]);
+      IF idx IS NULL THEN RETURN NULL; END IF;
+      cur := cur -> idx;
       IF cur IS NULL THEN RETURN NULL; END IF;
     END IF;
   END LOOP;
@@ -612,7 +619,8 @@ BEGIN
         AND public.norm_person_name(o.nombre_extraido) IS NOT NULL
         AND public.norm_person_name(v_cita) LIKE '%' || public.norm_person_name(o.nombre_extraido) || '%';
       v_n_derechos := coalesce(array_length(public.p0_right_candidates(v_cita), 1), 0);
-      v_amb := coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_nombres > 1 OR v_n_derechos > 1;
+      -- P0.4: ACUMULA. Un link_ambiguo previo no se puede sobrescribir.
+      v_amb := coalesce(v_amb,false) OR coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_nombres > 1 OR v_n_derechos > 1;
 
       IF (v_evid ->> 'derecho') IS NOT NULL
          AND public.p0_right_type_canonico(NULL, v_evid ->> 'derecho') IS DISTINCT FROM v_right THEN
@@ -662,7 +670,8 @@ BEGIN
         AND public.norm_person_name(o.nombre_extraido) IS NOT NULL
         AND public.norm_person_name(v_cita) LIKE '%' || public.norm_person_name(o.nombre_extraido) || '%';
       v_n_derechos := coalesce(array_length(public.p0_right_candidates(v_cita), 1), 0);
-      v_amb := coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_nombres > 1 OR v_n_derechos > 1;
+      -- P0.4: ACUMULA. Un link_ambiguo previo no se puede sobrescribir.
+      v_amb := coalesce(v_amb,false) OR coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_nombres > 1 OR v_n_derechos > 1;
       v_ok_tit := true; v_ok_der := true; v_ok_pct := true;
       v_anclada := true; v_traz := true; v_ref := NULL;
     ELSIF v_n_cand > 1 THEN
@@ -749,7 +758,8 @@ BEGIN
         AND public.norm_person_name(o.nombre_extraido) IS NOT NULL
         AND public.norm_person_name(v_cita) LIKE '%' || public.norm_person_name(o.nombre_extraido) || '%';
       v_n_derechos := coalesce(array_length(public.p0_right_candidates(v_cita), 1), 0);
-      v_amb := coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_nombres > 1 OR v_n_derechos > 1;
+      -- P0.4: ACUMULA. Un link_ambiguo previo no se puede sobrescribir.
+      v_amb := coalesce(v_amb,false) OR coalesce(array_length(v_vals, 1), 0) > 1 OR v_n_nombres > 1 OR v_n_derechos > 1;
       IF NOT (v_ok_pct AND v_ok_tit AND v_ok_der) THEN
         v_bad := true; v_struct_unv := true;
       END IF;
@@ -1298,10 +1308,23 @@ WITH notas AS (
      AND coalesce(mn.n,0) <= 1
      AND (s.pre_owner_id IS NULL OR s.pre_owner_id = md.owner_id)) AS dni_inequivoco,
     CASE
-      WHEN coalesce(cv.identity_divergent, false) THEN 'identity_conflict'
+      -- P0.4: si HAY identity_conflict (por divergencia, mezcla owner/company
+      -- o preexistente incoherente) el match NUNCA puede decir 'dni'/'cif'.
+      -- Se usa SIEMPRE vocabulario ya admitido por el CHECK de 1A.2:
+      -- 'conflicto_owner_y_company' cuando la incoherencia es owner/company,
+      -- 'ambiguo' en cualquier otra divergencia de identidad.
+      WHEN (
+        (s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL)
+        OR (s.es_sociedad AND s.pre_owner_id IS NOT NULL)
+        OR (NOT s.es_sociedad AND s.pre_company_id IS NOT NULL)
+      ) THEN 'conflicto_owner_y_company'
+      WHEN (
+        (s.pre_owner_id IS NOT NULL AND md.n = 1 AND md.owner_id IS DISTINCT FROM s.pre_owner_id)
+        OR (s.pre_company_id IS NOT NULL AND mf.n = 1 AND mf.company_id IS DISTINCT FROM s.pre_company_id)
+        OR coalesce(cv.identity_divergent, false)
+      ) THEN 'ambiguo'
       WHEN coalesce(md.n,0) > 1 OR coalesce(mn.n,0) > 1
         OR coalesce(mf.n,0) > 1 OR coalesce(mc.n,0) > 1 THEN 'ambiguo'
-      WHEN s.pre_owner_id IS NOT NULL AND s.pre_company_id IS NOT NULL THEN 'conflicto_owner_y_company'
       WHEN s.es_sociedad AND s.pre_company_id IS NOT NULL THEN 'company_preexistente'
       WHEN s.es_sociedad AND mf.n = 1 THEN 'cif'
       WHEN s.es_sociedad AND mc.n = 1 THEN 'nombre_sociedad_revisable'
@@ -1669,6 +1692,11 @@ WITH src AS (
   FROM public.nota_simple_titulares t
   JOIN public.notas_simples ns ON ns.id = t.nota_simple_id
   WHERE ns.building_id IS NOT NULL AND ns.status = 'listo'
+), universo AS (
+  -- P0.4 · BASELINE. El dry-run no puede declararse "preparado" contra un
+  -- universo vacío o truncado: el censo de edificios debe ser EXACTAMENTE el
+  -- esperado (1166) y las fuentes deben tener volumen real.
+  SELECT count(*) AS n_buildings, 1166 AS n_esperado FROM public.buildings
 ), notas AS (
   SELECT count(*) AS n_listo
   FROM public.notas_simples ns
@@ -1869,9 +1897,35 @@ SELECT jsonb_build_object(
     AND agg.bad_contradiccion_feeds = 0
     AND agg.dh_feeds = 0
   ),
-  -- (7) PREPARACIÓN: false ante CUALQUIER bloqueo pendiente.
+  -- (6.b) BASELINE explícito y auditable del universo cubierto.
+  'baseline', jsonb_build_object(
+    'buildings_universo', universo.n_buildings,
+    'buildings_esperado', universo.n_esperado,
+    'buildings_ok', universo.n_buildings = universo.n_esperado,
+    'notas_listo', notas.n_listo,
+    'source_titulares', src.n,
+    'staged_rows', agg.staged_rows,
+    'titulares_unicos', agg.titulares_unicos,
+    'cobertura_1a1', agg.staged_rows = src.n AND agg.titulares_unicos = agg.staged_rows,
+    'universo_ok', (
+      universo.n_buildings = universo.n_esperado
+      AND notas.n_listo > 0
+      AND src.n > 0
+      AND agg.staged_rows = src.n
+      AND agg.staged_con_building = agg.staged_rows
+      AND agg.titulares_unicos = agg.staged_rows
+    )
+  ),
+  -- (7) PREPARACIÓN: exige BASELINE real (universo completo y cobertura 1:1)
+  --     ADEMÁS de cero bloqueos. Universo vacío o truncado => false SIEMPRE.
   'readiness_ok', (
-    sin_tit.n = 0
+    universo.n_buildings = universo.n_esperado
+    AND notas.n_listo > 0
+    AND src.n > 0
+    AND agg.staged_rows = src.n
+    AND agg.staged_con_building = agg.staged_rows
+    AND agg.titulares_unicos = agg.staged_rows
+    AND sin_tit.n = 0
     AND agg.date_conflicts = 0
     AND agg.regime_conflicts = 0
     AND agg.role_conflicts = 0
@@ -1890,7 +1944,7 @@ SELECT jsonb_build_object(
   ),
   'applied', false,
   'real_rebuild', 'disabled'
-) FROM src, notas, sin_tit, agg, c, u;
+) FROM src, universo, notas, sin_tit, agg, c, u;
 $$;
 
 REVOKE ALL ON FUNCTION public.p0_property_rights_dry_run() FROM PUBLIC, anon, authenticated;

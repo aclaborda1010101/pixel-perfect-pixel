@@ -213,8 +213,9 @@ describe("Wave 1A.3 P0.3 · namespaces, vínculo, parseo total y atomicidad", ()
 
   it("el parseo de localizadores no puede lanzar", () => {
     expect(sql).toContain("CREATE OR REPLACE FUNCTION public.p0_safe_int(");
-    expect(sql).toMatch(/IF s !~ '\^\[0-9\]\+\$' THEN RETURN NULL; END IF;/);
-    expect(sql).toMatch(/IF char_length\(s\) > 9 THEN RETURN NULL; END IF;/);
+    expect(sql).toMatch(/IF s !~ '\^\[0-9\]\{1,12\}\$' THEN RETURN NULL; END IF;/);
+    expect(sql).toMatch(/IF char_length\(p_txt\) > 64 THEN RETURN NULL; END IF;/);
+    expect(sql).toMatch(/IF v < 0 OR v > 2147483647 THEN RETURN NULL; END IF;/);
     expect(sql).toContain("EXCEPTION WHEN others THEN\n  RETURN NULL;");
     // Nadie castea texto libre a integer directamente en los localizadores.
     expect(sql).not.toMatch(/p_offset\)::int/);
@@ -236,13 +237,14 @@ describe("Wave 1A.3 P0.3 · namespaces, vínculo, parseo total y atomicidad", ()
     expect(runner).not.toMatch(/sed -E "s@\(CREATE EXTENSION/);
     expect(runner).not.toMatch(/>\/dev\/null 2>&1 \|\| true/);
     // Extensiones reales o SKIP explícito, sin declarar aplicabilidad.
-    for (const ext of ["pg_cron", "pg_net", "vector"]) expect(runner).toContain(ext);
+    expect(runner).toContain("REQ_EXT");
+    expect(runner).toContain("no se pudieron crear las extensiones reales declaradas por el snapshot.");
     expect(runner).toContain("NO se declara aplicabilidad");
     expect(runner).toContain("wave1a3_snapshot_pre_1a2.sql");
     expect(runner).toContain("sha256sum -c");
-    expect(runner).toContain("SENTINEL: WAVE1A3_P03_PASS");
-    expect(runner).toContain("SENTINEL: WAVE1A3_P03_NO_GO");
-    expect(runner).toContain("SENTINEL: WAVE1A3_P03_NO_VERIFICADO");
+    expect(runner).toContain("SENTINEL: WAVE1A3_P04_PASS");
+    expect(runner).toContain("SENTINEL: WAVE1A3_P04_NO_GO");
+    expect(runner).toContain("SENTINEL: WAVE1A3_P04_NO_VERIFICADO");
   });
 
   it("las fixtures cubren identidad de unidad y vínculo de evidencia", () => {

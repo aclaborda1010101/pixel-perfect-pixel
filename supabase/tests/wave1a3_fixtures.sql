@@ -51,6 +51,12 @@ INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
   ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'Identidad Divergente 1', 'Madrid', false),
   ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Identidad Divergente 2', 'Madrid', false);
 
+-- P0.4 · Edificios de REGRESIÓN DE CAPAS: nuda propiedad y usufructo
+-- JAMÁS se suman como pleno dominio ni alimentan cuota.
+INSERT INTO public.buildings (id, direccion, ciudad, division_horizontal) VALUES
+  ('a1111111-1111-1111-1111-11111111aaaa', 'Capas nuda+usufructo',       'Madrid', false),
+  ('a2222222-2222-2222-2222-22222222aaaa', 'Capas pleno+nuda+usufructo', 'Madrid', false);
+
 INSERT INTO public.owners (id, nombre, metadatos) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'ANA LOPEZ',  '{"dni__nif__cif":"00000001A"}'::jsonb),
   ('a0000000-0000-0000-0000-000000000002', 'LUIS PEREZ', '{"dni__nif__cif":"00000002B"}'::jsonb);
@@ -415,6 +421,47 @@ INSERT INTO public.nota_simple_titulares
    'ANA LOPEZ', '00000001A', 100, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
    '{"cita":"ANA LOPEZ es titular del 100 % del pleno dominio","pagina":"1","ruta":"$.titulares[7]"}'::jsonb);
 
+-- ---------------------------------------------------------------------
+-- P0.4 · CASOS DE CAPAS (regresión explícita): la nuda propiedad y el
+-- usufructo son CAPAS DISTINTAS. Ni sumadas entre sí ni sumadas al pleno
+-- dominio pueden alimentar cuota: sólo el pleno dominio proyecta.
+-- ---------------------------------------------------------------------
+INSERT INTO public.owners (id, nombre, metadatos) VALUES
+  ('a0000000-0000-0000-0000-000000000021', 'MARTA NUDA', '{"dni__nif__cif":"00000021H"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000022', 'HUGO USUFR', '{"dni__nif__cif":"00000022J"}'::jsonb),
+  ('a0000000-0000-0000-0000-000000000023', 'IRENE PLENO','{"dni__nif__cif":"00000023K"}'::jsonb);
+
+INSERT INTO public.notas_simples (id, building_id, status, structured_json, raw_pdf_text) VALUES
+  ('a1111111-0000-0000-0000-0000000000a1',
+   'a1111111-1111-1111-1111-11111111aaaa', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'MARTA NUDA es titular del 100 % de la nuda propiedad. HUGO USUFR es titular del 100 % del usufructo.'),
+  ('a2222222-0000-0000-0000-0000000000a1',
+   'a2222222-2222-2222-2222-22222222aaaa', 'listo',
+   '{"fecha_nota":"2026-01-10"}'::jsonb,
+   'IRENE PLENO es titular del 50 % del pleno dominio. MARTA NUDA es titular del 50 % de la nuda propiedad. HUGO USUFR es titular del 50 % del usufructo.');
+
+INSERT INTO public.nota_simple_titulares
+  (id, nota_simple_id, nombre_extraido, cif_dni, porcentaje, rol, metadatos, evidencia) VALUES
+  -- Unidad con SOLO nuda + usufructo: 100 + 100 jamás es un pleno del 100.
+  ('a1111111-0000-0000-0000-0000000000b1', 'a1111111-0000-0000-0000-0000000000a1',
+   'MARTA NUDA', '00000021H', 100, 'nuda_propiedad', '{"rol_literal":"nuda propiedad"}'::jsonb,
+   '{"cita":"MARTA NUDA es titular del 100 % de la nuda propiedad","pagina":"1"}'::jsonb),
+  ('a1111111-0000-0000-0000-0000000000b2', 'a1111111-0000-0000-0000-0000000000a1',
+   'HUGO USUFR', '00000022J', 100, 'usufructo', '{"rol_literal":"usufructo"}'::jsonb,
+   '{"cita":"HUGO USUFR es titular del 100 % del usufructo","pagina":"1"}'::jsonb),
+  -- Unidad con pleno 50 + nuda 50 + usufructo 50: las capas no se mezclan,
+  -- así que el pleno NO llega a 100 y la unidad no proyecta nada.
+  ('a2222222-0000-0000-0000-0000000000b1', 'a2222222-0000-0000-0000-0000000000a1',
+   'IRENE PLENO', '00000023K', 50, 'pleno', '{"rol_literal":"pleno dominio"}'::jsonb,
+   '{"cita":"IRENE PLENO es titular del 50 % del pleno dominio","pagina":"1"}'::jsonb),
+  ('a2222222-0000-0000-0000-0000000000b2', 'a2222222-0000-0000-0000-0000000000a1',
+   'MARTA NUDA', '00000021H', 50, 'nuda_propiedad', '{"rol_literal":"nuda propiedad"}'::jsonb,
+   '{"cita":"MARTA NUDA es titular del 50 % de la nuda propiedad","pagina":"1"}'::jsonb),
+  ('a2222222-0000-0000-0000-0000000000b3', 'a2222222-0000-0000-0000-0000000000a1',
+   'HUGO USUFR', '00000022J', 50, 'usufructo', '{"rol_literal":"usufructo"}'::jsonb,
+   '{"cita":"HUGO USUFR es titular del 50 % del usufructo","pagina":"1"}'::jsonb);
+
 -- =====================================================================
 -- ASERCIONES DE REGRESIÓN
 -- =====================================================================
@@ -535,7 +582,7 @@ BEGIN
    WHERE titular_id = 'f1111111-0000-0000-0000-0000000000b1'
      AND NOT unidad_key_conflict
      AND NOT (audit_ids ->> 'unit_cross_type_unverified')::boolean
-     AND unidad_key LIKE 'dh:%:idufir:12345678901';
+     AND ownership_unit_key LIKE 'dh:%:idufir:12345678901';
   ASSERT n = 1, 'IDUFIR y finca CO-LOCALIZADOS son alias compatibles: clave IDUFIR, sin conflicto';
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = 'f1111111-0000-0000-0000-0000000000b1'
@@ -552,13 +599,13 @@ BEGIN
 
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = 'f3333333-0000-0000-0000-0000000000b1'
-     AND NOT unidad_key_conflict AND unidad_key LIKE 'dh:%:idufir:12345678901';
+     AND NOT unidad_key_conflict AND ownership_unit_key LIKE 'dh:%:idufir:12345678901';
   ASSERT n = 1, 'el mismo IDUFIR repetido (con separadores) es alias, no conflicto';
 
   SELECT count(*) INTO n FROM public.v_p0_rights_staging
    WHERE titular_id = 'f4444444-0000-0000-0000-0000000000b1'
      AND (audit_ids ->> 'unit_cross_type_unverified')::boolean
-     AND NOT unidad_key_conflict AND unidad_key IS NULL
+     AND NOT unidad_key_conflict AND ownership_unit_key IS NULL
      AND unit_block_reason = 'cross_type_unverified'
      AND NOT feeds_cuota AND NOT is_canonical;
   ASSERT n = 1, 'tipos distintos en nodos distintos: cross_type_unverified, bloqueo, sin comparar literales';
@@ -618,6 +665,97 @@ BEGIN
   ASSERT n = 0, 'ningún caso negativo alimenta cuota';
 
   RAISE NOTICE 'WAVE 1A.3 · regresiones de integración: OK';
+END $$;
+
+-- =====================================================================
+-- P0.4 · MATRIZ CASO A CASO: TODAS las comprobaciones se ejecutan y se
+-- reportan (PASS/FAIL individual). Ningún fallo oculta a los demás; el
+-- bloque sólo lanza al final si alguna quedó en rojo.
+-- =====================================================================
+DO $$
+DECLARE
+  fallos int := 0;
+  d jsonb;
+  r record;
+BEGIN
+  CREATE TEMP TABLE IF NOT EXISTS _p04_matriz(caso text, ok boolean) ON COMMIT DROP;
+  DELETE FROM _p04_matriz;
+  d := public.p0_property_rights_dry_run();
+
+  INSERT INTO _p04_matriz(caso, ok)
+  SELECT 'POSITIVO 100 pleno: 1 fila exacta alimenta',
+         (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE building_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+             AND feeds_cuota AND right_type = 'pleno_dominio' AND percentage = 100) = 1
+  UNION ALL SELECT 'POSITIVO 60/40: Pablo=60 y Elena=40 con IDs distintos',
+         (SELECT count(DISTINCT owner_id) FROM public.v_p0_rights_staging
+           WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota) = 2
+     AND (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE feeds_cuota AND owner_id = 'a0000000-0000-0000-0000-000000000011'
+             AND percentage = 60) = 1
+     AND (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE feeds_cuota AND owner_id = 'a0000000-0000-0000-0000-000000000012'
+             AND percentage = 40) = 1
+  UNION ALL SELECT 'POSITIVO 60/40: misma unidad y misma nota canónica',
+         (SELECT count(DISTINCT (ownership_unit_key, note_simple_id))
+            FROM public.v_p0_rights_staging
+           WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota) = 1
+  UNION ALL SELECT 'POSITIVO 60/40: suma exacta 100 y ambas en pleno dominio',
+         (SELECT coalesce(sum(percentage),0) FROM public.v_p0_rights_staging
+           WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota) = 100
+     AND (SELECT bool_and(right_type = 'pleno_dominio') FROM public.v_p0_rights_staging
+           WHERE building_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND feeds_cuota)
+  UNION ALL SELECT 'CAPAS: nuda 100 + usufructo 100 nunca son un pleno 100',
+         (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE building_id = 'a1111111-1111-1111-1111-11111111aaaa' AND feeds_cuota) = 0
+  UNION ALL SELECT 'CAPAS: cada derecho conserva su capa (nuda y usufructo separadas)',
+         (SELECT count(DISTINCT right_type) FROM public.v_p0_rights_staging
+           WHERE building_id = 'a1111111-1111-1111-1111-11111111aaaa') = 2
+  UNION ALL SELECT 'CAPAS: pleno 50 + nuda 50 + usufructo 50 no se suman ni alimentan',
+         (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE building_id = 'a2222222-2222-2222-2222-22222222aaaa' AND feeds_cuota) = 0
+  UNION ALL SELECT 'FEEDS TOTALES: exactamente 3, sólo en los positivos',
+         (SELECT count(*) FROM public.v_p0_rights_staging WHERE feeds_cuota) = 3
+     AND (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE feeds_cuota AND building_id NOT IN (
+                 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                 'cccccccc-cccc-cccc-cccc-cccccccccccc')) = 0
+  UNION ALL SELECT 'FEEDS: ninguna capa distinta de pleno dominio alimenta',
+         (SELECT count(*) FROM public.v_p0_rights_staging
+           WHERE feeds_cuota AND right_type <> 'pleno_dominio') = 0
+  UNION ALL SELECT 'DRY-RUN: readiness_ok false con universo de fixtures (no baseline)',
+         (d ->> 'readiness_ok')::boolean IS FALSE
+  UNION ALL SELECT 'DRY-RUN: baseline.universo_ok false y buildings != esperado',
+         (d -> 'baseline' ->> 'universo_ok')::boolean IS FALSE
+     AND (d -> 'baseline' ->> 'buildings_ok')::boolean IS FALSE
+  UNION ALL SELECT 'DRY-RUN: safety_invariants_ok independiente de readiness_ok',
+         (d ->> 'safety_invariants_ok')::boolean IS TRUE
+  UNION ALL SELECT 'DRY-RUN: wrapper p_apply=false es dry-run y no escribe',
+         (public.p0_rebuild_property_rights('p04', false) ->> 'applied')::boolean IS FALSE;
+
+  FOR r IN SELECT caso, ok FROM _p04_matriz ORDER BY caso LOOP
+    RAISE NOTICE 'CASO % · %', CASE WHEN r.ok THEN 'PASS' ELSE 'FAIL' END, r.caso;
+    IF NOT coalesce(r.ok, false) THEN fallos := fallos + 1; END IF;
+  END LOOP;
+
+  -- El rebuild real sigue bloqueado ANTES de escribir nada.
+  BEGIN
+    PERFORM public.p0_rebuild_property_rights('p04', true);
+    RAISE NOTICE 'CASO FAIL · p_apply=true debe abortar antes de escribir';
+    fallos := fallos + 1;
+  EXCEPTION WHEN others THEN
+    IF SQLERRM LIKE '%REAL_REBUILD_DISABLED%' THEN
+      RAISE NOTICE 'CASO PASS · p_apply=true abortado antes de escribir (%)', 'REAL_REBUILD_DISABLED';
+    ELSE
+      RAISE NOTICE 'CASO FAIL · p_apply=true abortó por otra causa: %', SQLERRM;
+      fallos := fallos + 1;
+    END IF;
+  END;
+
+  IF fallos > 0 THEN
+    RAISE EXCEPTION 'WAVE 1A.3 P0.4 · matriz caso a caso: % caso(s) en rojo', fallos;
+  END IF;
+  RAISE NOTICE 'WAVE 1A.3 P0.4 · matriz caso a caso: TODO EN VERDE';
 END $$;
 
 -- =====================================================================
