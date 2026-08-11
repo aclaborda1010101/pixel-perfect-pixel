@@ -63,6 +63,7 @@ CHAIN=(
   "$ROOT/supabase/pending_migrations/20260810164500_wave1a_registral_rebuild_seguro.sql"
   "$ROOT/supabase/pending_migrations/20260812000000_wave1a3_registral_forward.sql"
   "$ROOT/supabase/pending_migrations/20260817000000_wave1b_materializacion_cuota.sql"
+  "$ROOT/supabase/pending_migrations/20260820000000_wave1b_p07_autorizacion_y_swap.sql"
 )
 echo "--- MANIFIESTO (sha256) ---"
 for f in "${CHAIN[@]}"; do
