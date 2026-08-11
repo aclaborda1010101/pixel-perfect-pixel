@@ -295,9 +295,76 @@ BEGIN
   ASSERT NOT (d ->> 'readiness_ok')::boolean, 'readiness_ok debe ser false con bloqueos presentes';
   ASSERT (d ->> 'feeds_cuota')::int = 0, 'ninguna fila insegura se proyecta';
   ASSERT (d ->> 'paridad_1a1')::boolean, 'paridad titulares + notas 1:1';
-  ASSERT (d ->> 'notas_listo_sin_titulares')::int = 1, 'contador de listas sin titulares';
+  ASSERT (d ->> 'notas_listo_sin_titulares')::int = 2, 'contador de listas sin titulares (no-DH y DH)';
   ASSERT (d ->> 'date_conflicts')::int >= 1, 'contador de date_conflicts';
   ASSERT (d ->> 'regime_conflicts')::int >= 1, 'contador de regime_conflicts';
 
+  -- 7) CASO 6: ruta/offset/página SIN cita anclada => structured_unverified.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = '66666666-0000-0000-0000-0000000000b2'
+     AND structured_unverified AND NOT evidence_ok AND NOT feeds_cuota;
+  ASSERT n = 1, 'ruta válida hacia otro titular + offset sin cita => structured_unverified, cero feed';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = '66666666-6666-6666-6666-666666666666' AND feeds_cuota;
+  ASSERT n = 0, 'sintaxis válida no es evidencia: la unidad no proyecta';
+
+  -- 8) CASO 7: 'otro' no resuelto + pleno 100 % => CERO feeds en la unidad.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = '77777777-0000-0000-0000-0000000000b1'
+     AND row_safe_pre_layer AND NOT feeds_cuota AND NOT unidad_segura;
+  ASSERT n = 1, 'un pleno 100 % impecable NO proyecta si la unidad tiene una fila "otro"';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = '77777777-7777-7777-7777-777777777777' AND feeds_cuota;
+  ASSERT n = 0, 'otro/conflict + pleno100 => cero feeds';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = '77777777-0000-0000-0000-0000000000b2' AND right_type = 'otro';
+  ASSERT n = 1, 'rol vs literal contradictorios se clasifican como "otro"';
+
+  -- 9) CASO 8: dos localizadores válidos distintos => unit_key_conflict y
+  --    bloqueo de todo el edificio, sin elegir el primero.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = '88888888-0000-0000-0000-0000000000b1' AND unidad_key_conflict;
+  ASSERT n = 1, 'IDUFIR y finca distintos => unit_key_conflict';
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = '88888888-8888-8888-8888-888888888888'
+     AND (feeds_cuota OR is_canonical OR NOT building_block);
+  ASSERT n = 0, 'el conflicto de clave bloquea TODAS las unidades del edificio';
+
+  -- 10) CASO 9: DNI/CIF duplicado => ambiguo, nunca exacto.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE titular_id = '99999999-0000-0000-0000-0000000000b1'
+     AND identidad_ambigua AND owner_id IS NULL AND company_id IS NULL AND NOT feeds_cuota;
+  ASSERT n = 1, 'DNI duplicado en el CRM => identidad ambigua y cero feed';
+
+  -- 11) CASO 10: nota lista sin titulares en DH => bloqueo de edificio.
+  SELECT count(*) INTO n FROM public.v_p0_rights_staging
+   WHERE building_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     AND (feeds_cuota OR is_canonical);
+  ASSERT n = 0, 'nota lista vacía en DH: cero canónicas y cero feeds en el edificio';
+
+  -- 12) Contadores nuevos del dry-run.
+  ASSERT (d ->> 'unit_key_conflicts')::int >= 1, 'contador de unit_key_conflicts';
+  ASSERT (d ->> 'structured_unverified')::int >= 1, 'contador de structured_unverified';
+  ASSERT (d ->> 'identidades_ambiguas')::int >= 1, 'contador de identidades ambiguas';
+  ASSERT (d ->> 'filas_bloqueadas_por_edificio')::int >= 1, 'contador de bloqueos de edificio';
+
   RAISE NOTICE 'WAVE 1A.3 · regresiones de integración: OK';
+END $$;
+
+-- =====================================================================
+-- NADA SE PERSISTE: la transacción de fixtures SIEMPRE se deshace.
+-- =====================================================================
+ROLLBACK;
+
+DO $$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM public.notas_simples
+   WHERE id IN ('11111111-0000-0000-0000-0000000000a1',
+                'aaaaaaaa-0000-0000-0000-0000000000a2');
+  ASSERT n = 0, 'ROLLBACK incompleto: las fixtures han dejado filas persistidas';
+  SELECT count(*) INTO n FROM public.buildings
+   WHERE id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  ASSERT n = 0, 'ROLLBACK incompleto: quedan edificios de prueba';
+  RAISE NOTICE 'WAVE 1A.3 · fixtures revertidas: cero DML persistido';
 END $$;
