@@ -54,7 +54,7 @@ describe("tarjeta de la tarea", () => {
     expect(t.title).toBe("Primera llamada — Calle Mayor 1");
     expect(t.description).toContain("Ana Pérez");
     expect(t.description).toContain("600111222");
-    expect(t.description).toContain("registra la llamada".toLowerCase());
+    expect(t.description.toLowerCase()).toContain("registra la llamada");
   });
 
   it("titula el seguimiento con el propietario", () => {

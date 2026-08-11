@@ -122,7 +122,7 @@ export function redactarTarjeta(tipo: Tipo, c: ContextoTarjeta): Tarjeta {
         'Completa en la ficha todo lo que encuentres.',
       ];
       objetivo = `Dejar la ficha de ${dir} lista para poder llamar.`;
-      registro = 'Guarda los datos encontrados en la ficha y deja una nota con lo que has averiguado.';
+      registro = 'Anota en la ficha los datos encontrados y deja una nota con lo que has averiguado.';
       break;
     case 'T-02_03':
       title = `Primera llamada — ${dir}`;
@@ -152,7 +152,7 @@ export function redactarTarjeta(tipo: Tipo, c: ContextoTarjeta): Tarjeta {
         'Añade lo que sepas del edificio: estado, número de viviendas y situación de alquiler.',
       ];
       objetivo = `Tener la ficha de ${dir} completa y fiable.`;
-      registro = 'Guarda los cambios en la ficha y deja una nota indicando qué has completado.';
+      registro = 'Actualiza la ficha y deja una nota indicando qué has completado.';
       break;
     case 'T-06':
       title = `Verificación — ${dir}`;
