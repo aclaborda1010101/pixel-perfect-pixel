@@ -558,11 +558,15 @@ BEGIN
     RAISE EXCEPTION 'modo desconocido: %', p_mode_code USING ERRCODE = '22023';
   END IF;
 
-  IF p_weights IS NOT NULL AND jsonb_typeof(p_weights) = 'object' THEN
-    IF v_mode.follows_engine_default THEN
-      RAISE EXCEPTION 'el modo % sigue el reparto del motor y no admite pesos', p_mode_code USING ERRCODE = '22023';
-    END IF;
+  -- p_weights DEBE ser un objeto: null, array, string o escalar => rechazo.
+  -- Cada guardado o activación revalida el mapa SUMINISTRADO: nunca se
+  -- reutilizan en silencio pesos antiguos.
+  IF p_weights IS NULL OR jsonb_typeof(p_weights) <> 'object' THEN
+    RAISE EXCEPTION 'p_weights debe ser un objeto con los pesos completos (recibido: %)',
+      COALESCE(jsonb_typeof(p_weights), 'null') USING ERRCODE = '22023';
+  END IF;
 
+  IF true THEN
     FOR v_key, v_val IN SELECT * FROM jsonb_each(p_weights) LOOP
       SELECT enabled INTO v_enabled FROM public.sales_task_groups WHERE code = v_key;
       IF NOT FOUND THEN
