@@ -109,7 +109,7 @@ export function anclarDocumento(src: string): { paginas: Pagina[]; zonas: Zona[]
 const RE_DOC_G = /\b(\d{8}[A-Za-z]|[A-Za-z]\d{7}[A-Za-z0-9]|[A-Za-z]-?\d{8})\b/g;
 const RUIDO = new Set([
   "TOMO", "LIBRO", "FOLIO", "INSCRIPCION", "INSCRIPCIÓN", "FINCA", "PAGINA", "PÁGINA",
-  "NUMERO", "NÚMERO", "NUM", "Nº", "N", "DE", "DEL", "LA", "EL", "REGISTRO", "IDUFIR",
+  "NUMERO", "NÚMERO", "NUM", "Nº", "N", "REGISTRO", "IDUFIR",
   "CRU", "SECCION", "SECCIÓN", "ALTA", "DNI", "NIF", "CIF", "NIE", "DON", "DOÑA",
   "TITULAR", "TITULARES", "HOJA", "ASIENTO", "DIARIO",
 ]);

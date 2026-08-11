@@ -54,8 +54,8 @@ const LITERAL: Record<HechoP11["derecho"], string> = {
 /** Oráculo: los 66 hechos esperados, en orden documental. */
 export const HECHOS_P11: HechoP11[] = DERECHOS.map((derecho, i) => {
   const literal = pct(i);
-  // Caso "dos derechos del mismo titular": 20 y 21 comparten identidad.
-  const ident = i === 21 ? 20 : i;
+  // Caso "dos derechos del mismo titular": 37 (pleno) y 38 (nuda) comparten identidad.
+  const ident = i === 38 ? 37 : i;
   const esSociedad = i === 30;
   const sinDni = i === 31;
   const nombre = esSociedad
@@ -69,7 +69,7 @@ export const HECHOS_P11: HechoP11[] = DERECHOS.map((derecho, i) => {
     derecho,
     literal: `${literal}%`,
     porcentaje: Number(literal.replace(",", ".")),
-    caso: esSociedad ? "cif_sociedad" : sinDni ? "identidad_sin_dni" : i === 21 ? "dos_derechos_mismo_titular" : undefined,
+    caso: esSociedad ? "cif_sociedad" : sinDni ? "identidad_sin_dni" : i === 38 ? "dos_derechos_mismo_titular" : undefined,
   };
 });
 
