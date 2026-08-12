@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { useCorreccionesPendientes } from "@/hooks/useCorreccionesPendientes";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -95,6 +97,7 @@ export default function GestorComerciales() {
       .flatMap((g) => g.realizadas.map((t) => ({ ...t, full_name: t.full_name ?? g.nombre })));
     return agruparPorSemana(rows);
   }, [grupos, comercial]);
+  const { total: correcciones } = useCorreccionesPendientes();
   const error = q.error as Error | null;
 
   return (
