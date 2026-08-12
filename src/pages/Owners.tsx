@@ -54,6 +54,7 @@ export default function Owners() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [metrics, setMetrics] = useState({ total: 0, consentidos: 0, sinRol: 0 });
+  const [influencersTotal, setInfluencersTotal] = useState(0);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 250);
@@ -79,6 +80,9 @@ export default function Owners() {
       consentidos: cons.count ?? 0,
       sinRol: sin.count ?? 0,
     });
+    const { data: infl } = await supabase
+      .from("building_owners").select("owner_id").eq("es_influencer", true);
+    setInfluencersTotal(new Set(((infl ?? []) as { owner_id: string }[]).map((r) => r.owner_id)).size);
   };
 
   const load = async () => {
@@ -181,7 +185,9 @@ export default function Owners() {
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">Rol</span>
               <Chip active={onlyInfluencers} onClick={() => setOnlyInfluencers((v) => !v)}>
-                <span className="inline-flex items-center gap-1"><Crown className="h-3 w-3" /> Influencers</span>
+                <span className="inline-flex items-center gap-1">
+                  <Crown className="h-3 w-3" /> Influenciadores ({influencersTotal.toLocaleString("es-ES")})
+                </span>
               </Chip>
             </div>
           </div>
