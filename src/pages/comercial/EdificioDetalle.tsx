@@ -33,7 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
-import { DerechoTags, AYUDA_DERECHOS, grupoDerecho, type GrupoDerecho } from "@/components/comercial/DerechoTags";
+import { DerechoTags, InfluenciadorTag, AYUDA_DERECHOS, grupoDerecho, type GrupoDerecho } from "@/components/comercial/DerechoTags";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
@@ -400,7 +400,7 @@ export default function ComercialEdificioDetalle() {
                 ["todos", `Todos (${ownersAll.length})`],
                 ["propiedad", `Con propiedad (${conteoGrupos.propiedad})`],
                 ["usufructo", `Solo usufructo (${conteoGrupos.usufructo})`],
-                ["sin_derecho", `Sin derecho en la nota (${conteoGrupos.sin_derecho})`],
+                ["sin_derecho", `Influenciadores (${conteoGrupos.sin_derecho})`],
               ] as const).map(([k, label]) => (
                 <button
                   key={k}
@@ -586,7 +586,10 @@ export default function ComercialEdificioDetalle() {
                           </span>
                         )}
                       </div>
-                      {!soloUsufructo && <DerechoTags owner={o} />}
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {!soloUsufructo && <DerechoTags owner={o} className="mt-0" />}
+                        <InfluenciadorTag owner={o} />
+                      </div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <Badge variant={e.variant as any}>{e.label}</Badge>
