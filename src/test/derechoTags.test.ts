@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { derechoTags, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
+import { derechoTags, grupoDerecho, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
 
 describe("etiquetas de tipo de derecho", () => {
   it("muestra pleno y nuda cuando ambos tienen valor", () => {
@@ -26,5 +26,15 @@ describe("etiquetas de tipo de derecho", () => {
   it("la leyenda usa lenguaje llano", () => {
     expect(AYUDA_DERECHOS).toContain("cuotas y tareas");
     expect(AYUDA_DERECHOS.toLowerCase()).not.toMatch(/motor|backlog|v5|disparador/);
+  });
+});
+
+describe("grupoDerecho", () => {
+  it("clasifica propiedad, solo usufructo y sin derecho", () => {
+    expect(grupoDerecho({ pct_propiedad: 7.6, pct_pleno: 7.6 })).toBe("propiedad");
+    expect(grupoDerecho({ pct_nuda: 3 })).toBe("propiedad");
+    expect(grupoDerecho({ pct_usufructo: 20 })).toBe("usufructo");
+    expect(grupoDerecho({})).toBe("sin_derecho");
+    expect(grupoDerecho({ pct_propiedad: 5, pct_invalido: true })).toBe("sin_derecho");
   });
 });

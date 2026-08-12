@@ -33,7 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
-import { DerechoTags, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
+import { DerechoTags, AYUDA_DERECHOS, grupoDerecho, type GrupoDerecho } from "@/components/comercial/DerechoTags";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
@@ -120,6 +120,7 @@ export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [sort, setSort] = useState<SortKey>("pct");
+  const [vistaDerecho, setVistaDerecho] = useState<"todos" | GrupoDerecho>("propiedad");
   // Toggle "Sin propietarios". DEBE declararse antes de cualquier early return
   // para no romper el orden de hooks entre el render de "Cargando…" y el render
   // con datos.
@@ -223,7 +224,7 @@ export default function ComercialEdificioDetalle() {
     catastro?.ano_construccion ??
     null;
 
-  const owners = [...(data.owners ?? [])].sort((a, b) => {
+  const ownersAll = [...(data.owners ?? [])].sort((a, b) => {
     if (sort === "score") return Number(b.score ?? 0) - Number(a.score ?? 0);
     if (sort === "pct") {
       // DESC: mayor % primero; los que no tienen % conocido, al final.
@@ -238,6 +239,14 @@ export default function ComercialEdificioDetalle() {
     }
     return Number((a.contactos_previos ?? 0) === 0 ? 0 : 1) - Number((b.contactos_previos ?? 0) === 0 ? 0 : 1);
   });
+
+  // Filtro de vista por lo que consta a nombre de cada titular en la nota.
+  const conteoGrupos = { propiedad: 0, usufructo: 0, sin_derecho: 0 } as Record<GrupoDerecho, number>;
+  for (const o of ownersAll) conteoGrupos[grupoDerecho(o)] += 1;
+  const owners =
+    vistaDerecho === "todos"
+      ? ownersAll
+      : ownersAll.filter((o) => grupoDerecho(o) === vistaDerecho);
 
   // Fuente única del panel: v_owner_score. Un propietario "tiene %" cuando
   // pct_propiedad viene informado y no está marcado como inválido.
@@ -366,10 +375,32 @@ export default function ComercialEdificioDetalle() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <div>
-            <Eyebrow>Propietarios · {owners.length}</Eyebrow>
+            <Eyebrow>Propietarios · {ownersAll.length}</Eyebrow>
             <CardTitle>Sub-scoring y estado de contacto</CardTitle>
             <div className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-              Con % de propiedad: {pctKnownCount} de {owners.length}
+              Con % de propiedad: {pctKnownCount} de {ownersAll.length}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {([
+                ["todos", `Todos (${ownersAll.length})`],
+                ["propiedad", `Con propiedad (${conteoGrupos.propiedad})`],
+                ["usufructo", `Solo usufructo (${conteoGrupos.usufructo})`],
+                ["sin_derecho", `Sin derecho en la nota (${conteoGrupos.sin_derecho})`],
+              ] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setVistaDerecho(k)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+                    vistaDerecho === k
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "border-border-faint text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -586,7 +617,9 @@ export default function ComercialEdificioDetalle() {
               );
             })}
             {owners.length === 0 && (
-              <li className="px-5 py-6 text-sm text-muted-foreground">Sin propietarios registrados.</li>
+              <li className="px-5 py-6 text-sm text-muted-foreground">
+                {ownersAll.length === 0 ? "Sin propietarios registrados." : "Nadie en esta vista."}
+              </li>
             )}
           </ul>
         </CardContent>
