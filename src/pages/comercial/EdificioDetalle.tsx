@@ -33,7 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
-import { DerechoTags, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
+import { DerechoTags, AYUDA_DERECHOS, grupoDerecho, type GrupoDerecho } from "@/components/comercial/DerechoTags";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
@@ -120,6 +120,7 @@ export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [sort, setSort] = useState<SortKey>("pct");
+  const [vistaDerecho, setVistaDerecho] = useState<"todos" | GrupoDerecho>("propiedad");
   // Toggle "Sin propietarios". DEBE declararse antes de cualquier early return
   // para no romper el orden de hooks entre el render de "Cargando…" y el render
   // con datos.
