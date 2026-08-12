@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
+import { DerechoTags, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
