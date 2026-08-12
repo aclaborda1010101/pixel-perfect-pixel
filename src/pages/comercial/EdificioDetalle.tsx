@@ -410,6 +410,9 @@ export default function ComercialEdificioDetalle() {
               {pctUnknownCount} de {(data.owners ?? []).length} propietarios sin % de propiedad conocido.
             </div>
           )}
+          <p className="mx-5 mt-3 text-[11px] leading-snug text-muted-foreground" title={AYUDA_DERECHOS}>
+            {AYUDA_DERECHOS}.
+          </p>
           <ul className="divide-y divide-border-faint">
             {owners.map((o) => {
               const e = ownerEstado(o);
