@@ -1529,6 +1529,60 @@ export type Database = {
         }
         Relationships: []
       }
+      backup_reparse168_titulares: {
+        Row: {
+          building_id: string | null
+          cif_dni: string | null
+          company_id: string | null
+          created_at: string
+          evidencia: Json | null
+          id: string
+          metadatos: Json | null
+          motivo: string
+          nombre_extraido: string | null
+          nota_simple_id: string
+          owner_id: string | null
+          porcentaje: number | null
+          rol: string | null
+          rol_literal: string | null
+          titular_id: string
+        }
+        Insert: {
+          building_id?: string | null
+          cif_dni?: string | null
+          company_id?: string | null
+          created_at?: string
+          evidencia?: Json | null
+          id?: string
+          metadatos?: Json | null
+          motivo?: string
+          nombre_extraido?: string | null
+          nota_simple_id: string
+          owner_id?: string | null
+          porcentaje?: number | null
+          rol?: string | null
+          rol_literal?: string | null
+          titular_id: string
+        }
+        Update: {
+          building_id?: string | null
+          cif_dni?: string | null
+          company_id?: string | null
+          created_at?: string
+          evidencia?: Json | null
+          id?: string
+          metadatos?: Json | null
+          motivo?: string
+          nombre_extraido?: string | null
+          nota_simple_id?: string
+          owner_id?: string | null
+          porcentaje?: number | null
+          rol?: string | null
+          rol_literal?: string | null
+          titular_id?: string
+        }
+        Relationships: []
+      }
       building_analysis: {
         Row: {
           accesos_codigos: Json | null
