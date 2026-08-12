@@ -39,7 +39,21 @@ export default function CambiarPasswordObligatorio() {
       body: { password: pwd },
     });
     setSaving(false);
-    if (fnErr) return setError(fnErr.message);
+    if (fnErr) {
+      // invoke() oculta el cuerpo de las respuestas no-2xx: lo leemos a mano
+      // para poder mostrar el motivo real en lugar de un error genérico.
+      let detalle = "";
+      try {
+        const res = (fnErr as { context?: Response }).context;
+        if (res && typeof res.json === "function") {
+          const body = await res.clone().json();
+          detalle = typeof body?.error === "string" ? body.error : "";
+        }
+      } catch {
+        detalle = "";
+      }
+      return setError(detalle || fnErr.message);
+    }
     if (!data?.ok) {
       return setError(
         data?.error ?? "No se pudo completar el cambio de contraseña. El acceso sigue bloqueado.",
