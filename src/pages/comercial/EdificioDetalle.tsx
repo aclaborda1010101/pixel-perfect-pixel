@@ -259,6 +259,12 @@ export default function ComercialEdificioDetalle() {
   const pctInconsistente =
     pctKnown.length > 0 && pctUnknownCount === 0 && (sumPct < 95 || sumPct > 105);
 
+  // Suma de los porcentajes de propiedad de los propietarios mostrados.
+  const sumaVisible = owners.reduce(
+    (t: number, o: any) => t + (o.pct_propiedad != null && !o.pct_invalido ? Number(o.pct_propiedad) : 0),
+    0,
+  );
+
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
   return (
@@ -379,6 +385,15 @@ export default function ComercialEdificioDetalle() {
             <CardTitle>Sub-scoring y estado de contacto</CardTitle>
             <div className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
               Con % de propiedad: {pctKnownCount} de {ownersAll.length}
+            </div>
+            <div
+              className={cn(
+                "mt-1 text-xs font-medium",
+                sumaVisible >= 99.5 && sumaVisible <= 100.5 ? "text-emerald-600" : "text-amber-600",
+              )}
+              title="Suma de los porcentajes de propiedad de los propietarios que se están mostrando."
+            >
+              Suma de propiedad: {sumaVisible.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {([

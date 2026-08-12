@@ -8,8 +8,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, Clock } from "lucide-react";
 import { ModosGeneracionCard } from "@/components/tareas/ModosGeneracionCard";
 import { PERIODS, periodRange, type PeriodKey } from "@/lib/salesManagerMetrics";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HorarioLaboralCard } from "@/components/gestor/HorarioLaboralCard";
+import { useHorarioLaboral } from "@/hooks/useHorarioLaboral";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 import {
   agruparPorComercial,
+  agruparPorSemana,
   etiquetaTipo,
   fmtFecha,
   totales,
@@ -33,7 +38,15 @@ function usePanel(period: PeriodKey) {
   });
 }
 
-function TablaTareas({ rows, mostrarCierre }: { rows: TareaPanel[]; mostrarCierre?: boolean }) {
+function TablaTareas({
+  rows,
+  mostrarCierre,
+  mostrarComercial,
+}: {
+  rows: TareaPanel[];
+  mostrarCierre?: boolean;
+  mostrarComercial?: boolean;
+}) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">Ninguna.</p>;
   return (
     <div className="overflow-x-auto">
@@ -41,6 +54,7 @@ function TablaTareas({ rows, mostrarCierre }: { rows: TareaPanel[]; mostrarCierr
         <thead>
           <tr className="text-left text-xs text-muted-foreground">
             <th className="py-1 pr-3 font-medium">Tarea</th>
+            {mostrarComercial && <th className="py-1 pr-3 font-medium">Comercial</th>}
             <th className="py-1 pr-3 font-medium">Edificio</th>
             <th className="py-1 pr-3 font-medium">Inicio</th>
             <th className="py-1 pr-3 font-medium">{mostrarCierre ? "Realizada" : "Fecha límite"}</th>
@@ -50,6 +64,7 @@ function TablaTareas({ rows, mostrarCierre }: { rows: TareaPanel[]; mostrarCierr
           {rows.map((t) => (
             <tr key={t.id} className="border-t">
               <td className="py-1.5 pr-3">{etiquetaTipo(t.task_type)}</td>
+              {mostrarComercial && <td className="py-1.5 pr-3">{t.full_name ?? "—"}</td>}
               <td className="py-1.5 pr-3">{t.direccion || "—"}</td>
               <td className="py-1.5 pr-3 tabular-nums">{fmtFecha(t.started_at ?? t.created_at)}</td>
               <td className="py-1.5 pr-3 tabular-nums">
@@ -66,8 +81,20 @@ function TablaTareas({ rows, mostrarCierre }: { rows: TareaPanel[]; mostrarCierr
 export default function GestorComerciales() {
   const [period, setPeriod] = useState<PeriodKey>("semana");
   const q = usePanel(period);
-  const grupos = useMemo(() => agruparPorComercial(q.data), [q.data]);
+  const { horario } = useHorarioLaboral();
+  const { canManageComerciales } = useCurrentRole();
+  const [comercial, setComercial] = useState<string>("todos");
+  const grupos = useMemo(
+    () => agruparPorComercial(q.data, new Date(), horario),
+    [q.data, horario],
+  );
   const tot = totales(grupos);
+  const semanas = useMemo(() => {
+    const rows = grupos
+      .filter((g) => comercial === "todos" || g.user_id === comercial)
+      .flatMap((g) => g.realizadas.map((t) => ({ ...t, full_name: t.full_name ?? g.nombre })));
+    return agruparPorSemana(rows);
+  }, [grupos, comercial]);
   const error = q.error as Error | null;
 
   return (
@@ -80,19 +107,12 @@ export default function GestorComerciales() {
         </p>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">Histórico de tareas realizadas:</span>
-        {PERIODS.map((p) => (
-          <Button
-            key={p.key}
-            size="sm"
-            variant={period === p.key ? "default" : "outline"}
-            onClick={() => setPeriod(p.key)}
-          >
-            {p.key === "hoy" ? "Hoy" : p.key === "semana" ? "Esta semana" : "Este mes"}
-          </Button>
-        ))}
-      </div>
+      <Tabs defaultValue="equipo" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="equipo">Equipo</TabsTrigger>
+          <TabsTrigger value="historico">Histórico</TabsTrigger>
+        </TabsList>
+        <TabsContent value="equipo" className="space-y-6">
 
       {error && (
         <Card className="border-destructive/40">
@@ -173,12 +193,6 @@ export default function GestorComerciales() {
                       <TablaTareas rows={g.retrasadas} />
                     </div>
                   )}
-                  <div>
-                    <div className="mb-1 text-xs font-medium text-muted-foreground">
-                      Tareas realizadas en el periodo
-                    </div>
-                    <TablaTareas rows={g.realizadas} mostrarCierre />
-                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -187,6 +201,64 @@ export default function GestorComerciales() {
       )}
 
       <ModosGeneracionCard />
+      <HorarioLaboralCard puedeEditar={canManageComerciales} />
+        </TabsContent>
+
+        <TabsContent value="historico" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Periodo:</span>
+            {PERIODS.map((p) => (
+              <Button
+                key={p.key}
+                size="sm"
+                variant={period === p.key ? "default" : "outline"}
+                onClick={() => setPeriod(p.key)}
+              >
+                {p.key === "hoy" ? "Hoy" : p.key === "semana" ? "Esta semana" : "Este mes"}
+              </Button>
+            ))}
+            <span className="ml-2 text-xs text-muted-foreground">Comercial:</span>
+            <Button
+              size="sm"
+              variant={comercial === "todos" ? "default" : "outline"}
+              onClick={() => setComercial("todos")}
+            >
+              Todos
+            </Button>
+            {grupos.map((g) => (
+              <Button
+                key={g.user_id}
+                size="sm"
+                variant={comercial === g.user_id ? "default" : "outline"}
+                onClick={() => setComercial(g.user_id)}
+              >
+                {g.nombre}
+              </Button>
+            ))}
+          </div>
+
+          {semanas.length === 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Sin tareas realizadas</CardTitle>
+                <CardDescription>No hay nada terminado en el periodo elegido.</CardDescription>
+              </CardHeader>
+            </Card>
+          ) : (
+            semanas.map((sem) => (
+              <Card key={sem.clave}>
+                <CardHeader>
+                  <CardTitle className="text-base">{sem.etiqueta}</CardTitle>
+                  <CardDescription>{sem.tareas.length} tareas realizadas</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <TablaTareas rows={sem.tareas} mostrarCierre mostrarComercial />
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
