@@ -10058,9 +10058,12 @@ export type Database = {
           owner_id: string | null
           pct_invalido: boolean | null
           pct_normalizado: boolean | null
+          pct_nuda: number | null
           pct_origen: string | null
+          pct_pleno: number | null
           pct_propiedad: number | null
           pct_raw: string | null
+          pct_usufructo: number | null
           rol: Database["public"]["Enums"]["owner_role"] | null
           rol_notas: string | null
           score: number | null

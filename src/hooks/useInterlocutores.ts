@@ -36,10 +36,18 @@ export function useEdificiosConInterlocutor() {
     queryKey: ["edificios_con_interlocutor"],
     staleTime: 60_000,
     queryFn: async (): Promise<string[]> => {
-      const { data } = await (supabase.from("buildings") as any)
-        .select("id")
-        .not("interlocutor_owner_id", "is", null);
-      return ((data ?? []) as any[]).map((r) => String(r.id));
+      // Reintento corto: bajo carga concurrente PostgREST puede devolver 500
+      // (statement_timeout) y el filtro se quedaba vacío.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { data, error } = await (supabase.from("buildings") as any)
+          .select("id")
+          .not("interlocutor_owner_id", "is", null)
+          .range(0, 19999);
+        if (!error) return ((data ?? []) as any[]).map((r) => String(r.id));
+        if (attempt === 2) throw error;
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
+      return [];
     },
   });
 }
