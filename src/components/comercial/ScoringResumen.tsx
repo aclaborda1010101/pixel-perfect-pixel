@@ -1,4 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
+import { BloquePlegable } from "@/components/common/BloquePlegable";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { isScoreFiable, ScoreGauge, scoreTier, tierBarClass, tierTextClass, getDisplayScore, scoreModeLabel } from "@/components/comercial/scoring";
@@ -660,8 +661,9 @@ export function ScoringResumen({
           </div>
         )}
 
-        {/* Por qué este score: factores ordenados */}
-        <div className="grid grid-cols-1 gap-6 px-6 pb-6 md:grid-cols-2">
+        {/* Por qué este score: factores ordenados (plegable) */}
+        <BloquePlegable label="Más detalles del score" className="px-6 pb-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div className="space-y-3">
             <Eyebrow>
               <TrendingUp className="mr-1 inline h-3 w-3 text-emerald-400" /> Aporta al score
@@ -766,6 +768,7 @@ export function ScoringResumen({
             </div>
           </div>
         </div>
+        </BloquePlegable>
 
         {b?.cluster_motivo && (
           <div className="border-t border-border-faint bg-surface-1/40 px-6 py-3">

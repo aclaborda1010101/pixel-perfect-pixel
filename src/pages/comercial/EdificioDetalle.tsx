@@ -31,7 +31,6 @@ import {
   tierBarClass,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
-import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { DerechoTags, InfluenciadorTag, AYUDA_DERECHOS, grupoDerecho, type GrupoDerecho } from "@/components/comercial/DerechoTags";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
@@ -334,9 +333,6 @@ export default function ComercialEdificioDetalle() {
         <SucesionBlock s={sucesion} />
       )}
 
-      {/* Tareas del edificio */}
-      {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
-
       {/* Sociedades propietarias */}
       {companies.length > 0 && (
         <Card>
@@ -377,9 +373,6 @@ export default function ComercialEdificioDetalle() {
           </CardContent>
         </Card>
       )}
-
-      {/* Titularidad registral (nota simple) */}
-      {id && <TitularidadRegistral buildingId={id} />}
 
       {/* Propietarios */}
       <Card>
@@ -671,6 +664,9 @@ export default function ComercialEdificioDetalle() {
           </ul>
         </CardContent>
       </Card>
+
+      {/* Titularidad registral (nota simple) — debajo de propietarios */}
+      {id && <TitularidadRegistral buildingId={id} />}
     </div>
   );
 }

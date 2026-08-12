@@ -3,6 +3,7 @@ import { Building2, User, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
+import { BloquePlegable } from "@/components/common/BloquePlegable";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { agruparPorCapa, type TitularCapa as Titular } from "./titularidadCapas";
@@ -71,6 +72,7 @@ export function TitularidadRegistral({ buildingId }: { buildingId: string }) {
         </div>
       </CardHeader>
       <CardContent className="p-0">
+        <BloquePlegable label="Ver titularidad registral" className="px-5 pb-4">
         <div className="overflow-x-auto">
           {capas.map((capa) => (
           <table key={capa.rol} className="w-full text-sm">
@@ -139,6 +141,7 @@ export function TitularidadRegistral({ buildingId }: { buildingId: string }) {
           </table>
           ))}
         </div>
+        </BloquePlegable>
       </CardContent>
     </Card>
   );
