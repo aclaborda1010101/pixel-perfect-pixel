@@ -300,7 +300,7 @@ export default function BuildingDetail() {
         {derechosEnReview > 0 && <Chip tone="warning">{derechosEnReview} derecho{derechosEnReview === 1 ? "" : "s"} en revisión</Chip>}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2">
         <SituacionEdificioCard buildingId={building.id} situacion={building.estado} onChanged={() => load()} />
         <InterlocutorCard buildingId={building.id} onChanged={() => load()} />
       </div>

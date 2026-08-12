@@ -291,14 +291,14 @@ export default function ComercialEdificioDetalle() {
         <InterlocutorFlag nombre={ownersExtra[b.interlocutor_owner_id]?.nombre_display ?? owners.find((o: any) => o.owner_id === b.interlocutor_owner_id)?.nombre ?? null} />
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <SituacionEdificioCard buildingId={b.id} situacion={b.estado} onChanged={() => refetch()} />
-        <InterlocutorCard buildingId={b.id} onChanged={() => refetch()} />
-      </div>
-
       {/* Resumen narrativo + scoring visual */}
       {/* Resumen del edificio: qué es y por qué es (o no) oportunidad */}
       <EdificioResumenCard b={b} s={s} analysis={analysis} anioConstr={anioConstr} ownersCount={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} catastro={catastro} />
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <SituacionEdificioCard buildingId={b.id} situacion={b.estado} onChanged={() => refetch()} />
+        <InterlocutorCard buildingId={b.id} onChanged={() => refetch()} />
+      </div>
 
       {/* Scoring: score + doble tesis + contribuciones (sin narrativa larga) */}
       <div className="flex items-center gap-2 justify-end">
