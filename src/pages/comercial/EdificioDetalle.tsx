@@ -208,6 +208,7 @@ export default function ComercialEdificioDetalle() {
   const sucesion = (data as any)?.sucesion ?? null;
   const ownersExtra: Record<string, any> = (data as any)?.ownersExtra ?? {};
   const { data: ownersCount } = useOwnersCount(b?.id);
+  const puedeInterlocutor = role === "admin" || role === "sales_manager" || !!assigned;
 
   if (!data?.b) {
     return <div className="p-8 text-sm text-muted-foreground">Cargando edificio…</div>;
