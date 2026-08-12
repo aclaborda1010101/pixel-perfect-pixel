@@ -11042,6 +11042,7 @@ export type Database = {
         Args: { p_expected_token: string; p_id: string }
         Returns: string
       }
+      reopen_building_task: { Args: { p_task_id: string }; Returns: Json }
       reparse_claim_batch: {
         Args: { p_limit?: number; p_lock_minutes?: number }
         Returns: {
@@ -11193,6 +11194,7 @@ export type Database = {
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      start_building_task: { Args: { p_task_id: string }; Returns: Json }
       strip_html_to_text: { Args: { _in: string }; Returns: string }
       sync_links_from_deals: { Args: never; Returns: Json }
       volcar_cuotas_desde_notas: { Args: never; Returns: Json }
