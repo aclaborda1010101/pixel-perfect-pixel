@@ -545,14 +545,10 @@ export default function ComercialEdificios() {
         Promise.all(restViewPromises),
         Promise.all(restBldgPromises),
       ]);
-      for (const batch of restViews) {
-        scores.push(...batch);
-        if (batch.length < PAGE) break;
-      }
-      for (const batch of restBldgs) {
-        demoBldgs.push(...batch);
-        if (batch.length < PAGE) break;
-      }
+      // No cortamos al primer lote corto: una página puede venir incompleta y
+      // dejaría fuera del catálogo a los edificios de las páginas siguientes.
+      for (const batch of restViews) scores.push(...batch);
+      for (const batch of restBldgs) demoBldgs.push(...batch);
       const assignments = assignmentsRes.data;
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
       const bldgsById = new Map<string, any>();
