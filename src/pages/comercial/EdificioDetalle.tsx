@@ -617,7 +617,9 @@ export default function ComercialEdificioDetalle() {
               );
             })}
             {owners.length === 0 && (
-              <li className="px-5 py-6 text-sm text-muted-foreground">Sin propietarios registrados.</li>
+              <li className="px-5 py-6 text-sm text-muted-foreground">
+                {ownersAll.length === 0 ? "Sin propietarios registrados." : "Nadie en esta vista."}
+              </li>
             )}
           </ul>
         </CardContent>
