@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { derechoTags, grupoDerecho, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
+import { derechoTags, grupoDerecho, esInfluenciador, TEXTO_INFLUENCIADOR, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
+import { readFileSync } from "node:fs";
 
 describe("etiquetas de tipo de derecho", () => {
   it("muestra pleno y nuda cuando ambos tienen valor", () => {
@@ -36,5 +37,23 @@ describe("grupoDerecho", () => {
     expect(grupoDerecho({ pct_usufructo: 20 })).toBe("usufructo");
     expect(grupoDerecho({})).toBe("sin_derecho");
     expect(grupoDerecho({ pct_propiedad: 5, pct_invalido: true })).toBe("sin_derecho");
+  });
+});
+
+describe("chapita de influenciador", () => {
+  it("solo marca a los que vienen con es_influencer", () => {
+    expect(esInfluenciador({ es_influencer: true })).toBe(true);
+    expect(esInfluenciador({ es_influencer: false })).toBe(false);
+    expect(esInfluenciador({})).toBe(false);
+  });
+
+  it("usa lenguaje llano y el filtro se llama Influenciadores", () => {
+    expect(TEXTO_INFLUENCIADOR).toContain("nota simple");
+    for (const prohibido of ["disparador", "v5", "backlog", "motor", "guarda", "orquestador"]) {
+      expect(TEXTO_INFLUENCIADOR.toLowerCase()).not.toContain(prohibido);
+    }
+    const ficha = readFileSync("src/pages/comercial/EdificioDetalle.tsx", "utf8");
+    expect(ficha).toContain("Influenciadores (${conteoGrupos.sin_derecho})");
+    expect(ficha).not.toContain("Sin derecho en la nota (");
   });
 });
