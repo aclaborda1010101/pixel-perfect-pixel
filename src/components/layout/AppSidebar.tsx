@@ -50,6 +50,7 @@ export function AppSidebar() {
   const isComercial = role === "comercial_zona";
   const isWhatsapp = role === "whatsapp";
   const isSalesManager = role === "sales_manager";
+  const { total: correccionesPendientes } = useCorreccionesPendientes();
 
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
