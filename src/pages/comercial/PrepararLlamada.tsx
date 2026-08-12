@@ -95,6 +95,27 @@ export default function ComercialPrepararLlamada() {
     },
   });
 
+  // Contexto mínimo para el botón "Hacer interlocutor" desde esta vista.
+  const buildingIdCtx = (data as any)?.ownerScore?.building_id ?? null;
+  const { data: interlocCtx, refetch: refetchInterloc } = useQuery({
+    queryKey: ["comercial:preparar:interlocutor", buildingIdCtx],
+    enabled: !!buildingIdCtx,
+    queryFn: async () => {
+      const { data: userRes } = await supabase.auth.getUser();
+      const uid = userRes?.user?.id ?? null;
+      const [{ data: b }, { data: asg }] = await Promise.all([
+        (supabase.from("buildings") as any).select("interlocutor_owner_id").eq("id", buildingIdCtx).maybeSingle(),
+        uid
+          ? (supabase.from("building_assignments") as any)
+              .select("id").eq("building_id", buildingIdCtx).eq("user_id", uid).eq("status", "active").maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      return { interlocutorOwnerId: (b as any)?.interlocutor_owner_id ?? null, asignado: !!asg };
+    },
+  });
+  const puedeInterlocutor =
+    role === "admin" || role === "sales_manager" || !!(interlocCtx as any)?.asignado;
+
   async function loadBrief() {
     if (!ownerId) return;
     setLoadingBrief(true);
