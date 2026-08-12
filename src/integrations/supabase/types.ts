@@ -314,6 +314,33 @@ export type Database = {
         }
         Relationships: []
       }
+      _jesus_revision_20260812: {
+        Row: {
+          building_id: string | null
+          direccion: string | null
+          estado_actual: string | null
+          nuevo_estado: string | null
+          patron: string | null
+          sim: number | null
+        }
+        Insert: {
+          building_id?: string | null
+          direccion?: string | null
+          estado_actual?: string | null
+          nuevo_estado?: string | null
+          patron?: string | null
+          sim?: number | null
+        }
+        Update: {
+          building_id?: string | null
+          direccion?: string | null
+          estado_actual?: string | null
+          nuevo_estado?: string | null
+          patron?: string | null
+          sim?: number | null
+        }
+        Relationships: []
+      }
       _match_empresas_20260811: {
         Row: {
           company_id: string | null

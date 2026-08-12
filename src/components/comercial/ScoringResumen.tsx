@@ -1,8 +1,9 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
-import { ScoreGauge, scoreTier, tierBarClass, tierTextClass, getDisplayScore, scoreModeLabel } from "@/components/comercial/scoring";
+import { isScoreFiable, ScoreGauge, scoreTier, tierBarClass, tierTextClass, getDisplayScore, scoreModeLabel } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
+import { ScoreDesglose } from "@/components/comercial/ScoreDesglose";
 import {
   TrendingUp,
   TrendingDown,
@@ -584,6 +585,19 @@ export function ScoringResumen({
                 {clusterInfo.tagline}
                 {clusterSecInfo ? ` · secundaria: ${clusterSecInfo.tagline.toLowerCase()}` : ""}.
               </p>
+              <ScoreDesglose
+                edificio={activo}
+                propietarios={propScore}
+                total={score}
+                aviso={
+                  mode === "activo"
+                    ? "Ahora mismo se muestra solo la nota del edificio porque está activado \u201cSin propietarios\u201d."
+                    : !isScoreFiable(scoreSource, "total")
+                      ? "De momento el número grande muestra solo la nota del edificio: falta confirmar quién es dueño de qué para poder sumar la parte de propietarios."
+                      : null
+                }
+                className="pt-1"
+              />
             </div>
           </div>
 
