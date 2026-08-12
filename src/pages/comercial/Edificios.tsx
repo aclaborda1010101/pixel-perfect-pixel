@@ -53,6 +53,7 @@ import {
   getDisplayScore,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
+import { AYUDA_SCORE } from "@/components/comercial/ScoreDesglose";
 import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips";
 import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
@@ -225,8 +226,11 @@ function BuildingCard({ r, showActivo, interlocutor }: { r: Row; showActivo?: bo
 
         {/* Chip fino con las dos componentes del score total */}
         {(r.score_activo != null || r.score_propietarios != null) && (
-          <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-            <span>Activo <span className="tabular-nums text-foreground">{r.score_activo != null ? Math.round(Number(r.score_activo)) : "—"}</span></span>
+          <div
+            className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground"
+            title={AYUDA_SCORE}
+          >
+            <span>Edificio <span className="tabular-nums text-foreground">{r.score_activo != null ? Math.round(Number(r.score_activo)) : "—"}</span></span>
             <span>·</span>
             <span>Propietarios <span className={cn("tabular-nums", (r.score_propietarios ?? 50) >= 60 ? "text-emerald-400" : (r.score_propietarios ?? 50) < 35 ? "text-destructive" : "text-foreground")}>{r.score_propietarios != null ? Math.round(Number(r.score_propietarios)) : "—"}</span></span>
             <span>·</span>
