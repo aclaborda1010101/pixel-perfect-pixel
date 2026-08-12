@@ -16,6 +16,7 @@ export const json = (status: number, body: unknown) =>
 export type Contexto = {
   userId: string;
   esAdmin: boolean;
+  esResponsable: boolean;
   tarea: any;
   owner: any;
   edificio: any;
@@ -38,6 +39,8 @@ export async function resolverContexto(
 
   const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', userId);
   const esAdmin = (roles ?? []).some((r: any) => String(r.role) === 'admin');
+  const esResponsable =
+    esAdmin || (roles ?? []).some((r: any) => String(r.role) === 'sales_manager');
 
   const { data: tarea } = await admin
     .from('building_tasks')
@@ -77,9 +80,23 @@ export async function resolverContexto(
 
   const { data: edificio } = await admin
     .from('buildings')
-    .select('id,direccion,ciudad')
+    .select('id,direccion,ciudad,interlocutor_owner_id')
     .eq('id', tarea.building_id)
     .maybeSingle();
 
-  return { ctx: { userId, esAdmin, tarea, owner, edificio } };
+  // Bloqueo duro: con interlocutor activo nadie del equipo comercial puede
+  // contactar a otros propietarios del edificio.
+  const inter = edificio?.interlocutor_owner_id ?? null;
+  if (inter && inter !== owner.id && !esResponsable) {
+    return {
+      error: json(403, {
+        ok: false,
+        error: 'bloqueado_por_interlocutor',
+        mensaje:
+          'Este edificio tiene un interlocutor activo: no puedes contactar con otros propietarios.',
+      }),
+    };
+  }
+
+  return { ctx: { userId, esAdmin, esResponsable, tarea, owner, edificio } };
 }

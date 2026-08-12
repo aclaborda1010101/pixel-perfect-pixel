@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { Loader2, MessageCircle, PhoneCall, Search, TriangleAlert } from "lucide-react";
 import { parseGeneratedTaskKey, tieneConsentimiento } from "@/lib/whatsappTarjeta";
 import { resolveBuildingTask } from "@/lib/taskStart";
+import { useBloqueoContacto } from "@/hooks/useBloqueoContacto";
+import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buildings/ContactoBloqueado";
 
 type Props = {
   task: any;
@@ -25,6 +27,7 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
 
   const ownerId = parseGeneratedTaskKey(task?.task_key)?.subjectId ?? null;
   const abierta = task?.status === "pending" || task?.status === "in_progress";
+  const { bloqueado } = useBloqueoContacto(ownerId, task?.building_id ?? null);
 
   const { data: owner } = useQuery({
     queryKey: ["tarea_wa_owner", ownerId],
@@ -158,17 +161,29 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
               size="sm"
               variant="gold"
               className="h-7 px-2 text-[11px]"
-              disabled={!autorizado || enviando || !abierta}
+              disabled={!autorizado || enviando || !abierta || bloqueado}
               onClick={enviar}
             >
               {enviando ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
               Enviar WhatsApp
             </Button>
-            <Button asChild size="sm" variant="outline" className="h-7 px-2 text-[11px]">
-              <Link to={`/comercial/preparar/${ownerId}`}>
-                <PhoneCall className="h-3 w-3" /> Preparar llamada
-              </Link>
-            </Button>
+            {bloqueado ? (
+              <>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" disabled>
+                  <PhoneCall className="h-3 w-3" /> Preparar llamada
+                </Button>
+                <BloqueoContactoBadge />
+                {task?.building_id && ownerId && (
+                  <ExcepcionContactoButton buildingId={String(task.building_id)} ownerId={String(ownerId)} />
+                )}
+              </>
+            ) : (
+              <Button asChild size="sm" variant="outline" className="h-7 px-2 text-[11px]">
+                <Link to={`/comercial/preparar/${ownerId}`}>
+                  <PhoneCall className="h-3 w-3" /> Preparar llamada
+                </Link>
+              </Button>
+            )}
             {autorizado && <Badge variant="outline" className="text-[9px]">Autorizado</Badge>}
           </div>
         </>
@@ -196,7 +211,21 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
 /** Botón de preparación de llamada para tarjetas con propietario. */
 export function PrepararLlamadaButton({ task }: { task: any }) {
   const ownerId = parseGeneratedTaskKey(task?.task_key)?.subjectId ?? null;
+  const { bloqueado } = useBloqueoContacto(ownerId, task?.building_id ?? null);
   if (!ownerId) return null;
+  if (bloqueado) {
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" disabled>
+          <PhoneCall className="h-3 w-3" /> Preparar llamada
+        </Button>
+        <BloqueoContactoBadge />
+        {task?.building_id && (
+          <ExcepcionContactoButton buildingId={String(task.building_id)} ownerId={String(ownerId)} />
+        )}
+      </div>
+    );
+  }
   return (
     <Button asChild size="sm" variant="outline" className="mt-2 h-6 px-2 text-[11px]">
       <Link to={`/comercial/preparar/${ownerId}`}>

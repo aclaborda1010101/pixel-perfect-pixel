@@ -1280,6 +1280,63 @@ export type Database = {
         }
         Relationships: []
       }
+      backup_20260812_building_tasks: {
+        Row: {
+          building_id: string | null
+          completed_at: string | null
+          created_at: string | null
+          description: string | null
+          due_date: string | null
+          id: string | null
+          objetivo: string | null
+          pasos_registro: string | null
+          priority: string | null
+          started_at: string | null
+          status: string | null
+          task_key: string | null
+          task_type: string | null
+          title: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string | null
+          objetivo?: string | null
+          pasos_registro?: string | null
+          priority?: string | null
+          started_at?: string | null
+          status?: string | null
+          task_key?: string | null
+          task_type?: string | null
+          title?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string | null
+          objetivo?: string | null
+          pasos_registro?: string | null
+          priority?: string | null
+          started_at?: string | null
+          status?: string | null
+          task_key?: string | null
+          task_type?: string | null
+          title?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       backup_q4_building_owners: {
         Row: {
           building_id: string | null
@@ -5947,6 +6004,121 @@ export type Database = {
           resolved_at?: string | null
         }
         Relationships: []
+      }
+      interlocutor_contact_exceptions: {
+        Row: {
+          autorizado_por: string
+          building_id: string
+          created_at: string
+          id: string
+          interlocutor_owner_id: string | null
+          motivo: string
+          owner_id: string
+        }
+        Insert: {
+          autorizado_por?: string
+          building_id: string
+          created_at?: string
+          id?: string
+          interlocutor_owner_id?: string | null
+          motivo: string
+          owner_id: string
+        }
+        Update: {
+          autorizado_por?: string
+          building_id?: string
+          created_at?: string
+          id?: string
+          interlocutor_owner_id?: string | null
+          motivo?: string
+          owner_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
       }
       investors: {
         Row: {
@@ -10735,6 +10907,10 @@ export type Database = {
           total_count: number
         }[]
       }
+      owner_bloqueado_por_interlocutor: {
+        Args: { p_building_id?: string; p_owner_id: string }
+        Returns: boolean
+      }
       owner_last_activity_at: { Args: { _owner_id: string }; Returns: string }
       p0_mark_cuota_eligibility: { Args: never; Returns: Json }
       p0_rebuild_property_rights: { Args: { p_reason?: string }; Returns: Json }
@@ -10744,6 +10920,10 @@ export type Database = {
         Returns: Json
       }
       reconciliation_mark_candidates: { Args: never; Returns: Json }
+      registrar_excepcion_contacto: {
+        Args: { p_building_id: string; p_motivo: string; p_owner_id: string }
+        Returns: Json
+      }
       release_nota_reparse_claim: {
         Args: { p_expected_token: string; p_id: string }
         Returns: string

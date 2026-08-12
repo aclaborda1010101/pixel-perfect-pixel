@@ -16,6 +16,10 @@ import { VossCoachCard } from "@/components/comercial/VossCoachCard";
 import { CallWizardStepper } from "@/components/comercial/CallWizardStepper";
 import { KpiChecklistCard } from "@/components/comercial/KpiChecklistCard";
 import { ContactHistoryCard } from "@/components/owners/ContactHistoryCard";
+import { useBloqueoContacto } from "@/hooks/useBloqueoContacto";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { BloqueoContactoBadge } from "@/components/buildings/ContactoBloqueado";
+import { puedeAutorizarExcepcion } from "@/lib/bloqueoContacto";
 
 type Outcome = "interesado" | "no_interesa" | "volver" | "no_contesta";
 const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "success" | "outline" | "info" | "destructive" }> = [
@@ -27,6 +31,8 @@ const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "succes
 
 export default function ComercialPrepararLlamada() {
   const { ownerId } = useParams<{ ownerId: string }>();
+  const { role } = useCurrentRole();
+  const { bloqueado } = useBloqueoContacto(ownerId);
   const [brief, setBrief] = useState<any | null>(null);
   const [loadingBrief, setLoadingBrief] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -148,7 +154,7 @@ export default function ComercialPrepararLlamada() {
 
   // Crear/cargar session al entrar
   useEffect(() => {
-    if (!ownerId) return;
+    if (!ownerId || bloqueado) return;
     (async () => {
       const { data: u } = await supabase.auth.getUser();
       const uid = u?.user?.id;
@@ -181,7 +187,7 @@ export default function ComercialPrepararLlamada() {
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerId]);
+  }, [ownerId, bloqueado]);
 
   // Persiste los KPIs objetivo (a_abordar) fijados en el paso 1 como parte
   // del expediente inmutable de la sesión. Solo se escribe una vez, mientras
@@ -492,6 +498,32 @@ export default function ComercialPrepararLlamada() {
 
   const owner = data?.owner;
   const building = data?.building;
+
+  if (bloqueado && !puedeAutorizarExcepcion(role)) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow={<><Link to="/comercial" className="hover:text-gold">Cartera</Link> · Preparar llamada</>}
+          title={owner?.nombre ?? "Propietario"}
+          subtitle={building ? `${building.direccion} · ${building.ciudad ?? ""}` : ""}
+        />
+        <Card>
+          <CardContent className="space-y-3 p-6 text-sm">
+            <BloqueoContactoBadge />
+            <p className="text-muted-foreground">
+              Este edificio tiene un interlocutor activo. No puedes llamar ni escribir a otros
+              propietarios: habla solo con la persona designada.
+            </p>
+            {building?.id && (
+              <Button asChild size="sm" variant="outline">
+                <Link to={`/comercial/edificios/${building.id}`}>Ver el edificio</Link>
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
