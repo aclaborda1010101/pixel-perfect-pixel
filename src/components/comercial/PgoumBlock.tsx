@@ -131,6 +131,8 @@ export function PgoumBlock({ buildingId }: Props) {
         {queue?.nota && (
           <p className="text-[11px] italic text-muted-foreground">Nota: {queue.nota}</p>
         )}
+        </div>
+        </BloquePlegable>
       </CardContent>
     </Card>
   );
