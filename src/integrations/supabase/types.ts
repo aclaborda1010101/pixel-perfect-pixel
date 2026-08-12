@@ -1352,6 +1352,21 @@ export type Database = {
         }
         Relationships: []
       }
+      backup_20260812_notas_dedupe: {
+        Row: {
+          id: string | null
+          status: string | null
+        }
+        Insert: {
+          id?: string | null
+          status?: string | null
+        }
+        Update: {
+          id?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
       backup_q4_building_owners: {
         Row: {
           building_id: string | null
