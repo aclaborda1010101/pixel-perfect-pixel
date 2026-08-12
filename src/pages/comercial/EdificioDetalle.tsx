@@ -536,6 +536,7 @@ export default function ComercialEdificioDetalle() {
                           </span>
                         )}
                       </div>
+                      <DerechoTags owner={o} />
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <Badge variant={e.variant as any}>{e.label}</Badge>
