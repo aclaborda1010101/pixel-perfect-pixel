@@ -31,7 +31,6 @@ import {
   tierBarClass,
 } from "@/components/comercial/scoring";
 import { cn } from "@/lib/utils";
-import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
 import { DerechoTags, InfluenciadorTag, AYUDA_DERECHOS, grupoDerecho, type GrupoDerecho } from "@/components/comercial/DerechoTags";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
