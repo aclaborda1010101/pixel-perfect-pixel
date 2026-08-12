@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { derechoTags, grupoDerecho, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
+import { derechoTags, grupoDerecho, esInfluenciador, TEXTO_INFLUENCIADOR, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
+import { readFileSync } from "node:fs";
 
 describe("etiquetas de tipo de derecho", () => {
   it("muestra pleno y nuda cuando ambos tienen valor", () => {
