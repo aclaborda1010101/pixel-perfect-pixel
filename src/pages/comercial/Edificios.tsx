@@ -489,8 +489,11 @@ export default function ComercialEdificios() {
       // el catálogo se quedaba truncado (~596 filas). Ahora se pide UNA sola
       // vez el rango completo (una ejecución de la vista) y sólo si falla se
       // recurre a paginación secuencial de respaldo.
-      const PAGE = 500;
-      const MAX_ROWS = 20000;
+      // PostgREST corta cualquier respuesta a 1.000 filas (max-rows), así que
+      // hay que paginar sí o sí; lo hacemos en secuencial con páginas grandes
+      // (2 peticiones para ~1.166 edificios) en lugar de 16 en paralelo.
+      const PAGE = 1000;
+      const MAX_ROWS = 50000;
 
       const withRetry = async <T,>(fn: () => Promise<{ data: T[] | null; error: any }>, label: string) => {
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -525,7 +528,6 @@ export default function ComercialEdificios() {
           `buildings ${from}-${from + size - 1}`,
         );
 
-      // Paginación secuencial de respaldo (sólo si la carga completa falla).
       const fetchAllPaged = async (
         fetchPage: (from: number, size?: number) => Promise<any[]>,
       ) => {
@@ -538,15 +540,7 @@ export default function ComercialEdificios() {
         return out;
       };
 
-      const fetchAll = async (
-        fetchPage: (from: number, size?: number) => Promise<any[]>,
-      ) => {
-        try {
-          return await fetchPage(0, MAX_ROWS);
-        } catch {
-          return await fetchAllPaged(fetchPage);
-        }
-      };
+      const fetchAll = fetchAllPaged;
 
       const [scoresRaw, demoBldgsRaw, assignmentsRes] = await Promise.all([
         fetchAll(fetchViewPage),
