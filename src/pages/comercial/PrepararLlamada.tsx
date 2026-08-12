@@ -553,10 +553,23 @@ export default function ComercialPrepararLlamada() {
         title={owner?.nombre ?? "Propietario"}
         subtitle={building ? `${building.direccion} · ${building.ciudad ?? ""}` : ""}
         actions={
-          <Button variant="gold" size="sm" onClick={loadBrief} disabled={loadingBrief}>
-            <Sparkles className="h-4 w-4" />
-            {loadingBrief ? "Generando…" : brief ? "Regenerar briefing" : "Briefing IA"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {buildingIdCtx && ownerId && (
+              <HacerInterlocutorButton
+                buildingId={String(buildingIdCtx)}
+                ownerId={String(ownerId)}
+                ownerNombre={owner?.nombre ?? null}
+                esActual={(interlocCtx as any)?.interlocutorOwnerId === ownerId}
+                hayInterlocutor={!!(interlocCtx as any)?.interlocutorOwnerId}
+                puedeGestionar={puedeInterlocutor}
+                onChanged={() => refetchInterloc()}
+              />
+            )}
+            <Button variant="gold" size="sm" onClick={loadBrief} disabled={loadingBrief}>
+              <Sparkles className="h-4 w-4" />
+              {loadingBrief ? "Generando…" : brief ? "Regenerar briefing" : "Briefing IA"}
+            </Button>
+          </div>
         }
       />
 
