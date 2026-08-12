@@ -14,9 +14,9 @@ describe("controles de decisión · solo dirección y responsable de equipo", ()
     expect(soloLectura).not.toContain("<Button");
   });
 
-  it("la tarjeta de interlocutor exige rol de decisión y ya no depende de la asignación", () => {
-    expect(interlocutor).toMatch(/puedeGestionar = role === "admin" \|\| role === "sales_manager"/);
-    expect(interlocutor).not.toContain("building_assignments");
+  it("la tarjeta de interlocutor la gestionan dirección, responsable de equipo y el comercial asignado", () => {
+    expect(interlocutor).toMatch(/puedeGestionar = role === "admin" \|\| role === "sales_manager" \|\| asignado/);
+    expect(interlocutor).toContain("building_assignments");
     const soloLectura = interlocutor.split("if (!puedeGestionar)")[1].split("return (")[1].split("</Card>")[0];
     expect(soloLectura).not.toContain("<Select");
     expect(soloLectura).not.toContain("<Button");
@@ -37,11 +37,10 @@ describe("refuerzo en el servidor", () => {
     expect(sql).toMatch(/'comercial_zona'::app_role/);
   });
 
-  it("marcar interlocutor queda limitado a dirección y responsables de equipo", () => {
+  it("marcar interlocutor lo permite dirección, responsables de equipo y el comercial asignado", () => {
     const fn = sql.split("CREATE OR REPLACE FUNCTION public.can_manage_building_interlocutor").pop() ?? "";
     const cuerpo = fn.split("$fn$")[1] ?? "";
     expect(cuerpo).toContain("'admin'::app_role");
     expect(cuerpo).toContain("'sales_manager'::app_role");
-    expect(cuerpo).not.toContain("building_assignments");
   });
 });

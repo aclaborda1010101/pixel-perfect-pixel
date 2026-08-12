@@ -26,7 +26,8 @@ export function InterlocutorCard({
   onChanged?: () => void;
 }) {
   const { role } = useCurrentRole();
-  const puedeGestionar = role === "admin" || role === "sales_manager";
+  const [asignado, setAsignado] = useState(false);
+  const puedeGestionar = role === "admin" || role === "sales_manager" || asignado;
   const [propietarios, setPropietarios] = useState<Propietario[]>([]);
   const [actual, setActual] = useState<{ ownerId: string | null; nombre: string | null; motivo: string | null; at: string | null } | null>(null);
   const [elegido, setElegido] = useState<string>("");
@@ -34,6 +35,13 @@ export function InterlocutorCard({
   const [trabajando, setTrabajando] = useState(false);
 
   const cargar = async () => {
+    const { data: userRes } = await supabase.auth.getUser();
+    const uid = userRes?.user?.id ?? null;
+    if (uid) {
+      const { data: asg } = await (supabase.from("building_assignments") as any)
+        .select("id").eq("building_id", buildingId).eq("user_id", uid).eq("status", "active").maybeSingle();
+      setAsignado(!!asg);
+    }
     const [{ data: b }, { data: bo }] = await Promise.all([
       (supabase.from("buildings") as any)
         .select("interlocutor_owner_id, interlocutor_motivo, interlocutor_marcado_at, owners:interlocutor_owner_id(nombre)")
