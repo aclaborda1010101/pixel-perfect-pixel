@@ -339,7 +339,11 @@ export default function ComercialEdificios() {
   const [advSoloPrioritarios, setAdvSoloPrioritarios] = useState(false);
   const [advNotaSimple, setAdvNotaSimple] = useState<"all" | "con" | "sin">("all");
   const [soloInterlocutor, setSoloInterlocutor] = useState(false);
-  const { data: interlocutorIds = new Set<string>() } = useEdificiosConInterlocutor();
+  const { data: interlocutorIdsList } = useEdificiosConInterlocutor();
+  const interlocutorIds = useMemo(
+    () => new Set<string>(interlocutorIdsList ?? []),
+    [interlocutorIdsList],
+  );
   // Toggle "Sin propietarios": muestra el score físico puro (score_activo).
   // Por defecto OFF → usamos score_total (mezcla activo × propietarios).
   const [viewActivo, setViewActivo] = useState<boolean>(() =>

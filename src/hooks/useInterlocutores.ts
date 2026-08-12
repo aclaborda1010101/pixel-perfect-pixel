@@ -35,11 +35,11 @@ export function useEdificiosConInterlocutor() {
   return useQuery({
     queryKey: ["edificios_con_interlocutor"],
     staleTime: 60_000,
-    queryFn: async (): Promise<Set<string>> => {
+    queryFn: async (): Promise<string[]> => {
       const { data } = await (supabase.from("buildings") as any)
         .select("id")
         .not("interlocutor_owner_id", "is", null);
-      return new Set(((data ?? []) as any[]).map((r) => String(r.id)));
+      return ((data ?? []) as any[]).map((r) => String(r.id));
     },
   });
 }
