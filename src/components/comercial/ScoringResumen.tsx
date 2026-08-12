@@ -325,6 +325,7 @@ export function ScoringResumen({
     score_total: s?.score_total ?? b?.score_total,
     score_activo: s?.score_activo ?? b?.score_activo,
     score: s?.score ?? b?.score ?? b?.cluster_score,
+    porcentajes_estado: b?.porcentajes_estado ?? s?.porcentajes_estado,
   };
   const score = getDisplayScore(scoreSource, mode);
   const tier = scoreTier(score);
