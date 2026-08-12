@@ -60,3 +60,6 @@ verify_jwt = false
 
 [functions.notas_por_deal_gemelo]
 verify_jwt = false
+
+[functions.refetch_notas_pdf_text]
+verify_jwt = false
