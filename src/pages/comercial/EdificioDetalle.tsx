@@ -473,6 +473,7 @@ export default function ComercialEdificioDetalle() {
                 (Array.isArray(o.metadatos?.cargas) && o.metadatos.cargas.length > 0);
               const edad = o.metadatos?.edad ?? o.metadatos?.edad_estimada ?? null;
               const bloqueado = contactoBloqueado(b.interlocutor_owner_id, o.owner_id);
+              const esInterlocutor = b.interlocutor_owner_id === o.owner_id;
 
               return (
                 <li
@@ -481,6 +482,7 @@ export default function ComercialEdificioDetalle() {
                     "px-5 py-4",
                     sinContacto && "bg-destructive/5",
                     bloqueado && "bg-surface-1/60 opacity-60",
+                    esInterlocutor && "border-l-2 border-l-gold bg-gold/5",
                   )}
                 >
                   <div className="flex flex-wrap items-center gap-4">
@@ -490,6 +492,9 @@ export default function ComercialEdificioDetalle() {
                         <span className="truncate text-sm font-medium text-foreground">
                           {ownersExtra[o.owner_id]?.nombre_display || o.nombre || "—"}
                         </span>
+                        {esInterlocutor && (
+                          <Badge variant="gold" className="h-4 px-1.5 text-[9px]">Interlocutor activo</Badge>
+                        )}
                         {pctKnown ? (
                           <span
                             className="shrink-0 rounded-[4px] border border-gold/40 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-gold"
