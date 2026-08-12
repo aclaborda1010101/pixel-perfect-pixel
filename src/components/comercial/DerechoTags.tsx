@@ -7,6 +7,38 @@ export type DerechoTag = { clave: "pleno" | "nuda" | "usufructo"; etiqueta: stri
 
 export type GrupoDerecho = "propiedad" | "usufructo" | "sin_derecho";
 
+/** Texto por defecto de la chapita de influenciador. */
+export const TEXTO_INFLUENCIADOR =
+  "No consta en la nota simple: posible familiar o allegado que puede influir en la negociación";
+
+/** ¿Este propietario está marcado como influenciador en el edificio? */
+export function esInfluenciador(o: { es_influencer?: unknown }): boolean {
+  return o?.es_influencer === true;
+}
+
+/** Chapita discreta, con color propio distinto al de los derechos. */
+export function InfluenciadorTag({
+  owner,
+  className,
+}: {
+  owner: { es_influencer?: unknown; influencer_reason?: unknown };
+  className?: string;
+}) {
+  if (!esInfluenciador(owner)) return null;
+  const motivo = String(owner?.influencer_reason ?? "").trim();
+  return (
+    <span
+      title={motivo || TEXTO_INFLUENCIADOR}
+      className={cn(
+        "rounded-[4px] border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-600",
+        className,
+      )}
+    >
+      Influenciador
+    </span>
+  );
+}
+
 /**
  * Clasifica a un titular según lo que consta a su nombre en la nota:
  * - propiedad: tiene pleno y/o nuda
