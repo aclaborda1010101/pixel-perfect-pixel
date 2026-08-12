@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BuildingTasksSection } from "@/components/comercial/BuildingTasksSection";
 import { ScoringResumen } from "@/components/comercial/ScoringResumen";
+import { DerechoTags, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
 import { PgoumBlock } from "@/components/comercial/PgoumBlock";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
@@ -409,6 +410,9 @@ export default function ComercialEdificioDetalle() {
               {pctUnknownCount} de {(data.owners ?? []).length} propietarios sin % de propiedad conocido.
             </div>
           )}
+          <p className="mx-5 mt-3 text-[11px] leading-snug text-muted-foreground" title={AYUDA_DERECHOS}>
+            {AYUDA_DERECHOS}.
+          </p>
           <ul className="divide-y divide-border-faint">
             {owners.map((o) => {
               const e = ownerEstado(o);
@@ -536,6 +540,7 @@ export default function ComercialEdificioDetalle() {
                           </span>
                         )}
                       </div>
+                      <DerechoTags owner={o} />
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <Badge variant={e.variant as any}>{e.label}</Badge>
