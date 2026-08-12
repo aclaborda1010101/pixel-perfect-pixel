@@ -79,8 +79,8 @@ Deno.serve(async (req) => {
       msg = "La nueva contraseña debe ser distinta de la actual.";
     } else if (raw.includes("weak") || raw.includes("password should")) {
       msg = "La contraseña es demasiado débil. Usa mayúsculas, minúsculas y números.";
-    } else if (pwErr.message) {
-      msg = `No se pudo actualizar la contraseña: ${pwErr.message}`;
+    } else if (raw.includes("same") || raw.includes("reuse")) {
+      msg = "La nueva contraseña debe ser distinta de la actual.";
     }
     // 200 con ok:false: el cliente necesita leer el motivo real (invoke oculta
     // el cuerpo en respuestas no-2xx).
