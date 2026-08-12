@@ -483,11 +483,14 @@ export default function ComercialEdificios() {
         "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,m2_vivienda_calc,ratio_m2_viv,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
       const B_COLS =
         "id,metadatos,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
-      // 200 filas cabe holgadamente dentro del statement_timeout de `authenticated`
-      // (8s) y también en el de `anon` (3s). Con Promise.all lanzamos todas las
-      // páginas restantes en paralelo, así el catálogo entero (~1.156) se sirve
-      // en el tiempo de la petición más lenta, no en suma secuencial.
-      const PAGE = 200;
+      // `v_building_score` no admite pushdown del LIMIT/OFFSET: cada página
+      // recalcula la vista entera (~2,6 s). Al pedir 16 páginas en paralelo la
+      // base saturaba y devolvía 500 (statement_timeout) en varias de ellas, y
+      // el catálogo se quedaba truncado (~596 filas). Ahora se pide UNA sola
+      // vez el rango completo (una ejecución de la vista) y sólo si falla se
+      // recurre a paginación secuencial de respaldo.
+      const PAGE = 500;
+      const MAX_ROWS = 20000;
 
       const withRetry = async <T,>(fn: () => Promise<{ data: T[] | null; error: any }>, label: string) => {
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -503,56 +506,58 @@ export default function ComercialEdificios() {
         return [] as T[];
       };
 
-      const fetchViewPage = (from: number) =>
+      const fetchViewPage = (from: number, size = PAGE) =>
         withRetry(
           () =>
             (supabase.from("v_building_score" as any) as any)
               .select(V_COLS)
               .order("id")
-              .range(from, from + PAGE - 1),
-          `v_building_score ${from}-${from + PAGE - 1}`,
+              .range(from, from + size - 1),
+          `v_building_score ${from}-${from + size - 1}`,
         );
-      const fetchBldgPage = (from: number) =>
+      const fetchBldgPage = (from: number, size = PAGE) =>
         withRetry(
           () =>
             (supabase.from("buildings" as any) as any)
               .select(B_COLS)
               .order("id")
-              .range(from, from + PAGE - 1),
-          `buildings ${from}-${from + PAGE - 1}`,
+              .range(from, from + size - 1),
+          `buildings ${from}-${from + size - 1}`,
         );
 
-      // Descubrimos el total con la primera página y lanzamos el resto en paralelo.
-      const [firstView, firstBldg, assignmentsRes] = await Promise.all([
-        fetchViewPage(0),
-        fetchBldgPage(0),
+      // Paginación secuencial de respaldo (sólo si la carga completa falla).
+      const fetchAllPaged = async (
+        fetchPage: (from: number, size?: number) => Promise<any[]>,
+      ) => {
+        const out: any[] = [];
+        for (let from = 0; from < MAX_ROWS; from += PAGE) {
+          const batch = await fetchPage(from);
+          out.push(...batch);
+          if (batch.length < PAGE) break;
+        }
+        return out;
+      };
+
+      const fetchAll = async (
+        fetchPage: (from: number, size?: number) => Promise<any[]>,
+      ) => {
+        try {
+          return await fetchPage(0, MAX_ROWS);
+        } catch {
+          return await fetchAllPaged(fetchPage);
+        }
+      };
+
+      const [scoresRaw, demoBldgsRaw, assignmentsRes] = await Promise.all([
+        fetchAll(fetchViewPage),
+        fetchAll(fetchBldgPage),
         (supabase.from("building_assignments" as any) as any)
           .select("building_id")
           .eq("user_id", userId)
           .eq("status", "active"),
       ]);
-      const scores: any[] = [...firstView];
-      const demoBldgs: any[] = [...firstBldg];
-      const restViewPromises: Promise<any[]>[] = [];
-      const restBldgPromises: Promise<any[]>[] = [];
-      // Estimación de páginas restantes: con 200 filas/página y un catálogo de
-      // ~1.200 edificios necesitamos ~6 páginas. Reservamos hasta 15 para
-      // márgenes de crecimiento sin saturar PostgREST.
-      const MAX_EXTRA_PAGES = 15;
-      if (firstView.length === PAGE) {
-        for (let i = 1; i <= MAX_EXTRA_PAGES; i++) restViewPromises.push(fetchViewPage(i * PAGE));
-      }
-      if (firstBldg.length === PAGE) {
-        for (let i = 1; i <= MAX_EXTRA_PAGES; i++) restBldgPromises.push(fetchBldgPage(i * PAGE));
-      }
-      const [restViews, restBldgs] = await Promise.all([
-        Promise.all(restViewPromises),
-        Promise.all(restBldgPromises),
-      ]);
-      // No cortamos al primer lote corto: una página puede venir incompleta y
-      // dejaría fuera del catálogo a los edificios de las páginas siguientes.
-      for (const batch of restViews) scores.push(...batch);
-      for (const batch of restBldgs) demoBldgs.push(...batch);
+      const scores: any[] = scoresRaw;
+      const demoBldgs: any[] = demoBldgsRaw;
       const assignments = assignmentsRes.data;
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
       const bldgsById = new Map<string, any>();
