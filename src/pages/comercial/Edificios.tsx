@@ -593,7 +593,8 @@ export default function ComercialEdificios() {
         }
       } catch {}
 
-      const rows: Row[] = (scores ?? []).map((b: any) => {
+      const scoresUnicos = Array.from(new Map((scores ?? []).map((b: any) => [b.id, b])).values());
+      const rows: Row[] = scoresUnicos.map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
         const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
