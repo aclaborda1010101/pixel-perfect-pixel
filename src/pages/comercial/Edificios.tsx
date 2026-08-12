@@ -73,6 +73,7 @@ type Row = {
   score_propietarios: number | null;
   score_total: number | null;
   score_propietarios_breakdown: any | null;
+  porcentajes_estado: string | null;
   es_estrella: boolean;
   n_alarmas: number;
   num_viviendas: number | null;
@@ -151,7 +152,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 function BuildingCard({ r, showActivo, interlocutor }: { r: Row; showActivo?: boolean; interlocutor?: { nombre: string | null } | null }) {
   const mode: "total" | "activo" = showActivo ? "activo" : "total";
   const displayScore = getDisplayScore(
-    { score_total: r.score_total, score_activo: r.score_activo, score: r.score },
+    { score_total: r.score_total, score_activo: r.score_activo, score: r.score, porcentajes_estado: r.porcentajes_estado },
     mode,
   );
   const tier = scoreTier(displayScore);
@@ -399,7 +400,7 @@ export default function ComercialEdificios() {
       const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
         (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
         (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_activo, score_propietarios, score_total, score_propietarios_breakdown, cluster_score, es_estrella, score_breakdown, iee_estado, comercial")
+          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_activo, score_propietarios, score_total, score_propietarios_breakdown, cluster_score, es_estrella, score_breakdown, iee_estado, comercial, porcentajes_estado")
           .in("id", ids),
         (supabase.from("building_analysis" as any) as any)
           .select(
@@ -445,6 +446,7 @@ export default function ComercialEdificios() {
           score_propietarios: extra.score_propietarios ?? null,
           score_total: extra.score_total ?? extra.score ?? null,
           score_propietarios_breakdown: extra.score_propietarios_breakdown ?? null,
+          porcentajes_estado: (extra as any).porcentajes_estado ?? null,
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
           comercial: extra.comercial ?? null,
@@ -482,7 +484,7 @@ export default function ComercialEdificios() {
       const V_COLS =
         "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,m2_vivienda_calc,ratio_m2_viv,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
       const B_COLS =
-        "id,metadatos,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial";
+        "id,metadatos,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial,porcentajes_estado";
       // `v_building_score` no admite pushdown del LIMIT/OFFSET: cada página
       // recalcula la vista entera (~2,6 s). Al pedir 16 páginas en paralelo la
       // base saturaba y devolvía 500 (statement_timeout) en varias de ellas, y
@@ -626,6 +628,7 @@ export default function ComercialEdificios() {
           score_propietarios: extra.score_propietarios ?? null,
           score_total: extra.score_total ?? extra.score ?? null,
           score_propietarios_breakdown: extra.score_propietarios_breakdown ?? null,
+          porcentajes_estado: (extra as any).porcentajes_estado ?? null,
           assigned: assignedIds.has(b.id),
           cartera_demo: demoIds.has(b.id),
           comercial: (extra as any).comercial ?? null,
@@ -713,7 +716,7 @@ export default function ComercialEdificios() {
       // Filtro de score mínimo sobre el score MOSTRADO (mismo modo que la card).
       const rMode: "total" | "activo" = viewActivo ? "activo" : "total";
       const rShown = getDisplayScore(
-        { score_total: r.score_total, score_activo: r.score_activo, score: r.score },
+        { score_total: r.score_total, score_activo: r.score_activo, score: r.score, porcentajes_estado: r.porcentajes_estado },
         rMode,
       );
       if (rShown < smin) return false;
@@ -739,11 +742,11 @@ export default function ComercialEdificios() {
       // Fuente única para el orden — mismo helper que usan la card y la ficha.
       const mode: "total" | "activo" = viewActivo ? "activo" : "total";
       const aScore = getDisplayScore(
-        { score_total: a.score_total, score_activo: a.score_activo, score: a.score },
+        { score_total: a.score_total, score_activo: a.score_activo, score: a.score, porcentajes_estado: a.porcentajes_estado },
         mode,
       );
       const bScore = getDisplayScore(
-        { score_total: b.score_total, score_activo: b.score_activo, score: b.score },
+        { score_total: b.score_total, score_activo: b.score_activo, score: b.score, porcentajes_estado: b.porcentajes_estado },
         mode,
       );
       // El criterio de orden elegido manda. La estrella NO altera el orden:
