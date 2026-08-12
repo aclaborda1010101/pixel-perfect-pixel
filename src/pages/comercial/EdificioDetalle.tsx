@@ -369,7 +369,7 @@ export default function ComercialEdificioDetalle() {
             <Eyebrow>Propietarios · {owners.length}</Eyebrow>
             <CardTitle>Sub-scoring y estado de contacto</CardTitle>
             <div className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
-              Con % de propiedad: {cuotaCount} de {owners.length}
+              Con % de propiedad: {pctKnownCount} de {owners.length}
             </div>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -411,10 +411,10 @@ export default function ComercialEdificioDetalle() {
               const e = ownerEstado(o);
               const sinContacto = (o.contactos_previos ?? 0) === 0;
               // Solo mostramos el % si viene normalizado (nunca % crudo engañoso)
-              const pctVerificado = o.pct_propiedad != null && o.pct_normalizado === true && !o.pct_invalido;
-              const pctKnown = pctVerificado;
+              const pctKnown = o.pct_propiedad != null && !o.pct_invalido;
               const pct = pctKnown ? Number(o.pct_propiedad) : 0;
-              const pctSinVerificar = o.pct_propiedad != null && !pctVerificado;
+              const pctSinVerificar = pctKnown && o.pct_normalizado !== true;
+              const soloUsufructo = !pctKnown && Number(o.pct_usufructo ?? 0) > 0;
               const sub = Number(o.score ?? 0);
               const subTier = scoreTier(sub);
               const cargas =
@@ -440,21 +440,28 @@ export default function ComercialEdificioDetalle() {
                         <span className="truncate text-sm font-medium text-foreground">
                           {ownersExtra[o.owner_id]?.nombre_display || o.nombre || "—"}
                         </span>
-                        {(() => {
-                          const c = fmtCuota(ownersExtra[o.owner_id]?.cuota);
-                          return c ? (
-                            <span
-                              className="shrink-0 rounded-[4px] border border-gold/40 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-gold"
-                              title="% de propiedad registrado"
-                            >
-                              {c}
-                            </span>
-                          ) : (
-                            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50" title="Sin % de propiedad">
-                              —
-                            </span>
-                          );
-                        })()}
+                        {pctKnown ? (
+                          <span
+                            className="shrink-0 rounded-[4px] border border-gold/40 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-gold"
+                            title="% de propiedad (pleno + nuda)"
+                          >
+                            {pct.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %
+                          </span>
+                        ) : soloUsufructo ? (
+                          <span
+                            className="shrink-0 rounded-[4px] border border-violet-500/40 bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-violet-500"
+                            title="Solo usufructo — derecho de uso, no cuenta como propiedad"
+                          >
+                            Usufructo {Number(o.pct_usufructo).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                          </span>
+                        ) : (
+                          <span
+                            className="shrink-0 rounded-[4px] border border-border-faint px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                            title="No consta derecho a su nombre en la nota"
+                          >
+                            sin derecho en la nota
+                          </span>
+                        )}
                         {ownersExtra[o.owner_id]?.estado_vital === "fallecido" && (
                           <Badge variant="destructive" className="h-4 px-1.5 text-[9px]">Fallecido</Badge>
                         )}
@@ -498,14 +505,14 @@ export default function ComercialEdificioDetalle() {
                           )}
                           title={o.pct_invalido ? `Valor inválido: ${o.pct_raw ?? ""}` : undefined}
                         >
-                          {pctKnown ? `${pct.toFixed(1)}%` : "—"}
+                          {pctKnown ? `${pct.toFixed(1)}%` : soloUsufructo ? "solo usufructo" : "—"}
                         </span>
-                        {pctKnown && (
+                        {pctKnown && o.pct_origen === "nota_simple" && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-emerald-500"
-                            title={`% verificado · origen ${o.pct_origen ?? "?"} · crudo "${o.pct_raw ?? ""}"`}
+                            title={`% tomado de la nota simple · crudo "${o.pct_raw ?? ""}"`}
                           >
-                            verificado
+                            verificado NS
                           </span>
                         )}
                         {pctSinVerificar && (
@@ -524,12 +531,12 @@ export default function ComercialEdificioDetalle() {
                             inválido
                           </span>
                         )}
-                        {pctKnown && o.pct_origen && o.pct_origen !== 'desconocido' && (
+                        {pctKnown && o.pct_origen && !['desconocido', 'nota_simple'].includes(String(o.pct_origen)) && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground"
                             title={`Origen del %: ${o.pct_origen}`}
                           >
-                            {o.pct_origen === 'nota_simple' ? 'NS' : o.pct_origen === 'hubspot' ? 'HS' : 'meta'}
+                            {o.pct_origen === 'hubspot' ? 'HS' : 'meta'}
                           </span>
                         )}
                       </div>
