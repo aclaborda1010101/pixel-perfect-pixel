@@ -6,8 +6,8 @@
 /** Adaptador de reparto ponderado por modo. DESACTIVADO: no altera la generación real. */
 export const FEATURE_SALES_TASK_MODE_ALLOCATOR = false;
 
-/** Cambio obligatorio de contraseña vía edge function (no desplegada todavía). */
-export const FEATURE_FORCE_PASSWORD_EDGE_FN = false;
+/** Cambio obligatorio de contraseña vía edge function (desplegada y activa). */
+export const FEATURE_FORCE_PASSWORD_EDGE_FN = true;
 
 /**
  * Motor V5 Fase A (modelo + elegibilidad/precedencia + modos puros).

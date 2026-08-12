@@ -12,16 +12,20 @@
 //    acceso sigue bloqueado (el flag permanece a true).
 // =====================================================================
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { clearMustChangePassword, PARTIAL_MESSAGE } from "./profile.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const MIN_LEN = 10;
 
 /**
- * Flag de fase B. Mientras esté apagada la función falla CERRADA
- * ANTES de tocar Auth (espejo de src/lib/featureFlags.ts).
+ * Flag de fase B (espejo de src/lib/featureFlags.ts). Activa: la función
+ * opera. Si se apaga, falla CERRADA antes de tocar Auth.
  */
-const FEATURE_FORCE_PASSWORD_EDGE_FN = false;
+const FEATURE_FORCE_PASSWORD_EDGE_FN = true;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

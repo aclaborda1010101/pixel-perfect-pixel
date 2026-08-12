@@ -433,7 +433,8 @@ describe("modos de reparto", () => {
 
   it("el motor productivo sigue detrás de flags apagadas", () => {
     expect(FEATURE_SALES_TASK_MODE_ALLOCATOR).toBe(false);
-    expect(FEATURE_FORCE_PASSWORD_EDGE_FN).toBe(false);
+    // El cambio obligatorio de contraseña ya está desplegado y activo.
+    expect(FEATURE_FORCE_PASSWORD_EDGE_FN).toBe(true);
     expect(SQL).toContain("REVALIDACIÓN de lo persistido en el momento de activar");
   });
 });
