@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
+import { BloquePlegable } from "@/components/common/BloquePlegable";
 import { ShieldAlert, Layers } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -67,7 +68,9 @@ export function PgoumBlock({ buildingId }: Props) {
         </Eyebrow>
         <CardTitle>Protección urbanística y edificabilidad</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 text-sm">
+      <CardContent className="text-sm">
+        <BloquePlegable label="Ver protección y edificabilidad">
+        <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <div className="text-xs text-muted-foreground">Protegido</div>
