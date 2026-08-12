@@ -12,6 +12,7 @@ import {
 } from '../_shared/generadorTareas.ts';
 import { propietariosContactables } from '../_shared/interlocutor.ts';
 import { insertGeneratedTask } from '../_shared/taskWriters.ts';
+import { agruparLlamadas, calcularCadencia, permiteTipo, type Cadencia } from '../_shared/cadencias.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -78,7 +79,7 @@ Deno.serve(async (req) => {
     for (let i = 0; i < ids.length; i += 100) {
       const { data, error } = await admin
         .from('buildings')
-        .select('id,direccion,ciudad,porcentajes_estado,interlocutor_owner_id')
+        .select('id,direccion,ciudad,estado,porcentajes_estado,interlocutor_owner_id')
         .eq('porcentajes_estado', 'verificado')
         .in('id', ids.slice(i, i + 100));
       if (error) throw error;
@@ -133,6 +134,19 @@ Deno.serve(async (req) => {
       arr.sort((a, b) => (Number(b.score ?? 0) - Number(a.score ?? 0)));
     }
 
+    // 4bis. Historial de llamadas por propietario -> situación y fecha de cadencia.
+    const ownerIds = [...new Set(propietarios.map((o: any) => o.owner_id).filter(Boolean))];
+    const llamadas: any[] = [];
+    for (let i = 0; i < ownerIds.length; i += 200) {
+      const { data } = await admin
+        .from('calls')
+        .select('owner_id,fecha,outcome,sentiment,duracion_seg')
+        .in('owner_id', ownerIds.slice(i, i + 200));
+      llamadas.push(...(data ?? []));
+    }
+    const porPropietario = agruparLlamadas(llamadas);
+    const ahoraRef = new Date();
+
     // 5. Candidatos por tipo, ordenados por el mejor propietario del edificio.
     const candidatos: Record<Tipo, any[]> = {} as any;
     for (const tipo of TIPOS) candidatos[tipo] = [];
@@ -150,9 +164,20 @@ Deno.serve(async (req) => {
         const necesitaPropietario = tipo === 'T-02_03' || tipo === 'T-04';
         const owner = conTelefono ?? top;
         if (necesitaPropietario && !owner) continue;
-        if (tipo === 'T-04' && !(Number(owner?.contactos_previos ?? 0) > 0)) continue;
-        if (tipo === 'T-02_03' && Number(owner?.contactos_previos ?? 0) > 0) continue;
-        candidatos[tipo].push({ building: b, owner, puntuacion });
+        // Cadencia por situación del contacto: nunca antes de su fecha,
+        // y nunca "primera llamada" a alguien con quien ya se ha hablado.
+        let cadencia: Cadencia | null = null;
+        if (owner?.owner_id) {
+          cadencia = calcularCadencia({
+            llamadas: porPropietario.get(String(owner.owner_id)) ?? [],
+            estadoEdificio: (b as any).estado ?? null,
+            ahora: ahoraRef,
+          });
+          if ((tipo === 'T-02_03' || tipo === 'T-04') && !permiteTipo(cadencia, tipo)) continue;
+        } else if (tipo === 'T-02_03' || tipo === 'T-04') {
+          continue;
+        }
+        candidatos[tipo].push({ building: b, owner, puntuacion, cadencia });
       }
     }
     for (const tipo of TIPOS) candidatos[tipo].sort((a, b) => b.puntuacion - a.puntuacion);
@@ -176,6 +201,8 @@ Deno.serve(async (req) => {
     });
 
     const ahora = new Date();
+    const cad: Cadencia | null = elegido.cadencia ?? null;
+    const limite = cad?.fechaLimite ?? proximaFechaLimite(ahora);
     const row = {
       building_id: elegido.building.id,
       user_id: userId,
@@ -188,13 +215,13 @@ Deno.serve(async (req) => {
       status: 'pending',
       priority: elegido.puntuacion >= 70 ? 'high' : elegido.puntuacion >= 40 ? 'medium' : 'low',
       started_at: ahora.toISOString(),
-      due_date: proximaFechaLimite(ahora).toISOString(),
+      due_date: limite.toISOString(),
     };
 
     const { data: creada, error: iErr } = await insertGeneratedTask(admin, row);
     if (iErr) throw iErr;
 
-    return json(200, { ok: true, created: creada, tipo });
+    return json(200, { ok: true, created: creada, tipo, situacion: cad?.situacion ?? null });
   } catch (e) {
     return json(500, { ok: false, error: (e as Error)?.message ?? String(e) });
   }
