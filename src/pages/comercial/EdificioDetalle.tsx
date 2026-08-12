@@ -631,13 +631,33 @@ export default function ComercialEdificioDetalle() {
                           <LockIcon className="h-3 w-3" /> Preparar
                         </Button>
                         <ExcepcionContactoButton buildingId={String(b.id)} ownerId={String(o.owner_id)} />
+                        <HacerInterlocutorButton
+                          buildingId={String(b.id)}
+                          ownerId={String(o.owner_id)}
+                          ownerNombre={ownersExtra[o.owner_id]?.nombre_display || o.nombre || null}
+                          esActual={false}
+                          hayInterlocutor={!!b.interlocutor_owner_id}
+                          puedeGestionar={puedeInterlocutor}
+                          onChanged={() => refetch()}
+                        />
                       </div>
                     ) : (
-                      <Button asChild size="sm" variant="outline">
-                        <Link to={`/comercial/preparar/${o.owner_id}`}>
-                          <Phone className="h-3 w-3" /> Preparar
-                        </Link>
-                      </Button>
+                      <div className="flex flex-col items-end gap-1">
+                        <Button asChild size="sm" variant="outline">
+                          <Link to={`/comercial/preparar/${o.owner_id}`}>
+                            <Phone className="h-3 w-3" /> Preparar
+                          </Link>
+                        </Button>
+                        <HacerInterlocutorButton
+                          buildingId={String(b.id)}
+                          ownerId={String(o.owner_id)}
+                          ownerNombre={ownersExtra[o.owner_id]?.nombre_display || o.nombre || null}
+                          esActual={esInterlocutor}
+                          hayInterlocutor={!!b.interlocutor_owner_id}
+                          puedeGestionar={puedeInterlocutor}
+                          onChanged={() => refetch()}
+                        />
+                      </div>
                     )}
                   </div>
                 </li>
