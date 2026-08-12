@@ -73,7 +73,18 @@ Deno.serve(async (req) => {
   if (pwErr) {
     // No se registra ni la contraseña ni el token, sólo el código de error.
     console.error("auth_update_failed", pwErr.status ?? "unknown");
-    return json({ ok: false, stage: "auth", error: "No se pudo actualizar la contraseña." }, 400);
+    const raw = (pwErr.message ?? "").toLowerCase();
+    let msg = "No se pudo actualizar la contraseña.";
+    if (raw.includes("different from the old")) {
+      msg = "La nueva contraseña debe ser distinta de la actual.";
+    } else if (raw.includes("weak") || raw.includes("password should")) {
+      msg = "La contraseña es demasiado débil. Usa mayúsculas, minúsculas y números.";
+    } else if (pwErr.message) {
+      msg = `No se pudo actualizar la contraseña: ${pwErr.message}`;
+    }
+    // 200 con ok:false: el cliente necesita leer el motivo real (invoke oculta
+    // el cuerpo en respuestas no-2xx).
+    return json({ ok: false, stage: "auth", error: msg }, 200);
   }
 
   // Sólo tras el éxito en Auth se baja el flag, con service role.
