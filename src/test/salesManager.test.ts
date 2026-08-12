@@ -594,6 +594,8 @@ describe("cambio de contraseña obligatorio", () => {
     const src = readFileSync("supabase/functions/force_password_change/index.ts", "utf8");
     expect(src).not.toContain("pwErr.message");
     expect(src).toContain("clearMustChangePassword");
+    expect(src).toContain("admin.auth.admin.updateUserById(userId, { password })");
+    expect(src).not.toContain("userClient.auth.updateUser");
   });
 });
 

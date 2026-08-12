@@ -1,5 +1,5 @@
 // =====================================================================
-// force_password_change — NO DESPLEGADA (fase B, pendiente de activar)
+// force_password_change — activa
 // =====================================================================
 // Cambia la contraseña del usuario AUTENTICADO y, sólo después, baja el
 // flag profiles.must_change_password con service role.
@@ -60,6 +60,9 @@ Deno.serve(async (req) => {
   }
 
   // Cliente ligado al JWT del propio usuario: la identidad la pone el token.
+  // updateUser() no sirve aquí: supabase-js exige una sesión persistida en el
+  // cliente aunque el Authorization header sea válido. Primero verificamos el
+  // JWT y después actualizamos exclusivamente ese userId con el cliente admin.
   const userClient = createClient(SUPABASE_URL, ANON, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false, autoRefreshToken: false },
@@ -69,7 +72,11 @@ Deno.serve(async (req) => {
   if (userErr || !userData?.user) return json({ error: "sesión inválida" }, 401);
   const userId = userData.user.id;
 
-  const { error: pwErr } = await userClient.auth.updateUser({ password });
+  const admin = createClient(SUPABASE_URL, SERVICE, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { error: pwErr } = await admin.auth.admin.updateUserById(userId, { password });
   if (pwErr) {
     // No se registra ni la contraseña ni el token, sólo el código de error.
     console.error("auth_update_failed", pwErr.status ?? "unknown");
@@ -90,10 +97,6 @@ Deno.serve(async (req) => {
   }
 
   // Sólo tras el éxito en Auth se baja el flag, con service role.
-  const admin = createClient(SUPABASE_URL, SERVICE, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
   const res = await clearMustChangePassword(admin as any, userId);
   if (res.ok) return json({ ok: true, stage: "done", must_change_password: false });
 
