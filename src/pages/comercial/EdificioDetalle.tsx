@@ -43,6 +43,9 @@ import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
 import { InterlocutorCard } from "@/components/buildings/InterlocutorCard";
 import { SituacionEdificioCard } from "@/components/buildings/SituacionEdificioCard";
 import { situacionLabel } from "@/lib/situacionComercial";
+import { Lock as LockIcon } from "lucide-react";
+import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buildings/ContactoBloqueado";
+import { contactoBloqueado, TEXTO_CONTACTO_BLOQUEADO } from "@/lib/bloqueoContacto";
 import { Label } from "@/components/ui/label";
 
 type SortKey = "score" | "pct" | "last" | "estado";
@@ -422,9 +425,17 @@ export default function ComercialEdificioDetalle() {
                 o.metadatos?.embargos === true ||
                 (Array.isArray(o.metadatos?.cargas) && o.metadatos.cargas.length > 0);
               const edad = o.metadatos?.edad ?? o.metadatos?.edad_estimada ?? null;
+              const bloqueado = contactoBloqueado(b.interlocutor_owner_id, o.owner_id);
 
               return (
-                <li key={o.owner_id} className={cn("px-5 py-4", sinContacto && "bg-destructive/5")}>
+                <li
+                  key={o.owner_id}
+                  className={cn(
+                    "px-5 py-4",
+                    sinContacto && "bg-destructive/5",
+                    bloqueado && "bg-surface-1/60 opacity-60",
+                  )}
+                >
                   <div className="flex flex-wrap items-center gap-4">
                     <ScorePill score={sub} />
                     <div className="min-w-0 flex-1">
@@ -544,11 +555,27 @@ export default function ComercialEdificioDetalle() {
                           : "Nunca contactado"}
                       </span>
                     </div>
-                    <Button asChild size="sm" variant="outline">
-                      <Link to={`/comercial/preparar/${o.owner_id}`}>
-                        <Phone className="h-3 w-3" /> Preparar
-                      </Link>
-                    </Button>
+                    {bloqueado ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <BloqueoContactoBadge
+                          nombreInterlocutor={
+                            ownersExtra[b.interlocutor_owner_id]?.nombre_display ??
+                            owners.find((x: any) => x.owner_id === b.interlocutor_owner_id)?.nombre ??
+                            null
+                          }
+                        />
+                        <Button size="sm" variant="outline" disabled title={TEXTO_CONTACTO_BLOQUEADO}>
+                          <LockIcon className="h-3 w-3" /> Preparar
+                        </Button>
+                        <ExcepcionContactoButton buildingId={String(b.id)} ownerId={String(o.owner_id)} />
+                      </div>
+                    ) : (
+                      <Button asChild size="sm" variant="outline">
+                        <Link to={`/comercial/preparar/${o.owner_id}`}>
+                          <Phone className="h-3 w-3" /> Preparar
+                        </Link>
+                      </Button>
+                    )}
                   </div>
                 </li>
               );

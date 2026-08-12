@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { MessageSquare, Send, CalendarPlus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useBloqueoContacto } from "@/hooks/useBloqueoContacto";
+import { BloqueoContactoBadge } from "@/components/buildings/ContactoBloqueado";
 
 const TEMPLATES = [
   { label: "Primer contacto", body: "Hola {{nombre}}, soy de AFFLUX. Trabajamos con propietarios de su zona. ¿Le interesaría una valoración orientativa de su inmueble sin compromiso?" },
@@ -23,10 +25,15 @@ const CADENCE = [
 export function WhatsappComposer({ ownerId, ownerName }: { ownerId: string; ownerName: string }) {
   const [body, setBody] = useState(TEMPLATES[0].body);
   const [busy, setBusy] = useState(false);
+  const { bloqueado } = useBloqueoContacto(ownerId);
 
   const interp = (s: string) => s.split("{{nombre}}").join(ownerName);
 
   const queueMessage = async () => {
+    if (bloqueado) {
+      toast.error("Este edificio tiene un interlocutor activo: no puedes escribir a otros propietarios.");
+      return;
+    }
     setBusy(true);
     try {
       const { error } = await supabase.from("whatsapp_messages").insert({
@@ -40,6 +47,10 @@ export function WhatsappComposer({ ownerId, ownerName }: { ownerId: string; owne
   };
 
   const startCadence = async () => {
+    if (bloqueado) {
+      toast.error("Este edificio tiene un interlocutor activo: no puedes escribir a otros propietarios.");
+      return;
+    }
     setBusy(true);
     try {
       const rows = CADENCE.map((c) => ({
@@ -62,11 +73,17 @@ export function WhatsappComposer({ ownerId, ownerName }: { ownerId: string; owne
           <MessageSquare className="h-4 w-4 text-primary" /> WhatsApp
           <Badge variant="outline" className="ml-2 text-amber-600 border-amber-500/40">Mock</Badge>
         </CardTitle>
-        <Button size="sm" variant="outline" onClick={startCadence} disabled={busy}>
+        <Button size="sm" variant="outline" onClick={startCadence} disabled={busy || bloqueado}>
           <CalendarPlus className="mr-2 h-3 w-3" /> Iniciar cadencia
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
+        {bloqueado && (
+          <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <BloqueoContactoBadge />
+            <span>Habla solo con el interlocutor designado de este edificio.</span>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           {TEMPLATES.map((tpl) => (
             <Button key={tpl.label} variant="outline" size="sm" onClick={() => setBody(tpl.body)}>
@@ -76,7 +93,7 @@ export function WhatsappComposer({ ownerId, ownerName }: { ownerId: string; owne
         </div>
         <Textarea rows={4} value={interp(body)} onChange={(e) => setBody(e.target.value)} />
         <div className="flex justify-end">
-          <Button size="sm" onClick={queueMessage} disabled={busy}>
+          <Button size="sm" onClick={queueMessage} disabled={busy || bloqueado}>
             <Send className="mr-2 h-3 w-3" /> Guardar mensaje
           </Button>
         </div>
