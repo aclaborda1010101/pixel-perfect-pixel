@@ -38,3 +38,21 @@ describe("grupoDerecho", () => {
     expect(grupoDerecho({ pct_propiedad: 5, pct_invalido: true })).toBe("sin_derecho");
   });
 });
+
+describe("chapita de influenciador", () => {
+  it("solo marca a los que vienen con es_influencer", () => {
+    expect(esInfluenciador({ es_influencer: true })).toBe(true);
+    expect(esInfluenciador({ es_influencer: false })).toBe(false);
+    expect(esInfluenciador({})).toBe(false);
+  });
+
+  it("usa lenguaje llano y el filtro se llama Influenciadores", () => {
+    expect(TEXTO_INFLUENCIADOR).toContain("nota simple");
+    for (const prohibido of ["disparador", "v5", "backlog", "motor", "guarda", "orquestador"]) {
+      expect(TEXTO_INFLUENCIADOR.toLowerCase()).not.toContain(prohibido);
+    }
+    const ficha = readFileSync("src/pages/comercial/EdificioDetalle.tsx", "utf8");
+    expect(ficha).toContain("Influenciadores (${conteoGrupos.sin_derecho})");
+    expect(ficha).not.toContain("Sin derecho en la nota (");
+  });
+});
