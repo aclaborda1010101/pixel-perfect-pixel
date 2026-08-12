@@ -73,7 +73,9 @@ Deno.serve(async (req) => {
   if (pwErr) {
     // No se registra ni la contraseña ni el token, sólo el código de error.
     console.error("auth_update_failed", pwErr.status ?? "unknown");
-    const raw = (pwErr.message ?? "").toLowerCase();
+    // Sólo se usa para clasificar; nunca se devuelve el texto interno.
+    const { message: authDetail } = pwErr;
+    const raw = (authDetail ?? "").toLowerCase();
     let msg = "No se pudo actualizar la contraseña.";
     if (raw.includes("different from the old")) {
       msg = "La nueva contraseña debe ser distinta de la actual.";
