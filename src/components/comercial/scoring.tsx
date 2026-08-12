@@ -19,11 +19,18 @@ export type OwnershipGate = {
 };
 
 export function ownershipGate(
-  b: { titularidad_segura?: any; derechos_operativos?: any } | null | undefined,
+  b:
+    | { titularidad_segura?: any; derechos_operativos?: any; porcentajes_estado?: any }
+    | null
+    | undefined,
 ): OwnershipGate {
   const n = Number(b?.derechos_operativos);
   const operativos = Number.isFinite(n) && n > 0 ? n : 0;
-  const segura = b?.titularidad_segura === true || operativos > 0;
+  // La titularidad se considera demostrada cuando el propio edificio ya está
+  // verificado (porcentajes cuadrados por el pipeline de notas simples), o
+  // cuando llega una señal explícita de derechos operativos.
+  const verificado = b?.porcentajes_estado === "verificado";
+  const segura = b?.titularidad_segura === true || operativos > 0 || verificado;
   return {
     titularidad_segura: segura,
     derechos_operativos: operativos,
@@ -50,7 +57,17 @@ export function isScoreFiable(b: any, mode: ScoreMode = "total"): boolean {
  * Todas las superficies DEBEN llamar aquí — nunca leer `b.score` a pelo.
  */
 export function getDisplayScore(
-  b: { score_total?: any; score_activo?: any; score?: any; titularidad_segura?: any; derechos_operativos?: any } | null | undefined,
+  b:
+    | {
+        score_total?: any;
+        score_activo?: any;
+        score?: any;
+        titularidad_segura?: any;
+        derechos_operativos?: any;
+        porcentajes_estado?: any;
+      }
+    | null
+    | undefined,
   mode: ScoreMode = "total",
 ): number {
   if (!b) return 0;
