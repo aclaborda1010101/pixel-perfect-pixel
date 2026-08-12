@@ -18,10 +18,11 @@ export function grupoDerecho(o: {
   pct_nuda?: unknown;
   pct_usufructo?: unknown;
   pct_propiedad?: unknown;
+  pct_invalido?: unknown;
 }): GrupoDerecho {
   const pleno = aNumero(o?.pct_pleno);
   const nuda = aNumero(o?.pct_nuda);
-  const propiedad = aNumero(o?.pct_propiedad);
+  const propiedad = o?.pct_invalido ? null : aNumero(o?.pct_propiedad);
   if (pleno != null || nuda != null || propiedad != null) return "propiedad";
   if (aNumero(o?.pct_usufructo) != null) return "usufructo";
   return "sin_derecho";
