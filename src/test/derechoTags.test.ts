@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { derechoTags, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
+import { derechoTags, grupoDerecho, AYUDA_DERECHOS } from "@/components/comercial/DerechoTags";
 
 describe("etiquetas de tipo de derecho", () => {
   it("muestra pleno y nuda cuando ambos tienen valor", () => {
