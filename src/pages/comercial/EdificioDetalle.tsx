@@ -42,6 +42,8 @@ import { TitularidadRegistral } from "@/components/comercial/TitularidadRegistra
 import { Switch } from "@/components/ui/switch";
 import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
 import { InterlocutorCard } from "@/components/buildings/InterlocutorCard";
+import { HacerInterlocutorButton } from "@/components/buildings/HacerInterlocutorButton";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { SituacionEdificioCard } from "@/components/buildings/SituacionEdificioCard";
 import { situacionLabel } from "@/lib/situacionComercial";
 import { Lock as LockIcon } from "lucide-react";
@@ -119,6 +121,7 @@ function Kpi({ label, value, tone }: { label: string; value: any; tone?: "danger
 export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { role } = useCurrentRole();
   const [sort, setSort] = useState<SortKey>("pct");
   const [vistaDerecho, setVistaDerecho] = useState<"todos" | GrupoDerecho>("propiedad");
   // Toggle "Sin propietarios". DEBE declararse antes de cualquier early return
