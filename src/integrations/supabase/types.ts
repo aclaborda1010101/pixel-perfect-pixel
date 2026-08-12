@@ -401,6 +401,21 @@ export type Database = {
         }
         Relationships: []
       }
+      _sumcheck_20260812: {
+        Row: {
+          building_id: string | null
+          pct: number | null
+        }
+        Insert: {
+          building_id?: string | null
+          pct?: number | null
+        }
+        Update: {
+          building_id?: string | null
+          pct?: number | null
+        }
+        Relationships: []
+      }
       agent_attempts: {
         Row: {
           agente: string | null
