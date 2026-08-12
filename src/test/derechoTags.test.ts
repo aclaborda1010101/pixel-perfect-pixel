@@ -28,3 +28,13 @@ describe("etiquetas de tipo de derecho", () => {
     expect(AYUDA_DERECHOS.toLowerCase()).not.toMatch(/motor|backlog|v5|disparador/);
   });
 });
+
+describe("grupoDerecho", () => {
+  it("clasifica propiedad, solo usufructo y sin derecho", () => {
+    expect(grupoDerecho({ pct_propiedad: 7.6, pct_pleno: 7.6 })).toBe("propiedad");
+    expect(grupoDerecho({ pct_nuda: 3 })).toBe("propiedad");
+    expect(grupoDerecho({ pct_usufructo: 20 })).toBe("usufructo");
+    expect(grupoDerecho({})).toBe("sin_derecho");
+    expect(grupoDerecho({ pct_propiedad: 5, pct_invalido: true })).toBe("sin_derecho");
+  });
+});
