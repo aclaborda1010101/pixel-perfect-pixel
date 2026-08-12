@@ -5,6 +5,28 @@ export const AYUDA_DERECHOS =
 
 export type DerechoTag = { clave: "pleno" | "nuda" | "usufructo"; etiqueta: string; valor: number };
 
+export type GrupoDerecho = "propiedad" | "usufructo" | "sin_derecho";
+
+/**
+ * Clasifica a un titular según lo que consta a su nombre en la nota:
+ * - propiedad: tiene pleno y/o nuda
+ * - usufructo: sólo usufructo
+ * - sin_derecho: no consta ningún derecho
+ */
+export function grupoDerecho(o: {
+  pct_pleno?: unknown;
+  pct_nuda?: unknown;
+  pct_usufructo?: unknown;
+  pct_propiedad?: unknown;
+}): GrupoDerecho {
+  const pleno = aNumero(o?.pct_pleno);
+  const nuda = aNumero(o?.pct_nuda);
+  const propiedad = aNumero(o?.pct_propiedad);
+  if (pleno != null || nuda != null || propiedad != null) return "propiedad";
+  if (aNumero(o?.pct_usufructo) != null) return "usufructo";
+  return "sin_derecho";
+}
+
 function aNumero(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
