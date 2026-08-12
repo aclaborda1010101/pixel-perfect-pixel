@@ -105,6 +105,14 @@ export default function GestorComerciales() {
           Trabajo del equipo comercial: lo que tienen entre manos, lo que se ha retrasado y lo que ya
           han terminado.
         </p>
+        {correcciones > 0 && (
+          <Link
+            to="/correcciones"
+            className="mt-2 inline-flex items-center gap-2 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
+            {correcciones.toLocaleString("es-ES")} correcciones pendientes de revisar
+          </Link>
+        )}
       </header>
 
       <Tabs defaultValue="equipo" className="space-y-4">
