@@ -57,7 +57,7 @@ import { BuildingChips, type Aviso } from "@/components/comercial/BuildingChips"
 import { AlarmChips, countAlarmas } from "@/components/comercial/AlarmChips";
 import { DocAlertBadge } from "@/components/buildings/DocAlertBadge";
 import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
-import { useInterlocutores } from "@/hooks/useInterlocutores";
+import { useInterlocutores, useEdificiosConInterlocutor } from "@/hooks/useInterlocutores";
 import { NotaSimpleBadge } from "@/components/buildings/NotaSimpleBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -338,6 +338,12 @@ export default function ComercialEdificios() {
   const [advSoloEstrella, setAdvSoloEstrella] = useState(false);
   const [advSoloPrioritarios, setAdvSoloPrioritarios] = useState(false);
   const [advNotaSimple, setAdvNotaSimple] = useState<"all" | "con" | "sin">("all");
+  const [soloInterlocutor, setSoloInterlocutor] = useState(false);
+  const { data: interlocutorIdsList } = useEdificiosConInterlocutor();
+  const interlocutorIds = useMemo(
+    () => new Set<string>(interlocutorIdsList ?? []),
+    [interlocutorIdsList],
+  );
   // Toggle "Sin propietarios": muestra el score físico puro (score_activo).
   // Por defecto OFF → usamos score_total (mezcla activo × propietarios).
   const [viewActivo, setViewActivo] = useState<boolean>(() =>
@@ -539,14 +545,10 @@ export default function ComercialEdificios() {
         Promise.all(restViewPromises),
         Promise.all(restBldgPromises),
       ]);
-      for (const batch of restViews) {
-        scores.push(...batch);
-        if (batch.length < PAGE) break;
-      }
-      for (const batch of restBldgs) {
-        demoBldgs.push(...batch);
-        if (batch.length < PAGE) break;
-      }
+      // No cortamos al primer lote corto: una página puede venir incompleta y
+      // dejaría fuera del catálogo a los edificios de las páginas siguientes.
+      for (const batch of restViews) scores.push(...batch);
+      for (const batch of restBldgs) demoBldgs.push(...batch);
       const assignments = assignmentsRes.data;
       const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
       const bldgsById = new Map<string, any>();
@@ -591,7 +593,8 @@ export default function ComercialEdificios() {
         }
       } catch {}
 
-      const rows: Row[] = (scores ?? []).map((b: any) => {
+      const scoresUnicos = Array.from(new Map((scores ?? []).map((b: any) => [b.id, b])).values());
+      const rows: Row[] = scoresUnicos.map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
         const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
@@ -725,6 +728,7 @@ export default function ComercialEdificios() {
       if (advSoloPrioritarios && (r.prior_count ?? 0) === 0) return false;
       if (advNotaSimple === "con" && !r.has_nota_simple) return false;
       if (advNotaSimple === "sin" && r.has_nota_simple) return false;
+      if (soloInterlocutor && !interlocutorIds.has(r.id)) return false;
       return true;
     });
 
@@ -797,6 +801,7 @@ export default function ComercialEdificios() {
     setAdvSoloEstrella(false);
     setAdvSoloPrioritarios(false);
     setAdvNotaSimple("all");
+    setSoloInterlocutor(false);
   };
 
   const advancedCount =
@@ -815,6 +820,7 @@ export default function ComercialEdificios() {
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0) +
+    (soloInterlocutor ? 1 : 0) +
     advancedCount;
 
   const filteredTodos = apply(rowsByTab);
@@ -825,7 +831,8 @@ export default function ComercialEdificios() {
     setShownTodos(TODOS_PAGE);
   }, [tab, q, sort, scoreMin, barrios, ventanasMin, advSegundasEscaleras,
       advPlantasLevantables, advAzotea, advEsquina, advSinProteccion,
-      advSinReforma, advSinGestionPro, advClusters, advSoloEstrella, advSoloPrioritarios, advNotaSimple]);
+      advSinReforma, advSinGestionPro, advClusters, advSoloEstrella, advSoloPrioritarios, advNotaSimple,
+      soloInterlocutor]);
 
   return (
     <div className="space-y-6">
@@ -1042,6 +1049,18 @@ export default function ComercialEdificios() {
               </div>
             </PopoverContent>
           </Popover>
+
+          <Button
+            variant={soloInterlocutor ? "secondary" : "outline"}
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => setSoloInterlocutor((v) => !v)}
+          >
+            Con interlocutor activo
+            <span className="rounded-[3px] bg-surface-1 px-1 font-mono text-[10px] tabular-nums">
+              {rowsByTab.filter((r) => interlocutorIds.has(r.id)).length}
+            </span>
+          </Button>
 
           {activeFiltersCount > 0 && (
             <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={clearFilters}>

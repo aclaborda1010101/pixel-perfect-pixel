@@ -142,6 +142,11 @@ export const AUTHORIZED_SQL_TOPLEVEL: Record<string, { id: string; requires: Reg
     id: "clasificacion_historico_legacy",
     requires: [/generation_mode\s*=\s*'legacy'/i],
   },
+  // Limpieza puntual y ya aplicada de las tareas de prueba de un solo comercial.
+  "supabase/migrations/20260812122136_31f2fd61-403e-4b77-a8fb-86faf098c70d.sql#delete": {
+    id: "limpieza_puntual_tareas_prueba",
+    requires: [/user_id\s*=\s*'[0-9a-f-]{36}'/i, /task_key\s+LIKE\s+'v5:gen1:%'/i],
+  },
 };
 
 const TABLE = "building_tasks";

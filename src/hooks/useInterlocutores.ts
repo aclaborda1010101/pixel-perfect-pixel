@@ -29,3 +29,17 @@ export function useInterlocutores(buildingIds: string[]) {
     },
   });
 }
+
+/** Conjunto de edificios que ahora mismo tienen un interlocutor activo. */
+export function useEdificiosConInterlocutor() {
+  return useQuery({
+    queryKey: ["edificios_con_interlocutor"],
+    staleTime: 60_000,
+    queryFn: async (): Promise<string[]> => {
+      const { data } = await (supabase.from("buildings") as any)
+        .select("id")
+        .not("interlocutor_owner_id", "is", null);
+      return ((data ?? []) as any[]).map((r) => String(r.id));
+    },
+  });
+}
