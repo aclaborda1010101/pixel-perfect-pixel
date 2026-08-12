@@ -334,9 +334,6 @@ export default function ComercialEdificioDetalle() {
         <SucesionBlock s={sucesion} />
       )}
 
-      {/* Tareas del edificio */}
-      {user?.id && id && <BuildingTasksSection buildingId={id} userId={user.id} />}
-
       {/* Sociedades propietarias */}
       {companies.length > 0 && (
         <Card>
@@ -377,9 +374,6 @@ export default function ComercialEdificioDetalle() {
           </CardContent>
         </Card>
       )}
-
-      {/* Titularidad registral (nota simple) */}
-      {id && <TitularidadRegistral buildingId={id} />}
 
       {/* Propietarios */}
       <Card>
