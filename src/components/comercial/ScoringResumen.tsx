@@ -1,4 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
+import { BloquePlegable } from "@/components/common/BloquePlegable";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { isScoreFiable, ScoreGauge, scoreTier, tierBarClass, tierTextClass, getDisplayScore, scoreModeLabel } from "@/components/comercial/scoring";
