@@ -84,6 +84,7 @@ const AdminGuardas = lazy_(() => import("./pages/admin/Guardas"));
 const AdminColaSimulada = lazy_(() => import("./pages/admin/ColaSimulada"));
 const WhatsappDashboard = lazy_(() => import("./pages/whatsapp/WhatsappDashboard"));
 const GestorComerciales = lazy_(() => import("./pages/GestorComerciales"));
+const Correcciones = lazy_(() => import("./pages/Correcciones"));
 const CambiarPasswordObligatorio = lazy_(() => import("./pages/auth/CambiarPasswordObligatorio"));
 const Oportunidades = lazy_(() => import("./pages/Oportunidades"));
 const RevisionEscaleras = lazy_(() => import("./pages/RevisionEscaleras"));
@@ -185,6 +186,7 @@ const App = () => (
                 <Route path="/enriquecimiento" element={<Enriquecimiento />} />
                 <Route path="/whatsapp" element={<WhatsappDashboard />} />
                 <Route path="/gestor-comerciales" element={<GestorComerciales />} />
+                <Route path="/correcciones" element={<Correcciones />} />
                 <Route path="/cambiar-password" element={<CambiarPasswordObligatorio />} />
                 <Route path="/oportunidades" element={<Oportunidades />} />
                 <Route path="/revision-escaleras" element={<RevisionEscaleras />} />
