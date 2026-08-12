@@ -665,6 +665,9 @@ export default function ComercialEdificioDetalle() {
           </ul>
         </CardContent>
       </Card>
+
+      {/* Titularidad registral (nota simple) — debajo de propietarios */}
+      {id && <TitularidadRegistral buildingId={id} />}
     </div>
   );
 }
