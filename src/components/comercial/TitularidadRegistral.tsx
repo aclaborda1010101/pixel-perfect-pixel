@@ -141,6 +141,7 @@ export function TitularidadRegistral({ buildingId }: { buildingId: string }) {
           </table>
           ))}
         </div>
+        </BloquePlegable>
       </CardContent>
     </Card>
   );
