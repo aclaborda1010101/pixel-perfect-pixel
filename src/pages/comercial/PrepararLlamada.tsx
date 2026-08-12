@@ -18,6 +18,7 @@ import { KpiChecklistCard } from "@/components/comercial/KpiChecklistCard";
 import { ContactHistoryCard } from "@/components/owners/ContactHistoryCard";
 import { useBloqueoContacto } from "@/hooks/useBloqueoContacto";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { HacerInterlocutorButton } from "@/components/buildings/HacerInterlocutorButton";
 import { BloqueoContactoBadge } from "@/components/buildings/ContactoBloqueado";
 import { puedeAutorizarExcepcion } from "@/lib/bloqueoContacto";
 
