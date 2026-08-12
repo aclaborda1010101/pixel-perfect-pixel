@@ -180,7 +180,12 @@ Deno.serve(async (req) => {
         candidatos[tipo].push({ building: b, owner, puntuacion, cadencia });
       }
     }
-    for (const tipo of TIPOS) candidatos[tipo].sort((a, b) => b.puntuacion - a.puntuacion);
+    // La investigación de un propietario ilocalizable tras 3 intentos va primero.
+    const prioridad = (c: any, tipo: Tipo) =>
+      c.puntuacion + (tipo === 'T-01' && c.cadencia?.situacion === 'no_contactado_agotado' ? 1000 : 0);
+    for (const tipo of TIPOS) {
+      candidatos[tipo].sort((a, b) => prioridad(b, tipo) - prioridad(a, tipo));
+    }
 
     const disponibles = TIPOS.filter((t) => candidatos[t].length > 0);
     if (disponibles.length === 0) return json(200, { ok: true, created: null, reason: 'sin_candidatos' });
