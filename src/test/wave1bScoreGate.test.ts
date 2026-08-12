@@ -29,3 +29,19 @@ describe("Wave 1B · gate de titularidad en el score efectivo", () => {
     expect(getDisplayScore({ score_total: 90, score_activo: 55 }, "activo")).toBe(55);
   });
 });
+
+describe("edificio verificado · el total sí se muestra", () => {
+  it("porcentajes_estado 'verificado' abre el gate", () => {
+    const b = { score_total: 84.3, score_activo: 73.8, porcentajes_estado: "verificado" };
+    expect(isScoreFiable(b, "total")).toBe(true);
+    expect(getDisplayScore(b, "total")).toBe(84.3);
+  });
+
+  it("los estados no verificados siguen degradando al número del edificio", () => {
+    for (const estado of ["a_revisar", "verificado_pendiente_matching", "sin_nota", "sin_propietarios", null]) {
+      const b = { score_total: 84.3, score_activo: 73.8, porcentajes_estado: estado };
+      expect(isScoreFiable(b, "total")).toBe(false);
+      expect(getDisplayScore(b, "total")).toBe(73.8);
+    }
+  });
+});
