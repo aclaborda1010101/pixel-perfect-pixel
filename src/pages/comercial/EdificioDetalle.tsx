@@ -226,11 +226,10 @@ export default function ComercialEdificioDetalle() {
   const owners = [...(data.owners ?? [])].sort((a, b) => {
     if (sort === "score") return Number(b.score ?? 0) - Number(a.score ?? 0);
     if (sort === "pct") {
-      // ASC: menor % primero (más fáciles de comprar / mayor palanca)
-      // NULL al final (NULLS LAST)
-      const av = a.pct_propiedad == null ? Number.POSITIVE_INFINITY : Number(a.pct_propiedad);
-      const bv = b.pct_propiedad == null ? Number.POSITIVE_INFINITY : Number(b.pct_propiedad);
-      return av - bv;
+      // DESC: mayor % primero; los que no tienen % conocido, al final.
+      const av = a.pct_propiedad == null ? Number.NEGATIVE_INFINITY : Number(a.pct_propiedad);
+      const bv = b.pct_propiedad == null ? Number.NEGATIVE_INFINITY : Number(b.pct_propiedad);
+      return bv - av;
     }
     if (sort === "last") {
       const la = a.last_call_at ? new Date(a.last_call_at).getTime() : 0;
@@ -240,24 +239,18 @@ export default function ComercialEdificioDetalle() {
     return Number((a.contactos_previos ?? 0) === 0 ? 0 : 1) - Number((b.contactos_previos ?? 0) === 0 ? 0 : 1);
   });
 
-  // Building-level pct validation (only meaningful when all owners have known pct)
-  const pctKnown = (data.owners ?? []).filter((o: any) => o.pct_propiedad != null);
-  const pctUnknownCount = (data.owners ?? []).length - pctKnown.length;
+  // Fuente única del panel: v_owner_score. Un propietario "tiene %" cuando
+  // pct_propiedad viene informado y no está marcado como inválido.
+  const pctKnown = (data.owners ?? []).filter(
+    (o: any) => o.pct_propiedad != null && !o.pct_invalido,
+  );
+  const pctKnownCount = pctKnown.length;
+  const pctUnknownCount = (data.owners ?? []).length - pctKnownCount;
   const sumPct = pctKnown.reduce((s: number, o: any) => s + Number(o.pct_propiedad), 0);
   const pctInconsistente =
     pctKnown.length > 0 && pctUnknownCount === 0 && (sumPct < 95 || sumPct > 105);
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
-
-  // % de propiedad registrado en building_owners.cuota (volcado desde notas/HubSpot)
-  const fmtCuota = (v: unknown) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    return `${n.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
-  };
-  const cuotaCount = (data.owners ?? []).filter(
-    (o: any) => fmtCuota(ownersExtra[o.owner_id]?.cuota) != null,
-  ).length;
 
   return (
     <div className="space-y-6">
