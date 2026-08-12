@@ -60,6 +60,7 @@ export function AppSidebar() {
 
   const operativa: Item[] = isSalesManager ? [
     { url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 },
+    { url: "/correcciones", label: "Correcciones", icon: CheckSquare, badge: correccionesPendientes },
   ] : isWhatsapp ? [
     { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
   ] : isComercial ? [
@@ -91,7 +92,10 @@ export function AppSidebar() {
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
   ];
   const gestion: Item[] = (role === "admin" || role === "sales_manager")
-    ? [{ url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 } as Item]
+    ? [
+        { url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 } as Item,
+        { url: "/correcciones", label: "Correcciones", icon: CheckSquare, badge: correccionesPendientes } as Item,
+      ]
     : [];
   const cuenta: Item[] = isWhatsapp || isSalesManager ? [] : isComercial ? [
     { url: "/comercial/cuenta", label: "Mi cuenta", icon: UserCircle },
