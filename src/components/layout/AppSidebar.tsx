@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useI18n } from "@/i18n/I18nProvider";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { useCorreccionesPendientes } from "@/hooks/useCorreccionesPendientes";
 import { useAuth } from "@/hooks/useAuth";
 
 type Item = { url: string; label: string; icon: any; beta?: boolean; badge?: number };
@@ -50,6 +51,7 @@ export function AppSidebar() {
   const isComercial = role === "comercial_zona";
   const isWhatsapp = role === "whatsapp";
   const isSalesManager = role === "sales_manager";
+  const { total: correccionesPendientes } = useCorreccionesPendientes();
 
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
@@ -60,6 +62,7 @@ export function AppSidebar() {
 
   const operativa: Item[] = isSalesManager ? [
     { url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 },
+    { url: "/correcciones", label: "Correcciones", icon: CheckSquare, badge: correccionesPendientes },
   ] : isWhatsapp ? [
     { url: "/whatsapp", label: "WhatsApp", icon: MessagesSquare },
   ] : isComercial ? [
@@ -91,7 +94,10 @@ export function AppSidebar() {
     { url: "/productividad", label: t.nav.productividad, icon: BarChart3 },
   ];
   const gestion: Item[] = (role === "admin" || role === "sales_manager")
-    ? [{ url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 } as Item]
+    ? [
+        { url: "/gestor-comerciales", label: "Gestión comercial", icon: BarChart3 } as Item,
+        { url: "/correcciones", label: "Correcciones", icon: CheckSquare, badge: correccionesPendientes } as Item,
+      ]
     : [];
   const cuenta: Item[] = isWhatsapp || isSalesManager ? [] : isComercial ? [
     { url: "/comercial/cuenta", label: "Mi cuenta", icon: UserCircle },

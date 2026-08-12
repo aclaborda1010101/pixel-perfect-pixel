@@ -5231,6 +5231,7 @@ export type Database = {
       }
       guard_proposals: {
         Row: {
+          aplicada_at: string | null
           creado_at: string
           detalle: string | null
           edificio_id: string | null
@@ -5239,12 +5240,14 @@ export type Database = {
           estado: string
           guarda: number
           id: string
+          motivo: string | null
           propuesta: Json
           resuelto_at: string | null
           resuelto_por: string | null
           titulo: string
         }
         Insert: {
+          aplicada_at?: string | null
           creado_at?: string
           detalle?: string | null
           edificio_id?: string | null
@@ -5253,12 +5256,14 @@ export type Database = {
           estado?: string
           guarda: number
           id?: string
+          motivo?: string | null
           propuesta?: Json
           resuelto_at?: string | null
           resuelto_por?: string | null
           titulo: string
         }
         Update: {
+          aplicada_at?: string | null
           creado_at?: string
           detalle?: string | null
           edificio_id?: string | null
@@ -5267,6 +5272,7 @@ export type Database = {
           estado?: string
           guarda?: number
           id?: string
+          motivo?: string | null
           propuesta?: Json
           resuelto_at?: string | null
           resuelto_por?: string | null
@@ -5549,6 +5555,53 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      hubspot_escrituras_pendientes: {
+        Row: {
+          campo: string
+          creado_por: string | null
+          created_at: string
+          entidad_id: string
+          entidad_tipo: string
+          estado: string
+          id: string
+          proposal_id: string | null
+          updated_at: string
+          valor_propuesto: string
+        }
+        Insert: {
+          campo: string
+          creado_por?: string | null
+          created_at?: string
+          entidad_id: string
+          entidad_tipo: string
+          estado?: string
+          id?: string
+          proposal_id?: string | null
+          updated_at?: string
+          valor_propuesto: string
+        }
+        Update: {
+          campo?: string
+          creado_por?: string | null
+          created_at?: string
+          entidad_id?: string
+          entidad_tipo?: string
+          estado?: string
+          id?: string
+          proposal_id?: string | null
+          updated_at?: string
+          valor_propuesto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hubspot_escrituras_pendientes_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "guard_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hubspot_link_review: {
         Row: {
@@ -10808,6 +10861,14 @@ export type Database = {
       compute_owner_score: { Args: { p_building_id: string }; Returns: Json }
       compute_score: { Args: { p_building_id: string }; Returns: number }
       compute_score_total: { Args: { p_building_id: string }; Returns: number }
+      correcciones_resumen: {
+        Args: never
+        Returns: {
+          estado: string
+          guarda: number
+          total: number
+        }[]
+      }
       count_distinct_owners: {
         Args: { p_building_id: string }
         Returns: number
@@ -11128,6 +11189,16 @@ export type Database = {
       resolve_building_task: {
         Args: { p_note?: string; p_status: string; p_task_id: string }
         Returns: boolean
+      }
+      resolver_correcciones: {
+        Args: {
+          p_accion: string
+          p_guarda?: number
+          p_ids?: string[]
+          p_limite?: number
+          p_motivo?: string
+        }
+        Returns: Json
       }
       rpc_inversores_paginated:
         | {
