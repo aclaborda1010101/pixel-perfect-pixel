@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, MessageCircle, PhoneCall, Search, TriangleAlert } from "lucide-react";
-import { parseGeneratedTaskKey, tieneConsentimiento } from "@/lib/whatsappTarjeta";
+import { parseGeneratedTaskKey, resumenConsentimiento, tieneConsentimiento } from "@/lib/whatsappTarjeta";
 import { resolveBuildingTask } from "@/lib/taskStart";
 import { useBloqueoContacto } from "@/hooks/useBloqueoContacto";
 import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buildings/ContactoBloqueado";
@@ -46,10 +46,14 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
     enabled: !!ownerId,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_consent_signals" as any) as any)
-        .select("owner_id,veredicto,detectado_at,registrado_por,task_id,fuente")
+        .select("owner_id,veredicto,detectado_at,fecha_llamada,hs_call_id,registrado_por,task_id,fuente")
         .eq("owner_id", ownerId);
       const filas = (data ?? []) as any[];
-      return { autorizado: tieneConsentimiento(filas, String(ownerId)), filas };
+      return {
+        autorizado: tieneConsentimiento(filas, String(ownerId)),
+        resumen: resumenConsentimiento(filas, String(ownerId)),
+        filas,
+      };
     },
   });
 
@@ -70,6 +74,12 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
 
   if (!ownerId) return null;
   const autorizado = !!consentimiento?.autorizado;
+  const resumen = consentimiento?.resumen ?? null;
+  const fechaAutorizacion = resumen?.fecha
+    ? new Date(resumen.fecha).toLocaleDateString("es-ES")
+    : null;
+  const origenAutorizacion =
+    resumen?.origen === "llamada" ? "llamada" : resumen?.origen === "registro" ? "registro" : null;
   const telefono = owner?.telefono ?? null;
 
   const marcarConsentimiento = async (valor: boolean) => {
@@ -156,6 +166,15 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
             <span>El propietario ha autorizado por teléfono el envío de WhatsApp.</span>
             {guardando && <Loader2 className="h-3 w-3 animate-spin" />}
           </label>
+          {autorizado && (
+            <div className="pl-6 text-[11px] text-muted-foreground">
+              {fechaAutorizacion
+                ? `Autorizado previamente el ${fechaAutorizacion}`
+                : "Autorizado previamente"}
+              {origenAutorizacion ? ` (${origenAutorizacion})` : ""}. Solo un administrador puede
+              retirar esta autorización.
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"

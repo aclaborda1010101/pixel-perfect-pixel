@@ -18,6 +18,7 @@ import {
   Brain, MapPin, Plus, ChevronDown, ChevronRight, Trash2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { TareaTarjetaTexto } from "@/components/comercial/TareaTarjetaTexto";
 import { TASK_DEFS, type Priority } from "@/lib/buildingTasks";
 import {
   filterVisibleOperationalTasks,
@@ -237,16 +238,14 @@ function TaskRow({
         <div className="min-w-0 flex-1">
           <div
             className={cn(
-              "text-sm font-medium text-foreground",
+              "text-base font-bold leading-snug text-foreground",
               isCompleted && "line-through",
             )}
           >
             {task.title}
           </div>
-          {task.description && (
-            <div className="mt-0.5 text-xs text-muted-foreground">{task.description}</div>
-          )}
           <TaskScheduleMeta task={task} />
+          <TareaTarjetaTexto description={task.description} />
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             {task.starts_at && (
               <span>Empieza: {new Date(task.starts_at).toLocaleString("es-ES")}</span>

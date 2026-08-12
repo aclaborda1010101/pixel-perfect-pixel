@@ -32,6 +32,7 @@ import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/Task
 import { cn } from "@/lib/utils";
 import { Sparkles, Loader2 } from "lucide-react";
 import { TareaWhatsappBlock, PrepararLlamadaButton } from "@/components/comercial/TareaWhatsappBlock";
+import { TareaTarjetaTexto } from "@/components/comercial/TareaTarjetaTexto";
 import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
 import { useInterlocutores } from "@/hooks/useInterlocutores";
 
@@ -322,13 +323,11 @@ export default function ComercialTareas() {
                             <Icon className="h-4 w-4" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className={cn("text-sm font-medium text-foreground", isCompleted && "line-through")}>
+                            <div className={cn("text-base font-bold leading-snug text-foreground", isCompleted && "line-through")}>
                               {t.title}
                             </div>
-                            {t.description && (
-                              <div className="mt-0.5 text-xs text-muted-foreground">{t.description}</div>
-                            )}
                             <TaskScheduleMeta task={t} />
+                            <TareaTarjetaTexto description={t.description} />
                             {t.task_type === "T-02_03" && (
                               <TareaWhatsappBlock
                                 task={t}

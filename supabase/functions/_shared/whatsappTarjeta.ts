@@ -68,6 +68,56 @@ export function tieneConsentimiento(
   );
 }
 
+export type SenalConsentimientoDetalle = SenalConsentimiento & {
+  detectado_at?: string | null;
+  fecha_llamada?: string | null;
+  fuente?: string | null;
+  hs_call_id?: string | null;
+};
+
+export type ResumenConsentimiento = {
+  autorizado: boolean;
+  /** Fecha ISO de la autorización más antigua encontrada. */
+  fecha: string | null;
+  /** Origen en lenguaje llano: 'llamada' o 'registro'. */
+  origen: 'llamada' | 'registro' | null;
+};
+
+/**
+ * Resume la autorización ya registrada de un propietario: si existe, desde
+ * cuándo y de dónde viene. Sirve para mostrarla marcada y bloqueada.
+ */
+export function resumenConsentimiento(
+  senales: readonly SenalConsentimientoDetalle[] | null | undefined,
+  ownerId: string,
+): ResumenConsentimiento {
+  const afirmativas = (senales ?? []).filter(
+    (s) =>
+      String(s?.owner_id ?? '') === ownerId &&
+      VEREDICTOS_AFIRMATIVOS.includes(String(s?.veredicto ?? '').trim().toLowerCase()),
+  );
+  if (afirmativas.length === 0) return { autorizado: false, fecha: null, origen: null };
+  const conFecha = afirmativas
+    .map((s) => ({
+      s,
+      t: Date.parse(String(s.fecha_llamada ?? s.detectado_at ?? '')),
+    }))
+    .filter((x) => Number.isFinite(x.t))
+    .sort((a, b) => a.t - b.t);
+  const elegida = conFecha[0]?.s ?? afirmativas[0];
+  const fechaRaw = elegida.fecha_llamada ?? elegida.detectado_at ?? null;
+  const origen: 'llamada' | 'registro' | null = elegida.hs_call_id
+    ? 'llamada'
+    : elegida.fuente
+      ? 'registro'
+      : null;
+  return {
+    autorizado: true,
+    fecha: fechaRaw ? new Date(fechaRaw).toISOString() : null,
+    origen,
+  };
+}
+
 export type ClaveGenerada = { code: string; buildingId: string; subjectId: string };
 
 /** Lee la clave del generador continuo: `v5:gen1:<code>:<building>:<subject>:<ts>`. */

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/common/Eyebrow";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
+import { TareaTarjetaTexto } from "@/components/comercial/TareaTarjetaTexto";
 import { madridYmd, taskCode, taskSubjectId } from "@/lib/taskSchedule";
 import { AlertTriangle } from "lucide-react";
 
@@ -133,18 +134,14 @@ export function ColaDemo() {
                   <Badge variant="outline" className="text-[10px]">Prioridad {r.task.priority ?? "—"}</Badge>
                   <TaskTemporalBadge task={r.task} />
                 </div>
-                <CardTitle className="text-base">{r.task.title}</CardTitle>
+                <CardTitle className="text-base font-bold">{r.task.title}</CardTitle>
                 <div className="font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
                   {r.direccion ?? "Sin dirección"} · {r.owner ?? "Propietario sin nombre"}
                 </div>
                 <TaskScheduleMeta task={r.task} />
               </CardHeader>
               <CardContent className="space-y-3">
-                {r.task.description && (
-                  <pre className="whitespace-pre-wrap rounded-[4px] border border-border-faint bg-surface-1/40 p-3 font-sans text-xs text-muted-foreground">
-                    {r.task.description}
-                  </pre>
-                )}
+                <TareaTarjetaTexto description={r.task.description} className="mt-0" />
                 <div className="rounded-[4px] border border-amber-400/30 bg-amber-400/5 p-3">
                   <Eyebrow>Supuestos todavía no verificados</Eyebrow>
                   {r.bloqueos === null ? (
