@@ -42,6 +42,8 @@ import { TitularidadRegistral } from "@/components/comercial/TitularidadRegistra
 import { Switch } from "@/components/ui/switch";
 import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
 import { InterlocutorCard } from "@/components/buildings/InterlocutorCard";
+import { HacerInterlocutorButton } from "@/components/buildings/HacerInterlocutorButton";
+import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { SituacionEdificioCard } from "@/components/buildings/SituacionEdificioCard";
 import { situacionLabel } from "@/lib/situacionComercial";
 import { Lock as LockIcon } from "lucide-react";
@@ -119,6 +121,7 @@ function Kpi({ label, value, tone }: { label: string; value: any; tone?: "danger
 export default function ComercialEdificioDetalle() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { role } = useCurrentRole();
   const [sort, setSort] = useState<SortKey>("pct");
   const [vistaDerecho, setVistaDerecho] = useState<"todos" | GrupoDerecho>("propiedad");
   // Toggle "Sin propietarios". DEBE declararse antes de cualquier early return
@@ -205,6 +208,7 @@ export default function ComercialEdificioDetalle() {
   const sucesion = (data as any)?.sucesion ?? null;
   const ownersExtra: Record<string, any> = (data as any)?.ownersExtra ?? {};
   const { data: ownersCount } = useOwnersCount(b?.id);
+  const puedeInterlocutor = role === "admin" || role === "sales_manager" || !!assigned;
 
   if (!data?.b) {
     return <div className="p-8 text-sm text-muted-foreground">Cargando edificio…</div>;
@@ -469,6 +473,7 @@ export default function ComercialEdificioDetalle() {
                 (Array.isArray(o.metadatos?.cargas) && o.metadatos.cargas.length > 0);
               const edad = o.metadatos?.edad ?? o.metadatos?.edad_estimada ?? null;
               const bloqueado = contactoBloqueado(b.interlocutor_owner_id, o.owner_id);
+              const esInterlocutor = b.interlocutor_owner_id === o.owner_id;
 
               return (
                 <li
@@ -477,6 +482,7 @@ export default function ComercialEdificioDetalle() {
                     "px-5 py-4",
                     sinContacto && "bg-destructive/5",
                     bloqueado && "bg-surface-1/60 opacity-60",
+                    esInterlocutor && "border-l-2 border-l-gold bg-gold/5",
                   )}
                 >
                   <div className="flex flex-wrap items-center gap-4">
@@ -486,6 +492,9 @@ export default function ComercialEdificioDetalle() {
                         <span className="truncate text-sm font-medium text-foreground">
                           {ownersExtra[o.owner_id]?.nombre_display || o.nombre || "—"}
                         </span>
+                        {esInterlocutor && (
+                          <Badge variant="gold" className="h-4 px-1.5 text-[9px]">Interlocutor activo</Badge>
+                        )}
                         {pctKnown ? (
                           <span
                             className="shrink-0 rounded-[4px] border border-gold/40 bg-gold/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-gold"
@@ -622,13 +631,33 @@ export default function ComercialEdificioDetalle() {
                           <LockIcon className="h-3 w-3" /> Preparar
                         </Button>
                         <ExcepcionContactoButton buildingId={String(b.id)} ownerId={String(o.owner_id)} />
+                        <HacerInterlocutorButton
+                          buildingId={String(b.id)}
+                          ownerId={String(o.owner_id)}
+                          ownerNombre={ownersExtra[o.owner_id]?.nombre_display || o.nombre || null}
+                          esActual={false}
+                          hayInterlocutor={!!b.interlocutor_owner_id}
+                          puedeGestionar={puedeInterlocutor}
+                          onChanged={() => refetch()}
+                        />
                       </div>
                     ) : (
-                      <Button asChild size="sm" variant="outline">
-                        <Link to={`/comercial/preparar/${o.owner_id}`}>
-                          <Phone className="h-3 w-3" /> Preparar
-                        </Link>
-                      </Button>
+                      <div className="flex flex-col items-end gap-1">
+                        <Button asChild size="sm" variant="outline">
+                          <Link to={`/comercial/preparar/${o.owner_id}`}>
+                            <Phone className="h-3 w-3" /> Preparar
+                          </Link>
+                        </Button>
+                        <HacerInterlocutorButton
+                          buildingId={String(b.id)}
+                          ownerId={String(o.owner_id)}
+                          ownerNombre={ownersExtra[o.owner_id]?.nombre_display || o.nombre || null}
+                          esActual={esInterlocutor}
+                          hayInterlocutor={!!b.interlocutor_owner_id}
+                          puedeGestionar={puedeInterlocutor}
+                          onChanged={() => refetch()}
+                        />
+                      </div>
                     )}
                   </div>
                 </li>

@@ -18,6 +18,7 @@ import { KpiChecklistCard } from "@/components/comercial/KpiChecklistCard";
 import { ContactHistoryCard } from "@/components/owners/ContactHistoryCard";
 import { useBloqueoContacto } from "@/hooks/useBloqueoContacto";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { HacerInterlocutorButton } from "@/components/buildings/HacerInterlocutorButton";
 import { BloqueoContactoBadge } from "@/components/buildings/ContactoBloqueado";
 import { puedeAutorizarExcepcion } from "@/lib/bloqueoContacto";
 
@@ -94,6 +95,27 @@ export default function ComercialPrepararLlamada() {
       return { owner: owner as any, history: history as any[], ownerScore: ownerScore as any, building: building as any, cargas };
     },
   });
+
+  // Contexto mínimo para el botón "Hacer interlocutor" desde esta vista.
+  const buildingIdCtx = (data as any)?.ownerScore?.building_id ?? null;
+  const { data: interlocCtx, refetch: refetchInterloc } = useQuery({
+    queryKey: ["comercial:preparar:interlocutor", buildingIdCtx],
+    enabled: !!buildingIdCtx,
+    queryFn: async () => {
+      const { data: userRes } = await supabase.auth.getUser();
+      const uid = userRes?.user?.id ?? null;
+      const [{ data: b }, { data: asg }] = await Promise.all([
+        (supabase.from("buildings") as any).select("interlocutor_owner_id").eq("id", buildingIdCtx).maybeSingle(),
+        uid
+          ? (supabase.from("building_assignments") as any)
+              .select("id").eq("building_id", buildingIdCtx).eq("user_id", uid).eq("status", "active").maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      return { interlocutorOwnerId: (b as any)?.interlocutor_owner_id ?? null, asignado: !!asg };
+    },
+  });
+  const puedeInterlocutor =
+    role === "admin" || role === "sales_manager" || !!(interlocCtx as any)?.asignado;
 
   async function loadBrief() {
     if (!ownerId) return;
@@ -532,10 +554,23 @@ export default function ComercialPrepararLlamada() {
         title={owner?.nombre ?? "Propietario"}
         subtitle={building ? `${building.direccion} · ${building.ciudad ?? ""}` : ""}
         actions={
-          <Button variant="gold" size="sm" onClick={loadBrief} disabled={loadingBrief}>
-            <Sparkles className="h-4 w-4" />
-            {loadingBrief ? "Generando…" : brief ? "Regenerar briefing" : "Briefing IA"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {buildingIdCtx && ownerId && (
+              <HacerInterlocutorButton
+                buildingId={String(buildingIdCtx)}
+                ownerId={String(ownerId)}
+                ownerNombre={owner?.nombre ?? null}
+                esActual={(interlocCtx as any)?.interlocutorOwnerId === ownerId}
+                hayInterlocutor={!!(interlocCtx as any)?.interlocutorOwnerId}
+                puedeGestionar={puedeInterlocutor}
+                onChanged={() => refetchInterloc()}
+              />
+            )}
+            <Button variant="gold" size="sm" onClick={loadBrief} disabled={loadingBrief}>
+              <Sparkles className="h-4 w-4" />
+              {loadingBrief ? "Generando…" : brief ? "Regenerar briefing" : "Briefing IA"}
+            </Button>
+          </div>
         }
       />
 
