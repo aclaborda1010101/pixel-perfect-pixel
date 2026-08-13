@@ -290,6 +290,42 @@ export type Database = {
         }
         Relationships: []
       }
+      _flags_20260813: {
+        Row: {
+          building_id: string | null
+          matching_ok: boolean | null
+          sumas_ok: boolean | null
+        }
+        Insert: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Update: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Relationships: []
+      }
+      _flags_fix_20260813: {
+        Row: {
+          building_id: string | null
+          matching_ok: boolean | null
+          sumas_ok: boolean | null
+        }
+        Insert: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Update: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Relationships: []
+      }
       _fn_backups: {
         Row: {
           created_at: string | null
@@ -341,6 +377,24 @@ export type Database = {
         }
         Relationships: []
       }
+      _match_20260813: {
+        Row: {
+          id: string | null
+          owner_id: string | null
+          sim: number | null
+        }
+        Insert: {
+          id?: string | null
+          owner_id?: string | null
+          sim?: number | null
+        }
+        Update: {
+          id?: string | null
+          owner_id?: string | null
+          sim?: number | null
+        }
+        Relationships: []
+      }
       _match_empresas_20260811: {
         Row: {
           company_id: string | null
@@ -376,6 +430,27 @@ export type Database = {
         Update: {
           id?: string | null
           owner_id?: string | null
+          sim?: number | null
+        }
+        Relationships: []
+      }
+      _notas_pedidas_20260813: {
+        Row: {
+          building_id: string | null
+          direccion: string | null
+          patron: string | null
+          sim: number | null
+        }
+        Insert: {
+          building_id?: string | null
+          direccion?: string | null
+          patron?: string | null
+          sim?: number | null
+        }
+        Update: {
+          building_id?: string | null
+          direccion?: string | null
+          patron?: string | null
           sim?: number | null
         }
         Relationships: []
