@@ -4,9 +4,12 @@
 // (calls no tiene columna metadatos, por lo que se marca el hs_id en resumen prefix).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 import { corsHeaders } from '../_shared/hubspot.ts';
+import { acquireJobLock, lockedResponse } from '../_shared/jobLock.ts';
 
-const BATCH = 1000;
-const MAX_BATCHES = 10;
+const BATCH = 500;
+const MAX_BATCHES = 20;
+const TIME_BUDGET_MS = 100_000;
+const JOB_LOCK = 'promote_calls';
 
 function dirOf(d: string | null): 'entrante' | 'saliente' {
   if (!d) return 'saliente';
@@ -35,6 +38,15 @@ Deno.serve(async (req) => {
   let skippedExisting = 0;
   let failed = 0;
   const viaCounts = { contact: 0, deal: 0, tel: 0 };
+
+  let body: any = {};
+  try { body = await req.json(); } catch { /* ok */ }
+  // Ventana opcional: sólo llamadas con hs_timestamp >= since (ISO).
+  const since: string | null = body?.since ? String(body.since) : null;
+  const t0 = Date.now();
+
+  const lock = await acquireJobLock(supabase, JOB_LOCK, 240);
+  if (!lock.acquired) return lockedResponse(JOB_LOCK, corsHeaders);
 
   try {
     // existing promoted hs_ids: stored in calls.transcripcion_url? We use a dedicated marker:
@@ -68,6 +80,7 @@ Deno.serve(async (req) => {
         .order('hs_id', { ascending: true })
         .limit(BATCH);
       if (cursor) q = q.gt('hs_id', cursor);
+      if (since) q = q.gte('hs_timestamp', since);
       const { data: rows, error } = await q;
       if (error) throw error;
       if (!rows || rows.length === 0) break;
@@ -218,15 +231,18 @@ Deno.serve(async (req) => {
 
       cursor = rows[rows.length - 1].hs_id;
       if (rows.length < BATCH) break;
+      if (Date.now() - t0 > TIME_BUDGET_MS) break;
     }
 
     return new Response(JSON.stringify({
-      ok: true, promoted, skipped_no_owner: skippedNoOwner, skipped_existing: skippedExisting, failed, via: viaCounts,
+      ok: true, since, promoted, skipped_no_owner: skippedNoOwner, skipped_existing: skippedExisting, failed, via: viaCounts, elapsed_ms: Date.now() - t0,
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ ok: false, error: msg, promoted }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+  } finally {
+    await lock.release();
   }
 });

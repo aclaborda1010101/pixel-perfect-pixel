@@ -254,6 +254,30 @@ export type Database = {
         }
         Relationships: []
       }
+      _decisiones_20260813: {
+        Row: {
+          decision: string | null
+          derecho: string | null
+          dudosa: boolean | null
+          edificio: string | null
+          titular: string | null
+        }
+        Insert: {
+          decision?: string | null
+          derecho?: string | null
+          dudosa?: boolean | null
+          edificio?: string | null
+          titular?: string | null
+        }
+        Update: {
+          decision?: string | null
+          derecho?: string | null
+          dudosa?: boolean | null
+          edificio?: string | null
+          titular?: string | null
+        }
+        Relationships: []
+      }
       _export_notas: {
         Row: {
           direccion: string | null
@@ -6404,6 +6428,33 @@ export type Database = {
         }
         Relationships: []
       }
+      job_locks: {
+        Row: {
+          created_at: string
+          expires_at: string
+          holder: string | null
+          job_name: string
+          locked_at: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          holder?: string | null
+          job_name: string
+          locked_at?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          holder?: string | null
+          job_name?: string
+          locked_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       keep_q4: {
         Row: {
           id: string | null
@@ -11174,6 +11225,7 @@ export type Database = {
         Args: { p_building_id: string; p_motivo: string; p_owner_id: string }
         Returns: Json
       }
+      release_job_lock: { Args: { p_job_name: string }; Returns: undefined }
       release_nota_reparse_claim: {
         Args: { p_expected_token: string; p_id: string }
         Returns: string
@@ -11343,6 +11395,10 @@ export type Database = {
       start_building_task: { Args: { p_task_id: string }; Returns: Json }
       strip_html_to_text: { Args: { _in: string }; Returns: string }
       sync_links_from_deals: { Args: never; Returns: Json }
+      try_acquire_job_lock: {
+        Args: { p_holder?: string; p_job_name: string; p_ttl_seconds?: number }
+        Returns: boolean
+      }
       volcar_cuotas_desde_notas: { Args: never; Returns: Json }
     }
     Enums: {

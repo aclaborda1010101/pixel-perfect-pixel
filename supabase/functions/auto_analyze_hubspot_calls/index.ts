@@ -6,13 +6,16 @@
 //
 // Params opcionales: { limit?: number, dry_run?: boolean }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { acquireJobLock, lockedResponse } from "../_shared/jobLock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
-const DEFAULT_LIMIT = 10;
+const DEFAULT_LIMIT = 6;
+const TIME_BUDGET_MS = 90_000;
+const JOB_LOCK = "auto_analyze_hubspot_calls";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -24,6 +27,9 @@ Deno.serve(async (req) => {
   const limit = Math.max(1, Math.min(50, body.limit ?? DEFAULT_LIMIT));
   const dry = !!body.dry_run;
   const t0 = Date.now();
+
+  const lock = await acquireJobLock(sb, JOB_LOCK, 180);
+  if (!lock.acquired) return lockedResponse(JOB_LOCK, corsHeaders);
 
   const out: any[] = [];
   try {
@@ -39,6 +45,7 @@ Deno.serve(async (req) => {
     let processed = 0;
     for (const c of candidates ?? []) {
       if (processed >= limit) break;
+      if (Date.now() - t0 > TIME_BUDGET_MS) { out.push({ stop: "time_budget" }); break; }
       const raw = (c.raw && typeof c.raw === "object") ? c.raw : {};
       if (raw._auto_analyzed_at) continue;
       const contactIds: string[] = c.associated_contact_ids ?? [];
@@ -107,5 +114,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, error: (e as Error).message, out }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } finally {
+    await lock.release();
   }
 });

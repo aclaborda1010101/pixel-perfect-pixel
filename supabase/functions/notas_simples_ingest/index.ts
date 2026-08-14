@@ -10,12 +10,13 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { hubspotFetch, corsHeaders } from "../_shared/hubspot.ts";
+import { acquireJobLock, lockedResponse } from "../_shared/jobLock.ts";
 
 const ENTITY = "notas_simples_ingest";
-const DEFAULT_PAGES = 60;
+const DEFAULT_PAGES = 12;       // lotes pequeños: el cursor de barrido reanuda
 const DEFAULT_PAGE_LIMIT = 100;
 const INITIAL_SINCE_ISO = "2026-05-11T00:00:00.000Z"; // fecha del último import masivo
-const TIME_BUDGET_MS = 100_000; // salir limpio antes del corte del runtime (~150s)
+const TIME_BUDGET_MS = 80_000; // salir limpio antes del corte del runtime (~150s)
 
 function splitAttachmentIds(v: unknown): string[] {
   if (v == null) return [];
@@ -39,6 +40,9 @@ Deno.serve(async (req) => {
   const fullScan: boolean = body.full_scan !== false;
 
   const t0 = Date.now();
+
+  const lock = await acquireJobLock(sb, ENTITY, 240);
+  if (!lock.acquired) return lockedResponse(ENTITY, corsHeaders);
 
   await sb.from("hubspot_sync_state").upsert({ entity: ENTITY }, { onConflict: "entity" });
   if (resetCursor) {
@@ -260,5 +264,7 @@ Deno.serve(async (req) => {
     }).eq("entity", ENTITY);
     return new Response(JSON.stringify({ ok: false, error: msg, insertados, primeros_403: primeros403 }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } finally {
+    await lock.release();
   }
 });

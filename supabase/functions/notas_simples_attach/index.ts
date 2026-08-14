@@ -14,10 +14,12 @@
 // Registro: hubspot_sync_log (entity='notas_simples_attach') y hubspot_sync_state.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { hubspotFetch, corsHeaders } from "../_shared/hubspot.ts";
+import { acquireJobLock, lockedResponse } from "../_shared/jobLock.ts";
 
 const ENTITY = "notas_simples_attach";
-const DEFAULT_PAGES = 40;
+const DEFAULT_PAGES = 10;      // lotes pequeños; el cursor reanuda en la siguiente pasada
 const DEFAULT_PAGE_LIMIT = 100;
+const TIME_BUDGET_MS = 80_000;
 
 function extractFileId(fileUrl: string | null | undefined): string | null {
   if (!fileUrl) return null;
@@ -43,6 +45,9 @@ Deno.serve(async (req) => {
   const resetCursor: boolean = body.reset_cursor === true;
 
   const t0 = Date.now();
+
+  const lock = await acquireJobLock(sb, ENTITY, 240);
+  if (!lock.acquired) return lockedResponse(ENTITY, corsHeaders);
 
   // 1) Recolectar fileIds pendientes (notas sin building_id)
   const pending = new Map<string, string[]>(); // fileId → nota_ids
@@ -182,6 +187,7 @@ Deno.serve(async (req) => {
 
       after = data?.paging?.next?.after;
       if (!after) break;
+      if (Date.now() - t0 > TIME_BUDGET_MS) break;
     }
 
     const finishedAt = new Date().toISOString();
@@ -216,5 +222,7 @@ Deno.serve(async (req) => {
     await sb.from("hubspot_sync_state").update({ last_run_status: "error", last_error: msg }).eq("entity", ENTITY);
     return new Response(JSON.stringify({ ok: false, error: msg, attached, pages_fetched: pagesFetched }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } finally {
+    await lock.release();
   }
 });
