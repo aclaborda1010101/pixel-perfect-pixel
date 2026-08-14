@@ -17,15 +17,17 @@
 //
 // Params opcionales: { limit?: number, dry_run?: boolean }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { acquireJobLock, lockedResponse } from "../_shared/jobLock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
-const DEFAULT_LIMIT = 12;      // lote por invocación
-const CONCURRENCY = 4;         // paralelismo controlado sobre el LLM
-const TIME_BUDGET_MS = 110_000;
+const DEFAULT_LIMIT = 6;       // lote pequeño por invocación (antes 12)
+const CONCURRENCY = 2;         // paralelismo controlado sobre el LLM (antes 4)
+const TIME_BUDGET_MS = 90_000;
+const JOB_LOCK = "audit_calls_retro";
 
 // Fallback fijo (admin) para llamadas cuyo hs_owner_id no mapea a un auth.user.
 // RLS: los expedientes retroactivos se leen por policy sessions_select_retroactiva_public.
@@ -50,6 +52,9 @@ Deno.serve(async (req) => {
   const dry = !!body.dry_run;
   const t0 = Date.now();
   const out: any[] = [];
+
+  const lock = await acquireJobLock(sb, JOB_LOCK, 180);
+  if (!lock.acquired) return lockedResponse(JOB_LOCK, corsHeaders);
 
   try {
     // 1) Cola pendiente: 1º propietarios con edificio, 2º fecha descendente.
@@ -237,5 +242,7 @@ Deno.serve(async (req) => {
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: e?.message || String(e), out }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } finally {
+    await lock.release();
   }
 });

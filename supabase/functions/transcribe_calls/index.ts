@@ -6,6 +6,7 @@
 //   { limit?: number, chain?: boolean } → batch (default 15).
 // Sin secretos nuevos: usa OPENROUTER_API_KEY + HUBSPOT_API_KEY (gateway) ya configurados.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { acquireJobLock, lockedResponse } from "../_shared/jobLock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,8 +14,9 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
-const DEFAULT_LIMIT = 15;
+const DEFAULT_LIMIT = 6;
 const CONCURRENCY = 3; // conservador: OpenRouter STT tiene rate limits
+const JOB_LOCK = "transcribe_calls";
 const MIN_DURATION_MS = 45_000;
 // Chunking para audios largos: si duration > 10 min, trocear en trozos ~8 min.
 const CHUNK_THRESHOLD_MS = 10 * 60 * 1000;
@@ -258,6 +260,12 @@ Deno.serve(async (req) => {
   const chain: boolean = body.chain !== false;
   const buildingId: string | null = body.building_id ? String(body.building_id) : null;
 
+  // Guardia de no-solapamiento: sólo para el drenaje global (sin building_id).
+  const lock = buildingId
+    ? { acquired: true, release: async () => {} }
+    : await acquireJobLock(supabase, JOB_LOCK, 300);
+  if (!lock.acquired) return lockedResponse(JOB_LOCK, corsHeaders);
+
   // Si viene building_id: resolvemos deal_hs_id + contact_hs_ids del edificio y
   // filtramos hubspot_calls por overlap con associated_deal_ids/associated_contact_ids.
   let callIdsFilter: string[] | null = null;
@@ -297,11 +305,13 @@ Deno.serve(async (req) => {
       .gte("hs_call_duration", MIN_DURATION_MS)
       .or("hs_call_transcription.is.null,hs_call_transcription.eq.");
     if (mErr) {
+      await lock.release();
       return new Response(JSON.stringify({ ok: false, error: mErr.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     callIdsFilter = Array.from(new Set((matched || []).map((r: any) => r.id)));
     if (!callIdsFilter.length) {
+      await lock.release();
       return new Response(JSON.stringify({ ok: true, building_id: buildingId, accepted: 0, note: "no hay llamadas pendientes en este edificio" }, null, 2),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -324,6 +334,7 @@ Deno.serve(async (req) => {
   const { data: rows, error } = await q.order("hs_timestamp", { ascending: false }).limit(effLimit);
 
   if (error) {
+    await lock.release();
     return new Response(JSON.stringify({ ok: false, error: error.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
@@ -332,6 +343,7 @@ Deno.serve(async (req) => {
   const accepted = batch.length;
 
   const work = (async () => {
+   try {
     let ok = 0, fail = 0, processed = 0;
     const errors: string[] = [];
     let idx = 0;
@@ -375,6 +387,9 @@ Deno.serve(async (req) => {
       metadatos: { processed, ok, fail, pending, last_chunk_ms: elapsed, errors_sample: errors, concurrency: CONCURRENCY, model: PRIMARY_MODEL },
     }, { onConflict: "entity" });
 
+    // Liberamos el turno ANTES de reencadenar para que la siguiente pasada entre.
+    await lock.release();
+
     if (chain && !buildingId && processed >= limit && pending > 0) {
       const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/transcribe_calls`;
       await fetch(url, {
@@ -383,6 +398,9 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ chain: true, limit }),
       }).catch((e) => console.error("chain fail", e));
     }
+   } finally {
+     await lock.release();
+   }
   })();
 
   // @ts-ignore EdgeRuntime
