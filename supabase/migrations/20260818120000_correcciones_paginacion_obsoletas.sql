@@ -97,7 +97,7 @@ BEGIN
               OR EXISTS (
                 SELECT 1 FROM public.building_tasks bt
                 WHERE bt.building_id = gp.edificio_id
-                  AND bt.estado NOT IN ('completed','completada','cancelled','cancelada','skipped','no_procede','superseded'))))
+                  AND bt.status NOT IN ('completed','completada','cancelled','cancelada','skipped','no_procede','superseded'))))
         -- guarda 6: ya hay próxima acción definida o tarea viva
         OR (gp.guarda = 6 AND (
               EXISTS (
@@ -108,7 +108,7 @@ BEGIN
               OR EXISTS (
                 SELECT 1 FROM public.building_tasks bt
                 WHERE bt.building_id = gp.edificio_id
-                  AND bt.estado NOT IN ('completed','completada','cancelled','cancelada','skipped','no_procede','superseded'))))
+                  AND bt.status NOT IN ('completed','completada','cancelled','cancelada','skipped','no_procede','superseded'))))
       )
   )
   UPDATE public.guard_proposals gp
