@@ -113,6 +113,40 @@ export function claveCola(objeto: string, entidadId: string, accion: string): st
   return `${objeto}:${entidadId}:${accion}`;
 }
 
+/* ------------------- RESPONSABLE DE LA TAREA ------------------- */
+
+/**
+ * Mapa canónico correo del comercial → identificador de responsable del
+ * portal. Se guarda además en `app_settings.hubspot_owner_map` para poder
+ * ampliarlo sin desplegar; este mapa es el respaldo por defecto.
+ */
+export const MAPA_RESPONSABLES_HUBSPOT: Record<string, string> = {
+  "jesus.anzola@afflux.es": "76826178",
+  "jesus@afflux.es": "76826178",
+  "jesus.aranzola@afflux.es": "76826178",
+  "david.casero@afflux.es": "76826175",
+  "marta.nieto@afflux.es": "76826176",
+  "alfredo.mota@afflux.es": "76826177",
+  "carlos.moreno@afflux.es": "76619728",
+  "agustin.cifuentes@afflux.es": "91805124",
+};
+
+/**
+ * Identificador del responsable en HubSpot a partir del correo del comercial.
+ * Fail-closed: sin correo o sin correspondencia devuelve null (la tarea sale
+ * sin responsable y el trabajador deja un aviso visible).
+ */
+export function responsableHubspot(
+  email: unknown,
+  mapa: Record<string, unknown> = MAPA_RESPONSABLES_HUBSPOT,
+): string | null {
+  const e = String(email ?? "").trim().toLowerCase();
+  if (!e) return null;
+  const v = mapa[e] ?? MAPA_RESPONSABLES_HUBSPOT[e];
+  const id = String(v ?? "").trim();
+  return id === "" ? null : id;
+}
+
 /* --------------------- CAMPOS COMERCIALES --------------------- */
 
 export type CamposComercialesEntrada = {
