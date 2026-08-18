@@ -11000,6 +11000,7 @@ export type Database = {
         Args: { p_id: string; p_telefono?: string }
         Returns: Json
       }
+      archivar_correcciones_obsoletas: { Args: never; Returns: number }
       audit_building_owner_cuotas: { Args: never; Returns: Json }
       auto_link_owner_building: { Args: { p_days?: number }; Returns: Json }
       build_score_summary: { Args: { p_building_id: string }; Returns: string }
@@ -11028,6 +11029,15 @@ export type Database = {
       compute_owner_score: { Args: { p_building_id: string }; Returns: Json }
       compute_score: { Args: { p_building_id: string }; Returns: number }
       compute_score_total: { Args: { p_building_id: string }; Returns: number }
+      correcciones_listado: {
+        Args: {
+          p_estado?: string
+          p_guarda: number
+          p_limite?: number
+          p_offset?: number
+        }
+        Returns: Json
+      }
       correcciones_resumen: {
         Args: never
         Returns: {
