@@ -356,7 +356,8 @@ export function extraerHechosNota(raw: string): ExtraccionNota {
   RE_PARTICIPACION.lastIndex = 0;
   const conParticipacion = (seccion.match(RE_PARTICIPACION) ?? []).length;
   if (conParticipacion > 0) return extraerPorParticipacion(seccion, v.inicio);
-  if (/Nombre\.{2,}\s*:/.test(seccion)) return extraerPorCampos(seccion, v.inicio);
+  RE_CAMPO_NOMBRE.lastIndex = 0;
+  if (RE_CAMPO_NOMBRE.test(seccion) && /Participaci[óo]n\s*\.*\s*:/i.test(seccion)) return extraerPorCampos(seccion, v.inicio);
   if (/-{6,}/.test(seccion)) return extraerPorTabla(seccion, v.inicio);
   return extraerPorProsa(seccion, v.inicio);
 }
