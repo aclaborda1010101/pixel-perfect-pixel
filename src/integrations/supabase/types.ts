@@ -11547,6 +11547,21 @@ export type Database = {
       start_building_task: { Args: { p_task_id: string }; Returns: Json }
       strip_html_to_text: { Args: { _in: string }; Returns: string }
       sync_links_from_deals: { Args: never; Returns: Json }
+      tareas_llamada_sin_cerrar: {
+        Args: never
+        Returns: {
+          building_id: string
+          call_fecha: string
+          call_id: string
+          created_at: string
+          due_date: string
+          owner_id: string
+          task_id: string
+          task_type: string
+          title: string
+          user_id: string
+        }[]
+      }
       try_acquire_job_lock: {
         Args: { p_holder?: string; p_job_name: string; p_ttl_seconds?: number }
         Returns: boolean
