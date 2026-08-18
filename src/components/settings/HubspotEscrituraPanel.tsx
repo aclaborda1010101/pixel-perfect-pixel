@@ -30,18 +30,29 @@ export function HubspotEscrituraPanel() {
   const [tareas, setTareas] = useState(false);
   const [contactos, setContactos] = useState(false);
   const [conteos, setConteos] = useState<Record<string, number>>({});
+  const [alcance, setAlcance] = useState<{ tareas: number; contactos: number }>({ tareas: 0, contactos: 0 });
   const [auditoria, setAuditoria] = useState<Auditoria | null>(null);
   const [seco, setSeco] = useState<Seco | null>(null);
   const [cargando, setCargando] = useState<string | null>(null);
 
   async function cargar() {
-    const [{ data: sw }, { data: counts }] = await Promise.all([
+    const [{ data: sw }, { data: counts }, tareasRes, contactosRes] = await Promise.all([
       (supabase.rpc as any)("hubspot_interruptores"),
       (supabase.rpc as any)("hubspot_write_queue_counts"),
+      (supabase.from("building_tasks") as any).select("id", { count: "exact", head: true }),
+      (supabase.from("external_ids") as any)
+        .select("id", { count: "exact", head: true })
+        .eq("provider", "hubspot")
+        .eq("entity_type", "owner")
+        .eq("provider_object_type", "contact"),
     ]);
     setTareas((sw as any)?.tareas === true);
     setContactos((sw as any)?.contactos === true);
     setConteos((counts as Record<string, number>) ?? {});
+    setAlcance({
+      tareas: (tareasRes as any)?.count ?? 0,
+      contactos: (contactosRes as any)?.count ?? 0,
+    });
   }
 
   useEffect(() => { cargar(); }, []);
@@ -105,6 +116,9 @@ export function HubspotEscrituraPanel() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <span className="font-mono text-xs text-muted-foreground">
+                {alcance.tareas.toLocaleString("es-ES")} tareas
+              </span>
               <Badge variant={tareas ? "gold" : "outline"}>{tareas ? "Activado" : "Apagado"}</Badge>
               <Switch
                 checked={tareas}
@@ -123,6 +137,9 @@ export function HubspotEscrituraPanel() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <span className="font-mono text-xs text-muted-foreground">
+                {alcance.contactos.toLocaleString("es-ES")} fichas
+              </span>
               <Badge variant={contactos ? "gold" : "outline"}>{contactos ? "Activado" : "Apagado"}</Badge>
               <Switch
                 checked={contactos}
