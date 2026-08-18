@@ -137,7 +137,7 @@ export default function Correcciones() {
     <div className="w-full space-y-6">
       <PageHeader
         eyebrow="Calidad de datos"
-        title="Correcciones"
+        title="Orquestador"
         subtitle={`${totalDatosPendientes.toLocaleString("es-ES")} correcciones de datos pendientes de revisar. Nada cambia hasta que alguien lo aprueba.`}
         actions={
           <Button variant="outline" size="sm" onClick={refrescar} disabled={lista.isFetching}>
@@ -319,7 +319,13 @@ export default function Correcciones() {
               );
             })}
             {!rows.length && !lista.isFetching && (
-              <div className="p-6 text-center text-sm text-muted-foreground">Nada por aquí.</div>
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                {seccion === "datos"
+                  ? estado === "pendiente"
+                    ? "No hay correcciones pendientes de este tipo"
+                    : `No hay correcciones de este tipo en «${etiquetaEstado(estado)}»`
+                  : "No hay trabajo comercial pendiente de este tipo"}
+              </div>
             )}
             {lista.isFetching && !rows.length && (
               <div className="p-6 text-center text-sm text-muted-foreground">Cargando…</div>

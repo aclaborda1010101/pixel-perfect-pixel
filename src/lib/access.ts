@@ -10,6 +10,8 @@ export type AccessRole =
 
 export const GESTOR_PATH = "/gestor-comerciales";
 export const PASSWORD_PATH = "/cambiar-password";
+/** Orquestador (bandeja de correcciones): responsable de ventas y admin. */
+export const ORQUESTADOR_PATH = "/correcciones";
 
 /**
  * Excepciones legítimas dentro de /admin: NINGUNA hoy.
@@ -31,7 +33,7 @@ export function canAccessGestor(role: AccessRole): boolean {
 }
 
 /** Mínimo privilegio: rutas permitidas a sales_manager. */
-export const SALES_MANAGER_ALLOWED = [GESTOR_PATH, PASSWORD_PATH, "/logout"] as const;
+export const SALES_MANAGER_ALLOWED = [GESTOR_PATH, ORQUESTADOR_PATH, PASSWORD_PATH, "/logout"] as const;
 
 export function isSalesManagerAllowedPath(pathname: string): boolean {
   return SALES_MANAGER_ALLOWED.some((p) => pathname === p || pathname.startsWith(p + "/"));
