@@ -264,16 +264,21 @@ export function extraerHallazgos(payload: unknown): Hallazgos {
   ) as string[];
 
   const domicilios: Domicilio[] = [];
+  const vistos = new Set<string>();
   for (const d of dirs.flatMap((x) => (Array.isArray(x) ? x : [x]))) {
     if (typeof d === "string") {
       const t = texto(d);
-      if (t) domicilios.push({ direccion: t, actual: domicilios.length === 0 });
+      if (t && !vistos.has(t.toUpperCase())) {
+        vistos.add(t.toUpperCase());
+        domicilios.push({ direccion: t, actual: domicilios.length === 0 });
+      }
       continue;
     }
     if (d && typeof d === "object") {
       const o = d as Record<string, unknown>;
       const dir = texto(o.address ?? o.direccion ?? o.street ?? o.via);
-      if (!dir) continue;
+      if (!dir || vistos.has(dir.toUpperCase())) continue;
+      vistos.add(dir.toUpperCase());
       domicilios.push({
         direccion: dir,
         ciudad: texto(o.town ?? o.city ?? o.poblacion ?? o.municipio),
