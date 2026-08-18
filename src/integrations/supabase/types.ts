@@ -6202,6 +6202,57 @@ export type Database = {
         }
         Relationships: []
       }
+      hubspot_write_queue: {
+        Row: {
+          accion: string
+          created_at: string
+          dedupe_key: string
+          entidad_id: string
+          entidad_tipo: string
+          estado: string
+          hubspot_id: string | null
+          id: string
+          intentos: number
+          last_error: string | null
+          objeto: string
+          payload: Json
+          processed_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          accion: string
+          created_at?: string
+          dedupe_key: string
+          entidad_id: string
+          entidad_tipo: string
+          estado?: string
+          hubspot_id?: string | null
+          id?: string
+          intentos?: number
+          last_error?: string | null
+          objeto: string
+          payload?: Json
+          processed_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          accion?: string
+          created_at?: string
+          dedupe_key?: string
+          entidad_id?: string
+          entidad_tipo?: string
+          estado?: string
+          hubspot_id?: string | null
+          id?: string
+          intentos?: number
+          last_error?: string | null
+          objeto?: string
+          payload?: Json
+          processed_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       import_q4_lista: {
         Row: {
           address: string | null
@@ -11065,6 +11116,12 @@ export type Database = {
         Returns: boolean
       }
       has_whatsapp_access: { Args: { _user_id: string }; Returns: boolean }
+      hubspot_apply_task_status: {
+        Args: { p_status: string; p_task_id: string }
+        Returns: boolean
+      }
+      hubspot_escritura_activada: { Args: never; Returns: boolean }
+      hubspot_write_queue_counts: { Args: never; Returns: Json }
       iee_score_components: {
         Args: { p_building_id: string }
         Returns: {
