@@ -13,6 +13,8 @@ import {
   codigoTipologia,
   etiquetaTipologiaPortal,
   filtrarPorOpciones,
+  responsableHubspot,
+  esTareaDeLaApp,
 } from "../../supabase/functions/_shared/hubspotWrite/mapping.ts";
 
 const tarea = {
@@ -182,5 +184,32 @@ describe("interruptor de escritura", () => {
   });
   it("payload vacío se descarta", () => {
     expect(decidirEnvio({ activado: true, payload: {} }).accion).toBe("descartar");
+  });
+});
+
+describe("responsable de la tarea en HubSpot", () => {
+  it("resuelve el identificador por correo del comercial", () => {
+    expect(responsableHubspot("jesus@afflux.es")).toBe("76826178");
+    expect(responsableHubspot("  DAVID.CASERO@afflux.es ")).toBe("76826175");
+    expect(responsableHubspot("carlos.moreno@afflux.es")).toBe("76619728");
+  });
+  it("admite un mapa de ajustes que amplía el canónico", () => {
+    expect(responsableHubspot("nueva@afflux.es", { "nueva@afflux.es": "999" })).toBe("999");
+    expect(responsableHubspot("marta.nieto@afflux.es", { otra: "1" })).toBe("76826176");
+  });
+  it("fail-closed: sin correspondencia no inventa responsable", () => {
+    expect(responsableHubspot("desconocido@afflux.es")).toBeNull();
+    expect(responsableHubspot(null)).toBeNull();
+    expect(responsableHubspot("x@y.es", { "x@y.es": "" })).toBeNull();
+  });
+});
+
+describe("filtro de tareas propias", () => {
+  it("exige los corchetes al principio del asunto", () => {
+    expect(esTareaDeLaApp("[Afflux] Seguimiento — X")).toBe(true);
+    expect(esTareaDeLaApp("   [Afflux] Con espacios")).toBe(true);
+    expect(esTareaDeLaApp("Seguimiento Re:Nuevo Lead Afflux Marketing Ads")).toBe(false);
+    expect(esTareaDeLaApp("Afflux seguimiento")).toBe(false);
+    expect(esTareaDeLaApp("Re: [Afflux] respuesta")).toBe(false);
   });
 });
