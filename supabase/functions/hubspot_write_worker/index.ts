@@ -9,6 +9,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, hubspotFetch } from "../_shared/hubspot.ts";
 import {
   propiedadesTareaHubspot,
+  esTareaDeLaApp,
   planCamposContacto,
   decidirEnvio,
   estadoAppDeHubspot,
@@ -77,7 +78,12 @@ async function construirCarga(sb: any, fila: any) {
   }
   const props = propiedadesTareaHubspot(t as AppTask, { hubspotOwnerId: ownerId });
   const dealId = t.building_id ? await externalId(sb, "building", t.building_id, "deal") : undefined;
-  return { props, extra: { dealId, taskId: t.id } };
+  // Propietario destinatario: va incrustado en la clave de la tarea
+  // (v5:genN:TIPO:<edificio>:<propietario>:<sello>).
+  const partes = String(t.task_key ?? "").split(":");
+  const ownerUuid = partes.length >= 5 && /^[0-9a-f-]{36}$/i.test(partes[4]) ? partes[4] : null;
+  const contactId = ownerUuid ? await externalId(sb, "owner", ownerUuid, "contact") : undefined;
+  return { props, extra: { dealId, contactId, taskId: t.id } };
 }
 
 /** Campos comerciales del propietario → propiedades del contacto. */
@@ -166,7 +172,7 @@ async function construirCargaContacto(sb: any, fila: any) {
   };
 }
 
-async function drain(sb: any, activado: boolean, limite: number) {
+async function drain(sb: any, activo: (objeto: string) => boolean, limite: number) {
   const { data: filas } = await sb.from("hubspot_write_queue")
     .select("*").in("estado", ["pendiente", "error"]).order("created_at").limit(limite);
   const resultado = { procesadas: 0, simuladas: 0, enviadas: 0, errores: 0, descartadas: 0, muestras: [] as unknown[] };
@@ -175,7 +181,7 @@ async function drain(sb: any, activado: boolean, limite: number) {
     resultado.procesadas++;
     try {
       const { props, extra } = await construirCarga(sb, fila);
-      const decision = decidirEnvio({ activado, payload: props });
+      const decision = decidirEnvio({ activado: activo(String(fila.objeto)), payload: props });
 
       if (decision.accion === "descartar") {
         resultado.descartadas++;
@@ -218,6 +224,11 @@ async function drain(sb: any, activado: boolean, limite: number) {
       const existente = await externalId(sb, "building_task", String(fila.entidad_id), "task");
       let hsId = existente;
       if (hsId) {
+        // Nunca tocamos una tarea que no haya creado la aplicación.
+        const actual = await hubspotFetch(`/crm/v3/objects/tasks/${hsId}?properties=hs_task_subject`);
+        if (!esTareaDeLaApp(actual?.properties?.hs_task_subject)) {
+          throw new Error("la tarea enlazada en HubSpot no lleva la marca de la aplicación: no se toca");
+        }
         await hubspotFetch(`/crm/v3/objects/tasks/${hsId}`, {
           method: "PATCH", body: JSON.stringify({ properties: props }),
         });
@@ -232,6 +243,13 @@ async function drain(sb: any, activado: boolean, limite: number) {
           await hubspotFetch(`/crm/v4/objects/tasks/${hsId}/associations/deals/${dealId}`, {
             method: "PUT",
             body: JSON.stringify([{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 216 }]),
+          }).catch(() => {});
+        }
+        const contactId = (extra as any).contactId;
+        if (contactId) {
+          await hubspotFetch(`/crm/v4/objects/tasks/${hsId}/associations/contacts/${contactId}`, {
+            method: "PUT",
+            body: JSON.stringify([{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 204 }]),
           }).catch(() => {});
         }
       }
@@ -286,7 +304,11 @@ async function pull(sb: any, limite: number) {
   let aplicados = 0;
   for (const e of enlaces ?? []) {
     try {
-      const t = await hubspotFetch(`/crm/v3/objects/tasks/${e.provider_id}?properties=hs_task_status`);
+      const t = await hubspotFetch(
+        `/crm/v3/objects/tasks/${e.provider_id}?properties=hs_task_status,hs_task_subject`,
+      );
+      // Sólo leemos tareas nuestras; una ajena nunca altera la aplicación.
+      if (!esTareaDeLaApp(t?.properties?.hs_task_subject)) continue;
       const estado = estadoAppDeHubspot(t?.properties?.hs_task_status);
       if (!estado) continue;
       const { data: ok } = await sb.rpc("hubspot_apply_task_status", {
@@ -305,7 +327,17 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "").trim();
     const esServicio = token !== "" && token === SERVICE_KEY;
-    if (!esServicio) {
+    // Los procesos programados se identifican con un secreto interno guardado
+    // en la base de datos (los crons sólo disponen de la clave pública).
+    let esCron = false;
+    const cronToken = req.headers.get("x-worker-token") ?? "";
+    if (!esServicio && cronToken) {
+      const { data: esperado } = await sb.from("app_settings")
+        .select("value").eq("key", "hubspot_worker_token").maybeSingle();
+      const valor = typeof esperado?.value === "string" ? esperado.value : null;
+      esCron = !!valor && valor === cronToken;
+    }
+    if (!esServicio && !esCron) {
       if (!token) return json(401, { ok: false, error: "no_autenticado" });
       const authed = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authHeader } } });
       const { data, error } = await authed.auth.getClaims(token);
@@ -320,8 +352,13 @@ Deno.serve(async (req) => {
     const accion = String(body.accion ?? "drain");
     const limite = Math.min(Number(body.limite ?? 50) || 50, 200);
 
-    const { data: activadoRpc } = await sb.rpc("hubspot_escritura_activada");
-    const activado = activadoRpc === true;
+    // Dos interruptores independientes: tareas y campos de contacto.
+    const { data: interruptores } = await sb.rpc("hubspot_interruptores");
+    const tareasOn = (interruptores as any)?.tareas === true;
+    const contactosOn = (interruptores as any)?.contactos === true;
+    const activo = (objeto: string) =>
+      objeto === "task" ? tareasOn : objeto === "contact" ? contactosOn : false;
+    const activado = { tareas: tareasOn, contactos: contactosOn };
 
     if (accion === "audit") return json(200, { ok: true, activado, ...(await audit(sb)) });
     if (accion === "preview") {
@@ -335,11 +372,11 @@ Deno.serve(async (req) => {
       return json(200, { ok: true, activado, simulacion: true, muestras });
     }
     if (accion === "pull") {
-      if (!activado) return json(200, { ok: true, activado, skipped: "interruptor_apagado" });
+      if (!tareasOn) return json(200, { ok: true, activado, skipped: "interruptor_tareas_apagado" });
       return json(200, { ok: true, activado, ...(await pull(sb, limite)) });
     }
     if (accion !== "drain") return json(400, { ok: false, error: "accion_desconocida" });
-    return json(200, { ok: true, activado, ...(await drain(sb, activado, limite)) });
+    return json(200, { ok: true, activado, ...(await drain(sb, activo, limite)) });
   } catch (e) {
     return json(500, { ok: false, error: (e as Error)?.message ?? String(e) });
   }

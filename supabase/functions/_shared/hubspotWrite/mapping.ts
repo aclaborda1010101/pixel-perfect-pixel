@@ -51,6 +51,23 @@ const PRIORIDAD: Record<string, "LOW" | "MEDIUM" | "HIGH"> = {
 /** Tipos de tarea que en HubSpot son una llamada. */
 const TIPOS_LLAMADA = new Set(["T-02_03", "T-04"]);
 
+/**
+ * Marca que distingue NUESTRAS tareas de las que el cliente ya tenía en HubSpot.
+ * Va al principio del asunto para que puedan filtrarlas de un vistazo.
+ */
+export const MARCA_APP = "[Afflux]";
+
+/** Asunto con la marca de la aplicación, sin duplicarla si ya está. */
+export function asuntoTarea(titulo: string): string {
+  const t = String(titulo ?? "").trim();
+  return t.startsWith(MARCA_APP) ? t : `${MARCA_APP} ${t}`;
+}
+
+/** ¿Este asunto corresponde a una tarea creada por la aplicación? */
+export function esTareaDeLaApp(asunto: unknown): boolean {
+  return String(asunto ?? "").trimStart().startsWith(MARCA_APP);
+}
+
 export type AppTask = {
   id: string;
   task_type?: string | null;
@@ -80,7 +97,7 @@ export function propiedadesTareaHubspot(
   if (!estado) throw new Error(`estado de tarea no mapeable: ${String(t.status)}`);
   const cuando = t.due_date ?? t.completed_at ?? null;
   const props: Record<string, string> = {
-    hs_task_subject: t.title,
+    hs_task_subject: asuntoTarea(t.title),
     hs_task_body: cuerpoTarea(t),
     hs_task_status: estado,
     hs_task_priority: PRIORIDAD[String(t.priority ?? "medium")] ?? "MEDIUM",
