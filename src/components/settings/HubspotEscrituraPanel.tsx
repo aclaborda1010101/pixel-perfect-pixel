@@ -26,37 +26,44 @@ type Seco = {
 
 export function HubspotEscrituraPanel() {
   const { toast } = useToast();
-  const [activado, setActivado] = useState(false);
+  const [tareas, setTareas] = useState(false);
+  const [contactos, setContactos] = useState(false);
   const [conteos, setConteos] = useState<Record<string, number>>({});
   const [auditoria, setAuditoria] = useState<Auditoria | null>(null);
   const [seco, setSeco] = useState<Seco | null>(null);
   const [cargando, setCargando] = useState<string | null>(null);
 
   async function cargar() {
-    const [{ data: ajuste }, { data: counts }] = await Promise.all([
-      supabase.from("app_settings").select("value").eq("key", "hubspot_escritura_activada").maybeSingle(),
+    const [{ data: sw }, { data: counts }] = await Promise.all([
+      (supabase.rpc as any)("hubspot_interruptores"),
       (supabase.rpc as any)("hubspot_write_queue_counts"),
     ]);
-    setActivado(ajuste?.value === true);
+    setTareas((sw as any)?.tareas === true);
+    setContactos((sw as any)?.contactos === true);
     setConteos((counts as Record<string, number>) ?? {});
   }
 
   useEffect(() => { cargar(); }, []);
 
-  async function cambiarInterruptor(valor: boolean) {
-    setCargando("switch");
+  async function cambiarInterruptor(cual: "tareas" | "contactos", valor: boolean) {
+    const key = cual === "tareas"
+      ? "hubspot_escritura_tareas_activada"
+      : "hubspot_escritura_contactos_activada";
+    setCargando(`switch-${cual}`);
     const { error } = await supabase
       .from("app_settings")
-      .upsert({ key: "hubspot_escritura_activada", value: valor as never }, { onConflict: "key" });
+      .upsert({ key, value: valor as never }, { onConflict: "key" });
     setCargando(null);
     if (error) {
       toast({ title: "No se pudo cambiar", description: error.message, variant: "destructive" });
       return;
     }
-    setActivado(valor);
+    if (cual === "tareas") setTareas(valor); else setContactos(valor);
     toast({
-      title: valor ? "Escritura en HubSpot ACTIVADA" : "Escritura en HubSpot desactivada",
-      description: valor ? "Las tareas pendientes se enviarán en la próxima pasada." : "Todo queda en simulación.",
+      title: `${cual === "tareas" ? "Tareas" : "Campos de contacto"}: ${valor ? "ACTIVADO" : "apagado"}`,
+      description: valor
+        ? "Lo pendiente se enviará en la próxima pasada."
+        : "Se sigue calculando, pero no se escribe nada en HubSpot.",
     });
   }
 
@@ -86,16 +93,42 @@ export function HubspotEscrituraPanel() {
         <CardTitle>Envío de tareas y campos comerciales a HubSpot</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-faint p-4">
-          <div className="space-y-1">
-            <div className="text-sm font-medium text-foreground">Interruptor maestro</div>
-            <p className="text-xs text-muted-foreground">
-              Apagado: todo se calcula y se guarda en cola, pero no se escribe nada en HubSpot.
-            </p>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-faint p-4">
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-foreground">Tareas de la aplicación → tareas en HubSpot</div>
+              <p className="max-w-xl text-xs text-muted-foreground">
+                Crea y actualiza en HubSpot las tareas que genera la aplicación, asociadas al contacto
+                del propietario y al negocio del edificio. Todas llevan la marca «[Afflux]» en el asunto
+                para poder filtrarlas; nunca se toca una tarea que no haya creado la aplicación.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={tareas ? "gold" : "outline"}>{tareas ? "Activado" : "Apagado"}</Badge>
+              <Switch
+                checked={tareas}
+                disabled={cargando === "switch-tareas"}
+                onCheckedChange={(v) => cambiarInterruptor("tareas", v)}
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={activado ? "gold" : "outline"}>{activado ? "Activado" : "Apagado"}</Badge>
-            <Switch checked={activado} disabled={cargando === "switch"} onCheckedChange={cambiarInterruptor} />
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-faint p-4">
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-foreground">Campos comerciales en el contacto</div>
+              <p className="max-w-xl text-xs text-muted-foreground">
+                Vuelca a los contactos los campos comerciales (prioridad de originación, pieza decisoria,
+                tipología…). Afecta a más de 12.000 contactos, así que se queda apagado hasta que dirección
+                lo decida: mientras tanto todo se calcula y se guarda en cola, pero no se escribe nada.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={contactos ? "gold" : "outline"}>{contactos ? "Activado" : "Apagado"}</Badge>
+              <Switch
+                checked={contactos}
+                disabled={cargando === "switch-contactos"}
+                onCheckedChange={(v) => cambiarInterruptor("contactos", v)}
+              />
+            </div>
           </div>
         </div>
 
@@ -116,7 +149,11 @@ export function HubspotEscrituraPanel() {
             {cargando === "audit" ? "Comprobando…" : "Comprobar campos del portal"}
           </Button>
           <Button size="sm" variant="gold" disabled={cargando === "drain"} onClick={() => ejecutar("drain")}>
-            {cargando === "drain" ? "Procesando…" : activado ? `Enviar ${pendientes} pendientes` : `Probar en seco (${pendientes})`}
+            {cargando === "drain"
+              ? "Procesando…"
+              : tareas || contactos
+                ? `Procesar ${pendientes} pendientes`
+                : `Probar en seco (${pendientes})`}
           </Button>
         </div>
 

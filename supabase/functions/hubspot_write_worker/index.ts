@@ -304,7 +304,11 @@ async function pull(sb: any, limite: number) {
   let aplicados = 0;
   for (const e of enlaces ?? []) {
     try {
-      const t = await hubspotFetch(`/crm/v3/objects/tasks/${e.provider_id}?properties=hs_task_status`);
+      const t = await hubspotFetch(
+        `/crm/v3/objects/tasks/${e.provider_id}?properties=hs_task_status,hs_task_subject`,
+      );
+      // Sólo leemos tareas nuestras; una ajena nunca altera la aplicación.
+      if (!esTareaDeLaApp(t?.properties?.hs_task_subject)) continue;
       const estado = estadoAppDeHubspot(t?.properties?.hs_task_status);
       if (!estado) continue;
       const { data: ok } = await sb.rpc("hubspot_apply_task_status", {
@@ -338,8 +342,13 @@ Deno.serve(async (req) => {
     const accion = String(body.accion ?? "drain");
     const limite = Math.min(Number(body.limite ?? 50) || 50, 200);
 
-    const { data: activadoRpc } = await sb.rpc("hubspot_escritura_activada");
-    const activado = activadoRpc === true;
+    // Dos interruptores independientes: tareas y campos de contacto.
+    const { data: interruptores } = await sb.rpc("hubspot_interruptores");
+    const tareasOn = (interruptores as any)?.tareas === true;
+    const contactosOn = (interruptores as any)?.contactos === true;
+    const activo = (objeto: string) =>
+      objeto === "task" ? tareasOn : objeto === "contact" ? contactosOn : false;
+    const activado = { tareas: tareasOn, contactos: contactosOn };
 
     if (accion === "audit") return json(200, { ok: true, activado, ...(await audit(sb)) });
     if (accion === "preview") {
@@ -353,11 +362,11 @@ Deno.serve(async (req) => {
       return json(200, { ok: true, activado, simulacion: true, muestras });
     }
     if (accion === "pull") {
-      if (!activado) return json(200, { ok: true, activado, skipped: "interruptor_apagado" });
+      if (!tareasOn) return json(200, { ok: true, activado, skipped: "interruptor_tareas_apagado" });
       return json(200, { ok: true, activado, ...(await pull(sb, limite)) });
     }
     if (accion !== "drain") return json(400, { ok: false, error: "accion_desconocida" });
-    return json(200, { ok: true, activado, ...(await drain(sb, activado, limite)) });
+    return json(200, { ok: true, activado, ...(await drain(sb, activo, limite)) });
   } catch (e) {
     return json(500, { ok: false, error: (e as Error)?.message ?? String(e) });
   }
