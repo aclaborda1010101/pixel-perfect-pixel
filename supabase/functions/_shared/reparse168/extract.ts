@@ -310,6 +310,8 @@ function extraerPorProsa(seccion: string, base: number): ExtraccionNota {
 const RE_CAMPO_NOMBRE = /\bNombre\s*\.*\s*:/g;
 // Etiqueta siguiente de la ficha: corta el valor del campo anterior.
 const RE_SIG_ETIQUETA = /(?:N\.?I\.?F\.?|C\.?I\.?F\.?|T[íi]tulo|Naturaleza\s+del\s+Derecho|Car[áa]cter|Participaci[óo]n|Fecha\s+Escritura|Notario|Poblaci[óo]n|Protocolo|Inscripci[óo]n|Fecha\s+inscripci[óo]n|Tomo\/Libro\/Folio|Nombre)\s*\.*\s*:/i;
+// Participación declarada sobre el total ("la totalidad", "100 por ciento").
+const RE_TOTALIDAD_CAMPO = /\b(?:la\s+)?totalidad\b|\btotal\b|\b100\s*(?:por\s*(?:ciento|cien)|%)/i;
 
 /** Morfología D: fichas de campos con puntos ("Nombre....: X"). */
 function extraerPorCampos(seccion: string, base: number): ExtraccionNota {
