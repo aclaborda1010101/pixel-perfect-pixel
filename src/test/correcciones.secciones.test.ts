@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { TIPOS_DATOS, TIPOS_TRABAJO, esCorreccionDeDatos, etiquetaEstado } from "@/lib/correcciones";
+import { decideAccess } from "@/lib/access";
 
 describe("secciones de correcciones", () => {
   it("la sección de datos contiene guardas 1, 2 y 6", () => {
@@ -28,7 +29,7 @@ describe("Orquestador: acceso desde el panel del responsable", () => {
     expect(decideAccess({ role: "sales_manager", pathname: "/admin/guardas" }).type).toBe("redirect");
     expect(decideAccess({ role: "sales_manager", pathname: "/edificios" }).type).toBe("redirect");
   });
-  it("un comercial no accede al orquestador", () => {
+  it("la ruta no cambia de comportamiento para el resto de roles", () => {
     expect(decideAccess({ role: "comercial_zona", pathname: "/correcciones" }).type).toBe("allow");
   });
 });
