@@ -4,6 +4,7 @@ import {
   decidirDestino,
   parseGeneratedTaskKey,
   renderPlantilla,
+  resolverTextoFinal,
   tieneConsentimiento,
 } from "@/lib/whatsappTarjeta";
 import { TERMINOS_PROHIBIDOS } from "@/lib/generadorTareas";
@@ -69,5 +70,23 @@ describe("clave de tarea", () => {
   it("falla cerrado con claves ajenas", () => {
     expect(parseGeneratedTaskKey("v5:2026-01-01:T-02:xxx")).toBeNull();
     expect(parseGeneratedTaskKey(null)).toBeNull();
+  });
+});
+
+describe("vista previa y edición a mano", () => {
+  const base = renderPlantilla(PLANTILLA_T23_POR_DEFECTO, {
+    nombre: "María", comercial: "Jesús", direccion: "Calle Mayor 12",
+  });
+  it("sin edición se envía el texto de la plantilla", () => {
+    expect(resolverTextoFinal(base, undefined)).toEqual({ texto: base, editado: false });
+    expect(resolverTextoFinal(base, base)).toEqual({ texto: base, editado: false });
+    expect(resolverTextoFinal(base, "   ")).toEqual({ texto: base, editado: false });
+  });
+  it("un texto distinto se envía tal cual y queda marcado como modificado", () => {
+    const out = resolverTextoFinal(base, "  Hola María, te llamo mañana.  ");
+    expect(out).toEqual({ texto: "Hola María, te llamo mañana.", editado: true });
+  });
+  it("los espacios de más no cuentan como edición", () => {
+    expect(resolverTextoFinal(base, `  ${base}  `).editado).toBe(false);
   });
 });

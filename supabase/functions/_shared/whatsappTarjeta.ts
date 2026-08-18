@@ -120,6 +120,20 @@ export function resumenConsentimiento(
 
 export type ClaveGenerada = { code: string; buildingId: string; subjectId: string };
 
+export type TextoFinal = { texto: string; editado: boolean };
+
+/**
+ * Decide qué texto se envía: el propuesto por el comercial si lo ha tocado,
+ * o el montado por la plantilla. Marca si hubo edición a mano.
+ */
+export function resolverTextoFinal(base: string, propuesto: unknown): TextoFinal {
+  const original = String(base ?? '');
+  if (typeof propuesto !== 'string') return { texto: original, editado: false };
+  const limpio = propuesto.trim();
+  if (limpio === '' || limpio === original.trim()) return { texto: original, editado: false };
+  return { texto: limpio, editado: true };
+}
+
 /** Lee la clave del generador continuo: `v5:gen1:<code>:<building>:<subject>:<ts>`. */
 export function parseGeneratedTaskKey(taskKey: unknown): ClaveGenerada | null {
   if (typeof taskKey !== 'string') return null;
