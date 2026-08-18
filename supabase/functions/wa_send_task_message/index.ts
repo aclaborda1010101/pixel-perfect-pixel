@@ -8,6 +8,7 @@ import {
   PLANTILLA_T23_POR_DEFECTO,
   decidirDestino,
   renderPlantilla,
+  resolverTextoFinal,
   tieneConsentimiento,
 } from '../_shared/whatsappTarjeta.ts';
 
@@ -55,11 +56,12 @@ Deno.serve(async (req) => {
       .maybeSingle();
     const comercial = String(perfil?.full_name ?? perfil?.email ?? '').split('@')[0];
 
-    const texto = renderPlantilla(plantilla, {
+    const textoPlantilla = renderPlantilla(plantilla, {
       nombre: ctx.owner.nombre_display ?? ctx.owner.nombre,
       comercial,
       direccion: ctx.edificio?.direccion ?? null,
     });
+    const { texto, editado } = resolverTextoFinal(textoPlantilla, body?.texto);
 
     const destino = decidirDestino({
       modoPrueba,
@@ -68,6 +70,22 @@ Deno.serve(async (req) => {
     });
     if (destino.modo === 'simulado' && destino.motivo === 'propietario_sin_telefono') {
       return json(400, { ok: false, error: 'propietario_sin_telefono' });
+    }
+
+    // 3 bis. Vista previa: se devuelve el mensaje exacto sin enviar ni registrar nada.
+    if (String(body?.accion ?? '') === 'preview') {
+      return json(200, {
+        ok: true,
+        preview: true,
+        texto: textoPlantilla,
+        modo: destino.modo,
+        es_prueba: destino.modo !== 'real',
+        telefono_destino: destino.telefono,
+        telefono_propietario: ctx.owner.telefono ?? null,
+        modo_prueba: modoPrueba,
+        numero_prueba: numeroPrueba || null,
+        motivo: destino.motivo ?? null,
+      });
     }
 
     // 4. Envío real sólo cuando hay destino; en simulado no sale nada.
@@ -130,6 +148,8 @@ Deno.serve(async (req) => {
           owner_id: ctx.owner.id,
           building_id: ctx.tarea.building_id,
           plantilla: 'plantilla_whatsapp_t23',
+          editado_a_mano: editado,
+          texto_plantilla: editado ? textoPlantilla : null,
           telefono_destino: destino.telefono,
           telefono_propietario: ctx.owner.telefono ?? null,
           motivo: destino.motivo ?? null,
@@ -152,6 +172,7 @@ Deno.serve(async (req) => {
       es_prueba: destino.modo !== 'real',
       telefono_destino: destino.telefono,
       texto,
+      editado_a_mano: editado,
       message_id: mensaje?.id ?? null,
     });
   } catch (e) {
