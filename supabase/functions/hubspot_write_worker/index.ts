@@ -327,7 +327,17 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace("Bearer ", "").trim();
     const esServicio = token !== "" && token === SERVICE_KEY;
-    if (!esServicio) {
+    // Los procesos programados se identifican con un secreto interno guardado
+    // en la base de datos (los crons sólo disponen de la clave pública).
+    let esCron = false;
+    const cronToken = req.headers.get("x-worker-token") ?? "";
+    if (!esServicio && cronToken) {
+      const { data: esperado } = await sb.from("app_settings")
+        .select("value").eq("key", "hubspot_worker_token").maybeSingle();
+      const valor = typeof esperado?.value === "string" ? esperado.value : null;
+      esCron = !!valor && valor === cronToken;
+    }
+    if (!esServicio && !esCron) {
       if (!token) return json(401, { ok: false, error: "no_autenticado" });
       const authed = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authHeader } } });
       const { data, error } = await authed.auth.getClaims(token);
