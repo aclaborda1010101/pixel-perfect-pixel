@@ -104,7 +104,7 @@ export default function GestorComerciales() {
     () => agruparPorComercial(q.data, new Date(), horario),
     [q.data, horario],
   );
-  const tot = totales(grupos);
+  const tot = useMemo(() => totales(grupos), [grupos]);
   const semanas = useMemo(() => {
     const rows = grupos
       .filter((g) => comercial === "todos" || g.user_id === comercial)
