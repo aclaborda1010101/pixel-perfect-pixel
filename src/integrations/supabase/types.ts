@@ -11079,6 +11079,10 @@ export type Database = {
       detect_guarda_2: { Args: never; Returns: number }
       detect_guarda_4: { Args: never; Returns: number }
       detect_guarda_6: { Args: never; Returns: number }
+      enqueue_hubspot_contact_write: {
+        Args: { p_building_id: string; p_owner_id: string }
+        Returns: undefined
+      }
       find_owner_for_orphan_contact: {
         Args: {
           p_email: string
