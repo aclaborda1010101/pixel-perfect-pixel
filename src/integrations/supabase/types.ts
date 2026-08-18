@@ -11196,6 +11196,7 @@ export type Database = {
         Args: { p_from: string; p_to: string }
         Returns: Json
       }
+      get_scoring_cards: { Args: never; Returns: Json }
       has_gestor_access: { Args: { _user_id: string }; Returns: boolean }
       has_oportunidades_access: { Args: { _user_id: string }; Returns: boolean }
       has_role: {

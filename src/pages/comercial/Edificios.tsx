@@ -377,277 +377,62 @@ export default function ComercialEdificios() {
     })();
   }, [userId]);
 
-  // --- Mi cartera: query ligera (~80 filas) que se carga siempre ---
-  const { data: miaData, isLoading: loadingMia } = useQuery({
-    queryKey: ["comercial:edificios:mia", userId],
-    enabled: !!userId,
-    staleTime: 60_000,
-    queryFn: async () => {
-      const [{ data: assignments }, { data: demoBldgs }] = await Promise.all([
-        (supabase.from("building_assignments" as any) as any)
-          .select("building_id")
-          .eq("user_id", userId)
-          .eq("status", "active"),
-        (supabase.from("buildings" as any) as any)
-          .select("id")
-          .eq("cartera_demo_seed", true),
-      ]);
-      const ids = Array.from(new Set<string>([
-        ...((assignments ?? []) as any[]).map((a: any) => a.building_id),
-        ...((demoBldgs ?? []) as any[]).map((b: any) => b.id),
-      ]));
-      if (ids.length === 0) return { rows: [] as Row[] };
-      const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
-        (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
-        (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_activo, score_propietarios, score_total, score_propietarios_breakdown, cluster_score, es_estrella, score_breakdown, iee_estado, comercial, porcentajes_estado")
-          .in("id", ids),
-        (supabase.from("building_analysis" as any) as any)
-          .select(
-            "building_id, ventanas_fachada_total, ventanas_patios_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
-          )
-          .in("building_id", ids),
-      ]);
-      const assignedIds = new Set<string>(((assignments ?? []) as any[]).map((a: any) => a.building_id));
-      const bldgsById = new Map<string, any>();
-      const demoIds = new Set<string>();
-      for (const b of (bldgsRes.data ?? []) as any[]) {
-        bldgsById.set(b.id, b);
-        if (b.cartera_demo_seed) demoIds.add(b.id);
-      }
-      const analysisMap = new Map<string, any>();
-      for (const a of (analysisRes.data ?? []) as any[]) analysisMap.set(a.building_id, a);
-      const rows: Row[] = ((scoresRes.data ?? []) as any[]).map((b: any) => {
-        const m2 = b.m2_total != null ? Number(b.m2_total) : null;
-        const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
-        const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
-        const ratioViv = b.ratio_m2_viv != null ? Number(b.ratio_m2_viv) : (m2 && viv ? m2 / viv : null);
-        const extra = bldgsById.get(b.id) ?? {};
-        const metaNota = String(extra?.metadatos?.tenemos_la_nota_simple_ ?? "").trim().toLowerCase();
-        const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
-        const an = analysisMap.get(b.id) ?? {};
-        return {
-          id: b.id,
-          direccion: b.direccion,
-          ciudad: b.ciudad,
-          barrio: b.barrio ?? null,
-          distrito: b.distrito ?? null,
-          score: Number(extra.cluster_score ?? extra.score ?? b.score ?? 0),
-          es_estrella: !!extra.es_estrella,
-          n_alarmas: countAlarmas(extra.avisos_inteligentes),
-          num_viviendas: viv,
-          m2_total: m2,
-          owners_count: b.owners_count,
-          division_horizontal: !!b.division_horizontal,
-          ratio: ratioViv,
-          m2_vivienda_calc: m2Viv,
-          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
-          score_activo: extra.score_activo ?? null,
-          score_propietarios: extra.score_propietarios ?? null,
-          score_total: extra.score_total ?? extra.score ?? null,
-          score_propietarios_breakdown: extra.score_propietarios_breakdown ?? null,
-          porcentajes_estado: (extra as any).porcentajes_estado ?? null,
-          assigned: assignedIds.has(b.id),
-          cartera_demo: demoIds.has(b.id),
-          comercial: extra.comercial ?? null,
-          avisos,
-          score_summary: extra.score_summary ?? null,
-          confianza_media: extra.confianza_media ?? null,
-          has_analysis: !!b.has_ai_analysis,
-          ventanas_fachada_total: an.ventanas_fachada_total ?? null,
-          ventanas_patios_total: an.ventanas_patios_total ?? null,
-          ventanas_total: ((an.ventanas_fachada_total ?? 0) + (an.ventanas_patios_total ?? 0)) || null,
-          cluster_asignado: extra.cluster_asignado ?? null,
-          segundas_escaleras: an.segundas_escaleras ?? null,
-          plantas_levantables: an.plantas_levantables ?? null,
-          tiene_azotea_transitable: an.tiene_azotea_transitable ?? null,
-          esquina: an.esquina ?? null,
-          protegido_historicamente: an.protegido_historicamente ?? null,
-          edificio_reformado: an.edificio_reformado ?? null,
-          gestion_profesional: an.gestion_profesional ?? null,
-          has_nota_simple: metaNota === "sí" || metaNota === "si",
-        };
-      });
-      return { rows };
-    },
-  });
-
   // --- Catálogo completo (cacheado 10 min) ---
   const todosQueryKey = ["comercial:edificios:todos", userId] as const;
   const todosQueryFn = async () => {
-      // Slim columns: seleccionar `*` sobre `v_building_score` incluía los
-      // jsonb pesados `md` y `score_breakdown`, y con `order=score.desc`
-      // (columna calculada) PostgREST cancelaba con statement_timeout (57014)
-      // → la UI caía silenciosamente a la cartera de 77. Pedimos solo las
-      // columnas que pinta la tarjeta y ordenamos por `id` (índice); el
-      // orden real por score lo aplica el cliente con `apply()`.
-      const V_COLS =
-        "id,direccion,ciudad,division_horizontal,numero_propietarios,viviendas_unidades,owners_count,m2_total,num_viviendas,m2_vivienda_calc,ratio_m2_viv,has_ai_analysis,ventanas_fachada_total,esquina,segundas_escaleras,protegido_historicamente,plantas_levantables,confidence,score";
-      const B_COLS =
-        "id,metadatos,avisos_inteligentes,score_summary,confianza_media,cartera_demo_seed,cluster_asignado,cluster_motivo,score,score_activo,score_propietarios,score_total,score_propietarios_breakdown,cluster_score,es_estrella,score_breakdown,iee_estado,comercial,porcentajes_estado";
-      // `v_building_score` no admite pushdown del LIMIT/OFFSET: cada página
-      // recalcula la vista entera (~2,6 s). Al pedir 16 páginas en paralelo la
-      // base saturaba y devolvía 500 (statement_timeout) en varias de ellas, y
-      // el catálogo se quedaba truncado (~596 filas). Ahora se pide UNA sola
-      // vez el rango completo (una ejecución de la vista) y sólo si falla se
-      // recurre a paginación secuencial de respaldo.
-      // PostgREST corta cualquier respuesta a 1.000 filas (max-rows), así que
-      // hay que paginar sí o sí; lo hacemos en secuencial con páginas grandes
-      // (2 peticiones para ~1.166 edificios) en lugar de 16 en paralelo.
-      const PAGE = 1000;
-      const MAX_ROWS = 50000;
-
-      const withRetry = async <T,>(fn: () => Promise<{ data: T[] | null; error: any }>, label: string) => {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          const res = await fn();
-          if (!res.error) return (res.data ?? []) as T[];
-          if (attempt === 1) {
-            const err = new Error(`[${label}] ${res.error?.message ?? "unknown"}`);
-            (err as any).cause = res.error;
-            throw err;
-          }
-          await new Promise((r) => setTimeout(r, 400));
-        }
-        return [] as T[];
-      };
-
-      const fetchViewPage = (from: number, size = PAGE) =>
-        withRetry(
-          () =>
-            (supabase.from("v_building_score" as any) as any)
-              .select(V_COLS)
-              .order("id")
-              .range(from, from + size - 1),
-          `v_building_score ${from}-${from + size - 1}`,
-        );
-      const fetchBldgPage = (from: number, size = PAGE) =>
-        withRetry(
-          () =>
-            (supabase.from("buildings" as any) as any)
-              .select(B_COLS)
-              .order("id")
-              .range(from, from + size - 1),
-          `buildings ${from}-${from + size - 1}`,
-        );
-
-      const fetchAllPaged = async (
-        fetchPage: (from: number, size?: number) => Promise<any[]>,
-      ) => {
-        const out: any[] = [];
-        for (let from = 0; from < MAX_ROWS; from += PAGE) {
-          const batch = await fetchPage(from);
-          out.push(...batch);
-          if (batch.length < PAGE) break;
-        }
-        return out;
-      };
-
-      const fetchAll = fetchAllPaged;
-
-      const [scoresRaw, demoBldgsRaw, assignmentsRes] = await Promise.all([
-        fetchAll(fetchViewPage),
-        fetchAll(fetchBldgPage),
-        (supabase.from("building_assignments" as any) as any)
-          .select("building_id")
-          .eq("user_id", userId)
-          .eq("status", "active"),
-      ]);
-      const scores: any[] = scoresRaw;
-      const demoBldgs: any[] = demoBldgsRaw;
-      const assignments = assignmentsRes.data;
-      const assignedIds = new Set<string>((assignments ?? []).map((a: any) => a.building_id));
-      const bldgsById = new Map<string, any>();
-      const demoIds = new Set<string>();
-      for (const b of demoBldgs ?? []) {
-        bldgsById.set(b.id, b);
-        if (b.cartera_demo_seed) demoIds.add(b.id);
-      }
-
-      // Análisis IA: sólo para los edificios de la cartera (asignados + demo).
-      // El catálogo completo no necesita esta info en la tarjeta y bajaba la página.
-      const analysisMap = new Map<string, any>();
-      const interestingIds = Array.from(new Set<string>([...assignedIds, ...demoIds]));
-      if (interestingIds.length > 0) {
-        const { data: aPage } = await (supabase.from("building_analysis" as any) as any)
-          .select(
-            "building_id, ventanas_fachada_total, ventanas_patios_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
-          )
-          .in("building_id", interestingIds);
-        for (const row of (aPage ?? []) as any[]) analysisMap.set(row.building_id, row);
-      }
-
-      // Campaña revista junio 2026 — contar propietarios prioritarios por edificio.
-      const priorMap = new Map<string, number>();
-      try {
-        const { data: priorOwners } = await (supabase.from("owners") as any)
-          .select("id")
-          .not("metadatos->>prioridad_originacion", "is", null)
-          .limit(5000);
-        const priorIds = (priorOwners ?? []).map((r: any) => r.id);
-        if (priorIds.length > 0) {
-          const CHUNK = 500;
-          for (let i = 0; i < priorIds.length; i += CHUNK) {
-            const slice = priorIds.slice(i, i + CHUNK);
-            const { data: bo } = await (supabase.from("building_owners") as any)
-              .select("building_id")
-              .in("owner_id", slice);
-            for (const row of (bo ?? []) as any[]) {
-              priorMap.set(row.building_id, (priorMap.get(row.building_id) ?? 0) + 1);
-            }
-          }
-        }
-      } catch {}
-
-      const scoresUnicos = Array.from(new Map((scores ?? []).map((b: any) => [b.id, b])).values());
-      const rows: Row[] = scoresUnicos.map((b: any) => {
+      // Una única RPC calcula los agregados en bloque sobre tablas indexadas.
+      // Evita las dos ejecuciones completas de v_building_score (~4,3 s cada una)
+      // y las consultas por lotes que antes bloqueaban la primera pintura.
+      const { data, error } = await (supabase.rpc as any)("get_scoring_cards");
+      if (error) throw new Error(error.message);
+      const scores = (Array.isArray(data) ? data : []) as any[];
+      const rows: Row[] = scores.map((b: any) => {
         const m2 = b.m2_total != null ? Number(b.m2_total) : null;
         const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
-        const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
+        const m2Viv = m2 && viv ? m2 / viv : null;
         const ratioViv = b.ratio_m2_viv != null ? Number(b.ratio_m2_viv) : (m2 && viv ? m2 / viv : null);
-        const extra = bldgsById.get(b.id) ?? {};
-        const metaNota = String(extra?.metadatos?.tenemos_la_nota_simple_ ?? "").trim().toLowerCase();
-        const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
-        const an = analysisMap.get(b.id) ?? {};
+        const metaNota = String(b?.metadatos?.tenemos_la_nota_simple_ ?? "").trim().toLowerCase();
+        const avisos = Array.isArray(b.avisos_inteligentes) ? (b.avisos_inteligentes as Aviso[]) : null;
         return {
           id: b.id,
           direccion: b.direccion,
           ciudad: b.ciudad,
           barrio: b.barrio ?? null,
           distrito: b.distrito ?? null,
-          score: Number(extra.cluster_score ?? extra.score ?? b.score ?? 0),
-          es_estrella: !!extra.es_estrella,
-          n_alarmas: countAlarmas(extra.avisos_inteligentes),
+          score: Number(b.score ?? 0),
+          es_estrella: !!b.es_estrella,
+          n_alarmas: countAlarmas(b.avisos_inteligentes),
           num_viviendas: viv,
           m2_total: m2,
           owners_count: b.owners_count,
           division_horizontal: !!b.division_horizontal,
           ratio: ratioViv,
           m2_vivienda_calc: m2Viv,
-          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
-          score_activo: extra.score_activo ?? null,
-          score_propietarios: extra.score_propietarios ?? null,
-          score_total: extra.score_total ?? extra.score ?? null,
-          score_propietarios_breakdown: extra.score_propietarios_breakdown ?? null,
-          porcentajes_estado: (extra as any).porcentajes_estado ?? null,
-          assigned: assignedIds.has(b.id),
-          cartera_demo: demoIds.has(b.id),
-          comercial: (extra as any).comercial ?? null,
+          raw: b,
+          score_activo: b.score_activo ?? null,
+          score_propietarios: b.score_propietarios ?? null,
+          score_total: b.score_total ?? b.score ?? null,
+          score_propietarios_breakdown: b.score_propietarios_breakdown ?? null,
+          porcentajes_estado: b.porcentajes_estado ?? null,
+          assigned: !!b.assigned,
+          cartera_demo: !!b.cartera_demo_seed,
+          comercial: b.comercial ?? null,
           avisos,
-          score_summary: extra.score_summary ?? null,
-          confianza_media: extra.confianza_media ?? null,
-          has_analysis: !!b.has_ai_analysis,
-          ventanas_fachada_total: an.ventanas_fachada_total ?? null,
-          ventanas_patios_total: an.ventanas_patios_total ?? null,
-          ventanas_total: ((an.ventanas_fachada_total ?? 0) + (an.ventanas_patios_total ?? 0)) || null,
-          cluster_asignado: extra.cluster_asignado ?? null,
-          segundas_escaleras: an.segundas_escaleras ?? null,
-          plantas_levantables: an.plantas_levantables ?? null,
-          tiene_azotea_transitable: an.tiene_azotea_transitable ?? null,
-          esquina: an.esquina ?? null,
-          protegido_historicamente: an.protegido_historicamente ?? null,
-          edificio_reformado: an.edificio_reformado ?? null,
-          gestion_profesional: an.gestion_profesional ?? null,
-          prior_count: priorMap.get(b.id) ?? 0,
+          score_summary: b.score_summary ?? null,
+          confianza_media: b.confianza_media ?? null,
+          has_analysis: !!b.has_analysis,
+          ventanas_fachada_total: b.ventanas_fachada_total ?? null,
+          ventanas_patios_total: b.ventanas_patios_total ?? null,
+          ventanas_total: ((b.ventanas_fachada_total ?? 0) + (b.ventanas_patios_total ?? 0)) || null,
+          cluster_asignado: b.cluster_asignado ?? null,
+          segundas_escaleras: b.segundas_escaleras ?? null,
+          plantas_levantables: b.plantas_levantables ?? null,
+          tiene_azotea_transitable: b.tiene_azotea_transitable ?? null,
+          esquina: b.esquina ?? null,
+          protegido_historicamente: b.protegido_historicamente ?? null,
+          edificio_reformado: b.edificio_reformado ?? null,
+          gestion_profesional: b.gestion_profesional ?? null,
+          prior_count: Number(b.prior_count ?? 0),
           has_nota_simple: metaNota === "sí" || metaNota === "si",
         };
       });
@@ -668,12 +453,9 @@ export default function ComercialEdificios() {
     retry: 1,
   });
 
-  const miasRows: Row[] = miaData?.rows ?? [];
   const todosRows: Row[] = todosData?.rows ?? [];
-  // Solo caemos a "mias" cuando NO hay error del catálogo. Si el catálogo
-  // falló, mostramos un aviso claro y NO ocultamos el problema tras los 77.
-  const rows: Row[] = todosRows.length > 0 ? todosRows : (todosError ? [] : miasRows);
-  const isLoading = loadingMia || loadingTodos;
+  const rows: Row[] = todosRows;
+  const isLoading = loadingTodos;
 
   // Si la URL trae ?filter=cartera_demo aplicamos solo demo y forzamos sort score desc
   const carteraDemoOnly = urlFilter === "cartera_demo";

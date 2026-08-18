@@ -27,7 +27,7 @@ import {
 function usePanelMes() {
   const { from, to } = periodRange("mes");
   return useQuery({
-    queryKey: ["gestor-productividad", from.toISOString(), to.toISOString()],
+    queryKey: ["gestor-panel", from.toISOString(), to.toISOString()],
     queryFn: async (): Promise<PanelData> => {
       const { data, error } = await (supabase.rpc as any)("get_sales_manager_panel", {
         p_from: from.toISOString(),
@@ -36,6 +36,8 @@ function usePanelMes() {
       if (error) throw new Error(error.message);
       return (data ?? { from: "", to: "", generated_at: "", activas: [], realizadas: [] }) as PanelData;
     },
+    staleTime: 60_000,
+    refetchOnMount: false,
     retry: 1,
   });
 }

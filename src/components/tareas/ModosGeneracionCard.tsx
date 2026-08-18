@@ -23,6 +23,7 @@ type Fila = { mode: ModoCodigo; etiqueta: string | null; mix: Record<string, num
 export function useModosGeneracion() {
   return useQuery({
     queryKey: ["modos-generacion"],
+    staleTime: 5 * 60_000,
     queryFn: async (): Promise<Fila[]> => {
       const { data, error } = await supabase
         .from("work_modes")
