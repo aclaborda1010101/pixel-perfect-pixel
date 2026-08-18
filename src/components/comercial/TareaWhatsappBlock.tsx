@@ -4,6 +4,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, MessageCircle, PhoneCall, Search, TriangleAlert } from "lucide-react";
@@ -24,6 +33,16 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
   const [guardando, setGuardando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [cerrando, setCerrando] = useState(false);
+  const [preparando, setPreparando] = useState(false);
+  const [vista, setVista] = useState<null | {
+    textoOriginal: string;
+    modo: string;
+    telefonoDestino: string | null;
+    telefonoPropietario: string | null;
+    modoPrueba: boolean;
+    numeroPrueba: string | null;
+  }>(null);
+  const [texto, setTexto] = useState("");
 
   const ownerId = parseGeneratedTaskKey(task?.task_key)?.subjectId ?? null;
   const abierta = task?.status === "pending" || task?.status === "in_progress";
@@ -100,15 +119,46 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
     }
   };
 
-  const enviar = async () => {
-    setEnviando(true);
+  /** Paso 1: monta el mensaje real y abre la ventana de confirmación. */
+  const abrirVistaPrevia = async () => {
+    if (!autorizado) {
+      toast.error("Falta la autorización del propietario");
+      return;
+    }
+    setPreparando(true);
     try {
       const { data, error } = await supabase.functions.invoke("wa_send_task_message", {
-        body: { task_id: task.id, owner_id: ownerId },
+        body: { task_id: task.id, owner_id: ownerId, accion: "preview" },
       });
       if (error) throw error;
       const res = data as any;
       if (res?.ok === false) throw new Error(res.error);
+      setTexto(String(res?.texto ?? ""));
+      setVista({
+        textoOriginal: String(res?.texto ?? ""),
+        modo: String(res?.modo ?? "simulado"),
+        telefonoDestino: res?.telefono_destino ?? null,
+        telefonoPropietario: res?.telefono_propietario ?? null,
+        modoPrueba: !!res?.modo_prueba,
+        numeroPrueba: res?.numero_prueba ?? null,
+      });
+    } catch (e: any) {
+      toast.error(e?.message ?? "No se pudo preparar el mensaje");
+    } finally {
+      setPreparando(false);
+    }
+  };
+
+  const enviar = async () => {
+    setEnviando(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("wa_send_task_message", {
+        body: { task_id: task.id, owner_id: ownerId, texto },
+      });
+      if (error) throw error;
+      const res = data as any;
+      if (res?.ok === false) throw new Error(res.error);
+      setVista(null);
       toast.success(
         res?.modo === "real"
           ? "WhatsApp enviado"
@@ -116,7 +166,13 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
             ? "Enviado al número de prueba"
             : "Registrado como prueba (sin envío real)",
       );
-      const done = await resolveBuildingTask(task.id, "completed", "WhatsApp enviado desde la tarjeta");
+      const done = await resolveBuildingTask(
+        task.id,
+        "completed",
+        res?.editado_a_mano
+          ? "WhatsApp enviado desde la tarjeta (texto modificado a mano)"
+          : "WhatsApp enviado desde la tarjeta",
+      );
       if (!done.ok) throw new Error(done.error ?? "No se pudo completar la tarea");
       await onCompleted();
     } catch (e: any) {
@@ -180,11 +236,11 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
               size="sm"
               variant="gold"
               className="h-7 px-2 text-[11px]"
-              disabled={!autorizado || enviando || !abierta || bloqueado}
-              onClick={enviar}
+              disabled={!autorizado || preparando || enviando || !abierta || bloqueado}
+              onClick={abrirVistaPrevia}
             >
-              {enviando ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
-              Enviar WhatsApp
+              {preparando ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
+              Revisar y enviar WhatsApp
             </Button>
             {bloqueado ? (
               <>
@@ -205,6 +261,67 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
             )}
             {autorizado && <Badge variant="outline" className="text-[9px]">Autorizado</Badge>}
           </div>
+
+          <Dialog open={!!vista} onOpenChange={(o) => { if (!o && !enviando) setVista(null); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Revisa el mensaje antes de enviarlo</DialogTitle>
+                <DialogDescription>
+                  Esto es exactamente lo que recibirá la persona. Puedes cambiarlo antes de enviar.
+                </DialogDescription>
+              </DialogHeader>
+
+              {vista?.modoPrueba && (
+                <div className="flex items-start gap-2 rounded-[3px] bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-500">
+                  <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    Modo prueba activo: este mensaje NO le llegará al propietario
+                    {vista?.numeroPrueba ? `; se enviará al número de prueba ${vista.numeroPrueba}` : "; solo quedará registrado"}.
+                  </span>
+                </div>
+              )}
+
+              <div className="text-xs text-muted-foreground">
+                Para: <span className="text-foreground">{owner?.nombre_display ?? owner?.nombre ?? "propietario"}</span>
+                {" · "}
+                Teléfono de destino:{" "}
+                <span className="text-foreground">
+                  {vista?.telefonoDestino ?? "ninguno (queda solo registrado)"}
+                </span>
+                {vista?.modoPrueba && vista?.telefonoPropietario && (
+                  <> · teléfono del propietario: {vista.telefonoPropietario} (no se usa)</>
+                )}
+              </div>
+
+              <Textarea
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+                rows={7}
+                className="text-xs"
+                aria-label="Mensaje que se va a enviar"
+              />
+              {vista && texto.trim() !== vista.textoOriginal.trim() && (
+                <div className="text-[11px] text-amber-500">
+                  Texto modificado a mano: se enviará tal cual y quedará registrado como modificado.
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" size="sm" disabled={enviando} onClick={() => setVista(null)}>
+                  Cancelar
+                </Button>
+                <Button
+                  variant="gold"
+                  size="sm"
+                  disabled={enviando || texto.trim() === ""}
+                  onClick={enviar}
+                >
+                  {enviando ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
+                  Enviar WhatsApp
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </>
       ) : (
         <div className="space-y-2">
