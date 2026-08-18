@@ -284,7 +284,8 @@ function extraerPorProsa(seccion: string, base: number): ExtraccionNota {
     // 100,00%"): se mira hacia atrás sólo hasta la mención anterior.
     const atras = seccion.slice(Math.max(prevIdx, a - 90), a);
     const rol = rolDelHecho(hechoTramo) ?? rolDelHecho(atras);
-    const valor = valorDerecho(hechoTramo);
+    const valor = valorDerecho(hechoTramo)
+      ?? (RE_TOTALIDAD.test(hechoTramo) ? { porcentaje: 100, literal: "la totalidad de la finca", forma: "totalidad" as const } : null);
     if (!rol || !valor) continue; // porcentaje de un antecedente, no un derecho
     const id = nombreProsa(seccion.slice(i > 0 ? anclas[i - 1] : 0, a));
     const cita = hechoTramo.replace(/\s+/g, " ").trim().slice(0, 400);
