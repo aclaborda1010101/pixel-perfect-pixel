@@ -21,6 +21,7 @@ type Seco = {
   enviadas?: number;
   errores?: number;
   descartadas?: number;
+  avisos?: string[];
   muestras?: { tarea: string; propiedades: Record<string, string>; deal: string | null }[];
 };
 
@@ -187,6 +188,16 @@ export function HubspotEscrituraPanel() {
             <div className="font-medium text-foreground">
               Última pasada · {seco.procesadas ?? 0} filas · simuladas {seco.simuladas ?? 0} · enviadas {seco.enviadas ?? 0} · errores {seco.errores ?? 0}
             </div>
+            {(seco.avisos ?? []).length > 0 && (
+              <div className="space-y-1 rounded-md border border-warning/40 bg-warning/5 p-3">
+                <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                  <AlertTriangle className="h-4 w-4 text-warning" /> Tareas sin responsable en HubSpot
+                </div>
+                {(seco.avisos ?? []).map((a, i) => (
+                  <p key={i} className="text-xs text-muted-foreground">{a}</p>
+                ))}
+              </div>
+            )}
             {(seco.muestras ?? []).map((m, i) => (
               <pre key={i} className="overflow-x-auto rounded bg-surface-1 p-2 font-mono text-[11px] text-muted-foreground">
 {JSON.stringify(m, null, 2)}

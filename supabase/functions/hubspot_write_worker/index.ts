@@ -18,6 +18,7 @@ import {
   piezaDecisoria,
   codigoTipologia,
   etiquetaTipologiaPortal,
+  responsableHubspot,
   type OpcionesPortal,
   type AppTask,
 } from "../_shared/hubspotWrite/mapping.ts";
@@ -60,7 +61,24 @@ async function saveExternalId(sb: any, entityType: string, entityId: string, obj
 }
 
 /** Construye la carga real de una fila de la cola (sin enviarla). */
-async function construirCarga(sb: any, fila: any) {
+async function mapaResponsables(sb: any): Promise<Record<string, unknown>> {
+  const { data } = await sb.from("app_settings").select("value").eq("key", "hubspot_owner_map").maybeSingle();
+  const v = data?.value;
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+}
+
+/** Deja constancia visible de una tarea que sale sin responsable. */
+async function avisoSinResponsable(sb: any, email: string | null, tareaId: string) {
+  const clave = `hubspot_tarea_sin_responsable:${email ?? "sin_correo"}`;
+  await sb.from("integrity_alert_log").upsert({
+    issue_key: clave,
+    detalle: `La tarea ${tareaId} se ha enviado a HubSpot sin responsable: el comercial ${email ?? "(sin correo)"} no está en el mapa de responsables de HubSpot.`,
+    last_sent_at: new Date().toISOString(),
+    resolved_at: null,
+  }, { onConflict: "issue_key" });
+}
+
+async function construirCarga(sb: any, fila: any, mapa: Record<string, unknown> = {}) {
   if (fila.objeto === "contact") return await construirCargaContacto(sb, fila);
   if (fila.objeto !== "task") return { props: null as Record<string, string> | null, extra: {} as Record<string, unknown> };
   const { data: t } = await sb.from("building_tasks")
@@ -68,12 +86,14 @@ async function construirCarga(sb: any, fila: any) {
     .eq("id", fila.entidad_id).maybeSingle();
   if (!t) return { props: null, extra: { motivo: "tarea_inexistente" } };
 
-  // Responsable en HubSpot a partir del correo del comercial.
-  let ownerId: string | null = null;
+  // Responsable en HubSpot a partir del correo del comercial: primero el mapa
+  // canónico (ajuste de aplicación), luego los propietarios sincronizados.
   const { data: perfil } = await sb.from("profiles").select("email").eq("id", t.user_id).maybeSingle();
-  if (perfil?.email) {
+  const email = perfil?.email ? String(perfil.email).trim().toLowerCase() : null;
+  let ownerId = responsableHubspot(email, mapa);
+  if (!ownerId && email) {
     const { data: hsOwner } = await sb.from("hubspot_owners").select("hs_owner_id")
-      .ilike("email", perfil.email).maybeSingle();
+      .ilike("email", email).maybeSingle();
     ownerId = hsOwner?.hs_owner_id ? String(hsOwner.hs_owner_id) : null;
   }
   const props = propiedadesTareaHubspot(t as AppTask, { hubspotOwnerId: ownerId });
@@ -83,7 +103,7 @@ async function construirCarga(sb: any, fila: any) {
   const partes = String(t.task_key ?? "").split(":");
   const ownerUuid = partes.length >= 5 && /^[0-9a-f-]{36}$/i.test(partes[4]) ? partes[4] : null;
   const contactId = ownerUuid ? await externalId(sb, "owner", ownerUuid, "contact") : undefined;
-  return { props, extra: { dealId, contactId, taskId: t.id } };
+  return { props, extra: { dealId, contactId, taskId: t.id, sinResponsable: !ownerId, email } };
 }
 
 /** Campos comerciales del propietario → propiedades del contacto. */
@@ -175,12 +195,22 @@ async function construirCargaContacto(sb: any, fila: any) {
 async function drain(sb: any, activo: (objeto: string) => boolean, limite: number) {
   const { data: filas } = await sb.from("hubspot_write_queue")
     .select("*").in("estado", ["pendiente", "error"]).order("created_at").limit(limite);
-  const resultado = { procesadas: 0, simuladas: 0, enviadas: 0, errores: 0, descartadas: 0, muestras: [] as unknown[] };
+  const resultado = {
+    procesadas: 0, simuladas: 0, enviadas: 0, errores: 0, descartadas: 0,
+    muestras: [] as unknown[], avisos: [] as string[],
+  };
+  const mapa = await mapaResponsables(sb);
 
   for (const fila of filas ?? []) {
     resultado.procesadas++;
     try {
-      const { props, extra } = await construirCarga(sb, fila);
+      const { props, extra } = await construirCarga(sb, fila, mapa);
+      if ((extra as any).sinResponsable) {
+        const email = (extra as any).email ?? null;
+        const aviso = `Tarea ${fila.entidad_id} sin responsable en HubSpot: el comercial ${email ?? "(sin correo)"} no está en el mapa de responsables.`;
+        if (!resultado.avisos.includes(aviso)) resultado.avisos.push(aviso);
+        await avisoSinResponsable(sb, email, String(fila.entidad_id));
+      }
       const decision = decidirEnvio({ activado: activo(String(fila.objeto)), payload: props });
 
       if (decision.accion === "descartar") {
