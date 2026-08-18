@@ -37,14 +37,18 @@ function usePanel(period: PeriodKey) {
       if (error) throw new Error(error.message);
       return (data ?? { from: "", to: "", generated_at: "", activas: [], realizadas: [] }) as PanelData;
     },
+    staleTime: 60_000,
+    refetchOnMount: false,
     retry: 1,
   });
 }
 
 /** Red de seguridad: tareas abiertas cuya llamada ya está registrada. */
-function useTareasSinCerrar() {
+function useTareasSinCerrar(enabled: boolean) {
   return useQuery({
     queryKey: ["tareas-llamada-sin-cerrar"],
+    enabled,
+    staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await (supabase.rpc as any)("tareas_llamada_sin_cerrar");
       if (error) throw new Error(error.message);
@@ -112,7 +116,9 @@ export default function GestorComerciales() {
     return agruparPorSemana(rows);
   }, [grupos, comercial]);
   const { total: correcciones } = useCorreccionesPendientes();
-  const sinCerrar = useTareasSinCerrar();
+  // Los avisos secundarios esperan a que las tareas del equipo ya estén
+  // visibles, evitando competir por la primera respuesta del panel.
+  const sinCerrar = useTareasSinCerrar(q.isSuccess);
   const error = q.error as Error | null;
 
   return (
@@ -254,8 +260,8 @@ export default function GestorComerciales() {
         </>
       )}
 
-      <ModosGeneracionCard />
-      <HorarioLaboralCard puedeEditar={canManageComerciales} />
+      {q.isSuccess && <ModosGeneracionCard />}
+      {q.isSuccess && <HorarioLaboralCard puedeEditar={canManageComerciales} />}
         </TabsContent>
 
         <TabsContent value="historico" className="space-y-4">
