@@ -89,7 +89,8 @@ function nombreAlFinal(zona: string): string | null {
   for (let i = tokens.length - 1; i >= 0 && partes.length < 10; i--) {
     const t = tokens[i].replace(/^[^A-ZÁÉÍÓÚÜÑ0-9]+/, "").replace(/[.;:]+$/, "");
     if (!t) continue;
-    if (/^[\d.,/º-]+$/.test(t)) {
+    // Ruido de columnas: cifras y documentos registrales cortos ("784105N").
+    if (/\d/.test(t) && !/[A-ZÁÉÍÓÚÜÑ]{2}/.test(t)) {
       if (partes.length) break;
       continue;
     }
@@ -174,6 +175,9 @@ function extraerPorParticipacion(seccion: string, base: number): ExtraccionNota 
 }
 
 /** Morfología B: tabla con registros separados por tiras de guiones. */
+// Ancla de fila: valor (porcentaje o fracción) seguido del literal del derecho.
+const RE_ANCLA_TABLA = /(?:\d{1,3}(?:\.\d{3})*(?:,\d+)?\s*%|\b\d{1,4}\s*\/\s*\d{1,4}\b)[^%]{0,120}?(?:pleno\s+dominio|nuda\s+propiedad|usufructo)/gi;
+
 function extraerPorTabla(seccion: string, base: number): ExtraccionNota {
   const hechos: HechoRegistral[] = [];
   const descartes: ExtraccionNota["descartes"] = [];
@@ -189,6 +193,24 @@ function extraerPorTabla(seccion: string, base: number): ExtraccionNota {
   for (const [a, b] of cortes) {
     const registro = seccion.slice(a, b);
     if (!/[A-ZÁÉÍÓÚÜÑ]{3}/.test(registro)) continue;
+    // Cuando el PDF llega sin saltos de línea, todas las filas de la tabla
+    // caen en un único registro: se segmenta por cada mención de derecho.
+    const anclas: number[] = [];
+    RE_ANCLA_TABLA.lastIndex = 0;
+    let ma: RegExpExecArray | null;
+    while ((ma = RE_ANCLA_TABLA.exec(registro))) anclas.push(ma.index);
+    if (anclas.length > 1) {
+      for (let i = 0; i < anclas.length; i++) {
+        const ini = anclas[i];
+        const fin = i + 1 < anclas.length ? anclas[i + 1] : registro.length;
+        const hechoTramo = corteHecho(registro.slice(ini, fin));
+        const idTramo = registro.slice(i > 0 ? anclas[i - 1] : 0, ini);
+        const r = construirHecho(idTramo, hechoTramo, base + a + ini);
+        if (r.hecho) hechos.push(r.hecho);
+        else descartes.push({ offset: base + a + ini, motivo: r.motivo!, cita: hechoTramo.replace(/\s+/g, " ").slice(0, 200) });
+      }
+      continue;
+    }
     // Cabecera: nombre + documento + tomo/libro/folio/alta; el derecho va después.
     const mm = /(?:\d{1,5}\s+){2,4}(?=[A-Za-zÁÉÍÓÚÜÑ])/.exec(registro);
     const sep = mm ? mm.index + mm[0].length : 0;
@@ -204,7 +226,10 @@ function extraerPorTabla(seccion: string, base: number): ExtraccionNota {
   return { morfologia: "tabla", hechos, descartes };
 }
 
-const RE_ANCLA_PROSA = /(?:\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:\.\d+)?)\s*%|\b\d{1,4}\s*\/\s*\d{1,4}\b|(?:pleno\s+dominio|nuda\s+propiedad|usufructo)\s+de\s+(?:una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|la|las)\s+(?:[a-zá-úé]+\s+){0,2}?(?:part|mitad|terc|cuart|quint|sext|s[eé]ptim|octav|noven|d[eé]cim|onceav|doceav|catorceav|quinceav|veinteav|treintav)/gi;
+const RE_ANCLA_PROSA = /(?:\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:\.\d+)?)\s*%|\b\d{1,4}\s*\/\s*\d{1,4}\b|(?:pleno\s+dominio|nuda\s+propiedad|usufructo)\s+de\s+(?:una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|la|las)\s+(?:[a-zá-úé]+\s+){0,2}?(?:part|mitad|terc|cuart|quint|sext|s[eé]ptim|octav|noven|d[eé]cim|onceav|doceav|catorceav|quinceav|veinteav|treintav)|(?:pleno\s+dominio|nuda\s+propiedad|usufructo)\s+(?:de|sobre)\s+(?:la\s+totalidad\s+de\s+)?(?:esta|la\s+presente|la)\s+finca\b/gi;
+
+/** Derecho declarado sobre la totalidad de la finca: participación = 100%. */
+const RE_TOTALIDAD = /(?:pleno\s+dominio|nuda\s+propiedad|usufructo)\s+(?:de|sobre)\s+(?:la\s+totalidad\s+de\s+)?(?:esta|la\s+presente|la)\s+finca\b/i;
 const RE_CIERRE_PROSA = /(Formalizada|seg[úu]n\s+resulta|por\s+t[íi]tulo|inscrita|Inscripci[óo]n)/;
 const RE_LABEL_DOC = /\b(N\.?\s?I\.?\s?F\.?|D\.?\s?N\.?\s?I\.?|C\.?\s?I\.?\s?F\.?|NIE)\b\s*:?/gi;
 
@@ -259,7 +284,8 @@ function extraerPorProsa(seccion: string, base: number): ExtraccionNota {
     // 100,00%"): se mira hacia atrás sólo hasta la mención anterior.
     const atras = seccion.slice(Math.max(prevIdx, a - 90), a);
     const rol = rolDelHecho(hechoTramo) ?? rolDelHecho(atras);
-    const valor = valorDerecho(hechoTramo);
+    const valor = valorDerecho(hechoTramo)
+      ?? (RE_TOTALIDAD.test(hechoTramo) ? { porcentaje: 100, literal: "la totalidad de la finca", forma: "totalidad" as const } : null);
     if (!rol || !valor) continue; // porcentaje de un antecedente, no un derecho
     const id = nombreProsa(seccion.slice(i > 0 ? anclas[i - 1] : 0, a));
     const cita = hechoTramo.replace(/\s+/g, " ").trim().slice(0, 400);
@@ -280,7 +306,12 @@ function extraerPorProsa(seccion: string, base: number): ExtraccionNota {
   return { morfologia: "prosa", hechos, descartes };
 }
 
-const RE_CAMPO_NOMBRE = /Nombre\.{2,}\s*:/g;
+// "Nombre....:" (fichas con puntos) y "Nombre :" (mismo formato sin relleno).
+const RE_CAMPO_NOMBRE = /\bNombre\s*\.*\s*:/g;
+// Etiqueta siguiente de la ficha: corta el valor del campo anterior.
+const RE_SIG_ETIQUETA = /(?:N\.?I\.?F\.?|C\.?I\.?F\.?|T[íi]tulo|Naturaleza\s+del\s+Derecho|Car[áa]cter|Participaci[óo]n|Fecha\s+Escritura|Notario|Poblaci[óo]n|Protocolo|Inscripci[óo]n|Fecha\s+inscripci[óo]n|Tomo\/Libro\/Folio|Nombre)\s*\.*\s*:/i;
+// Participación declarada sobre el total ("la totalidad", "100 por ciento").
+const RE_TOTALIDAD_CAMPO = /\b(?:la\s+)?totalidad\b|\btotal\b|\b100\s*(?:por\s*(?:ciento|cien)|%)/i;
 
 /** Morfología D: fichas de campos con puntos ("Nombre....: X"). */
 function extraerPorCampos(seccion: string, base: number): ExtraccionNota {
@@ -294,12 +325,23 @@ function extraerPorCampos(seccion: string, base: number): ExtraccionNota {
     const a = inicios[i];
     const bloque = seccion.slice(a, i + 1 < inicios.length ? inicios[i + 1] : seccion.length);
     const campo = (etq: string) => {
-      const r = new RegExp(etq + "[.\\s]*:\\s*([^\\n]*?)(?=\\s{2,}|[A-Za-zÁÉÍÓÚÜÑ ]{3,30}\\.{2,}\\s*:|$)", "i").exec(bloque);
-      return r ? r[1].trim() : "";
+      const r = new RegExp(etq + "\\s*\\.*\\s*:\\s*", "i").exec(bloque);
+      if (!r) return "";
+      const resto = bloque.slice(r.index + r[0].length);
+      const sig = RE_SIG_ETIQUETA.exec(resto);
+      const corte = sig ? sig.index : resto.length;
+      return resto.slice(0, Math.min(corte, 300)).replace(/\s+/g, " ").trim();
     };
     const nombreBruto = campo("Nombre");
-    const rol = rolDelHecho(campo("Naturaleza\\s+del\\s+Derecho") || bloque);
-    const valor = valorDerecho(campo("Participaci[óo]n"));
+    const nat = campo("Naturaleza\\s+del\\s+Derecho");
+    const part = campo("Participaci[óo]n");
+    // El literal del derecho puede venir en la participación ("una octava parte
+    // indivisa en pleno dominio") o en la naturaleza; "Propiedad" es pleno.
+    const rol = rolDelHecho(part)
+      ?? rolDelHecho(nat)
+      ?? (/\bpropiedad\b/i.test(nat) ? { rol: "pleno" as RolRegistral, literal: "pleno dominio" } : rolDelHecho(bloque));
+    const valor = valorDerecho(part)
+      ?? (part && RE_TOTALIDAD_CAMPO.test(part) ? { porcentaje: 100, literal: part, forma: "totalidad" as const } : null);
     const cita = bloque.replace(/\s+/g, " ").trim().slice(0, 400);
     if (!rol || !valor) { descartes.push({ offset: base + a, motivo: !rol ? "rol_no_declarado" : "participacion_no_localizada", cita: cita.slice(0, 200) }); continue; }
     const id = nombreProsa(nombreBruto + " " + campo("N\\.?I\\.?F\\.?"));
@@ -323,7 +365,8 @@ export function extraerHechosNota(raw: string): ExtraccionNota {
   RE_PARTICIPACION.lastIndex = 0;
   const conParticipacion = (seccion.match(RE_PARTICIPACION) ?? []).length;
   if (conParticipacion > 0) return extraerPorParticipacion(seccion, v.inicio);
-  if (/Nombre\.{2,}\s*:/.test(seccion)) return extraerPorCampos(seccion, v.inicio);
+  RE_CAMPO_NOMBRE.lastIndex = 0;
+  if (RE_CAMPO_NOMBRE.test(seccion) && /Participaci[óo]n\s*\.*\s*:/i.test(seccion)) return extraerPorCampos(seccion, v.inicio);
   if (/-{6,}/.test(seccion)) return extraerPorTabla(seccion, v.inicio);
   return extraerPorProsa(seccion, v.inicio);
 }
