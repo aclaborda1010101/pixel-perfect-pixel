@@ -511,7 +511,10 @@ describe("inicio, reapertura y cierre", () => {
       "src/components/comercial/BuildingTasksSection.tsx",
     ]) {
       const src = readFileSync(f, "utf8");
-      expect(src).toContain("reopenBuildingTask");
+      // La reapertura vive en el botón compartido; la pantalla lo usa o el RPC directo.
+      expect(
+        src.includes("reopenBuildingTask") || src.includes("MarcarTerminadaButton"),
+      ).toBe(true);
       expect(src).not.toMatch(/from\("building_tasks"\)\s*\.update/);
     }
   });

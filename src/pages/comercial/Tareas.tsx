@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -24,9 +23,7 @@ import {
 } from "@/lib/operationalTasks";
 import { sortByDueThenPriority, isTaskOpen } from "@/lib/taskSchedule";
 import { operationalTaskBadge } from "@/lib/operationalTasks";
-import { startBuildingTask, canStartTask, reopenBuildingTask,
-  resolveBuildingTask,
-} from "@/lib/taskStart";
+import { startBuildingTask, canStartTask } from "@/lib/taskStart";
 import { toast } from "sonner";
 import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/TaskScheduleMeta";
 import { cn } from "@/lib/utils";
@@ -34,6 +31,7 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { TareaWhatsappBlock, PrepararLlamadaButton } from "@/components/comercial/TareaWhatsappBlock";
 import { TareaInvestigacionBlock } from "@/components/comercial/TareaInvestigacionBlock";
 import { TareaTarjetaTexto } from "@/components/comercial/TareaTarjetaTexto";
+import { MarcarTerminadaButton } from "@/components/comercial/MarcarTerminadaButton";
 import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
 import { useInterlocutores } from "@/hooks/useInterlocutores";
 
@@ -169,27 +167,10 @@ export default function ComercialTareas() {
     }
   };
 
-  const toggle = async (id: string, completed: boolean) => {
-    if (completed) {
-      // Cierre ÚNICO vía RPC transaccional (estado + reposición).
-      const done = await resolveBuildingTask(id, "completed");
-      if (!done.ok) {
-        toast.error(done.error ?? "No se pudo completar la tarea");
-        return;
-      }
-      qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
-      // Al completar, se genera y se muestra la siguiente tarea sin recargar.
-      await generarSiguiente(true);
-      return;
-    } else {
-      // Reapertura ÚNICA vía RPC: valida estado, propiedad y limpia el ciclo.
-      const res = await reopenBuildingTask(id);
-      if (!res.ok) {
-        toast.error(res.error ?? "No se pudo reabrir la tarea");
-        return;
-      }
-    }
-    qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+  /** Tras cerrar o reabrir a mano: refresca y encadena la siguiente tarea. */
+  const trasCierreManual = async (eraCierre: boolean) => {
+    await qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+    if (eraCierre) await generarSiguiente(true);
   };
 
   return (
@@ -315,11 +296,6 @@ export default function ComercialTareas() {
                     return (
                       <li key={t.id} className={cn("px-5 py-3", isCompleted && "opacity-60")}>
                         <div className="flex items-start gap-3">
-                          <Checkbox
-                            checked={isCompleted}
-                            onCheckedChange={(c) => toggle(t.id, !!c)}
-                            className="mt-1"
-                          />
                           <div className="rounded-md bg-surface-1 p-2 text-gold">
                             <Icon className="h-4 w-4" />
                           </div>
@@ -358,6 +334,11 @@ export default function ComercialTareas() {
                                 Empezar
                               </Button>
                             )}
+                            <MarcarTerminadaButton
+                              task={t}
+                              className="mt-2"
+                              onDone={() => trasCierreManual(!isCompleted)}
+                            />
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <TaskTemporalBadge task={t} />

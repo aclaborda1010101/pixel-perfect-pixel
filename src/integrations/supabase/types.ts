@@ -3062,6 +3062,8 @@ export type Database = {
         Row: {
           building_id: string
           completed_at: string | null
+          completed_by: string | null
+          completed_note: string | null
           created_at: string
           description: string | null
           due_date: string | null
@@ -3080,6 +3082,8 @@ export type Database = {
         Insert: {
           building_id: string
           completed_at?: string | null
+          completed_by?: string | null
+          completed_note?: string | null
           created_at?: string
           description?: string | null
           due_date?: string | null
@@ -3098,6 +3102,8 @@ export type Database = {
         Update: {
           building_id?: string
           completed_at?: string | null
+          completed_by?: string | null
+          completed_note?: string | null
           created_at?: string
           description?: string | null
           due_date?: string | null
@@ -3603,6 +3609,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "calls"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_sessions_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "v_tareas_llamada_sin_cerrar"
+            referencedColumns: ["call_id"]
           },
           {
             foreignKeyName: "call_sessions_owner_id_fkey"
@@ -10786,6 +10799,78 @@ export type Database = {
         }
         Relationships: []
       }
+      v_tareas_llamada_sin_cerrar: {
+        Row: {
+          building_id: string | null
+          call_fecha: string | null
+          call_id: string | null
+          created_at: string | null
+          due_date: string | null
+          owner_id: string | null
+          task_id: string | null
+          task_type: string | null
+          title: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
       v_titularidad_registral: {
         Row: {
           building_id: string | null
@@ -11462,6 +11547,21 @@ export type Database = {
       start_building_task: { Args: { p_task_id: string }; Returns: Json }
       strip_html_to_text: { Args: { _in: string }; Returns: string }
       sync_links_from_deals: { Args: never; Returns: Json }
+      tareas_llamada_sin_cerrar: {
+        Args: never
+        Returns: {
+          building_id: string
+          call_fecha: string
+          call_id: string
+          created_at: string
+          due_date: string
+          owner_id: string
+          task_id: string
+          task_type: string
+          title: string
+          user_id: string
+        }[]
+      }
       try_acquire_job_lock: {
         Args: { p_holder?: string; p_job_name: string; p_ttl_seconds?: number }
         Returns: boolean

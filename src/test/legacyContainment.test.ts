@@ -194,7 +194,15 @@ describe("guarda de arquitectura · escritores de building_tasks", () => {
     expect(violations).toHaveLength(2);
     expect(violations.map((v) => v.reason).join(" ")).toContain("DML directa");
     // Y las pantallas reales cierran vía RPC.
-    expect(sources["src/pages/comercial/Tareas.tsx"]).toContain("resolveBuildingTask(");
+    expect(
+      sources["src/pages/comercial/Tareas.tsx"].includes("resolveBuildingTask(") ||
+        sources["src/pages/comercial/Tareas.tsx"].includes("MarcarTerminadaButton"),
+    ).toBe(true);
+    // El botón compartido es el único que cierra/reabre, siempre vía RPC.
+    const boton = readFileSync("src/components/comercial/MarcarTerminadaButton.tsx", "utf8");
+    expect(boton).toContain("resolveBuildingTask(");
+    expect(boton).toContain("reopenBuildingTask(");
+    expect(boton).not.toMatch(/from\("building_tasks"\)/);
     expect(sources["src/pages/comercial/Tareas.tsx"]).not.toContain(".update({");
   });
 
