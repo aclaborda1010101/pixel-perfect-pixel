@@ -236,6 +236,30 @@ export type Database = {
         }
         Relationships: []
       }
+      _altas_norm: {
+        Row: {
+          building_id: string | null
+          es_empresa: boolean | null
+          nombre_extraido: string | null
+          nombre_limpio: string | null
+          titular_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          es_empresa?: boolean | null
+          nombre_extraido?: string | null
+          nombre_limpio?: string | null
+          titular_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          es_empresa?: boolean | null
+          nombre_extraido?: string | null
+          nombre_limpio?: string | null
+          titular_id?: string | null
+        }
+        Relationships: []
+      }
       _audit_sin_exp: {
         Row: {
           hs_id: string | null
@@ -401,6 +425,36 @@ export type Database = {
         }
         Relationships: []
       }
+      _lote_ed: {
+        Row: {
+          edificio: string | null
+        }
+        Insert: {
+          edificio?: string | null
+        }
+        Update: {
+          edificio?: string | null
+        }
+        Relationships: []
+      }
+      _lote_excl: {
+        Row: {
+          edificio: string | null
+          motivo: string | null
+          titular: string | null
+        }
+        Insert: {
+          edificio?: string | null
+          motivo?: string | null
+          titular?: string | null
+        }
+        Update: {
+          edificio?: string | null
+          motivo?: string | null
+          titular?: string | null
+        }
+        Relationships: []
+      }
       _match_20260813: {
         Row: {
           id: string | null
@@ -524,6 +578,39 @@ export type Database = {
           flag_antes?: boolean | null
           id?: string | null
           score_antes?: number | null
+        }
+        Relationships: []
+      }
+      _plan_altas: {
+        Row: {
+          building_id: string | null
+          edificio: string | null
+          es_empresa: boolean | null
+          excluido: boolean | null
+          nombre_extraido: string | null
+          porcentaje: number | null
+          rol: string | null
+          titular_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          edificio?: string | null
+          es_empresa?: boolean | null
+          excluido?: boolean | null
+          nombre_extraido?: string | null
+          porcentaje?: number | null
+          rol?: string | null
+          titular_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          edificio?: string | null
+          es_empresa?: boolean | null
+          excluido?: boolean | null
+          nombre_extraido?: string | null
+          porcentaje?: number | null
+          rol?: string | null
+          titular_id?: string | null
         }
         Relationships: []
       }
@@ -1490,6 +1577,48 @@ export type Database = {
         Update: {
           id?: string | null
           status?: string | null
+        }
+        Relationships: []
+      }
+      backup_20260815_buildings_estado: {
+        Row: {
+          id: string | null
+          porcentajes_estado: string | null
+          porcentajes_verificado_at: string | null
+        }
+        Insert: {
+          id?: string | null
+          porcentajes_estado?: string | null
+          porcentajes_verificado_at?: string | null
+        }
+        Update: {
+          id?: string | null
+          porcentajes_estado?: string | null
+          porcentajes_verificado_at?: string | null
+        }
+        Relationships: []
+      }
+      backup_20260815_pre_altas: {
+        Row: {
+          company_id: string | null
+          id: string | null
+          nombre_extraido: string | null
+          nota_simple_id: string | null
+          owner_id: string | null
+        }
+        Insert: {
+          company_id?: string | null
+          id?: string | null
+          nombre_extraido?: string | null
+          nota_simple_id?: string | null
+          owner_id?: string | null
+        }
+        Update: {
+          company_id?: string | null
+          id?: string | null
+          nombre_extraido?: string | null
+          nota_simple_id?: string | null
+          owner_id?: string | null
         }
         Relationships: []
       }
