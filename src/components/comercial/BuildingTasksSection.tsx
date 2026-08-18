@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Eyebrow } from "@/components/common/Eyebrow";
@@ -79,24 +78,10 @@ export function BuildingTasksSection({
     },
   });
 
-  const toggleMutation = useMutation({
-    mutationFn: async ({ id, completed }: { id: string; completed: boolean }) => {
-      if (completed) {
-        // Cierre ÚNICO vía RPC transaccional (estado + reposición).
-        const done = await resolveBuildingTask(id, "completed");
-        if (!done.ok) throw new Error(done.error ?? "No se pudo completar la tarea");
-        return;
-      }
-      // Reapertura ÚNICA vía RPC (nunca UPDATE directo).
-      const res = await reopenBuildingTask(id);
-      if (!res.ok) throw new Error(res.error ?? "No se pudo reabrir la tarea");
-    },
-    onError: (e: Error) => toast({ title: "No se pudo reabrir", description: e.message }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["building_tasks", buildingId, userId] });
-      qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
-    },
-  });
+  const refrescar = () => {
+    qc.invalidateQueries({ queryKey: ["building_tasks", buildingId, userId] });
+    qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+  };
 
   const startMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -169,7 +154,7 @@ export function BuildingTasksSection({
               <TaskRow
                 key={t.id}
                 task={t}
-                onToggle={(c) => toggleMutation.mutate({ id: t.id, completed: c })}
+                onRefresh={refrescar}
                 onStart={() => startMutation.mutate(t.id)}
                 onDelete={t.task_type === "manual" ? () => deleteMutation.mutate(t.id) : undefined}
               />
@@ -197,7 +182,7 @@ export function BuildingTasksSection({
                   <TaskRow
                     key={t.id}
                     task={t}
-                    onToggle={(c) => toggleMutation.mutate({ id: t.id, completed: c })}
+                    onRefresh={refrescar}
                     onDelete={
                       t.task_type === "manual" ? () => deleteMutation.mutate(t.id) : undefined
                     }
@@ -214,12 +199,12 @@ export function BuildingTasksSection({
 
 function TaskRow({
   task,
-  onToggle,
+  onRefresh,
   onStart,
   onDelete,
 }: {
   task: any;
-  onToggle: (completed: boolean) => void;
+  onRefresh: () => void;
   onStart?: () => void;
   onDelete?: () => void;
 }) {
@@ -264,7 +249,7 @@ function TaskRow({
           <MarcarTerminadaButton
             task={task}
             className="mt-2"
-            onDone={() => onToggle(!isCompleted)}
+            onDone={onRefresh}
           />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
