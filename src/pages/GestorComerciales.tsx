@@ -12,6 +12,7 @@ import { ModosGeneracionCard } from "@/components/tareas/ModosGeneracionCard";
 import { PERIODS, periodRange, type PeriodKey } from "@/lib/salesManagerMetrics";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HorarioLaboralCard } from "@/components/gestor/HorarioLaboralCard";
+import { ProductividadTab } from "@/components/gestor/ProductividadTab";
 import { useHorarioLaboral } from "@/hooks/useHorarioLaboral";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import {
@@ -122,6 +123,7 @@ export default function GestorComerciales() {
         <TabsList>
           <TabsTrigger value="equipo">Equipo</TabsTrigger>
           <TabsTrigger value="historico">Histórico</TabsTrigger>
+          <TabsTrigger value="productividad">Productividad</TabsTrigger>
         </TabsList>
         <TabsContent value="equipo" className="space-y-6">
 
