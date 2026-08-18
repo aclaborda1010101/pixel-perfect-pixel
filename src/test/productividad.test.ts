@@ -140,7 +140,7 @@ describe("acabado de la maqueta", () => {
 
   it("no escribe nada: sin inserciones ni HubSpot", () => {
     expect(ui).not.toMatch(/\.from\(|\.insert\(|\.upsert\(|hubspot_/i);
-    expect(ui).toContain("no se envía a HubSpot");
+    expect(ui).toContain("ni se envía a HubSpot");
     expect(ui).toContain("get_sales_manager_panel");
   });
 });
