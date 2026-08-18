@@ -4,8 +4,7 @@
  * "en blanco" desde su punto de vista). Aquí se comprueba el camino completo.
  */
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, Link } from "react-router-dom";
 
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ session: { user: { id: "sm" } }, loading: false }) }));
@@ -32,7 +31,7 @@ describe("acceso al Orquestador desde el panel del responsable", () => {
         </Routes>
       </MemoryRouter>,
     );
-    await userEvent.click(screen.getByRole("link", { name: /Orquestador/ }));
+    fireEvent.click(screen.getByRole("link", { name: /Orquestador/ }));
     expect(await screen.findByRole("heading", { name: "Orquestador" })).toBeTruthy();
   });
 });
