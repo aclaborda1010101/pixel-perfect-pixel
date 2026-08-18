@@ -296,11 +296,6 @@ export default function ComercialTareas() {
                     return (
                       <li key={t.id} className={cn("px-5 py-3", isCompleted && "opacity-60")}>
                         <div className="flex items-start gap-3">
-                          <Checkbox
-                            checked={isCompleted}
-                            onCheckedChange={(c) => toggle(t.id, !!c)}
-                            className="mt-1"
-                          />
                           <div className="rounded-md bg-surface-1 p-2 text-gold">
                             <Icon className="h-4 w-4" />
                           </div>
@@ -339,6 +334,11 @@ export default function ComercialTareas() {
                                 Empezar
                               </Button>
                             )}
+                            <MarcarTerminadaButton
+                              task={t}
+                              className="mt-2"
+                              onDone={() => trasCierreManual(!isCompleted)}
+                            />
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <TaskTemporalBadge task={t} />
