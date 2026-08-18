@@ -89,7 +89,8 @@ function nombreAlFinal(zona: string): string | null {
   for (let i = tokens.length - 1; i >= 0 && partes.length < 10; i--) {
     const t = tokens[i].replace(/^[^A-ZÁÉÍÓÚÜÑ0-9]+/, "").replace(/[.;:]+$/, "");
     if (!t) continue;
-    if (/^[\d.,/º-]+$/.test(t)) {
+    // Ruido de columnas: cifras y documentos registrales cortos ("784105N").
+    if (/\d/.test(t) && !/[A-ZÁÉÍÓÚÜÑ]{2}/.test(t)) {
       if (partes.length) break;
       continue;
     }
