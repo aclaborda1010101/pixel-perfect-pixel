@@ -46,6 +46,7 @@ async function saveExternalId(sb: any, entityType: string, entityId: string, obj
 
 /** Construye la carga real de una fila de la cola (sin enviarla). */
 async function construirCarga(sb: any, fila: any) {
+  if (fila.objeto === "contact") return await construirCargaContacto(sb, fila);
   if (fila.objeto !== "task") return { props: null as Record<string, string> | null, extra: {} as Record<string, unknown> };
   const { data: t } = await sb.from("building_tasks")
     .select("id,building_id,user_id,task_type,task_key,title,description,objetivo,pasos_registro,status,priority,due_date,completed_at")
@@ -63,6 +64,51 @@ async function construirCarga(sb: any, fila: any) {
   const props = propiedadesTareaHubspot(t as AppTask, { hubspotOwnerId: ownerId });
   const dealId = t.building_id ? await externalId(sb, "building", t.building_id, "deal") : undefined;
   return { props, extra: { dealId, taskId: t.id } };
+}
+
+/** Campos comerciales del propietario → propiedades del contacto. */
+async function construirCargaContacto(sb: any, fila: any) {
+  const ownerId = String(fila.entidad_id);
+  const buildingId = (fila.payload ?? {}).building_id ?? null;
+  const { data: owner } = await sb.from("owners")
+    .select("id,nombre,consentimiento,subrole,rol").eq("id", ownerId).maybeSingle();
+  if (!owner) return { props: null, extra: { motivo: "propietario_inexistente" } };
+
+  let situacion: string | null = null;
+  let esInterlocutor = false;
+  if (buildingId) {
+    const { data: b } = await sb.from("buildings")
+      .select("estado,interlocutor_owner_id").eq("id", buildingId).maybeSingle();
+    situacion = b?.estado ?? null;
+    esInterlocutor = b?.interlocutor_owner_id === ownerId;
+  }
+  let participacion: number | null = null;
+  let influencer = false;
+  if (buildingId) {
+    const { data: bo } = await sb.from("building_owners")
+      .select("cuota,es_influencer").eq("building_id", buildingId).eq("owner_id", ownerId).maybeSingle();
+    participacion = bo?.cuota ?? null;
+    influencer = bo?.es_influencer === true;
+  }
+  const { data: ultima } = await sb.from("calls")
+    .select("fecha").eq("owner_id", ownerId).order("fecha", { ascending: false }).limit(1).maybeSingle();
+
+  const existentes = await propiedadesContacto();
+  const plan = planCamposContacto({
+    situacion_comercial: situacion,
+    interlocutor: esInterlocutor,
+    es_influencer: influencer,
+    participacion,
+    consentimiento_whatsapp: owner.consentimiento ?? null,
+    ultima_llamada: ultima?.fecha ?? null,
+    tipologia: owner.subrole ?? owner.rol ?? null,
+  }, existentes);
+
+  const contactId = await externalId(sb, "owner", ownerId, "contact");
+  return {
+    props: Object.keys(plan.escribibles).length > 0 ? plan.escribibles : null,
+    extra: { contactId, faltantes: plan.faltantes },
+  };
 }
 
 async function drain(sb: any, activado: boolean, limite: number) {
@@ -95,6 +141,19 @@ async function drain(sb: any, activado: boolean, limite: number) {
       }
 
       // ENVÍO REAL (sólo con el interruptor encendido).
+      if (fila.objeto === "contact") {
+        const contactId = (extra as any).contactId;
+        if (!contactId) throw new Error("el propietario no está enlazado a ningún contacto de HubSpot");
+        await hubspotFetch(`/crm/v3/objects/contacts/${contactId}`, {
+          method: "PATCH", body: JSON.stringify({ properties: props }),
+        });
+        resultado.enviadas++;
+        await sb.from("hubspot_write_queue").update({
+          estado: "enviado", hubspot_id: String(contactId), last_error: null,
+          processed_at: new Date().toISOString(),
+        }).eq("id", fila.id);
+        continue;
+      }
       const existente = await externalId(sb, "building_task", String(fila.entidad_id), "task");
       let hsId = existente;
       if (hsId) {
