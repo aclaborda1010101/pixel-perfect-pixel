@@ -107,6 +107,11 @@ export type CamposComercialesEntrada = {
   ultima_llamada?: string | null;
   proxima_accion?: string | null;
   tipologia?: string | null;
+  /** Campos del acuerdo con el cliente (nombres internos reales del portal). */
+  prioridad_originacion?: string | null;
+  pieza_decisoria?: string | null;
+  predisposicion?: string | null;
+  quien_bloquea?: string | null;
 };
 
 /** Nombre interno en HubSpot de cada campo comercial de la aplicación. */
@@ -119,7 +124,114 @@ export const MAPA_CAMPOS_CONTACTO: Record<keyof CamposComercialesEntrada, string
   ultima_llamada: "fecha_ultima_llamada",
   proxima_accion: "proxima_accion_comercial",
   tipologia: "tipologia_de_propietario",
+  prioridad_originacion: "prioridad_de_originacion",
+  pieza_decisoria: "pieza_decisoria",
+  predisposicion: "predisposicion_a_vender",
+  quien_bloquea: "quien_o_que_bloquea",
 };
+
+/* ------------- CAMPOS DEL ACUERDO: VALORES PERMITIDOS ------------- */
+
+/** Opciones válidas por campo, tal y como están escritas en el portal. */
+export type OpcionesPortal = Record<string, readonly string[]>;
+
+export type Prioridad = "Alta" | "Media" | "Baja" | "Investigación previa" | "Excluido";
+
+export type SenalesPrioridad = {
+  campanaJunio?: boolean | null;
+  participacionRelevante?: boolean | null;
+  sinTelefono?: boolean | null;
+  edificioDescartado?: boolean | null;
+  sinDerechoEnNota?: boolean | null;
+  contactable?: boolean | null;
+};
+
+/** Prioridad de originación a partir de las señales reales del propietario. */
+export function prioridadOriginacion(s: SenalesPrioridad): Prioridad {
+  if (s.edificioDescartado === true || s.sinDerechoEnNota === true) return "Excluido";
+  if (s.sinTelefono === true) return "Investigación previa";
+  if (s.campanaJunio === true || s.participacionRelevante === true) return "Alta";
+  return s.contactable === true ? "Media" : "Baja";
+}
+
+export type PiezaDecisoria = "Sí - confirmada" | "Propuesta por el sistema" | "No";
+
+/**
+ * Pieza decisoria: sólo se rellena cuando el edificio tiene interlocutor
+ * evaluado. Sin evaluar → vacío (nunca se inventa un "No").
+ */
+export function piezaDecisoria(i: {
+  hayInterlocutor?: boolean | null;
+  esInterlocutor?: boolean | null;
+  marcadoPorSistema?: boolean | null;
+}): PiezaDecisoria | null {
+  if (i.hayInterlocutor !== true) return null;
+  if (i.esInterlocutor !== true) return "No";
+  return i.marcadoPorSistema === true ? "Propuesta por el sistema" : "Sí - confirmada";
+}
+
+const PERSONA_A_CODIGO: Record<string, string> = {
+  cansado: "T1",
+  desplazado: "T2",
+  controla: "T3",
+  ego: "T4",
+  no_traspasa: "T5",
+  vive_edificio: "T6",
+  no_primero: "T7",
+};
+
+/**
+ * Código de tipología del propietario. T8 = influenciador, T10 = fallecido.
+ * Sin tipología fiable → null (nunca "T9" por defecto).
+ */
+export function codigoTipologia(i: {
+  buyerPersona?: string | null;
+  esInfluencer?: boolean | null;
+  fallecido?: boolean | null;
+}): string | null {
+  if (i.fallecido === true) return "T10";
+  const p = String(i.buyerPersona ?? "").trim().toLowerCase();
+  const code = PERSONA_A_CODIGO[p];
+  if (code) return code;
+  if (i.esInfluencer === true) return "T8";
+  return null;
+}
+
+/** Etiqueta larga exacta del portal para un código T{n} (o null si no existe). */
+export function etiquetaTipologiaPortal(
+  codigo: string | null | undefined,
+  opciones: readonly string[] | undefined,
+): string | null {
+  const c = String(codigo ?? "").trim().toUpperCase();
+  if (!c || !opciones) return null;
+  const re = new RegExp(`^${c}(?![0-9])`, "i");
+  return opciones.find((o) => re.test(String(o).trim())) ?? null;
+}
+
+export type FiltroOpciones = {
+  escribibles: Record<string, string>;
+  rechazados: { campo: string; valor: string }[];
+};
+
+/**
+ * Deja sólo los valores que existen como opción en el portal. Un campo sin
+ * lista de opciones (texto libre) pasa tal cual. Fail-closed: si el valor no
+ * encaja, el campo se queda vacío y se registra.
+ */
+export function filtrarPorOpciones(
+  props: Record<string, string>,
+  opciones: OpcionesPortal,
+): FiltroOpciones {
+  const escribibles: Record<string, string> = {};
+  const rechazados: { campo: string; valor: string }[] = [];
+  for (const [campo, valor] of Object.entries(props)) {
+    const permitidas = opciones[campo];
+    if (!permitidas || permitidas.length === 0) { escribibles[campo] = valor; continue; }
+    if (permitidas.some((o) => String(o) === valor)) escribibles[campo] = valor;
+    else rechazados.push({ campo, valor });
+  }
+  return { escribibles, rechazados };
+}
 
 function valorHubspot(v: unknown): string | null {
   if (v === null || v === undefined || v === "") return null;
@@ -133,6 +245,8 @@ export type PlanCamposContacto = {
   escribibles: Record<string, string>;
   /** Campos de la app que HubSpot no tiene: se reportan, no se inventan. */
   faltantes: string[];
+  /** Valores que no coinciden con ninguna opción del portal: no se escriben. */
+  rechazados: { campo: string; valor: string }[];
 };
 
 /**
@@ -142,17 +256,19 @@ export type PlanCamposContacto = {
 export function planCamposContacto(
   datos: CamposComercialesEntrada,
   propiedadesExistentes: readonly string[],
+  opciones: OpcionesPortal = {},
 ): PlanCamposContacto {
   const existentes = new Set(propiedadesExistentes.map((p) => String(p)));
-  const escribibles: Record<string, string> = {};
+  const candidatos: Record<string, string> = {};
   const faltantes: string[] = [];
   for (const [campo, nombreHs] of Object.entries(MAPA_CAMPOS_CONTACTO)) {
     const valor = valorHubspot((datos as Record<string, unknown>)[campo]);
     if (valor === null) continue;
-    if (existentes.has(nombreHs)) escribibles[nombreHs] = valor;
+    if (existentes.has(nombreHs)) candidatos[nombreHs] = valor;
     else if (!faltantes.includes(nombreHs)) faltantes.push(nombreHs);
   }
-  return { escribibles, faltantes };
+  const { escribibles, rechazados } = filtrarPorOpciones(candidatos, opciones);
+  return { escribibles, faltantes, rechazados };
 }
 
 /* ------------------------ INTERRUPTOR ------------------------ */

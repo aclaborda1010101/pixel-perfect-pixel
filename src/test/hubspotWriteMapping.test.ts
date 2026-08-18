@@ -8,6 +8,11 @@ import {
   planCamposContacto,
   decidirEnvio,
   MAPA_CAMPOS_CONTACTO,
+  prioridadOriginacion,
+  piezaDecisoria,
+  codigoTipologia,
+  etiquetaTipologiaPortal,
+  filtrarPorOpciones,
 } from "../../supabase/functions/_shared/hubspotWrite/mapping.ts";
 
 const tarea = {
@@ -99,6 +104,69 @@ describe("campos comerciales del contacto", () => {
   it("no duplica faltantes", () => {
     const plan = planCamposContacto({ es_influencer: false, interlocutor: true }, []);
     expect(plan.faltantes).toEqual(["es_interlocutor", "es_influenciador"]);
+  });
+});
+
+describe("campos del acuerdo", () => {
+  it("usa los nombres internos reales del portal", () => {
+    expect(MAPA_CAMPOS_CONTACTO.prioridad_originacion).toBe("prioridad_de_originacion");
+    expect(MAPA_CAMPOS_CONTACTO.pieza_decisoria).toBe("pieza_decisoria");
+    expect(MAPA_CAMPOS_CONTACTO.predisposicion).toBe("predisposicion_a_vender");
+    expect(MAPA_CAMPOS_CONTACTO.quien_bloquea).toBe("quien_o_que_bloquea");
+  });
+
+  it("prioridad de originación", () => {
+    expect(prioridadOriginacion({ campanaJunio: true, contactable: true })).toBe("Alta");
+    expect(prioridadOriginacion({ participacionRelevante: true, contactable: true })).toBe("Alta");
+    expect(prioridadOriginacion({ sinTelefono: true, campanaJunio: true })).toBe("Investigación previa");
+    expect(prioridadOriginacion({ edificioDescartado: true, campanaJunio: true })).toBe("Excluido");
+    expect(prioridadOriginacion({ sinDerechoEnNota: true, contactable: true })).toBe("Excluido");
+    expect(prioridadOriginacion({ contactable: true })).toBe("Media");
+    expect(prioridadOriginacion({ contactable: false })).toBe("Baja");
+  });
+
+  it("pieza decisoria", () => {
+    expect(piezaDecisoria({ hayInterlocutor: true, esInterlocutor: true })).toBe("Sí - confirmada");
+    expect(piezaDecisoria({ hayInterlocutor: true, esInterlocutor: true, marcadoPorSistema: true }))
+      .toBe("Propuesta por el sistema");
+    expect(piezaDecisoria({ hayInterlocutor: true, esInterlocutor: false })).toBe("No");
+    expect(piezaDecisoria({ hayInterlocutor: false, esInterlocutor: false })).toBeNull();
+  });
+
+  it("tipología: T8 influenciador, T10 fallecido, nunca T9 por defecto", () => {
+    expect(codigoTipologia({ buyerPersona: "controla" })).toBe("T3");
+    expect(codigoTipologia({ esInfluencer: true })).toBe("T8");
+    expect(codigoTipologia({ fallecido: true, buyerPersona: "controla" })).toBe("T10");
+    expect(codigoTipologia({ buyerPersona: "sin_clasificar" })).toBeNull();
+    expect(codigoTipologia({})).toBeNull();
+  });
+
+  it("traduce el código a la etiqueta larga exacta del portal", () => {
+    const ops = ["T1: El cansado", "T3: El que controla la situación", "T10: Fallecido"];
+    expect(etiquetaTipologiaPortal("T3", ops)).toBe("T3: El que controla la situación");
+    expect(etiquetaTipologiaPortal("T1", ops)).toBe("T1: El cansado");
+    expect(etiquetaTipologiaPortal("T4", ops)).toBeNull();
+    expect(etiquetaTipologiaPortal(null, ops)).toBeNull();
+  });
+
+  it("un valor fuera del catálogo del portal no se escribe", () => {
+    const r = filtrarPorOpciones(
+      { pieza_decisoria: "Si confirmada", prioridad_de_originacion: "Alta", quien_o_que_bloquea: "El hermano" },
+      { pieza_decisoria: ["Sí - confirmada", "Propuesta por el sistema", "No"], prioridad_de_originacion: ["Alta", "Media"] },
+    );
+    expect(r.escribibles).toEqual({ prioridad_de_originacion: "Alta", quien_o_que_bloquea: "El hermano" });
+    expect(r.rechazados).toEqual([{ campo: "pieza_decisoria", valor: "Si confirmada" }]);
+  });
+
+  it("el plan valida contra las opciones del portal", () => {
+    const plan = planCamposContacto(
+      { prioridad_originacion: "Urgente", pieza_decisoria: "No" },
+      ["prioridad_de_originacion", "pieza_decisoria"],
+      { prioridad_de_originacion: ["Alta", "Media", "Baja", "Investigación previa", "Excluido"],
+        pieza_decisoria: ["Sí - confirmada", "Propuesta por el sistema", "No"] },
+    );
+    expect(plan.escribibles).toEqual({ pieza_decisoria: "No" });
+    expect(plan.rechazados).toEqual([{ campo: "prioridad_de_originacion", valor: "Urgente" }]);
   });
 });
 
