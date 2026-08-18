@@ -377,101 +377,6 @@ export default function ComercialEdificios() {
     })();
   }, [userId]);
 
-  // --- Mi cartera: query ligera (~80 filas) que se carga siempre ---
-  const { data: miaData, isLoading: loadingMia } = useQuery({
-    queryKey: ["comercial:edificios:mia", userId],
-    enabled: !!userId,
-    staleTime: 60_000,
-    queryFn: async () => {
-      const [{ data: assignments }, { data: demoBldgs }] = await Promise.all([
-        (supabase.from("building_assignments" as any) as any)
-          .select("building_id")
-          .eq("user_id", userId)
-          .eq("status", "active"),
-        (supabase.from("buildings" as any) as any)
-          .select("id")
-          .eq("cartera_demo_seed", true),
-      ]);
-      const ids = Array.from(new Set<string>([
-        ...((assignments ?? []) as any[]).map((a: any) => a.building_id),
-        ...((demoBldgs ?? []) as any[]).map((b: any) => b.id),
-      ]));
-      if (ids.length === 0) return { rows: [] as Row[] };
-      const [scoresRes, bldgsRes, analysisRes] = await Promise.all([
-        (supabase.from("v_building_score" as any) as any).select("*").in("id", ids),
-        (supabase.from("buildings" as any) as any)
-          .select("id, avisos_inteligentes, score_summary, confianza_media, cartera_demo_seed, cluster_asignado, cluster_motivo, score, score_activo, score_propietarios, score_total, score_propietarios_breakdown, cluster_score, es_estrella, score_breakdown, iee_estado, comercial, porcentajes_estado")
-          .in("id", ids),
-        (supabase.from("building_analysis" as any) as any)
-          .select(
-            "building_id, ventanas_fachada_total, ventanas_patios_total, segundas_escaleras, plantas_levantables, tiene_azotea_transitable, esquina, protegido_historicamente, edificio_reformado, gestion_profesional",
-          )
-          .in("building_id", ids),
-      ]);
-      const assignedIds = new Set<string>(((assignments ?? []) as any[]).map((a: any) => a.building_id));
-      const bldgsById = new Map<string, any>();
-      const demoIds = new Set<string>();
-      for (const b of (bldgsRes.data ?? []) as any[]) {
-        bldgsById.set(b.id, b);
-        if (b.cartera_demo_seed) demoIds.add(b.id);
-      }
-      const analysisMap = new Map<string, any>();
-      for (const a of (analysisRes.data ?? []) as any[]) analysisMap.set(a.building_id, a);
-      const rows: Row[] = ((scoresRes.data ?? []) as any[]).map((b: any) => {
-        const m2 = b.m2_total != null ? Number(b.m2_total) : null;
-        const viv = b.num_viviendas != null ? Number(b.num_viviendas) : null;
-        const m2Viv = b.m2_vivienda_calc != null ? Number(b.m2_vivienda_calc) : null;
-        const ratioViv = b.ratio_m2_viv != null ? Number(b.ratio_m2_viv) : (m2 && viv ? m2 / viv : null);
-        const extra = bldgsById.get(b.id) ?? {};
-        const metaNota = String(extra?.metadatos?.tenemos_la_nota_simple_ ?? "").trim().toLowerCase();
-        const avisos = Array.isArray(extra.avisos_inteligentes) ? (extra.avisos_inteligentes as Aviso[]) : null;
-        const an = analysisMap.get(b.id) ?? {};
-        return {
-          id: b.id,
-          direccion: b.direccion,
-          ciudad: b.ciudad,
-          barrio: b.barrio ?? null,
-          distrito: b.distrito ?? null,
-          score: Number(extra.cluster_score ?? extra.score ?? b.score ?? 0),
-          es_estrella: !!extra.es_estrella,
-          n_alarmas: countAlarmas(extra.avisos_inteligentes),
-          num_viviendas: viv,
-          m2_total: m2,
-          owners_count: b.owners_count,
-          division_horizontal: !!b.division_horizontal,
-          ratio: ratioViv,
-          m2_vivienda_calc: m2Viv,
-          raw: { ...b, score: extra.score ?? b.score ?? null, score_breakdown: extra.score_breakdown ?? b.score_breakdown ?? null, avisos_inteligentes: extra.avisos_inteligentes ?? null, es_estrella: !!extra.es_estrella },
-          score_activo: extra.score_activo ?? null,
-          score_propietarios: extra.score_propietarios ?? null,
-          score_total: extra.score_total ?? extra.score ?? null,
-          score_propietarios_breakdown: extra.score_propietarios_breakdown ?? null,
-          porcentajes_estado: (extra as any).porcentajes_estado ?? null,
-          assigned: assignedIds.has(b.id),
-          cartera_demo: demoIds.has(b.id),
-          comercial: extra.comercial ?? null,
-          avisos,
-          score_summary: extra.score_summary ?? null,
-          confianza_media: extra.confianza_media ?? null,
-          has_analysis: !!b.has_ai_analysis,
-          ventanas_fachada_total: an.ventanas_fachada_total ?? null,
-          ventanas_patios_total: an.ventanas_patios_total ?? null,
-          ventanas_total: ((an.ventanas_fachada_total ?? 0) + (an.ventanas_patios_total ?? 0)) || null,
-          cluster_asignado: extra.cluster_asignado ?? null,
-          segundas_escaleras: an.segundas_escaleras ?? null,
-          plantas_levantables: an.plantas_levantables ?? null,
-          tiene_azotea_transitable: an.tiene_azotea_transitable ?? null,
-          esquina: an.esquina ?? null,
-          protegido_historicamente: an.protegido_historicamente ?? null,
-          edificio_reformado: an.edificio_reformado ?? null,
-          gestion_profesional: an.gestion_profesional ?? null,
-          has_nota_simple: metaNota === "sí" || metaNota === "si",
-        };
-      });
-      return { rows };
-    },
-  });
-
   // --- Catálogo completo (cacheado 10 min) ---
   const todosQueryKey = ["comercial:edificios:todos", userId] as const;
   const todosQueryFn = async () => {
@@ -548,11 +453,8 @@ export default function ComercialEdificios() {
     retry: 1,
   });
 
-  const miasRows: Row[] = miaData?.rows ?? [];
   const todosRows: Row[] = todosData?.rows ?? [];
-  // Solo caemos a "mias" cuando NO hay error del catálogo. Si el catálogo
-  // falló, mostramos un aviso claro y NO ocultamos el problema tras los 77.
-  const rows: Row[] = todosRows.length > 0 ? todosRows : (todosError ? [] : miasRows);
+  const rows: Row[] = todosRows;
   const isLoading = loadingTodos;
 
   // Si la URL trae ?filter=cartera_demo aplicamos solo demo y forzamos sort score desc

@@ -99,6 +99,7 @@ function TablaTareas({
 }
 
 export default function GestorComerciales() {
+  const [activeTab, setActiveTab] = useState("equipo");
   const [period, setPeriod] = useState<PeriodKey>("semana");
   const q = usePanel(period);
   const { horario } = useHorarioLaboral();
@@ -139,7 +140,7 @@ export default function GestorComerciales() {
         )}
       </header>
 
-      <Tabs defaultValue="equipo" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="equipo">Equipo</TabsTrigger>
           <TabsTrigger value="historico">Histórico</TabsTrigger>
@@ -320,7 +321,7 @@ export default function GestorComerciales() {
         </TabsContent>
 
         <TabsContent value="productividad">
-          <ProductividadTab />
+          {activeTab === "productividad" && <ProductividadTab />}
         </TabsContent>
       </Tabs>
     </div>
