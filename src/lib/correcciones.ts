@@ -5,6 +5,8 @@ export type TipoCorreccion = {
   descripcion: string;
   /** true si la app puede aplicar la corrección por sí misma al aprobarla. */
   automatico: boolean;
+  /** "datos" = requiere aprobar/rechazar; "trabajo" = informativo, lo sirve el generador. */
+  seccion: "datos" | "trabajo";
 };
 
 export const TIPOS_CORRECCION: TipoCorreccion[] = [
@@ -14,26 +16,39 @@ export const TIPOS_CORRECCION: TipoCorreccion[] = [
     descripcion:
       "Personas con llamadas reales registradas que siguen figurando como no contactadas.",
     automatico: true,
+    seccion: "datos",
   },
   {
     codigo: 2,
     nombre: "Cuotas sin cargar",
     descripcion: "Edificios con menos de la mitad de los titulares con porcentaje cargado.",
     automatico: false,
+    seccion: "datos",
   },
   {
     codigo: 4,
     nombre: "Titulares sin tarea",
     descripcion: "Titulares con porcentaje de propiedad y sin ninguna acción prevista.",
     automatico: false,
+    seccion: "trabajo",
   },
   {
     codigo: 6,
     nombre: "Seguimientos sin próxima acción",
     descripcion: "Edificios con llamada reciente y sin siguiente paso definido.",
     automatico: false,
+    seccion: "datos",
   },
 ];
+
+/** Tipos que sí son errores de datos y cuentan para el contador principal. */
+export const TIPOS_DATOS = TIPOS_CORRECCION.filter((t) => t.seccion === "datos");
+/** Tipos que son trabajo comercial pendiente (informativo, sin aprobar/rechazar). */
+export const TIPOS_TRABAJO = TIPOS_CORRECCION.filter((t) => t.seccion === "trabajo");
+
+export function esCorreccionDeDatos(codigo: number): boolean {
+  return TIPOS_DATOS.some((t) => t.codigo === codigo);
+}
 
 export function tipoPorCodigo(codigo: number): TipoCorreccion {
   return (
@@ -42,6 +57,7 @@ export function tipoPorCodigo(codigo: number): TipoCorreccion {
       nombre: `Tipo ${codigo}`,
       descripcion: "",
       automatico: false,
+      seccion: "datos",
     }
   );
 }
@@ -52,6 +68,7 @@ export const ESTADOS_CORRECCION = {
   aprobada_pendiente_aplicacion: "Aprobada · pendiente de aplicar",
   aplicada: "Aplicada",
   rechazada: "Rechazada",
+  obsoleta: "Archivada · ya no aplica",
 } as const;
 
 export type EstadoCorreccion = keyof typeof ESTADOS_CORRECCION;

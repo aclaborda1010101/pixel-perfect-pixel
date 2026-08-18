@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
+import { esCorreccionDeDatos } from "@/lib/correcciones";
 
 export type ResumenFila = { guarda: number; estado: string; total: number };
 
@@ -24,11 +25,11 @@ export function useCorreccionesResumen() {
   });
 }
 
-/** Número total de correcciones pendientes de revisar. */
+/** Número total de correcciones de DATOS pendientes de revisar (excluye trabajo comercial). */
 export function useCorreccionesPendientes() {
   const q = useCorreccionesResumen();
   const total = (q.data ?? [])
-    .filter((r) => r.estado === "pendiente")
+    .filter((r) => r.estado === "pendiente" && esCorreccionDeDatos(r.guarda))
     .reduce((a, r) => a + r.total, 0);
   return { total, loading: q.isLoading };
 }
