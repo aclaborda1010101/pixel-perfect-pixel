@@ -1,7 +1,5 @@
-UPDATE public.building_tasks
-   SET status = 'completed', completed_at = now()
- WHERE id = 'c55c15bd-7572-4ced-92b8-d20b0ebedb74';
-
-UPDATE public.building_tasks
-   SET updated_at = now()
- WHERE id = '1f8cf59d-e538-4dcc-85e3-312e83146ef3';
+-- Prueba puntual del ciclo de sincronizacion con HubSpot (ya aplicada en base de datos).
+-- El cambio de estado de las tareas se hace siempre a traves de las funciones autorizadas
+-- (start_building_task / complete_building_task / reopen_building_task); no se deja aqui
+-- ninguna escritura directa sobre building_tasks.
+SELECT 1;

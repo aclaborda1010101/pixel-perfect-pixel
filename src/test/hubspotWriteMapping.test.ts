@@ -49,7 +49,7 @@ describe("estados de tarea", () => {
 describe("propiedades de la tarea", () => {
   it("construye el payload completo", () => {
     const p = propiedadesTareaHubspot(tarea, { hubspotOwnerId: "77" });
-    expect(p.hs_task_subject).toBe("Llamar a María");
+    expect(p.hs_task_subject).toBe("[Afflux] Llamar a María");
     expect(p.hs_task_status).toBe("NOT_STARTED");
     expect(p.hs_task_priority).toBe("HIGH");
     expect(p.hs_task_type).toBe("CALL");
