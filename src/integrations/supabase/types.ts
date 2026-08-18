@@ -302,6 +302,36 @@ export type Database = {
         }
         Relationships: []
       }
+      _excluidos_para_jesus: {
+        Row: {
+          derecho: string | null
+          edificio: string | null
+          hs_deal_id: string | null
+          motivo: string | null
+          pct: number | null
+          porcentajes_estado: string | null
+          titular: string | null
+        }
+        Insert: {
+          derecho?: string | null
+          edificio?: string | null
+          hs_deal_id?: string | null
+          motivo?: string | null
+          pct?: number | null
+          porcentajes_estado?: string | null
+          titular?: string | null
+        }
+        Update: {
+          derecho?: string | null
+          edificio?: string | null
+          hs_deal_id?: string | null
+          motivo?: string | null
+          pct?: number | null
+          porcentajes_estado?: string | null
+          titular?: string | null
+        }
+        Relationships: []
+      }
       _export_notas: {
         Row: {
           direccion: string | null
@@ -339,6 +369,24 @@ export type Database = {
         Relationships: []
       }
       _flags_20260813: {
+        Row: {
+          building_id: string | null
+          matching_ok: boolean | null
+          sumas_ok: boolean | null
+        }
+        Insert: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Update: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Relationships: []
+      }
+      _flags_final: {
         Row: {
           building_id: string | null
           matching_ok: boolean | null
