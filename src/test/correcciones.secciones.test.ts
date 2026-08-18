@@ -16,3 +16,19 @@ describe("secciones de correcciones", () => {
     expect(etiquetaEstado("obsoleta")).toBe("Archivada · ya no aplica");
   });
 });
+
+describe("Orquestador: acceso desde el panel del responsable", () => {
+  it("sales_manager puede abrir /correcciones (antes se le redirigía al panel)", () => {
+    expect(decideAccess({ role: "sales_manager", pathname: "/correcciones" })).toEqual({ type: "allow" });
+  });
+  it("admin también", () => {
+    expect(decideAccess({ role: "admin", pathname: "/correcciones" })).toEqual({ type: "allow" });
+  });
+  it("sales_manager sigue sin acceder a /admin ni a otras rutas", () => {
+    expect(decideAccess({ role: "sales_manager", pathname: "/admin/guardas" }).type).toBe("redirect");
+    expect(decideAccess({ role: "sales_manager", pathname: "/edificios" }).type).toBe("redirect");
+  });
+  it("un comercial no accede al orquestador", () => {
+    expect(decideAccess({ role: "comercial_zona", pathname: "/correcciones" }).type).toBe("allow");
+  });
+});
