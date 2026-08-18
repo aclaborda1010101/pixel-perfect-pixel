@@ -331,8 +331,15 @@ function extraerPorCampos(seccion: string, base: number): ExtraccionNota {
       return resto.slice(0, Math.min(corte, 300)).replace(/\s+/g, " ").trim();
     };
     const nombreBruto = campo("Nombre");
-    const rol = rolDelHecho(campo("Naturaleza\\s+del\\s+Derecho") || bloque);
-    const valor = valorDerecho(campo("Participaci[óo]n"));
+    const nat = campo("Naturaleza\\s+del\\s+Derecho");
+    const part = campo("Participaci[óo]n");
+    // El literal del derecho puede venir en la participación ("una octava parte
+    // indivisa en pleno dominio") o en la naturaleza; "Propiedad" es pleno.
+    const rol = rolDelHecho(part)
+      ?? rolDelHecho(nat)
+      ?? (/\bpropiedad\b/i.test(nat) ? { rol: "pleno" as RolRegistral, literal: "pleno dominio" } : rolDelHecho(bloque));
+    const valor = valorDerecho(part)
+      ?? (part && RE_TOTALIDAD_CAMPO.test(part) ? { porcentaje: 100, literal: part, forma: "totalidad" as const } : null);
     const cita = bloque.replace(/\s+/g, " ").trim().slice(0, 400);
     if (!rol || !valor) { descartes.push({ offset: base + a, motivo: !rol ? "rol_no_declarado" : "participacion_no_localizada", cita: cita.slice(0, 200) }); continue; }
     const id = nombreProsa(nombreBruto + " " + campo("N\\.?I\\.?F\\.?"));
