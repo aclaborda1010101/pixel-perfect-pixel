@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { TareaTarjetaTexto } from "@/components/comercial/TareaTarjetaTexto";
+import { MarcarTerminadaButton } from "@/components/comercial/MarcarTerminadaButton";
 import { TASK_DEFS, type Priority } from "@/lib/buildingTasks";
 import {
   filterVisibleOperationalTasks,
@@ -227,11 +228,6 @@ function TaskRow({
   return (
     <li className={cn("px-5 py-3", isCompleted && "opacity-60")}>
       <div className="flex items-start gap-3">
-        <Checkbox
-          checked={isCompleted}
-          onCheckedChange={(c) => onToggle(!!c)}
-          className="mt-1"
-        />
         <div className="rounded-md bg-surface-1 p-2 text-gold">
           <Icon className="h-4 w-4" />
         </div>
@@ -265,6 +261,11 @@ function TaskRow({
               </Button>
             )}
           </div>
+          <MarcarTerminadaButton
+            task={task}
+            className="mt-2"
+            onDone={() => onToggle(!isCompleted)}
+          />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <div className="flex items-center gap-1">
