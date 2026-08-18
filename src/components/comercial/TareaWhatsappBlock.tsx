@@ -166,17 +166,25 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
             ? "Enviado al número de prueba"
             : "Registrado como prueba (sin envío real)",
       );
+    } catch (e: any) {
+      toast.error(e?.message ?? "No se pudo enviar el WhatsApp");
+      setEnviando(false);
+      return;
+    }
+
+    // PASO 2 (independiente): cerrar la tarea. Si falla, el WhatsApp YA se envió.
+    try {
       const done = await resolveBuildingTask(
         task.id,
         "completed",
-        res?.editado_a_mano
-          ? "WhatsApp enviado desde la tarjeta (texto modificado a mano)"
-          : "WhatsApp enviado desde la tarjeta",
+        "WhatsApp enviado desde la tarjeta",
       );
       if (!done.ok) throw new Error(done.error ?? "No se pudo completar la tarea");
       await onCompleted();
     } catch (e: any) {
-      toast.error(e?.message ?? "No se pudo enviar el WhatsApp");
+      toast.error(
+        "El WhatsApp se ha enviado, pero no hemos podido cerrar la tarea: ciérrala con el botón «Marcar como terminada».",
+      );
     } finally {
       setEnviando(false);
     }
@@ -254,7 +262,7 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
               </>
             ) : (
               <Button asChild size="sm" variant="outline" className="h-7 px-2 text-[11px]">
-                <Link to={`/comercial/preparar/${ownerId}`}>
+                <Link to={`/comercial/preparar/${ownerId}?task=${task.id}`}>
                   <PhoneCall className="h-3 w-3" /> Preparar llamada
                 </Link>
               </Button>
@@ -364,7 +372,7 @@ export function PrepararLlamadaButton({ task }: { task: any }) {
   }
   return (
     <Button asChild size="sm" variant="outline" className="mt-2 h-6 px-2 text-[11px]">
-      <Link to={`/comercial/preparar/${ownerId}`}>
+      <Link to={`/comercial/preparar/${ownerId}?task=${task.id}`}>
         <PhoneCall className="h-3 w-3" /> Preparar llamada
       </Link>
     </Button>
