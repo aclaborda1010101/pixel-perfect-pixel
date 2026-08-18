@@ -6202,6 +6202,57 @@ export type Database = {
         }
         Relationships: []
       }
+      hubspot_write_queue: {
+        Row: {
+          accion: string
+          created_at: string
+          dedupe_key: string
+          entidad_id: string
+          entidad_tipo: string
+          estado: string
+          hubspot_id: string | null
+          id: string
+          intentos: number
+          last_error: string | null
+          objeto: string
+          payload: Json
+          processed_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          accion: string
+          created_at?: string
+          dedupe_key: string
+          entidad_id: string
+          entidad_tipo: string
+          estado?: string
+          hubspot_id?: string | null
+          id?: string
+          intentos?: number
+          last_error?: string | null
+          objeto: string
+          payload?: Json
+          processed_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          accion?: string
+          created_at?: string
+          dedupe_key?: string
+          entidad_id?: string
+          entidad_tipo?: string
+          estado?: string
+          hubspot_id?: string | null
+          id?: string
+          intentos?: number
+          last_error?: string | null
+          objeto?: string
+          payload?: Json
+          processed_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       import_q4_lista: {
         Row: {
           address: string | null
@@ -11028,6 +11079,10 @@ export type Database = {
       detect_guarda_2: { Args: never; Returns: number }
       detect_guarda_4: { Args: never; Returns: number }
       detect_guarda_6: { Args: never; Returns: number }
+      enqueue_hubspot_contact_write: {
+        Args: { p_building_id: string; p_owner_id: string }
+        Returns: undefined
+      }
       find_owner_for_orphan_contact: {
         Args: {
           p_email: string
@@ -11065,6 +11120,12 @@ export type Database = {
         Returns: boolean
       }
       has_whatsapp_access: { Args: { _user_id: string }; Returns: boolean }
+      hubspot_apply_task_status: {
+        Args: { p_status: string; p_task_id: string }
+        Returns: boolean
+      }
+      hubspot_escritura_activada: { Args: never; Returns: boolean }
+      hubspot_write_queue_counts: { Args: never; Returns: Json }
       iee_score_components: {
         Args: { p_building_id: string }
         Returns: {

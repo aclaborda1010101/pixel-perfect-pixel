@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/common/PageHeader";
 import { JobsManualPanel } from "@/components/settings/JobsManualPanel";
+import { HubspotEscrituraPanel } from "@/components/settings/HubspotEscrituraPanel";
 import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { Navigate } from "react-router-dom";
 
@@ -15,6 +16,7 @@ export default function AdminOps() {
         subtitle="Ruta oculta. Sólo para operaciones puntuales bajo demanda."
       />
       <div className="grid gap-4 md:grid-cols-2">
+        <HubspotEscrituraPanel />
         <JobsManualPanel />
       </div>
     </div>

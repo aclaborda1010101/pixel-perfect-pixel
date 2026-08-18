@@ -134,6 +134,13 @@ export const AUTHORIZED_SQL_MUTATORS: Record<string, SqlRule> = {
   "public.commit_v5_generation_plan": {
     id: "v5_commit_plan", requiresBefore: [/lease/i], requires: [],
   },
+  // Cierre llegado desde HubSpot: sólo servidor, bloquea la fila y respeta
+  // los estados terminales (no reabre ni pisa nada ya cerrado).
+  "public.hubspot_apply_task_status": {
+    id: "lifecycle_hubspot_inbound",
+    requiresBefore: [/FOR UPDATE/i],
+    requires: [/v_actual/i],
+  },
 };
 
 /** DML de nivel superior autorizada en migraciones (clasificación histórica). */
