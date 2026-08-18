@@ -56,9 +56,9 @@ async function construirCarga(sb: any, fila: any) {
   let ownerId: string | null = null;
   const { data: perfil } = await sb.from("profiles").select("email").eq("id", t.user_id).maybeSingle();
   if (perfil?.email) {
-    const { data: hsOwner } = await sb.from("hubspot_owners").select("hubspot_id")
+    const { data: hsOwner } = await sb.from("hubspot_owners").select("hs_owner_id")
       .ilike("email", perfil.email).maybeSingle();
-    ownerId = hsOwner?.hubspot_id ? String(hsOwner.hubspot_id) : null;
+    ownerId = hsOwner?.hs_owner_id ? String(hsOwner.hs_owner_id) : null;
   }
   const props = propiedadesTareaHubspot(t as AppTask, { hubspotOwnerId: ownerId });
   const dealId = t.building_id ? await externalId(sb, "building", t.building_id, "deal") : undefined;
