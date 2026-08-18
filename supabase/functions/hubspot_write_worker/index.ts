@@ -13,6 +13,11 @@ import {
   decidirEnvio,
   estadoAppDeHubspot,
   MAPA_CAMPOS_CONTACTO,
+  prioridadOriginacion,
+  piezaDecisoria,
+  codigoTipologia,
+  etiquetaTipologiaPortal,
+  type OpcionesPortal,
   type AppTask,
 } from "../_shared/hubspotWrite/mapping.ts";
 
@@ -25,9 +30,18 @@ const json = (status: number, body: unknown) =>
     status, headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-async function propiedadesContacto(): Promise<string[]> {
+/** Propiedades del contacto en el portal, con sus opciones válidas. */
+async function propiedadesContacto(): Promise<{ nombres: string[]; opciones: OpcionesPortal }> {
   const res = await hubspotFetch("/crm/v3/properties/contacts");
-  return (res?.results ?? []).map((p: any) => String(p.name));
+  const nombres: string[] = [];
+  const opciones: OpcionesPortal = {};
+  for (const p of res?.results ?? []) {
+    const nombre = String(p.name);
+    nombres.push(nombre);
+    const ops = (p.options ?? []).map((o: any) => String(o.label));
+    if (ops.length > 0) opciones[nombre] = ops;
+  }
+  return { nombres, opciones };
 }
 
 async function externalId(sb: any, entityType: string, entityId: string, objectType: string) {
@@ -69,31 +83,68 @@ async function construirCarga(sb: any, fila: any) {
 /** Campos comerciales del propietario → propiedades del contacto. */
 async function construirCargaContacto(sb: any, fila: any) {
   const ownerId = String(fila.entidad_id);
-  const buildingId = (fila.payload ?? {}).building_id ?? null;
+  let buildingId = (fila.payload ?? {}).building_id ?? null;
   const { data: owner } = await sb.from("owners")
-    .select("id,nombre,consentimiento,subrole,rol").eq("id", ownerId).maybeSingle();
+    .select("id,nombre,telefono,consentimiento,subrole,rol,buyer_persona,estado_vital,metadatos")
+    .eq("id", ownerId).maybeSingle();
   if (!owner) return { props: null, extra: { motivo: "propietario_inexistente" } };
+
+  if (!buildingId) {
+    const { data: bo0 } = await sb.from("building_owners")
+      .select("building_id").eq("owner_id", ownerId).limit(1).maybeSingle();
+    buildingId = bo0?.building_id ?? null;
+  }
 
   let situacion: string | null = null;
   let esInterlocutor = false;
+  let hayInterlocutor = false;
+  let marcadoPorSistema = false;
+  let edificioDescartado = false;
   if (buildingId) {
     const { data: b } = await sb.from("buildings")
-      .select("estado,interlocutor_owner_id").eq("id", buildingId).maybeSingle();
+      .select("estado,interlocutor_owner_id,interlocutor_marcado_por").eq("id", buildingId).maybeSingle();
     situacion = b?.estado ?? null;
     esInterlocutor = b?.interlocutor_owner_id === ownerId;
+    hayInterlocutor = !!b?.interlocutor_owner_id;
+    marcadoPorSistema = String(b?.interlocutor_marcado_por ?? "").toLowerCase() === "sistema";
+    edificioDescartado = String(b?.estado ?? "") === "descartado";
   }
   let participacion: number | null = null;
   let influencer = false;
+  let tieneFilaEdificio = false;
   if (buildingId) {
     const { data: bo } = await sb.from("building_owners")
       .select("cuota,es_influencer").eq("building_id", buildingId).eq("owner_id", ownerId).maybeSingle();
     participacion = bo?.cuota ?? null;
     influencer = bo?.es_influencer === true;
+    tieneFilaEdificio = !!bo;
   }
   const { data: ultima } = await sb.from("calls")
     .select("fecha").eq("owner_id", ownerId).order("fecha", { ascending: false }).limit(1).maybeSingle();
 
-  const existentes = await propiedadesContacto();
+  const { nombres: existentes, opciones } = await propiedadesContacto();
+  const meta = (owner.metadatos ?? {}) as Record<string, unknown>;
+  const telefono = String(owner.telefono ?? meta.phone ?? "").trim();
+  const sinDerecho = tieneFilaEdificio && (participacion === null || Number(participacion) <= 0) && !influencer;
+
+  const prioridad = prioridadOriginacion({
+    campanaJunio: !!meta.prioridad_originacion || !!meta.revista_campana,
+    participacionRelevante: Number(participacion ?? 0) >= 25,
+    sinTelefono: telefono === "",
+    edificioDescartado,
+    sinDerechoEnNota: sinDerecho,
+    contactable: telefono !== "",
+  });
+  const pieza = piezaDecisoria({ hayInterlocutor, esInterlocutor, marcadoPorSistema });
+  const tipologia = etiquetaTipologiaPortal(
+    codigoTipologia({
+      buyerPersona: owner.buyer_persona,
+      esInfluencer: influencer,
+      fallecido: String(owner.estado_vital ?? "") === "fallecido",
+    }),
+    opciones["tipologia_de_propietario"],
+  );
+
   const plan = planCamposContacto({
     situacion_comercial: situacion,
     interlocutor: esInterlocutor,
@@ -101,13 +152,17 @@ async function construirCargaContacto(sb: any, fila: any) {
     participacion,
     consentimiento_whatsapp: owner.consentimiento ?? null,
     ultima_llamada: ultima?.fecha ?? null,
-    tipologia: owner.subrole ?? owner.rol ?? null,
-  }, existentes);
+    tipologia,
+    prioridad_originacion: prioridad,
+    pieza_decisoria: pieza,
+    predisposicion: (meta.predisposicion_a_vender as string) ?? null,
+    quien_bloquea: (meta.quien_o_que_bloquea as string) ?? null,
+  }, existentes, opciones);
 
   const contactId = await externalId(sb, "owner", ownerId, "contact");
   return {
     props: Object.keys(plan.escribibles).length > 0 ? plan.escribibles : null,
-    extra: { contactId, faltantes: plan.faltantes },
+    extra: { contactId, faltantes: plan.faltantes, rechazados: plan.rechazados, building_id: buildingId },
   };
 }
 
@@ -197,19 +252,29 @@ async function drain(sb: any, activado: boolean, limite: number) {
 }
 
 async function audit(sb: any) {
-  const existentes = await propiedadesContacto();
+  const { nombres: existentes, opciones } = await propiedadesContacto();
   const ejemplo = {
     situacion_comercial: "posible_interes", interlocutor: true, es_influencer: true,
     participacion: 50, consentimiento_whatsapp: true, ultima_llamada: new Date().toISOString(),
-    proxima_accion: "llamada", tipologia: "heredero",
+    proxima_accion: "llamada",
+    tipologia: etiquetaTipologiaPortal("T3", opciones["tipologia_de_propietario"]),
+    prioridad_originacion: "Alta", pieza_decisoria: "Sí - confirmada",
+    predisposicion: "Desconocido", quien_bloquea: "—",
   };
-  const plan = planCamposContacto(ejemplo, existentes);
+  const plan = planCamposContacto(ejemplo, existentes, opciones);
   const { count } = await sb.from("hubspot_write_queue")
     .select("id", { count: "exact", head: true }).in("estado", ["pendiente", "error"]);
   return {
     campos_app: Object.values(MAPA_CAMPOS_CONTACTO),
     campos_disponibles: Object.keys(plan.escribibles),
     campos_faltantes: plan.faltantes,
+    valores_rechazados: plan.rechazados,
+    opciones_acuerdo: {
+      prioridad_de_originacion: opciones["prioridad_de_originacion"] ?? null,
+      pieza_decisoria: opciones["pieza_decisoria"] ?? null,
+      predisposicion_a_vender: opciones["predisposicion_a_vender"] ?? null,
+      tipologia_de_propietario: opciones["tipologia_de_propietario"] ?? null,
+    },
     pendientes: count ?? 0,
   };
 }
@@ -259,6 +324,16 @@ Deno.serve(async (req) => {
     const activado = activadoRpc === true;
 
     if (accion === "audit") return json(200, { ok: true, activado, ...(await audit(sb)) });
+    if (accion === "preview") {
+      // Simulación pura: construye la carga de contactos concretos, sin escribir.
+      const ids = Array.isArray(body.owner_ids) ? body.owner_ids.map(String).slice(0, 10) : [];
+      const muestras = [];
+      for (const id of ids) {
+        const { props, extra } = await construirCargaContacto(sb, { entidad_id: id, payload: body.payload ?? {} });
+        muestras.push({ owner_id: id, propiedades: props, ...(extra as Record<string, unknown>) });
+      }
+      return json(200, { ok: true, activado, simulacion: true, muestras });
+    }
     if (accion === "pull") {
       if (!activado) return json(200, { ok: true, activado, skipped: "interruptor_apagado" });
       return json(200, { ok: true, activado, ...(await pull(sb, limite)) });
