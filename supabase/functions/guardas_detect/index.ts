@@ -23,6 +23,19 @@ Deno.serve(async (req) => {
   const resultados: Record<string, number | string> = {};
   let errores = 0;
 
+  // Antes de proponer nada, cerrar como obsoletas las propuestas pendientes que ya no aplican.
+  let obsoletas: number | string = 0;
+  try {
+    const { data, error } = await (sb.rpc as any)("archivar_correcciones_obsoletas");
+    if (error) throw error;
+    obsoletas = Number(data ?? 0);
+  } catch (e: any) {
+    errores++;
+    obsoletas = `error: ${e?.message ?? String(e)}`;
+    console.error(`[guardas_detect] archivado obsoletas: ${e?.message ?? e}`);
+  }
+  resultados["obsoletas_archivadas"] = obsoletas;
+
   for (const g of GUARDAS) {
     if (!solo.includes(g)) continue;
     try {
@@ -52,6 +65,6 @@ Deno.serve(async (req) => {
     metadatos: { modo: "deteccion", nuevas: resultados, pendientes, elapsed_ms: Date.now() - t0 },
   }).eq("id", logId);
 
-  return new Response(JSON.stringify({ ok: errores === 0, nuevas: resultados, pendientes, elapsed_ms: Date.now() - t0 }, null, 2),
+  return new Response(JSON.stringify({ ok: errores === 0, obsoletas_archivadas: obsoletas, nuevas: resultados, pendientes, elapsed_ms: Date.now() - t0 }, null, 2),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
