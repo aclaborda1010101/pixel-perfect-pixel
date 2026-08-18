@@ -32,6 +32,7 @@ import { TaskScheduleMeta, TaskTemporalBadge } from "@/components/comercial/Task
 import { cn } from "@/lib/utils";
 import { Sparkles, Loader2 } from "lucide-react";
 import { TareaWhatsappBlock, PrepararLlamadaButton } from "@/components/comercial/TareaWhatsappBlock";
+import { TareaInvestigacionBlock } from "@/components/comercial/TareaInvestigacionBlock";
 import { TareaTarjetaTexto } from "@/components/comercial/TareaTarjetaTexto";
 import { InterlocutorFlag } from "@/components/buildings/InterlocutorFlag";
 import { useInterlocutores } from "@/hooks/useInterlocutores";
@@ -338,6 +339,15 @@ export default function ComercialTareas() {
                               />
                             )}
                             {t.task_type === "T-04" && <PrepararLlamadaButton task={t} />}
+                            {t.task_type === "T-01" && (
+                              <TareaInvestigacionBlock
+                                task={t}
+                                onCompleted={async () => {
+                                  await qc.invalidateQueries({ queryKey: ["building_tasks_all", userId] });
+                                  await generarSiguiente(true);
+                                }}
+                              />
+                            )}
                             {canStartTask(t) && (
                               <Button
                                 size="sm"
