@@ -226,7 +226,10 @@ function extraerPorTabla(seccion: string, base: number): ExtraccionNota {
   return { morfologia: "tabla", hechos, descartes };
 }
 
-const RE_ANCLA_PROSA = /(?:\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:\.\d+)?)\s*%|\b\d{1,4}\s*\/\s*\d{1,4}\b|(?:pleno\s+dominio|nuda\s+propiedad|usufructo)\s+de\s+(?:una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|la|las)\s+(?:[a-zá-úé]+\s+){0,2}?(?:part|mitad|terc|cuart|quint|sext|s[eé]ptim|octav|noven|d[eé]cim|onceav|doceav|catorceav|quinceav|veinteav|treintav)/gi;
+const RE_ANCLA_PROSA = /(?:\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:\.\d+)?)\s*%|\b\d{1,4}\s*\/\s*\d{1,4}\b|(?:pleno\s+dominio|nuda\s+propiedad|usufructo)\s+de\s+(?:una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|la|las)\s+(?:[a-zá-úé]+\s+){0,2}?(?:part|mitad|terc|cuart|quint|sext|s[eé]ptim|octav|noven|d[eé]cim|onceav|doceav|catorceav|quinceav|veinteav|treintav)|(?:pleno\s+dominio|nuda\s+propiedad|usufructo)\s+(?:de|sobre)\s+(?:la\s+totalidad\s+de\s+)?(?:esta|la\s+presente|la)\s+finca\b/gi;
+
+/** Derecho declarado sobre la totalidad de la finca: participación = 100%. */
+const RE_TOTALIDAD = /(?:pleno\s+dominio|nuda\s+propiedad|usufructo)\s+(?:de|sobre)\s+(?:la\s+totalidad\s+de\s+)?(?:esta|la\s+presente|la)\s+finca\b/i;
 const RE_CIERRE_PROSA = /(Formalizada|seg[úu]n\s+resulta|por\s+t[íi]tulo|inscrita|Inscripci[óo]n)/;
 const RE_LABEL_DOC = /\b(N\.?\s?I\.?\s?F\.?|D\.?\s?N\.?\s?I\.?|C\.?\s?I\.?\s?F\.?|NIE)\b\s*:?/gi;
 
