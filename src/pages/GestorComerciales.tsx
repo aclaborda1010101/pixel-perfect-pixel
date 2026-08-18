@@ -115,6 +115,7 @@ export default function GestorComerciales() {
     return agruparPorSemana(rows);
   }, [grupos, comercial]);
   const { total: correcciones } = useCorreccionesPendientes();
+  const sinCerrar = useTareasSinCerrar();
   const error = q.error as Error | null;
 
   return (
@@ -163,6 +164,33 @@ export default function GestorComerciales() {
 
       {!q.isLoading && !error && (
         <>
+          {(sinCerrar.data?.length ?? 0) > 0 && (
+            <Card className="border-warning/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  Tareas con la llamada ya registrada y todavía sin cerrar
+                  <Badge variant="warning">{sinCerrar.data!.length}</Badge>
+                </CardTitle>
+                <CardDescription>
+                  Se registró la llamada del propietario pero la tarea sigue abierta. Ciérrala desde
+                  la tarjeta con «Marcar como terminada».
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-1 text-sm">
+                  {sinCerrar.data!.slice(0, 10).map((t: any) => (
+                    <li key={t.task_id} className="flex flex-wrap gap-2">
+                      <span>{t.title ?? etiquetaTipo(t.task_type)}</span>
+                      <span className="text-muted-foreground tabular-nums">
+                        · llamada {fmtFecha(t.call_fecha)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-md border p-4">
               <div className="text-xs text-muted-foreground">Tareas activas (todo el equipo)</div>
