@@ -151,6 +151,7 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
 
   const enviar = async () => {
     setEnviando(true);
+    let editadoAMano = false;
     try {
       const { data, error } = await supabase.functions.invoke("wa_send_task_message", {
         body: { task_id: task.id, owner_id: ownerId, texto },
@@ -158,6 +159,7 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
       if (error) throw error;
       const res = data as any;
       if (res?.ok === false) throw new Error(res.error);
+      editadoAMano = !!res?.editado_a_mano;
       setVista(null);
       toast.success(
         res?.modo === "real"
@@ -177,7 +179,9 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
       const done = await resolveBuildingTask(
         task.id,
         "completed",
-        "WhatsApp enviado desde la tarjeta",
+        editadoAMano
+          ? "WhatsApp enviado desde la tarjeta (texto modificado a mano)"
+          : "WhatsApp enviado desde la tarjeta",
       );
       if (!done.ok) throw new Error(done.error ?? "No se pudo completar la tarea");
       await onCompleted();

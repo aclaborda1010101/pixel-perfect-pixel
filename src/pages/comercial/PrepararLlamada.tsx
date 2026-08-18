@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { useCurrentRole } from "@/hooks/useCurrentRole";
 import { HacerInterlocutorButton } from "@/components/buildings/HacerInterlocutorButton";
 import { BloqueoContactoBadge } from "@/components/buildings/ContactoBloqueado";
 import { puedeAutorizarExcepcion } from "@/lib/bloqueoContacto";
+import { resolveBuildingTask } from "@/lib/taskStart";
 
 type Outcome = "interesado" | "no_interesa" | "volver" | "no_contesta";
 const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "success" | "outline" | "info" | "destructive" }> = [
@@ -32,6 +33,9 @@ const OUTCOMES: Array<{ key: Outcome; label: string; icon: any; variant: "succes
 
 export default function ComercialPrepararLlamada() {
   const { ownerId } = useParams<{ ownerId: string }>();
+  const [searchParams] = useSearchParams();
+  // Tarea de origen: sólo se cierra la tarea concreta de la que se venía.
+  const taskId = searchParams.get("task");
   const { role } = useCurrentRole();
   const { bloqueado } = useBloqueoContacto(ownerId);
   const [brief, setBrief] = useState<any | null>(null);
@@ -509,8 +513,28 @@ export default function ComercialPrepararLlamada() {
       }
 
       toast.success("Resultado registrado · próximo paso programado");
+      const resultadoRegistrado = outcome;
       setOutcome(null);
       setNotas("");
+
+      // 5. Cierre de la tarea de origen. NUNCA puede tumbar el registro de la
+      // llamada: va en su propio try y con su propio mensaje.
+      if (taskId) {
+        try {
+          const etiqueta =
+            OUTCOMES.find((o) => o.key === resultadoRegistrado)?.label ?? resultadoRegistrado;
+          const done = await resolveBuildingTask(
+            taskId,
+            "completed",
+            `Llamada registrada desde la aplicación · resultado: ${etiqueta}`,
+          );
+          if (!done.ok) throw new Error(done.error ?? "No se pudo cerrar la tarea");
+        } catch (err: any) {
+          toast.error(
+            "La llamada se ha registrado, pero no hemos podido cerrar la tarea: ciérrala con el botón «Marcar como terminada».",
+          );
+        }
+      }
     } catch (e: any) {
       toast.error(e?.message ?? "Error guardando resultado");
     } finally {
