@@ -11126,6 +11126,11 @@ export type Database = {
         Returns: boolean
       }
       hubspot_escritura_activada: { Args: never; Returns: boolean }
+      hubspot_escritura_activada_objeto: {
+        Args: { p_objeto: string }
+        Returns: boolean
+      }
+      hubspot_interruptores: { Args: never; Returns: Json }
       hubspot_write_queue_counts: { Args: never; Returns: Json }
       iee_score_components: {
         Args: { p_building_id: string }
