@@ -236,6 +236,30 @@ export type Database = {
         }
         Relationships: []
       }
+      _altas_norm: {
+        Row: {
+          building_id: string | null
+          es_empresa: boolean | null
+          nombre_extraido: string | null
+          nombre_limpio: string | null
+          titular_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          es_empresa?: boolean | null
+          nombre_extraido?: string | null
+          nombre_limpio?: string | null
+          titular_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          es_empresa?: boolean | null
+          nombre_extraido?: string | null
+          nombre_limpio?: string | null
+          titular_id?: string | null
+        }
+        Relationships: []
+      }
       _audit_sin_exp: {
         Row: {
           hs_id: string | null
@@ -278,6 +302,36 @@ export type Database = {
         }
         Relationships: []
       }
+      _excluidos_para_jesus: {
+        Row: {
+          derecho: string | null
+          edificio: string | null
+          hs_deal_id: string | null
+          motivo: string | null
+          pct: number | null
+          porcentajes_estado: string | null
+          titular: string | null
+        }
+        Insert: {
+          derecho?: string | null
+          edificio?: string | null
+          hs_deal_id?: string | null
+          motivo?: string | null
+          pct?: number | null
+          porcentajes_estado?: string | null
+          titular?: string | null
+        }
+        Update: {
+          derecho?: string | null
+          edificio?: string | null
+          hs_deal_id?: string | null
+          motivo?: string | null
+          pct?: number | null
+          porcentajes_estado?: string | null
+          titular?: string | null
+        }
+        Relationships: []
+      }
       _export_notas: {
         Row: {
           direccion: string | null
@@ -315,6 +369,24 @@ export type Database = {
         Relationships: []
       }
       _flags_20260813: {
+        Row: {
+          building_id: string | null
+          matching_ok: boolean | null
+          sumas_ok: boolean | null
+        }
+        Insert: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Update: {
+          building_id?: string | null
+          matching_ok?: boolean | null
+          sumas_ok?: boolean | null
+        }
+        Relationships: []
+      }
+      _flags_final: {
         Row: {
           building_id: string | null
           matching_ok: boolean | null
@@ -398,6 +470,36 @@ export type Database = {
           nuevo_estado?: string | null
           patron?: string | null
           sim?: number | null
+        }
+        Relationships: []
+      }
+      _lote_ed: {
+        Row: {
+          edificio: string | null
+        }
+        Insert: {
+          edificio?: string | null
+        }
+        Update: {
+          edificio?: string | null
+        }
+        Relationships: []
+      }
+      _lote_excl: {
+        Row: {
+          edificio: string | null
+          motivo: string | null
+          titular: string | null
+        }
+        Insert: {
+          edificio?: string | null
+          motivo?: string | null
+          titular?: string | null
+        }
+        Update: {
+          edificio?: string | null
+          motivo?: string | null
+          titular?: string | null
         }
         Relationships: []
       }
@@ -524,6 +626,39 @@ export type Database = {
           flag_antes?: boolean | null
           id?: string | null
           score_antes?: number | null
+        }
+        Relationships: []
+      }
+      _plan_altas: {
+        Row: {
+          building_id: string | null
+          edificio: string | null
+          es_empresa: boolean | null
+          excluido: boolean | null
+          nombre_extraido: string | null
+          porcentaje: number | null
+          rol: string | null
+          titular_id: string | null
+        }
+        Insert: {
+          building_id?: string | null
+          edificio?: string | null
+          es_empresa?: boolean | null
+          excluido?: boolean | null
+          nombre_extraido?: string | null
+          porcentaje?: number | null
+          rol?: string | null
+          titular_id?: string | null
+        }
+        Update: {
+          building_id?: string | null
+          edificio?: string | null
+          es_empresa?: boolean | null
+          excluido?: boolean | null
+          nombre_extraido?: string | null
+          porcentaje?: number | null
+          rol?: string | null
+          titular_id?: string | null
         }
         Relationships: []
       }
@@ -1490,6 +1625,48 @@ export type Database = {
         Update: {
           id?: string | null
           status?: string | null
+        }
+        Relationships: []
+      }
+      backup_20260815_buildings_estado: {
+        Row: {
+          id: string | null
+          porcentajes_estado: string | null
+          porcentajes_verificado_at: string | null
+        }
+        Insert: {
+          id?: string | null
+          porcentajes_estado?: string | null
+          porcentajes_verificado_at?: string | null
+        }
+        Update: {
+          id?: string | null
+          porcentajes_estado?: string | null
+          porcentajes_verificado_at?: string | null
+        }
+        Relationships: []
+      }
+      backup_20260815_pre_altas: {
+        Row: {
+          company_id: string | null
+          id: string | null
+          nombre_extraido: string | null
+          nota_simple_id: string | null
+          owner_id: string | null
+        }
+        Insert: {
+          company_id?: string | null
+          id?: string | null
+          nombre_extraido?: string | null
+          nota_simple_id?: string | null
+          owner_id?: string | null
+        }
+        Update: {
+          company_id?: string | null
+          id?: string | null
+          nombre_extraido?: string | null
+          nota_simple_id?: string | null
+          owner_id?: string | null
         }
         Relationships: []
       }
@@ -4433,6 +4610,163 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
+          },
+        ]
+      }
+      descubrimientos: {
+        Row: {
+          ambiguo: boolean
+          ambiguo_motivo: string | null
+          building_id: string | null
+          clave_busqueda: string
+          coste_monedas: number
+          creado_por: string | null
+          created_at: string
+          domicilios: Json
+          empresa_vinculada: Json | null
+          estado: string
+          fuente: string
+          id: string
+          owner_id: string | null
+          payload: Json
+          resuelto_at: string | null
+          resuelto_por: string | null
+          simulado: boolean
+          task_id: string | null
+          telefonos_encontrados: string[]
+          tipo_busqueda: string
+          updated_at: string
+        }
+        Insert: {
+          ambiguo?: boolean
+          ambiguo_motivo?: string | null
+          building_id?: string | null
+          clave_busqueda: string
+          coste_monedas?: number
+          creado_por?: string | null
+          created_at?: string
+          domicilios?: Json
+          empresa_vinculada?: Json | null
+          estado?: string
+          fuente?: string
+          id?: string
+          owner_id?: string | null
+          payload?: Json
+          resuelto_at?: string | null
+          resuelto_por?: string | null
+          simulado?: boolean
+          task_id?: string | null
+          telefonos_encontrados?: string[]
+          tipo_busqueda: string
+          updated_at?: string
+        }
+        Update: {
+          ambiguo?: boolean
+          ambiguo_motivo?: string | null
+          building_id?: string | null
+          clave_busqueda?: string
+          coste_monedas?: number
+          creado_por?: string | null
+          created_at?: string
+          domicilios?: Json
+          empresa_vinculada?: Json | null
+          estado?: string
+          fuente?: string
+          id?: string
+          owner_id?: string | null
+          payload?: Json
+          resuelto_at?: string | null
+          resuelto_por?: string | null
+          simulado?: boolean
+          task_id?: string | null
+          telefonos_encontrados?: string[]
+          tipo_busqueda?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
           },
         ]
       }
@@ -11010,6 +11344,10 @@ export type Database = {
         Args: { p_claim_token: string; p_nota_id: string; p_payload: Json }
         Returns: Json
       }
+      aprobar_descubrimiento: {
+        Args: { p_id: string; p_telefono?: string }
+        Returns: Json
+      }
       audit_building_owner_cuotas: { Args: never; Returns: Json }
       auto_link_owner_building: { Args: { p_days?: number }; Returns: Json }
       build_score_summary: { Args: { p_building_id: string }; Returns: string }
@@ -11070,6 +11408,7 @@ export type Database = {
         }
         Returns: Json
       }
+      descartar_descubrimiento: { Args: { p_id: string }; Returns: Json }
       detect_estado_vital_from_name: {
         Args: { p_name: string }
         Returns: string
