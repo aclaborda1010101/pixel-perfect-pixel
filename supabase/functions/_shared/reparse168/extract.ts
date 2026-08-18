@@ -174,6 +174,9 @@ function extraerPorParticipacion(seccion: string, base: number): ExtraccionNota 
 }
 
 /** Morfología B: tabla con registros separados por tiras de guiones. */
+// Ancla de fila: valor (porcentaje o fracción) seguido del literal del derecho.
+const RE_ANCLA_TABLA = /(?:\d{1,3}(?:\.\d{3})*(?:,\d+)?\s*%|\b\d{1,4}\s*\/\s*\d{1,4}\b)[^%]{0,120}?(?:pleno\s+dominio|nuda\s+propiedad|usufructo)/gi;
+
 function extraerPorTabla(seccion: string, base: number): ExtraccionNota {
   const hechos: HechoRegistral[] = [];
   const descartes: ExtraccionNota["descartes"] = [];
