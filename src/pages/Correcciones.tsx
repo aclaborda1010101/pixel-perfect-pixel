@@ -16,6 +16,9 @@ import { Check, EyeOff, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   TIPOS_CORRECCION,
+  TIPOS_DATOS,
+  TIPOS_TRABAJO,
+  esCorreccionDeDatos,
   tipoPorCodigo,
   etiquetaEstado,
   propuestaEnLlano,
@@ -43,12 +46,14 @@ const ESTADOS_FILTRO = [
   "aprobada_pendiente_aplicacion",
   "aplicada",
   "rechazada",
+  "obsoleta",
 ] as const;
 
 export default function Correcciones() {
   const { role, loading: roleLoading } = useCurrentRole();
   const qc = useQueryClient();
-  const [tipo, setTipo] = useState(String(TIPOS_CORRECCION[0].codigo));
+  const [seccion, setSeccion] = useState<"datos" | "trabajo">("datos");
+  const [tipo, setTipo] = useState(String(TIPOS_DATOS[0].codigo));
   const [estado, setEstado] = useState<string>("pendiente");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -59,20 +64,22 @@ export default function Correcciones() {
   const permitido = role === "admin" || role === "sales_manager";
   const resumen = useCorreccionesResumen();
   const codigo = Number(tipo);
+  const esDatos = esCorreccionDeDatos(codigo);
 
   const lista = useQuery({
     queryKey: ["correcciones-lista", codigo, estado, page, pageSize],
     enabled: permitido,
+    placeholderData: (prev) => prev,
     queryFn: async () => {
-      const desde = page * pageSize;
-      const { data, error, count } = await (supabase.from("guard_proposals" as any) as any)
-        .select("*", { count: "exact" })
-        .eq("guarda", codigo)
-        .eq("estado", estado)
-        .order("creado_at", { ascending: false })
-        .range(desde, desde + pageSize - 1);
+      const { data, error } = await (supabase.rpc as any)("correcciones_listado", {
+        p_guarda: codigo,
+        p_estado: estado,
+        p_offset: page * pageSize,
+        p_limite: pageSize,
+      });
       if (error) throw new Error(error.message);
-      return { rows: (data ?? []) as Fila[], total: count ?? 0 };
+      const d = (data ?? {}) as { rows?: Fila[]; total?: number };
+      return { rows: (d.rows ?? []) as Fila[], total: Number(d.total ?? 0) };
     },
   });
 
@@ -83,6 +90,9 @@ export default function Correcciones() {
 
   const contar = (c: number, e: string) =>
     (resumen.data ?? []).find((r) => r.guarda === c && r.estado === e)?.total ?? 0;
+
+  const totalDatosPendientes = TIPOS_DATOS.reduce((a, t) => a + contar(t.codigo, "pendiente"), 0);
+  const totalTrabajoPendiente = TIPOS_TRABAJO.reduce((a, t) => a + contar(t.codigo, "pendiente"), 0);
 
   if (roleLoading) return <div className="text-sm text-muted-foreground">Cargando…</div>;
   if (!permitido) return <Navigate to="/" replace />;
@@ -120,14 +130,15 @@ export default function Correcciones() {
   };
 
   const meta = tipoPorCodigo(codigo);
-  const editable = estado === "pendiente";
+  const editable = estado === "pendiente" && esDatos;
+  const tiposVisibles = seccion === "datos" ? TIPOS_DATOS : TIPOS_TRABAJO;
 
   return (
     <div className="w-full space-y-6">
       <PageHeader
         eyebrow="Calidad de datos"
         title="Correcciones"
-        subtitle="Avisos detectados automáticamente. Nada cambia hasta que alguien lo aprueba."
+        subtitle={`${totalDatosPendientes.toLocaleString("es-ES")} correcciones de datos pendientes de revisar. Nada cambia hasta que alguien lo aprueba.`}
         actions={
           <Button variant="outline" size="sm" onClick={refrescar} disabled={lista.isFetching}>
             <RefreshCw className={`h-4 w-4 ${lista.isFetching ? "animate-spin" : ""}`} />
@@ -135,6 +146,40 @@ export default function Correcciones() {
           </Button>
         }
       />
+
+      <Tabs
+        value={seccion}
+        onValueChange={(v) => {
+          const s = v as "datos" | "trabajo";
+          setSeccion(s);
+          setTipo(String((s === "datos" ? TIPOS_DATOS : TIPOS_TRABAJO)[0].codigo));
+          setEstado("pendiente");
+          setSel({});
+          setPage(0);
+        }}
+      >
+        <TabsList>
+          <TabsTrigger value="datos">
+            Correcciones de datos
+            <Badge variant="secondary" className="ml-2 font-mono tabular-nums">
+              {totalDatosPendientes}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="trabajo">
+            Trabajo comercial pendiente
+            <Badge variant="outline" className="ml-2 font-mono tabular-nums">
+              {totalTrabajoPendiente}
+            </Badge>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {seccion === "trabajo" && (
+        <p className="text-sm text-muted-foreground">
+          No son errores ni requieren acción manual: el generador de tareas los va sirviendo de uno en
+          uno a cada comercial. Esta lista es solo para consultar.
+        </p>
+      )}
 
       <Tabs
         value={tipo}
@@ -145,7 +190,7 @@ export default function Correcciones() {
         }}
       >
         <TabsList className="flex-wrap">
-          {TIPOS_CORRECCION.map((t) => (
+          {tiposVisibles.map((t) => (
             <TabsTrigger key={t.codigo} value={String(t.codigo)}>
               {t.nombre}
               <Badge variant="secondary" className="ml-2 font-mono tabular-nums">
@@ -158,11 +203,13 @@ export default function Correcciones() {
 
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">{meta.descripcion}</p>
-        <p className="text-xs text-muted-foreground">
-          {meta.automatico
-            ? "Al aprobar, la app aplica el cambio automáticamente."
-            : "Al aprobar, queda a la espera de aplicarse a mano (la app no puede hacerlo sola con seguridad)."}
-        </p>
+        {esDatos && (
+          <p className="text-xs text-muted-foreground">
+            {meta.automatico
+              ? "Al aprobar, la app aplica el cambio automáticamente."
+              : "Al aprobar, queda a la espera de aplicarse a mano (la app no puede hacerlo sola con seguridad)."}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
