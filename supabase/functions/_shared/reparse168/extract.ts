@@ -306,7 +306,10 @@ function extraerPorProsa(seccion: string, base: number): ExtraccionNota {
   return { morfologia: "prosa", hechos, descartes };
 }
 
-const RE_CAMPO_NOMBRE = /Nombre\.{2,}\s*:/g;
+// "Nombre....:" (fichas con puntos) y "Nombre :" (mismo formato sin relleno).
+const RE_CAMPO_NOMBRE = /\bNombre\s*\.*\s*:/g;
+// Etiqueta siguiente de la ficha: corta el valor del campo anterior.
+const RE_SIG_ETIQUETA = /(?:N\.?I\.?F\.?|C\.?I\.?F\.?|T[íi]tulo|Naturaleza\s+del\s+Derecho|Car[áa]cter|Participaci[óo]n|Fecha\s+Escritura|Notario|Poblaci[óo]n|Protocolo|Inscripci[óo]n|Fecha\s+inscripci[óo]n|Tomo\/Libro\/Folio|Nombre)\s*\.*\s*:/i;
 
 /** Morfología D: fichas de campos con puntos ("Nombre....: X"). */
 function extraerPorCampos(seccion: string, base: number): ExtraccionNota {
@@ -320,8 +323,12 @@ function extraerPorCampos(seccion: string, base: number): ExtraccionNota {
     const a = inicios[i];
     const bloque = seccion.slice(a, i + 1 < inicios.length ? inicios[i + 1] : seccion.length);
     const campo = (etq: string) => {
-      const r = new RegExp(etq + "[.\\s]*:\\s*([^\\n]*?)(?=\\s{2,}|[A-Za-zÁÉÍÓÚÜÑ ]{3,30}\\.{2,}\\s*:|$)", "i").exec(bloque);
-      return r ? r[1].trim() : "";
+      const r = new RegExp(etq + "\\s*\\.*\\s*:\\s*", "i").exec(bloque);
+      if (!r) return "";
+      const resto = bloque.slice(r.index + r[0].length);
+      const sig = RE_SIG_ETIQUETA.exec(resto);
+      const corte = sig ? sig.index : resto.length;
+      return resto.slice(0, Math.min(corte, 300)).replace(/\s+/g, " ").trim();
     };
     const nombreBruto = campo("Nombre");
     const rol = rolDelHecho(campo("Naturaleza\\s+del\\s+Derecho") || bloque);
