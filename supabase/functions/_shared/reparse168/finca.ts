@@ -29,6 +29,11 @@ export function señalesFinca(raw: string): string[] {
   if (cru) out.push(`CRU:${cru[1]}`);
   const finca = /FINCA\s+DE\s+([A-ZÁÉÍÓÚÑ\s.\-]{3,40}?)\s*N[ºo°]?\s*:?\s*(\d{1,7})/i.exec(src);
   if (finca) out.push(`FINCA:${finca[1].replace(/\s+/g, " ").trim().toUpperCase()}:${finca[2]}`);
+  // Número de finca registral, venga del encabezado o del cuerpo del informe.
+  const num = finca?.[2]
+    ?? /Finca\s+registral\s*:?\s*([\d.]{1,9})/i.exec(src)?.[1]?.replace(/\./g, "")
+    ?? null;
+  if (num) out.push(`FINCANUM:${String(Number(num))}`);
   return out;
 }
 
