@@ -271,6 +271,10 @@ export default function GestorComerciales() {
             ))
           )}
         </TabsContent>
+
+        <TabsContent value="productividad">
+          <ProductividadTab />
+        </TabsContent>
       </Tabs>
     </div>
   );
