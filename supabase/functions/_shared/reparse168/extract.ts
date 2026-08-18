@@ -189,6 +189,24 @@ function extraerPorTabla(seccion: string, base: number): ExtraccionNota {
   for (const [a, b] of cortes) {
     const registro = seccion.slice(a, b);
     if (!/[A-ZÁÉÍÓÚÜÑ]{3}/.test(registro)) continue;
+    // Cuando el PDF llega sin saltos de línea, todas las filas de la tabla
+    // caen en un único registro: se segmenta por cada mención de derecho.
+    const anclas: number[] = [];
+    RE_ANCLA_TABLA.lastIndex = 0;
+    let ma: RegExpExecArray | null;
+    while ((ma = RE_ANCLA_TABLA.exec(registro))) anclas.push(ma.index);
+    if (anclas.length > 1) {
+      for (let i = 0; i < anclas.length; i++) {
+        const ini = anclas[i];
+        const fin = i + 1 < anclas.length ? anclas[i + 1] : registro.length;
+        const hechoTramo = corteHecho(registro.slice(ini, fin));
+        const idTramo = registro.slice(i > 0 ? anclas[i - 1] : 0, ini);
+        const r = construirHecho(idTramo, hechoTramo, base + a + ini);
+        if (r.hecho) hechos.push(r.hecho);
+        else descartes.push({ offset: base + a + ini, motivo: r.motivo!, cita: hechoTramo.replace(/\s+/g, " ").slice(0, 200) });
+      }
+      continue;
+    }
     // Cabecera: nombre + documento + tomo/libro/folio/alta; el derecho va después.
     const mm = /(?:\d{1,5}\s+){2,4}(?=[A-Za-zÁÉÍÓÚÜÑ])/.exec(registro);
     const sep = mm ? mm.index + mm[0].length : 0;
