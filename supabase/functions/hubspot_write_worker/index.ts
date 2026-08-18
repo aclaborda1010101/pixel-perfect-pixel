@@ -134,7 +134,13 @@ async function drain(sb: any, activado: boolean, limite: number) {
         resultado.simuladas++;
         if (resultado.muestras.length < 5) resultado.muestras.push({ tarea: fila.entidad_id, propiedades: props, deal: (extra as any).dealId ?? null });
         await sb.from("hubspot_write_queue").update({
-          estado: "simulado", payload: { ...fila.payload, propiedades: props, deal_id: (extra as any).dealId ?? null },
+          estado: "simulado",
+          payload: {
+            ...fila.payload, propiedades: props,
+            deal_id: (extra as any).dealId ?? null,
+            contact_id: (extra as any).contactId ?? null,
+            campos_faltantes: (extra as any).faltantes ?? null,
+          },
           processed_at: new Date().toISOString(), last_error: null,
         }).eq("id", fila.id);
         continue;
