@@ -24,8 +24,8 @@ describe("maqueta de productividad: render", () => {
     expect(screen.getByText(/Vista de diseño/)).toBeTruthy();
     expect(screen.getByText("Cuadro de rentas y vencimiento de contratos")).toBeTruthy();
     expect(screen.getAllByText("25%").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Jesús/)).toBeTruthy();
-    expect(screen.getByText(/David/)).toBeTruthy();
+    expect(screen.getAllByText(/Jesús/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/David/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Importes orientativos/)).toBeTruthy();
     expect(screen.getByText(/cita textual del propietario/)).toBeTruthy();
   });
