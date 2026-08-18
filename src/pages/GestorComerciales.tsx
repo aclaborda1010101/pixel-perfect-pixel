@@ -41,6 +41,22 @@ function usePanel(period: PeriodKey) {
   });
 }
 
+/** Red de seguridad: tareas abiertas cuya llamada ya está registrada. */
+function useTareasSinCerrar() {
+  return useQuery({
+    queryKey: ["tareas-llamada-sin-cerrar"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("v_tareas_llamada_sin_cerrar" as any) as any)
+        .select("task_id,title,task_type,call_fecha,created_at,due_date")
+        .order("call_fecha", { ascending: false })
+        .limit(50);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as any[];
+    },
+    retry: 1,
+  });
+}
+
 function TablaTareas({
   rows,
   mostrarCierre,
