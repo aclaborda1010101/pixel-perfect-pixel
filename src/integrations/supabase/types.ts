@@ -116,21 +116,6 @@ export type Database = {
           },
         ]
       }
-      _a1_pares: {
-        Row: {
-          building_id: string | null
-          owner_id: string | null
-        }
-        Insert: {
-          building_id?: string | null
-          owner_id?: string | null
-        }
-        Update: {
-          building_id?: string | null
-          owner_id?: string | null
-        }
-        Relationships: []
-      }
       _a2_addr_cand: {
         Row: {
           building_id: string | null
@@ -236,30 +221,6 @@ export type Database = {
         }
         Relationships: []
       }
-      _altas_norm: {
-        Row: {
-          building_id: string | null
-          es_empresa: boolean | null
-          nombre_extraido: string | null
-          nombre_limpio: string | null
-          titular_id: string | null
-        }
-        Insert: {
-          building_id?: string | null
-          es_empresa?: boolean | null
-          nombre_extraido?: string | null
-          nombre_limpio?: string | null
-          titular_id?: string | null
-        }
-        Update: {
-          building_id?: string | null
-          es_empresa?: boolean | null
-          nombre_extraido?: string | null
-          nombre_limpio?: string | null
-          titular_id?: string | null
-        }
-        Relationships: []
-      }
       _audit_sin_exp: {
         Row: {
           hs_id: string | null
@@ -278,60 +239,6 @@ export type Database = {
         }
         Relationships: []
       }
-      _decisiones_20260813: {
-        Row: {
-          decision: string | null
-          derecho: string | null
-          dudosa: boolean | null
-          edificio: string | null
-          titular: string | null
-        }
-        Insert: {
-          decision?: string | null
-          derecho?: string | null
-          dudosa?: boolean | null
-          edificio?: string | null
-          titular?: string | null
-        }
-        Update: {
-          decision?: string | null
-          derecho?: string | null
-          dudosa?: boolean | null
-          edificio?: string | null
-          titular?: string | null
-        }
-        Relationships: []
-      }
-      _excluidos_para_jesus: {
-        Row: {
-          derecho: string | null
-          edificio: string | null
-          hs_deal_id: string | null
-          motivo: string | null
-          pct: number | null
-          porcentajes_estado: string | null
-          titular: string | null
-        }
-        Insert: {
-          derecho?: string | null
-          edificio?: string | null
-          hs_deal_id?: string | null
-          motivo?: string | null
-          pct?: number | null
-          porcentajes_estado?: string | null
-          titular?: string | null
-        }
-        Update: {
-          derecho?: string | null
-          edificio?: string | null
-          hs_deal_id?: string | null
-          motivo?: string | null
-          pct?: number | null
-          porcentajes_estado?: string | null
-          titular?: string | null
-        }
-        Relationships: []
-      }
       _export_notas: {
         Row: {
           direccion: string | null
@@ -347,78 +254,6 @@ export type Database = {
           direccion?: string | null
           n_notas?: number | null
           titulares_con_pct?: number | null
-        }
-        Relationships: []
-      }
-      _flags_20260811: {
-        Row: {
-          building_id: string | null
-          matching_ok: boolean | null
-          sumas_ok: boolean | null
-        }
-        Insert: {
-          building_id?: string | null
-          matching_ok?: boolean | null
-          sumas_ok?: boolean | null
-        }
-        Update: {
-          building_id?: string | null
-          matching_ok?: boolean | null
-          sumas_ok?: boolean | null
-        }
-        Relationships: []
-      }
-      _flags_20260813: {
-        Row: {
-          building_id: string | null
-          matching_ok: boolean | null
-          sumas_ok: boolean | null
-        }
-        Insert: {
-          building_id?: string | null
-          matching_ok?: boolean | null
-          sumas_ok?: boolean | null
-        }
-        Update: {
-          building_id?: string | null
-          matching_ok?: boolean | null
-          sumas_ok?: boolean | null
-        }
-        Relationships: []
-      }
-      _flags_final: {
-        Row: {
-          building_id: string | null
-          matching_ok: boolean | null
-          sumas_ok: boolean | null
-        }
-        Insert: {
-          building_id?: string | null
-          matching_ok?: boolean | null
-          sumas_ok?: boolean | null
-        }
-        Update: {
-          building_id?: string | null
-          matching_ok?: boolean | null
-          sumas_ok?: boolean | null
-        }
-        Relationships: []
-      }
-      _flags_fix_20260813: {
-        Row: {
-          building_id: string | null
-          matching_ok: boolean | null
-          sumas_ok: boolean | null
-        }
-        Insert: {
-          building_id?: string | null
-          matching_ok?: boolean | null
-          sumas_ok?: boolean | null
-        }
-        Update: {
-          building_id?: string | null
-          matching_ok?: boolean | null
-          sumas_ok?: boolean | null
         }
         Relationships: []
       }
@@ -443,141 +278,6 @@ export type Database = {
           fn_name?: string | null
           id?: number
           note?: string | null
-        }
-        Relationships: []
-      }
-      _jesus_revision_20260812: {
-        Row: {
-          building_id: string | null
-          direccion: string | null
-          estado_actual: string | null
-          nuevo_estado: string | null
-          patron: string | null
-          sim: number | null
-        }
-        Insert: {
-          building_id?: string | null
-          direccion?: string | null
-          estado_actual?: string | null
-          nuevo_estado?: string | null
-          patron?: string | null
-          sim?: number | null
-        }
-        Update: {
-          building_id?: string | null
-          direccion?: string | null
-          estado_actual?: string | null
-          nuevo_estado?: string | null
-          patron?: string | null
-          sim?: number | null
-        }
-        Relationships: []
-      }
-      _lote_ed: {
-        Row: {
-          edificio: string | null
-        }
-        Insert: {
-          edificio?: string | null
-        }
-        Update: {
-          edificio?: string | null
-        }
-        Relationships: []
-      }
-      _lote_excl: {
-        Row: {
-          edificio: string | null
-          motivo: string | null
-          titular: string | null
-        }
-        Insert: {
-          edificio?: string | null
-          motivo?: string | null
-          titular?: string | null
-        }
-        Update: {
-          edificio?: string | null
-          motivo?: string | null
-          titular?: string | null
-        }
-        Relationships: []
-      }
-      _match_20260813: {
-        Row: {
-          id: string | null
-          owner_id: string | null
-          sim: number | null
-        }
-        Insert: {
-          id?: string | null
-          owner_id?: string | null
-          sim?: number | null
-        }
-        Update: {
-          id?: string | null
-          owner_id?: string | null
-          sim?: number | null
-        }
-        Relationships: []
-      }
-      _match_empresas_20260811: {
-        Row: {
-          company_id: string | null
-          id: string | null
-          nombre: string | null
-          sim: number | null
-        }
-        Insert: {
-          company_id?: string | null
-          id?: string | null
-          nombre?: string | null
-          sim?: number | null
-        }
-        Update: {
-          company_id?: string | null
-          id?: string | null
-          nombre?: string | null
-          sim?: number | null
-        }
-        Relationships: []
-      }
-      _matching_20260811: {
-        Row: {
-          id: string | null
-          owner_id: string | null
-          sim: number | null
-        }
-        Insert: {
-          id?: string | null
-          owner_id?: string | null
-          sim?: number | null
-        }
-        Update: {
-          id?: string | null
-          owner_id?: string | null
-          sim?: number | null
-        }
-        Relationships: []
-      }
-      _notas_pedidas_20260813: {
-        Row: {
-          building_id: string | null
-          direccion: string | null
-          patron: string | null
-          sim: number | null
-        }
-        Insert: {
-          building_id?: string | null
-          direccion?: string | null
-          patron?: string | null
-          sim?: number | null
-        }
-        Update: {
-          building_id?: string | null
-          direccion?: string | null
-          patron?: string | null
-          sim?: number | null
         }
         Relationships: []
       }
@@ -626,54 +326,6 @@ export type Database = {
           flag_antes?: boolean | null
           id?: string | null
           score_antes?: number | null
-        }
-        Relationships: []
-      }
-      _plan_altas: {
-        Row: {
-          building_id: string | null
-          edificio: string | null
-          es_empresa: boolean | null
-          excluido: boolean | null
-          nombre_extraido: string | null
-          porcentaje: number | null
-          rol: string | null
-          titular_id: string | null
-        }
-        Insert: {
-          building_id?: string | null
-          edificio?: string | null
-          es_empresa?: boolean | null
-          excluido?: boolean | null
-          nombre_extraido?: string | null
-          porcentaje?: number | null
-          rol?: string | null
-          titular_id?: string | null
-        }
-        Update: {
-          building_id?: string | null
-          edificio?: string | null
-          es_empresa?: boolean | null
-          excluido?: boolean | null
-          nombre_extraido?: string | null
-          porcentaje?: number | null
-          rol?: string | null
-          titular_id?: string | null
-        }
-        Relationships: []
-      }
-      _sumcheck_20260812: {
-        Row: {
-          building_id: string | null
-          pct: number | null
-        }
-        Insert: {
-          building_id?: string | null
-          pct?: number | null
-        }
-        Update: {
-          building_id?: string | null
-          pct?: number | null
         }
         Relationships: []
       }
