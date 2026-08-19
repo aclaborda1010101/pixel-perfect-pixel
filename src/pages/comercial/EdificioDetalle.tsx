@@ -303,6 +303,14 @@ export default function ComercialEdificioDetalle() {
         <InterlocutorFlag nombre={ownersExtra[b.interlocutor_owner_id]?.nombre_display ?? owners.find((o: any) => o.owner_id === b.interlocutor_owner_id)?.nombre ?? null} />
       )}
 
+      {b.porcentajes_estado !== "verificado" && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          {b.porcentajes_estado === "sin_nota" || b.porcentajes_estado === "sin_propietarios"
+            ? "Todavía no consta la nota del registro con los propietarios de este edificio: la primera acción es conseguirla."
+            : "El reparto de propiedad está en revisión: los porcentajes que ves proceden de la nota pero no cuadran al 100 %. Puedes llamar igualmente, pero confírmalos con el propietario."}
+        </div>
+      )}
+
       {/* Resumen narrativo + scoring visual */}
       {/* Resumen del edificio: qué es y por qué es (o no) oportunidad */}
       <EdificioResumenCard b={b} s={s} analysis={analysis} anioConstr={anioConstr} ownersCount={ownersCount ?? b.numero_propietarios ?? s.owners_count ?? 0} catastro={catastro} />
@@ -579,7 +587,7 @@ export default function ComercialEdificioDetalle() {
                             inválido
                           </span>
                         )}
-                        {pctKnown && o.pct_origen && !['desconocido', 'nota_simple'].includes(String(o.pct_origen)) && (
+                        {pctKnown && o.pct_origen && !['desconocido', 'nota_simple', 'en_revision'].includes(String(o.pct_origen)) && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground"
                             title={`Origen del %: ${o.pct_origen}`}
