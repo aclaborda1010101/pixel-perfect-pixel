@@ -102,6 +102,8 @@ export type ContextoTarjeta = {
   propietario?: string | null;
   telefono?: string | null;
   participacion?: number | string | null;
+  /** El reparto de propiedad del edificio no está confirmado todavía. */
+  porcentajesEnRevision?: boolean;
 };
 
 export type Tarjeta = {
@@ -117,11 +119,19 @@ function contacto(c: ContextoTarjeta): string {
   return 'el propietario principal (aún sin nombre en la ficha: identifícalo primero)';
 }
 
+/** Aviso en lenguaje llano cuando el reparto de propiedad no está confirmado. */
+export const AVISO_PORCENTAJES_EN_REVISION =
+  'El reparto de propiedad de este edificio está en revisión: no des por buenos los porcentajes y confírmalos durante la llamada.';
+
 /** Redacta la tarjeta con las 3 secciones obligatorias y en lenguaje llano. */
 export function redactarTarjeta(tipo: Tipo, c: ContextoTarjeta): Tarjeta {
   const dir = c.direccion;
   const quien = contacto(c);
-  const parte = c.participacion != null ? ` Su participación en el edificio es del ${c.participacion}%.` : '';
+  // Nunca afirmamos un porcentaje que no esté confirmado.
+  const parte =
+    c.participacion != null && !c.porcentajesEnRevision
+      ? ` Su participación en el edificio es del ${c.participacion}%.`
+      : '';
 
   let title: string;
   let pasos: string[];
@@ -194,6 +204,7 @@ export function redactarTarjeta(tipo: Tipo, c: ContextoTarjeta): Tarjeta {
   const description = [
     'Qué hacer',
     ...pasos.map((p, i) => `${i + 1}. ${p}`),
+    ...(c.porcentajesEnRevision ? ['', 'Ten en cuenta', AVISO_PORCENTAJES_EN_REVISION] : []),
     '',
     'Objetivo',
     objetivo,
