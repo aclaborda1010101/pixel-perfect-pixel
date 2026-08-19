@@ -11,9 +11,21 @@ export type GrupoDerecho = "propiedad" | "usufructo" | "sin_derecho";
 export const TEXTO_INFLUENCIADOR =
   "No consta en la nota simple: posible familiar o allegado que puede influir en la negociación";
 
-/** ¿Este propietario está marcado como influenciador en el edificio? */
-export function esInfluenciador(o: { es_influencer?: unknown }): boolean {
-  return o?.es_influencer === true;
+/**
+ * Influenciador = consta en la ficha del edificio y NO tiene ningún derecho en
+ * la nota. Quien tiene derecho (aunque su porcentaje esté en revisión) es
+ * propietario y nunca se etiqueta como influenciador.
+ */
+export function esInfluenciador(o: {
+  es_influencer?: unknown;
+  pct_pleno?: unknown;
+  pct_nuda?: unknown;
+  pct_usufructo?: unknown;
+  pct_propiedad?: unknown;
+  pct_invalido?: unknown;
+}): boolean {
+  if (o?.es_influencer !== true) return false;
+  return grupoDerecho(o) === "sin_derecho";
 }
 
 /** Chapita discreta, con color propio distinto al de los derechos. */

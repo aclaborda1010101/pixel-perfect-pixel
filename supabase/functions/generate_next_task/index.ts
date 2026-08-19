@@ -9,6 +9,9 @@ import {
   redactarTarjeta,
   proximaFechaLimite,
   taskKeyFor,
+  ESTADOS_LLAMABLES,
+  ESTADOS_SOLO_INVESTIGACION,
+  tiposPermitidosPorEstado,
 } from '../_shared/generadorTareas.ts';
 import { propietariosContactables } from '../_shared/interlocutor.ts';
 import { insertGeneratedTask } from '../_shared/taskWriters.ts';
@@ -80,12 +83,12 @@ Deno.serve(async (req) => {
       const { data, error } = await admin
         .from('buildings')
         .select('id,direccion,ciudad,estado,porcentajes_estado,interlocutor_owner_id')
-        .eq('porcentajes_estado', 'verificado')
+        .in('porcentajes_estado', [...ESTADOS_LLAMABLES, ...ESTADOS_SOLO_INVESTIGACION])
         .in('id', ids.slice(i, i + 100));
       if (error) throw error;
       edificios.push(...(data ?? []));
     }
-    if (edificios.length === 0) return json(200, { ok: true, created: null, reason: 'sin_edificios_verificados' });
+    if (edificios.length === 0) return json(200, { ok: true, created: null, reason: 'sin_edificios_trabajables' });
 
     // 2. Tareas abiertas del comercial: bloquean el mismo tipo en el mismo edificio.
     const { data: abiertas, error: tErr } = await admin
@@ -159,7 +162,8 @@ Deno.serve(async (req) => {
       const top = owners[0] ?? null;
       const conTelefono = owners.find((o: any) => o.telefono) ?? null;
       const puntuacion = Number(top?.score ?? 0);
-      for (const tipo of TIPOS) {
+      const permitidos = tiposPermitidosPorEstado((b as any).porcentajes_estado);
+      for (const tipo of permitidos) {
         if (ocupado.has(`${b.id}|${tipo}`)) continue;
         const necesitaPropietario = tipo === 'T-02_03' || tipo === 'T-04';
         const owner = conTelefono ?? top;
@@ -203,6 +207,7 @@ Deno.serve(async (req) => {
       propietario: elegido.owner?.nombre ?? null,
       telefono: elegido.owner?.telefono ?? null,
       participacion: elegido.owner?.pct_propiedad ?? null,
+      porcentajesEnRevision: String(elegido.building.porcentajes_estado ?? '') !== 'verificado',
     });
 
     const ahora = new Date();
