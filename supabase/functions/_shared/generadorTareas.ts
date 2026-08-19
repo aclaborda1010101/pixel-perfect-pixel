@@ -24,6 +24,22 @@ export const MIX_POR_DEFECTO: Record<string, number> = {
 };
 
 /**
+ * Estados del reparto de propiedad en los que se puede llamar al propietario.
+ * «Puedo llamar» y «sé el porcentaje exacto» son cosas distintas.
+ */
+export const ESTADOS_LLAMABLES = ['verificado', 'verificado_pendiente_matching', 'a_revisar'];
+/** Sin nota o sin propietarios sólo cabe investigar: nunca telefonear. */
+export const ESTADOS_SOLO_INVESTIGACION = ['sin_nota', 'sin_propietarios'];
+
+/** Tipos de tarea admisibles según el estado del reparto de propiedad. */
+export function tiposPermitidosPorEstado(estado: string | null | undefined): Tipo[] {
+  const e = String(estado ?? '');
+  if (ESTADOS_SOLO_INVESTIGACION.includes(e)) return ['T-01'];
+  if (ESTADOS_LLAMABLES.includes(e)) return [...TIPOS];
+  return [];
+}
+
+/**
  * Devuelve el porcentaje del tipo aceptando tanto la nomenclatura actual
  * (T-01, T-02_03…) como la antigua (T1, T2_T3…).
  */
