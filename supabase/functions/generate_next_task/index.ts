@@ -14,6 +14,21 @@ import { propietariosContactables } from '../_shared/interlocutor.ts';
 import { insertGeneratedTask } from '../_shared/taskWriters.ts';
 import { agruparLlamadas, calcularCadencia, permiteTipo, type Cadencia } from '../_shared/cadencias.ts';
 
+// Estados del reparto de propiedad que permiten trabajar el edificio.
+// «Puedo llamar» y «sé el porcentaje exacto» son dos cosas distintas.
+const ESTADOS_LLAMABLES = ['verificado', 'verificado_pendiente_matching', 'a_revisar'];
+// Sin nota o sin propietarios sólo cabe investigar: nunca llamar.
+const ESTADOS_SOLO_INVESTIGACION = ['sin_nota', 'sin_propietarios'];
+const TIPOS_LLAMADA: Tipo[] = ['T-02_03', 'T-04'];
+
+/** Tipos de tarea admisibles según el estado del reparto de propiedad. */
+export function tiposPermitidosPorEstado(estado: string | null | undefined): Tipo[] {
+  const e = String(estado ?? '');
+  if (ESTADOS_SOLO_INVESTIGACION.includes(e)) return ['T-01'];
+  if (ESTADOS_LLAMABLES.includes(e)) return [...TIPOS];
+  return [];
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -80,12 +95,12 @@ Deno.serve(async (req) => {
       const { data, error } = await admin
         .from('buildings')
         .select('id,direccion,ciudad,estado,porcentajes_estado,interlocutor_owner_id')
-        .eq('porcentajes_estado', 'verificado')
+        .in('porcentajes_estado', [...ESTADOS_LLAMABLES, ...ESTADOS_SOLO_INVESTIGACION])
         .in('id', ids.slice(i, i + 100));
       if (error) throw error;
       edificios.push(...(data ?? []));
     }
-    if (edificios.length === 0) return json(200, { ok: true, created: null, reason: 'sin_edificios_verificados' });
+    if (edificios.length === 0) return json(200, { ok: true, created: null, reason: 'sin_edificios_trabajables' });
 
     // 2. Tareas abiertas del comercial: bloquean el mismo tipo en el mismo edificio.
     const { data: abiertas, error: tErr } = await admin
@@ -159,7 +174,8 @@ Deno.serve(async (req) => {
       const top = owners[0] ?? null;
       const conTelefono = owners.find((o: any) => o.telefono) ?? null;
       const puntuacion = Number(top?.score ?? 0);
-      for (const tipo of TIPOS) {
+      const permitidos = tiposPermitidosPorEstado((b as any).porcentajes_estado);
+      for (const tipo of permitidos) {
         if (ocupado.has(`${b.id}|${tipo}`)) continue;
         const necesitaPropietario = tipo === 'T-02_03' || tipo === 'T-04';
         const owner = conTelefono ?? top;
@@ -203,6 +219,7 @@ Deno.serve(async (req) => {
       propietario: elegido.owner?.nombre ?? null,
       telefono: elegido.owner?.telefono ?? null,
       participacion: elegido.owner?.pct_propiedad ?? null,
+      porcentajesEnRevision: String(elegido.building.porcentajes_estado ?? '') !== 'verificado',
     });
 
     const ahora = new Date();
