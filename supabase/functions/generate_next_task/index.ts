@@ -9,25 +9,13 @@ import {
   redactarTarjeta,
   proximaFechaLimite,
   taskKeyFor,
+  ESTADOS_LLAMABLES,
+  ESTADOS_SOLO_INVESTIGACION,
+  tiposPermitidosPorEstado,
 } from '../_shared/generadorTareas.ts';
 import { propietariosContactables } from '../_shared/interlocutor.ts';
 import { insertGeneratedTask } from '../_shared/taskWriters.ts';
 import { agruparLlamadas, calcularCadencia, permiteTipo, type Cadencia } from '../_shared/cadencias.ts';
-
-// Estados del reparto de propiedad que permiten trabajar el edificio.
-// «Puedo llamar» y «sé el porcentaje exacto» son dos cosas distintas.
-const ESTADOS_LLAMABLES = ['verificado', 'verificado_pendiente_matching', 'a_revisar'];
-// Sin nota o sin propietarios sólo cabe investigar: nunca llamar.
-const ESTADOS_SOLO_INVESTIGACION = ['sin_nota', 'sin_propietarios'];
-const TIPOS_LLAMADA: Tipo[] = ['T-02_03', 'T-04'];
-
-/** Tipos de tarea admisibles según el estado del reparto de propiedad. */
-export function tiposPermitidosPorEstado(estado: string | null | undefined): Tipo[] {
-  const e = String(estado ?? '');
-  if (ESTADOS_SOLO_INVESTIGACION.includes(e)) return ['T-01'];
-  if (ESTADOS_LLAMABLES.includes(e)) return [...TIPOS];
-  return [];
-}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
