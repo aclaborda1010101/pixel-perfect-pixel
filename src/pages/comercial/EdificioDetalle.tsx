@@ -410,6 +410,11 @@ export default function ComercialEdificioDetalle() {
             >
               Suma de propiedad: {sumaVisible.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%
             </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              {fuentePct === "crm"
+                ? "Porcentajes tomados de HubSpot (suman 100 %). No se mezclan con los de la nota del Registro."
+                : "Porcentajes tomados de la nota del Registro."}
+            </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {([
                 ["todos", `Todos (${ownersAll.length})`],
@@ -462,6 +467,15 @@ export default function ComercialEdificioDetalle() {
           {pctUnknownCount > 0 && (
             <div className="mx-5 mt-4 rounded-md border border-border-faint bg-surface-1 px-3 py-2 text-xs text-muted-foreground">
               {pctUnknownCount} de {(data.owners ?? []).length} propietarios sin % de propiedad conocido.
+            </div>
+          )}
+          {titularesSinFicha > 0 && (
+            <div className="mx-5 mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              Faltan {titularesSinFicha} titulares que constan en la nota del Registro
+              {pctSinFicha > 0
+                ? ` (suman ${pctSinFicha.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%)`
+                : ""}{" "}
+              y todavía no tienen ficha. Están listados en el Orquestador como propuesta de alta.
             </div>
           )}
           <p className="mx-5 mt-3 text-[11px] leading-snug text-muted-foreground" title={AYUDA_DERECHOS}>
