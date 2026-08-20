@@ -171,6 +171,10 @@ export default function ComercialEdificioDetalle() {
       const { data: companies } = await (supabase.from("building_companies" as any) as any)
         .select("*, companies:company_id(id, nombre, cif, metadatos)")
         .eq("building_id", id!);
+      const { data: sinFicha } = await (supabase.from("v_building_titulares_sin_ficha" as any) as any)
+        .select("n_sin_ficha, pct_sin_ficha")
+        .eq("building_id", id!)
+        .maybeSingle();
       // Backfill desde Catastro (authority cache) — año construcción y desglose por usos.
       let catastro: any = null;
       const rc14 = (b as any)?.refcatastral ? String((b as any).refcatastral).slice(0, 14) : null;
@@ -190,6 +194,7 @@ export default function ComercialEdificioDetalle() {
         companies: (companies ?? []) as any[],
         catastro,
         sucesion: (sucesion ?? null) as any,
+        sinFicha: (sinFicha ?? null) as any,
         ownersExtra: Object.fromEntries(
           ((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, { ...(r.owners || {}), cuota: r.cuota }]),
         ),
