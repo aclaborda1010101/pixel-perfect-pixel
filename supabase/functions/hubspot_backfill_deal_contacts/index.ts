@@ -193,8 +193,21 @@ Deno.serve(async (req) => {
         });
         const { error: upErr } = await supabase.from('building_owners')
           .upsert(dedup, { onConflict: 'building_id,owner_id', ignoreDuplicates: true });
-        if (upErr) { stats.fallos++; console.error('[backfill] building_owners:', upErr); }
-        else stats.vinculos_creados += dedup.length;
+        if (!upErr) {
+          stats.vinculos_creados += dedup.length;
+        } else {
+          // Puede fallar el lote entero por un duplicado de nombre normalizado:
+          // reintentar fila a fila e ignorar solo los duplicados.
+          for (const row of dedup) {
+            const { error: rowErr } = await supabase.from('building_owners')
+              .upsert(row, { onConflict: 'building_id,owner_id', ignoreDuplicates: true });
+            if (!rowErr) stats.vinculos_creados++;
+            else if (rowErr.code !== '23505') {
+              stats.fallos++;
+              console.error('[backfill] building_owners:', rowErr);
+            }
+          }
+        }
       }
     }
 
