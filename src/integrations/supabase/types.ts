@@ -69,6 +69,13 @@ export type Database = {
             foreignKeyName: "_a1_dangling_review_candidato_fkey"
             columns: ["candidato"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "_a1_dangling_review_candidato_fkey"
+            columns: ["candidato"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -571,6 +578,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assets_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "assets_building_id_fkey"
@@ -1796,6 +1810,13 @@ export type Database = {
             foreignKeyName: "building_analysis_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_analysis_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -1924,6 +1945,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_companies_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_companies_building_id_fkey"
@@ -2058,6 +2086,13 @@ export type Database = {
             foreignKeyName: "building_feedback_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -2147,6 +2182,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_hs_deal_link_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_hs_deal_link_audit_building_id_fkey"
@@ -2244,6 +2286,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
@@ -2349,6 +2398,13 @@ export type Database = {
             foreignKeyName: "building_imagery_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_imagery_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -2438,6 +2494,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_interlocutor_history_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_interlocutor_history_building_id_fkey"
@@ -2625,6 +2688,13 @@ export type Database = {
             foreignKeyName: "building_owners_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -2748,6 +2818,13 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_processing_status_building_id_fkey"
@@ -2911,6 +2988,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_property_rights_building_id_fkey"
@@ -3185,6 +3269,13 @@ export type Database = {
             foreignKeyName: "building_sanitation_reviews_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_sanitation_reviews_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -3307,6 +3398,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_tasks_building_id_fkey"
@@ -3756,6 +3854,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "call_sessions_building_id_fkey"
@@ -4222,6 +4327,13 @@ export type Database = {
             foreignKeyName: "catastro_data_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_data_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -4517,6 +4629,13 @@ export type Database = {
             foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -4609,6 +4728,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_gemelos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "deals_gemelos_building_id_fkey"
@@ -4745,6 +4871,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "descubrimientos_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "descubrimientos_building_id_fkey"
@@ -4935,6 +5068,13 @@ export type Database = {
             foreignKeyName: "enrichment_jobs_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "enrichment_jobs_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -5087,6 +5227,13 @@ export type Database = {
             foreignKeyName: "escaleras_control_set_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "escaleras_control_set_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -5191,6 +5338,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escaleras_eval_results_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "escaleras_eval_results_building_id_fkey"
@@ -5309,6 +5463,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "escaleras_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "escaleras_validation_queue_building_id_fkey"
@@ -5436,6 +5597,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "esquina_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "esquina_validation_queue_building_id_fkey"
@@ -5607,6 +5775,13 @@ export type Database = {
             foreignKeyName: "facade_window_counts_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "facade_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -5714,6 +5889,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facade_window_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "facade_window_ground_truth_building_id_fkey"
@@ -6804,6 +6986,13 @@ export type Database = {
             foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "interlocutor_contact_exceptions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -7549,6 +7738,13 @@ export type Database = {
             foreignKeyName: "notas_simples_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -7744,6 +7940,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_call_building_assignment_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "owner_call_building_assignment_building_id_fkey"
@@ -8382,6 +8585,13 @@ export type Database = {
             foreignKeyName: "patio_window_counts_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "patio_window_counts_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -8569,6 +8779,13 @@ export type Database = {
             foreignKeyName: "proteccion_validation_queue_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "proteccion_validation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -8729,6 +8946,13 @@ export type Database = {
             foreignKeyName: "qa_ground_truth_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "qa_ground_truth_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -8856,6 +9080,13 @@ export type Database = {
             foreignKeyName: "reconciliation_queue_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_queue_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -8960,6 +9191,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scoring_v2_feedback_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "scoring_v2_feedback_building_id_fkey"
@@ -9108,6 +9346,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scoring_v2_seed_matched_building_id_fkey"
+            columns: ["matched_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "scoring_v2_seed_matched_building_id_fkey"
@@ -9973,6 +10218,13 @@ export type Database = {
             foreignKeyName: "call_sessions_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "call_sessions_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -10042,6 +10294,18 @@ export type Database = {
         }
         Relationships: []
       }
+      v_building_estado_calculado: {
+        Row: {
+          building_id: string | null
+          estado_calculado: string | null
+          n_fincas: number | null
+          n_personas: number | null
+          n_titulares: number | null
+          suma: number | null
+          titulares_sin_ficha: number | null
+        }
+        Relationships: []
+      }
       v_building_fincas: {
         Row: {
           building_id: string | null
@@ -10054,6 +10318,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "notas_simples_building_id_fkey"
@@ -10170,6 +10441,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_property_rights_building_id_fkey"
@@ -10310,6 +10588,13 @@ export type Database = {
             foreignKeyName: "building_owners_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -10377,6 +10662,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "notas_simples_building_id_fkey"
@@ -10458,6 +10750,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_owners_building_id_fkey"
@@ -10592,6 +10891,13 @@ export type Database = {
             foreignKeyName: "building_processing_status_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_processing_status_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -10707,6 +11013,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_owners_building_id_fkey"
@@ -11007,6 +11320,13 @@ export type Database = {
             foreignKeyName: "building_owners_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -11128,6 +11448,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_owners_building_id_fkey"
@@ -11330,6 +11657,13 @@ export type Database = {
             foreignKeyName: "building_property_rights_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -11428,6 +11762,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_property_rights_building_id_fkey"
@@ -11565,6 +11906,13 @@ export type Database = {
             foreignKeyName: "building_property_rights_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_property_rights_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -11674,6 +12022,13 @@ export type Database = {
             foreignKeyName: "building_tasks_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_tasks_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
             referencedRelation: "v_building_graph"
             referencedColumns: ["building_id"]
           },
@@ -11752,6 +12107,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notas_simples_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "notas_simples_building_id_fkey"
@@ -11845,6 +12207,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "buildings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
           },
           {
             foreignKeyName: "building_owners_building_id_fkey"
@@ -11958,6 +12327,15 @@ export type Database = {
       }
       archivar_correcciones_obsoletas: { Args: never; Returns: number }
       audit_building_owner_cuotas: { Args: never; Returns: Json }
+      auditar_estado_vs_suma: {
+        Args: never
+        Returns: {
+          building_id: string
+          estado: string
+          estado_calculado: string
+          suma: number
+        }[]
+      }
       auditar_estados_incoherentes: {
         Args: never
         Returns: {
@@ -12295,6 +12673,10 @@ export type Database = {
       person_match_key: { Args: { p_name: string }; Returns: string }
       person_merge_key: { Args: { p: string }; Returns: string }
       recalcular_influenciadores: {
+        Args: { p_building_id?: string }
+        Returns: Json
+      }
+      recalcular_porcentajes_estado: {
         Args: { p_building_id?: string }
         Returns: Json
       }

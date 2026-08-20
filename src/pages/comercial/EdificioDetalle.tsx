@@ -52,6 +52,7 @@ import { Label } from "@/components/ui/label";
 import { avisoContactosNoCargados } from "@/lib/hubspotSync";
 import { SyncHubspotBar } from "@/components/buildings/SyncHubspotBar";
 import { explicaSuma, explicaFuente } from "@/lib/sumaPropiedad";
+import { explicaEstado, ESTADO_LABEL, type EstadoPropiedad } from "@/lib/estadoEdificio";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -365,13 +366,20 @@ export default function ComercialEdificioDetalle() {
         <InterlocutorFlag nombre={ownersExtra[b.interlocutor_owner_id]?.nombre_display ?? owners.find((o: any) => o.owner_id === b.interlocutor_owner_id)?.nombre ?? null} />
       )}
 
-      {b.porcentajes_estado !== "verificado" && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          {b.porcentajes_estado === "sin_nota" || b.porcentajes_estado === "sin_propietarios"
-            ? "Todavía no consta la nota del registro con los propietarios de este edificio: la primera acción es conseguirla."
-            : "El reparto de propiedad está en revisión: los porcentajes que ves proceden de la nota pero no cuadran al 100 %. Puedes llamar igualmente, pero confírmalos con el propietario."}
-        </div>
-      )}
+      <div
+        className={
+          estadoPct === "verificado"
+            ? "rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400"
+            : "rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400"
+        }
+      >
+        <span className="font-medium">{ESTADO_LABEL[estadoPct as EstadoPropiedad] ?? "Estado"}: </span>
+        {explicaEstado(estadoPct, {
+          suma: sumaVisible,
+          titularesSinFicha,
+          nFincas,
+        })}
+      </div>
 
       {/* Resumen narrativo + scoring visual */}
       {/* Resumen del edificio: qué es y por qué es (o no) oportunidad */}
