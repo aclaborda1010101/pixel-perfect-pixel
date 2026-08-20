@@ -1,0 +1,1 @@
+ALTER VIEW public.v_building_estado_calculado SET (security_invoker = on);
