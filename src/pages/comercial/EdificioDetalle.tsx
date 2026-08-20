@@ -176,6 +176,10 @@ export default function ComercialEdificioDetalle() {
         .select("n_sin_ficha, pct_sin_ficha")
         .eq("building_id", id!)
         .maybeSingle();
+      const { data: fincas } = await (supabase.from("v_building_fincas" as any) as any)
+        .select("n_fincas")
+        .eq("building_id", id!)
+        .maybeSingle();
       // Backfill desde Catastro (authority cache) — año construcción y desglose por usos.
       let catastro: any = null;
       const rc14 = (b as any)?.refcatastral ? String((b as any).refcatastral).slice(0, 14) : null;
@@ -196,6 +200,7 @@ export default function ComercialEdificioDetalle() {
         catastro,
         sucesion: (sucesion ?? null) as any,
         sinFicha: (sinFicha ?? null) as any,
+        nFincas: Number((fincas as any)?.n_fincas ?? 0),
         ownersExtra: Object.fromEntries(
           ((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, { ...(r.owners || {}), cuota: r.cuota }]),
         ),
