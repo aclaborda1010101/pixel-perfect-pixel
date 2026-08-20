@@ -309,6 +309,12 @@ export default function ComercialEdificioDetalle() {
         }
       />
 
+      <SyncHubspotBar
+        buildingId={b.id}
+        lastSyncedAt={(b as any)?.last_synced_at}
+        onDone={() => refetch()}
+      />
+
       {b.interlocutor_owner_id && (
         <InterlocutorFlag nombre={ownersExtra[b.interlocutor_owner_id]?.nombre_display ?? owners.find((o: any) => o.owner_id === b.interlocutor_owner_id)?.nombre ?? null} />
       )}
