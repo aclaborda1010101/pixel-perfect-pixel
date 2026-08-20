@@ -3388,6 +3388,7 @@ export type Database = {
           estado: Database["public"]["Enums"]["building_status"]
           grupo_barrio: string | null
           hs_deal_id: string | null
+          hs_props_synced_at: string | null
           id: string
           iee_actualizado_at: string | null
           iee_deficiencias: Json | null
@@ -3401,8 +3402,11 @@ export type Database = {
           interlocutor_owner_id: string | null
           last_synced_at: string | null
           metadatos: Json
+          metros_viviendas: number | null
           notas: string | null
+          num_viviendas: number | null
           numero_propietarios: number | null
+          pct_residencial: number | null
           pct_terciario: number | null
           porcentajes_estado: string | null
           porcentajes_verificado_at: string | null
@@ -3417,6 +3421,7 @@ export type Database = {
           score_total: number | null
           score_updated_at: string | null
           updated_at: string
+          uso_principal: string | null
         }
         Insert: {
           avisos_inteligentes?: Json | null
@@ -3439,6 +3444,7 @@ export type Database = {
           estado?: Database["public"]["Enums"]["building_status"]
           grupo_barrio?: string | null
           hs_deal_id?: string | null
+          hs_props_synced_at?: string | null
           id?: string
           iee_actualizado_at?: string | null
           iee_deficiencias?: Json | null
@@ -3452,8 +3458,11 @@ export type Database = {
           interlocutor_owner_id?: string | null
           last_synced_at?: string | null
           metadatos?: Json
+          metros_viviendas?: number | null
           notas?: string | null
+          num_viviendas?: number | null
           numero_propietarios?: number | null
+          pct_residencial?: number | null
           pct_terciario?: number | null
           porcentajes_estado?: string | null
           porcentajes_verificado_at?: string | null
@@ -3468,6 +3477,7 @@ export type Database = {
           score_total?: number | null
           score_updated_at?: string | null
           updated_at?: string
+          uso_principal?: string | null
         }
         Update: {
           avisos_inteligentes?: Json | null
@@ -3490,6 +3500,7 @@ export type Database = {
           estado?: Database["public"]["Enums"]["building_status"]
           grupo_barrio?: string | null
           hs_deal_id?: string | null
+          hs_props_synced_at?: string | null
           id?: string
           iee_actualizado_at?: string | null
           iee_deficiencias?: Json | null
@@ -3503,8 +3514,11 @@ export type Database = {
           interlocutor_owner_id?: string | null
           last_synced_at?: string | null
           metadatos?: Json
+          metros_viviendas?: number | null
           notas?: string | null
+          num_viviendas?: number | null
           numero_propietarios?: number | null
+          pct_residencial?: number | null
           pct_terciario?: number | null
           porcentajes_estado?: string | null
           porcentajes_verificado_at?: string | null
@@ -3519,6 +3533,7 @@ export type Database = {
           score_total?: number | null
           score_updated_at?: string | null
           updated_at?: string
+          uso_principal?: string | null
         }
         Relationships: [
           {
@@ -4458,6 +4473,103 @@ export type Database = {
           scope_type?: string
         }
         Relationships: []
+      }
+      cotejo_hubspot_incidencias: {
+        Row: {
+          building_id: string | null
+          created_at: string
+          detalle: Json
+          estado: string
+          id: string
+          tipo: string
+          titulo: string
+          updated_at: string
+        }
+        Insert: {
+          building_id?: string | null
+          created_at?: string
+          detalle?: Json
+          estado?: string
+          id?: string
+          tipo: string
+          titulo: string
+          updated_at?: string
+        }
+        Update: {
+          building_id?: string | null
+          created_at?: string
+          detalle?: Json
+          estado?: string
+          id?: string
+          tipo?: string
+          titulo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_pct_fuente"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "cotejo_hubspot_incidencias_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
       }
       deals_gemelos: {
         Row: {
@@ -11986,6 +12098,10 @@ export type Database = {
           owner_id: string
         }[]
       }
+      fusionar_duplicados_propietarios: {
+        Args: { p_dry_run?: boolean }
+        Returns: Json
+      }
       get_pending_scoring_calls: {
         Args: { _limit?: number }
         Returns: {
@@ -12044,6 +12160,10 @@ export type Database = {
         }[]
       }
       is_internal_member: { Args: never; Returns: boolean }
+      limpiar_propietarios_fantasma: {
+        Args: { p_dry_run?: boolean }
+        Returns: Json
+      }
       madrid_plantas_max: { Args: { ancho_m: number }; Returns: number }
       mantenimiento_datos_horario: { Args: never; Returns: Json }
       match_building_fuzzy: {
@@ -12173,6 +12293,7 @@ export type Database = {
       p0_mark_cuota_eligibility: { Args: never; Returns: Json }
       p0_rebuild_property_rights: { Args: { p_reason?: string }; Returns: Json }
       person_match_key: { Args: { p_name: string }; Returns: string }
+      person_merge_key: { Args: { p: string }; Returns: string }
       recalcular_influenciadores: {
         Args: { p_building_id?: string }
         Returns: Json
@@ -12181,6 +12302,7 @@ export type Database = {
         Args: { p_building_id?: string }
         Returns: Json
       }
+      reclasificar_por_tipo_derecho: { Args: never; Returns: Json }
       recompute_building_owner_metrics: {
         Args: { p_building_ids?: string[] }
         Returns: Json
