@@ -49,6 +49,7 @@ import { Lock as LockIcon } from "lucide-react";
 import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buildings/ContactoBloqueado";
 import { contactoBloqueado, TEXTO_CONTACTO_BLOQUEADO } from "@/lib/bloqueoContacto";
 import { Label } from "@/components/ui/label";
+import { SyncHubspotBar } from "@/components/buildings/SyncHubspotBar";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
