@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Check, EyeOff, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { RevisionCoherencia } from "@/components/coherencia/RevisionCoherencia";
 import {
   TIPOS_CORRECCION,
   TIPOS_DATOS,
@@ -52,7 +53,7 @@ const ESTADOS_FILTRO = [
 export default function Correcciones() {
   const { role, loading: roleLoading } = useCurrentRole();
   const qc = useQueryClient();
-  const [seccion, setSeccion] = useState<"datos" | "trabajo">("datos");
+  const [seccion, setSeccion] = useState<"datos" | "trabajo" | "coherencia">("datos");
   const [tipo, setTipo] = useState(String(TIPOS_DATOS[0].codigo));
   const [estado, setEstado] = useState<string>("pendiente");
   const [page, setPage] = useState(0);
@@ -150,9 +151,9 @@ export default function Correcciones() {
       <Tabs
         value={seccion}
         onValueChange={(v) => {
-          const s = v as "datos" | "trabajo";
+          const s = v as "datos" | "trabajo" | "coherencia";
           setSeccion(s);
-          setTipo(String((s === "datos" ? TIPOS_DATOS : TIPOS_TRABAJO)[0].codigo));
+          if (s !== "coherencia") setTipo(String((s === "datos" ? TIPOS_DATOS : TIPOS_TRABAJO)[0].codigo));
           setEstado("pendiente");
           setSel({});
           setPage(0);
@@ -171,9 +172,14 @@ export default function Correcciones() {
               {totalTrabajoPendiente}
             </Badge>
           </TabsTrigger>
+          <TabsTrigger value="coherencia">Revisión de coherencia</TabsTrigger>
         </TabsList>
       </Tabs>
 
+      {seccion === "coherencia" && <RevisionCoherencia />}
+
+      {seccion !== "coherencia" && (
+        <>
       {seccion === "trabajo" && (
         <p className="text-sm text-muted-foreground">
           No son errores ni requieren acción manual: el generador de tareas los va sirviendo de uno en
@@ -341,6 +347,8 @@ export default function Correcciones() {
           />
         </CardContent>
       </Card>
+    </>
+      )}
     </div>
   );
 }
