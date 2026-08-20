@@ -10912,6 +10912,7 @@ export type Database = {
         Row: {
           building_id: string | null
           contactos_previos: number | null
+          derecho_crm: string | null
           email: string | null
           es_influencer: boolean | null
           influencer_reason: string | null
@@ -10929,12 +10930,14 @@ export type Database = {
           pct_pleno: number | null
           pct_propiedad: number | null
           pct_raw: string | null
+          pct_regla: string | null
           pct_suma_edificio_bruta: number | null
           pct_usufructo: number | null
           rol: Database["public"]["Enums"]["owner_role"] | null
           rol_notas: string | null
           score: number | null
           subrole: Database["public"]["Enums"]["owner_subrole"] | null
+          suma_hubspot_edificio: number | null
           telefono: string | null
         }
         Relationships: [
