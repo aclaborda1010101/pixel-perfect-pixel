@@ -181,6 +181,17 @@ export default function ComercialEdificioDetalle() {
         .select("n_fincas")
         .eq("building_id", id!)
         .maybeSingle();
+      // ¿El negocio de HubSpot tiene contactos que aún no están cargados aquí?
+      let contactosHubspot = 0;
+      if ((b as any)?.hs_deal_id) {
+        const { data: deal } = await (supabase.from("hubspot_deals" as any) as any)
+          .select("associated_contact_ids")
+          .eq("hs_id", String((b as any).hs_deal_id))
+          .maybeSingle();
+        contactosHubspot = Array.isArray((deal as any)?.associated_contact_ids)
+          ? (deal as any).associated_contact_ids.length
+          : 0;
+      }
       // Backfill desde Catastro (authority cache) — año construcción y desglose por usos.
       let catastro: any = null;
       const rc14 = (b as any)?.refcatastral ? String((b as any).refcatastral).slice(0, 14) : null;
@@ -202,6 +213,7 @@ export default function ComercialEdificioDetalle() {
         sucesion: (sucesion ?? null) as any,
         sinFicha: (sinFicha ?? null) as any,
         nFincas: Number((fincas as any)?.n_fincas ?? 0),
+        contactosHubspot,
         ownersExtra: Object.fromEntries(
           ((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, { ...(r.owners || {}), cuota: r.cuota }]),
         ),
