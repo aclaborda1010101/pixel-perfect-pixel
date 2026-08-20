@@ -53,6 +53,19 @@ export interface Foto {
   reparto_completo: boolean;
 }
 
+/** IDs de contacto de HubSpot de los propietarios ligados al edificio. */
+export async function contactosDelEdificio(supabase: any, buildingId: string): Promise<string[]> {
+  const { data: bo } = await supabase
+    .from('building_owners').select('owner_id').eq('building_id', buildingId);
+  const ownerIds = ((bo ?? []) as any[]).map((r) => r.owner_id);
+  if (ownerIds.length === 0) return [];
+  const { data: ex } = await supabase
+    .from('external_ids').select('provider_id')
+    .eq('provider', 'hubspot').eq('provider_object_type', 'contact')
+    .in('entity_id', ownerIds);
+  return ((ex ?? []) as any[]).map((r) => String(r.provider_id));
+}
+
 export async function tomarFoto(supabase: any, buildingId: string): Promise<Foto> {
   const { data: filas } = await supabase
     .from('v_owner_score')
@@ -63,14 +76,19 @@ export async function tomarFoto(supabase: any, buildingId: string): Promise<Foto
     (t, r) => t + (r.pct_propiedad != null && !r.pct_invalido ? Number(r.pct_propiedad) : 0),
     0,
   );
-  const { count: llamadas } = await supabase
-    .from('calls')
-    .select('id', { count: 'exact', head: true })
-    .eq('building_id', buildingId);
+  const ids = await contactosDelEdificio(supabase, buildingId);
+  let llamadas = 0;
+  if (ids.length > 0) {
+    const { count } = await supabase
+      .from('hubspot_calls')
+      .select('id', { count: 'exact', head: true })
+      .overlaps('associated_contact_ids', ids);
+    llamadas = Number(count ?? 0);
+  }
   return {
     propietarios: rows.length,
     telefonos: rows.filter((r) => !!r.telefono).length,
-    llamadas: Number(llamadas ?? 0),
+    llamadas,
     fuente_pct: String(rows[0]?.pct_fuente_edificio ?? 'nota'),
     suma_pct: Math.round(suma * 100) / 100,
     reparto_completo: suma >= 99.25 && suma <= 100.75,
