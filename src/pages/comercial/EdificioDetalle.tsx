@@ -50,7 +50,7 @@ import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buil
 import { contactoBloqueado, TEXTO_CONTACTO_BLOQUEADO } from "@/lib/bloqueoContacto";
 import { Label } from "@/components/ui/label";
 import { SyncHubspotBar } from "@/components/buildings/SyncHubspotBar";
-import { explicaSuma } from "@/lib/sumaPropiedad";
+import { explicaSuma, explicaFuente } from "@/lib/sumaPropiedad";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
