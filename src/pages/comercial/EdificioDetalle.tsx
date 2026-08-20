@@ -49,6 +49,7 @@ import { Lock as LockIcon } from "lucide-react";
 import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buildings/ContactoBloqueado";
 import { contactoBloqueado, TEXTO_CONTACTO_BLOQUEADO } from "@/lib/bloqueoContacto";
 import { Label } from "@/components/ui/label";
+import { avisoContactosNoCargados } from "@/lib/hubspotSync";
 import { SyncHubspotBar } from "@/components/buildings/SyncHubspotBar";
 import { explicaSuma, explicaFuente } from "@/lib/sumaPropiedad";
 
@@ -181,6 +182,17 @@ export default function ComercialEdificioDetalle() {
         .select("n_fincas")
         .eq("building_id", id!)
         .maybeSingle();
+      // ¿El negocio de HubSpot tiene contactos que aún no están cargados aquí?
+      let contactosHubspot = 0;
+      if ((b as any)?.hs_deal_id) {
+        const { data: deal } = await (supabase.from("hubspot_deals" as any) as any)
+          .select("associated_contact_ids")
+          .eq("hs_id", String((b as any).hs_deal_id))
+          .maybeSingle();
+        contactosHubspot = Array.isArray((deal as any)?.associated_contact_ids)
+          ? (deal as any).associated_contact_ids.length
+          : 0;
+      }
       // Backfill desde Catastro (authority cache) — año construcción y desglose por usos.
       let catastro: any = null;
       const rc14 = (b as any)?.refcatastral ? String((b as any).refcatastral).slice(0, 14) : null;
@@ -202,6 +214,7 @@ export default function ComercialEdificioDetalle() {
         sucesion: (sucesion ?? null) as any,
         sinFicha: (sinFicha ?? null) as any,
         nFincas: Number((fincas as any)?.n_fincas ?? 0),
+        contactosHubspot,
         ownersExtra: Object.fromEntries(
           ((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, { ...(r.owners || {}), cuota: r.cuota }]),
         ),
@@ -335,6 +348,18 @@ export default function ComercialEdificioDetalle() {
         lastSyncedAt={(b as any)?.last_synced_at}
         onDone={() => refetch()}
       />
+
+      {avisoContactosNoCargados(
+        (data.owners ?? []).length,
+        Number((data as any)?.contactosHubspot ?? 0),
+      ) && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          {avisoContactosNoCargados(
+            (data.owners ?? []).length,
+            Number((data as any)?.contactosHubspot ?? 0),
+          )}
+        </div>
+      )}
 
       {b.interlocutor_owner_id && (
         <InterlocutorFlag nombre={ownersExtra[b.interlocutor_owner_id]?.nombre_display ?? owners.find((o: any) => o.owner_id === b.interlocutor_owner_id)?.nombre ?? null} />

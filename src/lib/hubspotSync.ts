@@ -61,3 +61,28 @@ export function resumenCambios(r: ResultadoSync): string {
   if (partes.length === 0) return "Todo estaba al día: no había nada nuevo que traer.";
   return `${partes.join(" · ")}.`;
 }
+
+/**
+ * Aviso en lenguaje llano cuando el edificio no tiene personas cargadas aquí
+ * pero su negocio de HubSpot sí tiene contactos asociados.
+ */
+export function avisoContactosNoCargados(
+  propietariosLocales: number,
+  contactosHubspot: number,
+): string | null {
+  if (propietariosLocales > 0) return null;
+  if (!Number.isFinite(contactosHubspot) || contactosHubspot <= 0) return null;
+  const plural = contactosHubspot === 1 ? "contacto asociado" : "contactos asociados";
+  return `En HubSpot hay ${contactosHubspot} ${plural} a este edificio que aún no están cargados aquí. Pulsa Actualizar para traerlos.`;
+}
+
+/**
+ * Regla de estado: un edificio sin ninguna persona cargada no puede estar
+ * marcado como verificado, porque no hay nada que verificar.
+ */
+export function estadoPorcentajesCoherente(estado: string, propietariosLocales: number): string {
+  if (propietariosLocales <= 0 && (estado === "verificado" || estado === "verificado_pendiente_matching")) {
+    return "sin_propietarios";
+  }
+  return estado;
+}
