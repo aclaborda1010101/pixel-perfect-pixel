@@ -9950,6 +9950,7 @@ export type Database = {
         Row: {
           building_id: string | null
           crm_suma: number | null
+          crm_suma_hubspot: number | null
           crm_titulares: number | null
           crm_valido: boolean | null
           pct_fuente: string | null
@@ -10795,6 +10796,117 @@ export type Database = {
           owner_id?: string | null
         }
         Relationships: []
+      }
+      v_owner_pct_crm: {
+        Row: {
+          building_id: string | null
+          de_contacto: boolean | null
+          derecho_raw: string | null
+          familiar: boolean | null
+          invalido: boolean | null
+          normalizado: boolean | null
+          owner_id: string | null
+          pct: number | null
+          pct_hubspot: number | null
+          pct_usufructo: number | null
+          raw_value: string | null
+          regla: string | null
+          suma_hubspot: number | null
+          suma_reglas: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_pct_fuente"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
       }
       v_owner_score: {
         Row: {
@@ -11730,6 +11842,10 @@ export type Database = {
         }
         Returns: Json
       }
+      derecho_computa_propiedad: { Args: { p_raw: string }; Returns: boolean }
+      derecho_es_familiar: { Args: { p_raw: string }; Returns: boolean }
+      derecho_es_ganancial: { Args: { p_raw: string }; Returns: boolean }
+      derecho_grupos: { Args: { p_raw: string }; Returns: string[] }
       descartar_descubrimiento: { Args: { p_id: string }; Returns: Json }
       detect_estado_vital_from_name: {
         Args: { p_name: string }

@@ -129,6 +129,7 @@ export const CONTACT_PROPERTIES = [
   'createdate', 'lastmodifieddate',
   // custom Afflux
   'dni__nif__cif', 'biografia_historia_del_propietario', 'porcentaje_de_participacion',
+  'tipo_de_derecho',
   'monday_id', 'barrios_completos', 'distrito_zona', 'fuente', 'tipologia_de_propietario',
   'direccion_del_edificio', 'ano_de_nacimiento', 'tipo_de_inversor',
   'capital_de_inversion', 'telefono_secundario', 'telefono_terciario',
