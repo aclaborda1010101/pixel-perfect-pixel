@@ -595,6 +595,14 @@ export default function ComercialEdificioDetalle() {
                             verificado NS
                           </span>
                         )}
+                        {pctKnown && o.pct_origen === "crm_validado" && (
+                          <span
+                            className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-sky-500"
+                            title="% tomado de HubSpot; el conjunto del edificio suma 100 %"
+                          >
+                            CRM validado
+                          </span>
+                        )}
                         {pctSinVerificar && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-amber-500"
@@ -611,7 +619,7 @@ export default function ComercialEdificioDetalle() {
                             inválido
                           </span>
                         )}
-                        {pctKnown && o.pct_origen && !['desconocido', 'nota_simple', 'en_revision'].includes(String(o.pct_origen)) && (
+                        {pctKnown && o.pct_origen && !['desconocido', 'nota_simple', 'en_revision', 'crm_validado'].includes(String(o.pct_origen)) && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground"
                             title={`Origen del %: ${o.pct_origen}`}
