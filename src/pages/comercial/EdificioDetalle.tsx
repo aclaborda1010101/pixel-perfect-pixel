@@ -273,6 +273,11 @@ export default function ComercialEdificioDetalle() {
     0,
   );
 
+  // Fuente única de los porcentajes del edificio: CRM (HubSpot) o nota del Registro.
+  const fuentePct: string = String((ownersAll[0] as any)?.pct_fuente_edificio ?? "nota");
+  const titularesSinFicha = Number((data as any)?.sinFicha?.n_sin_ficha ?? 0);
+  const pctSinFicha = Number((data as any)?.sinFicha?.pct_sin_ficha ?? 0);
+
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
   return (
