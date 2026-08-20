@@ -49,6 +49,7 @@ import { Lock as LockIcon } from "lucide-react";
 import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buildings/ContactoBloqueado";
 import { contactoBloqueado, TEXTO_CONTACTO_BLOQUEADO } from "@/lib/bloqueoContacto";
 import { Label } from "@/components/ui/label";
+import { SyncHubspotBar } from "@/components/buildings/SyncHubspotBar";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -307,6 +308,12 @@ export default function ComercialEdificioDetalle() {
             </Badge>
           </div>
         }
+      />
+
+      <SyncHubspotBar
+        buildingId={b.id}
+        lastSyncedAt={(b as any)?.last_synced_at}
+        onDone={() => refetch()}
       />
 
       {b.interlocutor_owner_id && (

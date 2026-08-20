@@ -2206,6 +2206,103 @@ export type Database = {
           },
         ]
       }
+      building_hubspot_sync_log: {
+        Row: {
+          building_id: string
+          created_at: string
+          duracion_ms: number | null
+          error: string | null
+          id: string
+          ok: boolean
+          resumen: Json
+          user_id: string | null
+        }
+        Insert: {
+          building_id: string
+          created_at?: string
+          duracion_ms?: number | null
+          error?: string | null
+          id?: string
+          ok?: boolean
+          resumen?: Json
+          user_id?: string | null
+        }
+        Update: {
+          building_id?: string
+          created_at?: string
+          duracion_ms?: number | null
+          error?: string | null
+          id?: string
+          ok?: boolean
+          resumen?: Json
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_pct_fuente"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "building_hubspot_sync_log_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
       building_imagery: {
         Row: {
           building_id: string
