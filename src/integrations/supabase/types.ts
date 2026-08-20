@@ -11777,6 +11777,14 @@ export type Database = {
       }
       archivar_correcciones_obsoletas: { Args: never; Returns: number }
       audit_building_owner_cuotas: { Args: never; Returns: Json }
+      auditar_estados_incoherentes: {
+        Args: never
+        Returns: {
+          caso: string
+          ejemplos: string[]
+          total: number
+        }[]
+      }
       auto_link_owner_building: { Args: { p_days?: number }; Returns: Json }
       build_score_summary: { Args: { p_building_id: string }; Returns: string }
       calls_stats: {
@@ -11821,6 +11829,7 @@ export type Database = {
           total: number
         }[]
       }
+      corregir_estados_incoherentes: { Args: never; Returns: Json }
       count_distinct_owners: {
         Args: { p_building_id: string }
         Returns: number
@@ -11861,6 +11870,19 @@ export type Database = {
       detect_guarda_6: { Args: never; Returns: number }
       detect_guarda_7: { Args: never; Returns: number }
       detect_guarda_8: { Args: never; Returns: number }
+      edificios_sin_propietarios_con_deal: {
+        Args: {
+          p_limit?: number
+          p_offset?: number
+          p_solo_verificados?: boolean
+        }
+        Returns: {
+          direccion: string
+          hs_deal_id: string
+          id: string
+          porcentajes_estado: string
+        }[]
+      }
       enlazar_titulares_con_contactos: {
         Args: { p_building_id?: string; p_dry_run?: boolean; p_limit?: number }
         Returns: Json
