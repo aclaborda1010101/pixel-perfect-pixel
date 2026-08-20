@@ -10809,6 +10809,7 @@ export type Database = {
           nombre: string | null
           owner_id: string | null
           pct_fuente_edificio: string | null
+          pct_incoherente: boolean | null
           pct_invalido: boolean | null
           pct_normalizado: boolean | null
           pct_nuda: number | null
@@ -10816,6 +10817,7 @@ export type Database = {
           pct_pleno: number | null
           pct_propiedad: number | null
           pct_raw: string | null
+          pct_suma_edificio_bruta: number | null
           pct_usufructo: number | null
           rol: Database["public"]["Enums"]["owner_role"] | null
           rol_notas: string | null

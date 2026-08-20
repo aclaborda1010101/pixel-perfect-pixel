@@ -1,0 +1,1 @@
+ALTER VIEW public.v_owner_score SET (security_invoker = on);

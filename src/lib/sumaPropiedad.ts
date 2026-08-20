@@ -1,13 +1,20 @@
 /**
- * Explica en lenguaje llano por qué la suma de porcentajes de propiedad que se
- * ve en la ficha no llega al 100 %. El número nunca debe aparecer solo.
+ * Explica en lenguaje llano de dónde sale la suma de porcentajes de propiedad
+ * que se ve en la ficha. Ninguna cifra debe aparecer en pantalla sin explicar.
  */
 export type ExplicacionSuma = {
   suma: number;
   nFincas?: number | null;
   titularesSinFicha?: number | null;
   pctSinFicha?: number | null;
+  /** "crm" o "nota" */
   fuente?: string | null;
+  /** true cuando los datos registrados mezclan fincas y suman más de 100 */
+  incoherente?: boolean | null;
+  /** suma bruta de los datos incoherentes, para poder nombrarla */
+  sumaBruta?: number | null;
+  /** estado del reparto en el edificio */
+  estado?: string | null;
 };
 
 const COMPLETA_MIN = 99.25;
@@ -21,12 +28,27 @@ function numero(n: number): string {
   return n.toLocaleString("es-ES", { maximumFractionDigits: 2 });
 }
 
+/** Frase corta que dice de qué fuente vienen los porcentajes. */
+export function explicaFuente(e: { fuente?: string | null; estado?: string | null }): string {
+  if (e.estado === "verificado_pendiente_matching") {
+    return "La nota del Registro de este edificio todavía no está enlazada con las fichas de propietario: los porcentajes que ves proceden del CRM y están pendientes de validar.";
+  }
+  if (e.fuente === "crm") {
+    return "Porcentajes tomados de HubSpot (suman 100 %). No se mezclan con los de la nota del Registro.";
+  }
+  return "Porcentajes tomados de la nota del Registro.";
+}
+
 export function explicaSuma(e: ExplicacionSuma): string | null {
+  if (e.incoherente) {
+    const bruta = Number(e.sumaBruta ?? 0);
+    return `Los porcentajes registrados de este edificio suman ${
+      bruta > 0 ? `${numero(bruta)} %` : "más de 100 %"
+    } porque mezclan varias fincas registrales. No se muestran hasta validarlos finca a finca: el edificio está marcado como pendiente de revisar.`;
+  }
+
   const suma = Number(e.suma) || 0;
   if (sumaCompleta(suma)) return null;
-  if (suma > COMPLETA_MAX) {
-    return `La suma pasa de 100 %: hay porcentajes repetidos o mal leídos. Está listado en el Orquestador para revisarlo.`;
-  }
 
   const partes: string[] = [];
   const fincas = Number(e.nFincas ?? 0);
@@ -44,10 +66,11 @@ export function explicaSuma(e: ExplicacionSuma): string | null {
       }`,
     );
   }
-
   if (partes.length === 0) {
-    return `La suma no llega a 100 % porque todavía no consta el porcentaje de todos los titulares.`;
+    if (suma === 0) {
+      return "Todavía no consta ningún porcentaje de propiedad para este edificio: la nota del Registro no está enlazada con las fichas y el CRM no tiene cuotas.";
+    }
+    return "La suma no llega a 100 % porque todavía no consta el porcentaje de todos los titulares.";
   }
-  const cuerpo = partes.join("; y ");
-  return `La suma no llega a 100 % porque ${cuerpo}.`;
+  return `La suma no llega a 100 % porque ${partes.join("; y ")}.`;
 }

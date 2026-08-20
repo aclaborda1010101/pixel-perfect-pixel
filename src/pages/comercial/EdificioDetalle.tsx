@@ -50,7 +50,7 @@ import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buil
 import { contactoBloqueado, TEXTO_CONTACTO_BLOQUEADO } from "@/lib/bloqueoContacto";
 import { Label } from "@/components/ui/label";
 import { SyncHubspotBar } from "@/components/buildings/SyncHubspotBar";
-import { explicaSuma } from "@/lib/sumaPropiedad";
+import { explicaSuma, explicaFuente } from "@/lib/sumaPropiedad";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -285,12 +285,18 @@ export default function ComercialEdificioDetalle() {
   const titularesSinFicha = Number((data as any)?.sinFicha?.n_sin_ficha ?? 0);
   const pctSinFicha = Number((data as any)?.sinFicha?.pct_sin_ficha ?? 0);
   const nFincas = Number((data as any)?.nFincas ?? 0);
+  const incoherente = Boolean((ownersAll[0] as any)?.pct_incoherente);
+  const sumaBruta = Number((ownersAll[0] as any)?.pct_suma_edificio_bruta ?? 0);
+  const estadoPct: string = String((b as any)?.porcentajes_estado ?? "");
   const explicacionSuma = explicaSuma({
     suma: sumaVisible,
     nFincas,
     titularesSinFicha,
     pctSinFicha,
     fuente: fuentePct,
+    incoherente,
+    sumaBruta,
+    estado: estadoPct,
   });
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
@@ -422,25 +428,27 @@ export default function ComercialEdificioDetalle() {
             <div className="mt-1 font-mono text-[10px] uppercase tracking-eyebrow text-muted-foreground">
               Con % de propiedad: {pctKnownCount} de {ownersAll.length}
             </div>
-            <div
-              className={cn(
-                "mt-1 text-xs font-medium",
-                sumaVisible >= 99.5 && sumaVisible <= 100.5 ? "text-emerald-600" : "text-amber-600",
-              )}
-              title="Suma de los porcentajes de propiedad de los propietarios que se están mostrando."
-            >
-              Suma de propiedad: {sumaVisible.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%
-            </div>
+            {!incoherente && (
+              <div
+                className={cn(
+                  "mt-1 text-xs font-medium",
+                  sumaVisible >= 99.5 && sumaVisible <= 100.5 ? "text-emerald-600" : "text-amber-600",
+                )}
+                title="Suma de los porcentajes de propiedad de los propietarios que se están mostrando."
+              >
+                Suma de propiedad: {sumaVisible.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%
+              </div>
+            )}
             {explicacionSuma && (
               <div className="mt-1 max-w-prose text-[11px] leading-snug text-muted-foreground">
                 {explicacionSuma}
               </div>
             )}
-            <div className="mt-1 text-[11px] text-muted-foreground">
-              {fuentePct === "crm"
-                ? "Porcentajes tomados de HubSpot (suman 100 %). No se mezclan con los de la nota del Registro."
-                : "Porcentajes tomados de la nota del Registro."}
-            </div>
+            {!incoherente && (
+              <div className="mt-1 max-w-prose text-[11px] text-muted-foreground">
+                {explicaFuente({ fuente: fuentePct, estado: estadoPct })}
+              </div>
+            )}
             <div className="mt-2 flex flex-wrap gap-1">
               {([
                 ["todos", `Todos (${ownersAll.length})`],
