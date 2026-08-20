@@ -49,3 +49,22 @@ describe("resumen de lo que ha cambiado", () => {
     expect(resumenCambios({ antes: foto(), despues: foto({ propietarios: 8 }) })).toBe("Todo estaba al día: no había nada nuevo que traer.");
   });
 });
+
+describe("edificios sin propietarios", () => {
+  it("avisa de los contactos de HubSpot que faltan por cargar", () => {
+    expect(avisoContactosNoCargados(0, 5)).toBe(
+      "En HubSpot hay 5 contactos asociados a este edificio que aún no están cargados aquí. Pulsa Actualizar para traerlos.",
+    );
+    expect(avisoContactosNoCargados(0, 1)).toContain("1 contacto asociado");
+  });
+  it("no avisa si ya hay propietarios o si HubSpot no tiene contactos", () => {
+    expect(avisoContactosNoCargados(3, 5)).toBeNull();
+    expect(avisoContactosNoCargados(0, 0)).toBeNull();
+  });
+  it("impide marcar como verificado un edificio sin propietarios cargados", () => {
+    expect(estadoPorcentajesCoherente("verificado", 0)).toBe("sin_propietarios");
+    expect(estadoPorcentajesCoherente("verificado_pendiente_matching", 0)).toBe("sin_propietarios");
+    expect(estadoPorcentajesCoherente("verificado", 2)).toBe("verificado");
+    expect(estadoPorcentajesCoherente("a_revisar", 0)).toBe("a_revisar");
+  });
+});
