@@ -1,33 +1,49 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export type InterlocutorInfo = { ownerId: string; nombre: string | null; motivo: string | null };
 
-/** Mapa edificio -> interlocutor activo (si lo hay). */
+/**
+ * Mapa edificio -> interlocutor activo (si lo hay).
+ *
+ * Una sola consulta con clave de caché FIJA: los edificios con interlocutor son
+ * poquísimos, así que traemos el mapa completo una vez y filtramos en cliente.
+ * (Antes: un bucle de ~6 peticiones encadenadas y una clave de caché de 43 kB
+ * que se invalidaba con cualquier filtro.)
+ */
 export function useInterlocutores(buildingIds: string[]) {
-  const ids = Array.from(new Set(buildingIds.filter(Boolean))).sort();
-  return useQuery({
-    queryKey: ["interlocutores", ids.join(",")],
-    enabled: ids.length > 0,
+  const ids = Array.from(new Set(buildingIds.filter(Boolean)));
+  const q = useQuery({
+    queryKey: ["interlocutores"],
     staleTime: 60_000,
     queryFn: async (): Promise<Record<string, InterlocutorInfo>> => {
       const out: Record<string, InterlocutorInfo> = {};
-      for (let i = 0; i < ids.length; i += 200) {
-        const { data } = await (supabase.from("buildings") as any)
-          .select("id, interlocutor_owner_id, interlocutor_motivo, owners:interlocutor_owner_id(nombre)")
-          .not("interlocutor_owner_id", "is", null)
-          .in("id", ids.slice(i, i + 200));
-        for (const r of (data ?? []) as any[]) {
-          out[r.id] = {
-            ownerId: r.interlocutor_owner_id,
-            nombre: r.owners?.nombre ?? null,
-            motivo: r.interlocutor_motivo ?? null,
-          };
-        }
+      const { data } = await (supabase.from("buildings") as any)
+        .select("id, interlocutor_owner_id, interlocutor_motivo, owners:interlocutor_owner_id(nombre)")
+        .not("interlocutor_owner_id", "is", null);
+      for (const r of (data ?? []) as any[]) {
+        out[String(r.id)] = {
+          ownerId: r.interlocutor_owner_id,
+          nombre: r.owners?.nombre ?? null,
+          motivo: r.interlocutor_motivo ?? null,
+        };
       }
       return out;
     },
   });
+
+  const all = q.data;
+  const data = useMemo(() => {
+    if (!all) return undefined;
+    if (ids.length === 0) return {} as Record<string, InterlocutorInfo>;
+    const out: Record<string, InterlocutorInfo> = {};
+    for (const id of ids) if (all[id]) out[id] = all[id];
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [all, ids.join(",")]);
+
+  return { ...q, data } as typeof q;
 }
 
 /** Conjunto de edificios que ahora mismo tienen un interlocutor activo. */
