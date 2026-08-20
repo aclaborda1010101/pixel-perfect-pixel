@@ -52,6 +52,7 @@ import { Label } from "@/components/ui/label";
 import { avisoContactosNoCargados } from "@/lib/hubspotSync";
 import { SyncHubspotBar } from "@/components/buildings/SyncHubspotBar";
 import { explicaSuma, explicaFuente } from "@/lib/sumaPropiedad";
+import { explicaEstado, ESTADO_LABEL, type EstadoPropiedad } from "@/lib/estadoEdificio";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
