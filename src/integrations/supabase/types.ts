@@ -4306,6 +4306,75 @@ export type Database = {
         }
         Relationships: []
       }
+      coherencia_reglas: {
+        Row: {
+          aceptada: boolean
+          aceptada_at: string | null
+          aceptada_motivo: string | null
+          aceptada_por: string | null
+          activa: boolean
+          codigo: string
+          created_at: string
+          explicacion: string
+          nombre: string
+          sql_casos: string
+          updated_at: string
+        }
+        Insert: {
+          aceptada?: boolean
+          aceptada_at?: string | null
+          aceptada_motivo?: string | null
+          aceptada_por?: string | null
+          activa?: boolean
+          codigo: string
+          created_at?: string
+          explicacion: string
+          nombre: string
+          sql_casos: string
+          updated_at?: string
+        }
+        Update: {
+          aceptada?: boolean
+          aceptada_at?: string | null
+          aceptada_motivo?: string | null
+          aceptada_por?: string | null
+          activa?: boolean
+          codigo?: string
+          created_at?: string
+          explicacion?: string
+          nombre?: string
+          sql_casos?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      coherencia_snapshots: {
+        Row: {
+          codigo: string
+          error: string | null
+          id: string
+          medido_at: string
+          n_casos: number
+          run_id: string
+        }
+        Insert: {
+          codigo: string
+          error?: string | null
+          id?: string
+          medido_at?: string
+          n_casos: number
+          run_id: string
+        }
+        Update: {
+          codigo?: string
+          error?: string | null
+          id?: string
+          medido_at?: string
+          n_casos?: number
+          run_id?: string
+        }
+        Relationships: []
+      }
       companies: {
         Row: {
           buyer_persona: Database["public"]["Enums"]["buyer_persona"]
@@ -11805,6 +11874,19 @@ export type Database = {
         Args: { p_building_id: string; p_motivo?: string }
         Returns: Json
       }
+      coherencia_aceptar_regla: {
+        Args: { p_aceptada: boolean; p_codigo: string; p_motivo?: string }
+        Returns: Json
+      }
+      coherencia_casos: {
+        Args: { p_codigo: string; p_limite?: number }
+        Returns: {
+          building_id: string
+          detalle: string
+        }[]
+      }
+      coherencia_evaluar: { Args: never; Returns: Json }
+      coherencia_resumen: { Args: never; Returns: Json }
       compute_cluster_score: {
         Args: { p_building_id: string }
         Returns: number
