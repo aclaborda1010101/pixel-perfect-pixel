@@ -285,12 +285,18 @@ export default function ComercialEdificioDetalle() {
   const titularesSinFicha = Number((data as any)?.sinFicha?.n_sin_ficha ?? 0);
   const pctSinFicha = Number((data as any)?.sinFicha?.pct_sin_ficha ?? 0);
   const nFincas = Number((data as any)?.nFincas ?? 0);
+  const incoherente = Boolean((ownersAll[0] as any)?.pct_incoherente);
+  const sumaBruta = Number((ownersAll[0] as any)?.pct_suma_edificio_bruta ?? 0);
+  const estadoPct: string = String((b as any)?.porcentajes_estado ?? "");
   const explicacionSuma = explicaSuma({
     suma: sumaVisible,
     nFincas,
     titularesSinFicha,
     pctSinFicha,
     fuente: fuentePct,
+    incoherente,
+    sumaBruta,
+    estado: estadoPct,
   });
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
