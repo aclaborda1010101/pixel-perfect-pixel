@@ -283,6 +283,14 @@ export default function ComercialEdificioDetalle() {
   const fuentePct: string = String((ownersAll[0] as any)?.pct_fuente_edificio ?? "nota");
   const titularesSinFicha = Number((data as any)?.sinFicha?.n_sin_ficha ?? 0);
   const pctSinFicha = Number((data as any)?.sinFicha?.pct_sin_ficha ?? 0);
+  const nFincas = Number((data as any)?.nFincas ?? 0);
+  const explicacionSuma = explicaSuma({
+    suma: sumaVisible,
+    nFincas,
+    titularesSinFicha,
+    pctSinFicha,
+    fuente: fuentePct,
+  });
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
@@ -422,6 +430,11 @@ export default function ComercialEdificioDetalle() {
             >
               Suma de propiedad: {sumaVisible.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%
             </div>
+            {explicacionSuma && (
+              <div className="mt-1 max-w-prose text-[11px] leading-snug text-muted-foreground">
+                {explicacionSuma}
+              </div>
+            )}
             <div className="mt-1 text-[11px] text-muted-foreground">
               {fuentePct === "crm"
                 ? "Porcentajes tomados de HubSpot (suman 100 %). No se mezclan con los de la nota del Registro."
