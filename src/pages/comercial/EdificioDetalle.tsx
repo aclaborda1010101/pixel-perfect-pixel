@@ -348,6 +348,18 @@ export default function ComercialEdificioDetalle() {
         onDone={() => refetch()}
       />
 
+      {avisoContactosNoCargados(
+        (data.owners ?? []).length,
+        Number((data as any)?.contactosHubspot ?? 0),
+      ) && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          {avisoContactosNoCargados(
+            (data.owners ?? []).length,
+            Number((data as any)?.contactosHubspot ?? 0),
+          )}
+        </div>
+      )}
+
       {b.interlocutor_owner_id && (
         <InterlocutorFlag nombre={ownersExtra[b.interlocutor_owner_id]?.nombre_display ?? owners.find((o: any) => o.owner_id === b.interlocutor_owner_id)?.nombre ?? null} />
       )}
