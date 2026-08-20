@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { textoUltimaActualizacion, necesitaAviso, resumenCambios } from "@/lib/hubspotSync";
+import { textoUltimaActualizacion, necesitaAviso, resumenCambios, avisoContactosNoCargados, estadoPorcentajesCoherente } from "@/lib/hubspotSync";
 
 const AHORA = new Date("2026-08-20T12:00:00Z");
 const foto = (o: Partial<any> = {}) => ({
