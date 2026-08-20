@@ -39,6 +39,30 @@ export const TIPOS_CORRECCION: TipoCorreccion[] = [
     automatico: false,
     seccion: "datos",
   },
+  {
+    codigo: 7,
+    nombre: "Titulares sin ficha",
+    descripcion:
+      "Personas que constan en la nota del Registro y todavía no existen como contacto en el sistema.",
+    automatico: false,
+    seccion: "datos",
+  },
+  {
+    codigo: 8,
+    nombre: "Nombres con varias personas",
+    descripcion:
+      "Titulares cuyo nombre parece contener más de una persona. Se revisan a mano, nunca se separan solos.",
+    automatico: false,
+    seccion: "datos",
+  },
+  {
+    codigo: 9,
+    nombre: "Coincidencias dudosas",
+    descripcion:
+      "Titulares de la nota que se parecen a varios contactos del edificio y no se pueden enlazar sin confirmación.",
+    automatico: false,
+    seccion: "datos",
+  },
 ];
 
 /** Tipos que sí son errores de datos y cuentan para el contador principal. */
@@ -89,6 +113,14 @@ export function propuestaEnLlano(guarda: number, propuesta: Record<string, unkno
       return `Crear una acción de seguimiento para este titular (${p.cuota ?? "?"}% de propiedad).`;
     case 6:
       return "Definir el siguiente paso del edificio.";
+    case 7:
+      return `Dar de alta a «${String(p.nombre ?? "titular")}» como contacto${
+        p.porcentaje != null ? ` (${p.porcentaje}% de propiedad)` : ""
+      }.`;
+    case 8:
+      return `Revisar a mano el nombre «${String(p.nombre ?? "")}»: puede contener varias personas.`;
+    case 9:
+      return "Confirmar a mano con qué contacto se corresponde este titular.";
     default:
       return "Revisión manual.";
   }

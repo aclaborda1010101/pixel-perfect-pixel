@@ -171,6 +171,10 @@ export default function ComercialEdificioDetalle() {
       const { data: companies } = await (supabase.from("building_companies" as any) as any)
         .select("*, companies:company_id(id, nombre, cif, metadatos)")
         .eq("building_id", id!);
+      const { data: sinFicha } = await (supabase.from("v_building_titulares_sin_ficha" as any) as any)
+        .select("n_sin_ficha, pct_sin_ficha")
+        .eq("building_id", id!)
+        .maybeSingle();
       // Backfill desde Catastro (authority cache) — año construcción y desglose por usos.
       let catastro: any = null;
       const rc14 = (b as any)?.refcatastral ? String((b as any).refcatastral).slice(0, 14) : null;
@@ -190,6 +194,7 @@ export default function ComercialEdificioDetalle() {
         companies: (companies ?? []) as any[],
         catastro,
         sucesion: (sucesion ?? null) as any,
+        sinFicha: (sinFicha ?? null) as any,
         ownersExtra: Object.fromEntries(
           ((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, { ...(r.owners || {}), cuota: r.cuota }]),
         ),
@@ -267,6 +272,11 @@ export default function ComercialEdificioDetalle() {
     (t: number, o: any) => t + (o.pct_propiedad != null && !o.pct_invalido ? Number(o.pct_propiedad) : 0),
     0,
   );
+
+  // Fuente única de los porcentajes del edificio: CRM (HubSpot) o nota del Registro.
+  const fuentePct: string = String((ownersAll[0] as any)?.pct_fuente_edificio ?? "nota");
+  const titularesSinFicha = Number((data as any)?.sinFicha?.n_sin_ficha ?? 0);
+  const pctSinFicha = Number((data as any)?.sinFicha?.pct_sin_ficha ?? 0);
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
@@ -400,6 +410,11 @@ export default function ComercialEdificioDetalle() {
             >
               Suma de propiedad: {sumaVisible.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%
             </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              {fuentePct === "crm"
+                ? "Porcentajes tomados de HubSpot (suman 100 %). No se mezclan con los de la nota del Registro."
+                : "Porcentajes tomados de la nota del Registro."}
+            </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {([
                 ["todos", `Todos (${ownersAll.length})`],
@@ -452,6 +467,15 @@ export default function ComercialEdificioDetalle() {
           {pctUnknownCount > 0 && (
             <div className="mx-5 mt-4 rounded-md border border-border-faint bg-surface-1 px-3 py-2 text-xs text-muted-foreground">
               {pctUnknownCount} de {(data.owners ?? []).length} propietarios sin % de propiedad conocido.
+            </div>
+          )}
+          {titularesSinFicha > 0 && (
+            <div className="mx-5 mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              Faltan {titularesSinFicha} titulares que constan en la nota del Registro
+              {pctSinFicha > 0
+                ? ` (suman ${pctSinFicha.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%)`
+                : ""}{" "}
+              y todavía no tienen ficha. Están listados en el Orquestador como propuesta de alta.
             </div>
           )}
           <p className="mx-5 mt-3 text-[11px] leading-snug text-muted-foreground" title={AYUDA_DERECHOS}>
@@ -571,6 +595,14 @@ export default function ComercialEdificioDetalle() {
                             verificado NS
                           </span>
                         )}
+                        {pctKnown && o.pct_origen === "crm_validado" && (
+                          <span
+                            className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-sky-500"
+                            title="% tomado de HubSpot; el conjunto del edificio suma 100 %"
+                          >
+                            CRM validado
+                          </span>
+                        )}
                         {pctSinVerificar && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-amber-500"
@@ -587,7 +619,7 @@ export default function ComercialEdificioDetalle() {
                             inválido
                           </span>
                         )}
-                        {pctKnown && o.pct_origen && !['desconocido', 'nota_simple', 'en_revision'].includes(String(o.pct_origen)) && (
+                        {pctKnown && o.pct_origen && !['desconocido', 'nota_simple', 'en_revision', 'crm_validado'].includes(String(o.pct_origen)) && (
                           <span
                             className="col-start-3 font-mono text-[9px] uppercase tracking-eyebrow text-muted-foreground"
                             title={`Origen del %: ${o.pct_origen}`}

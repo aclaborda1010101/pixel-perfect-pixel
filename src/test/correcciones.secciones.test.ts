@@ -3,8 +3,8 @@ import { TIPOS_DATOS, TIPOS_TRABAJO, esCorreccionDeDatos, etiquetaEstado } from 
 import { decideAccess } from "@/lib/access";
 
 describe("secciones de correcciones", () => {
-  it("la sección de datos contiene guardas 1, 2 y 6", () => {
-    expect(TIPOS_DATOS.map((t) => t.codigo).sort()).toEqual([1, 2, 6]);
+  it("la sección de datos contiene las guardas de datos, incluidas las nuevas", () => {
+    expect(TIPOS_DATOS.map((t) => t.codigo).sort((a, b) => a - b)).toEqual([1, 2, 6, 7, 8, 9]);
   });
   it("el trabajo comercial es solo la guarda 4", () => {
     expect(TIPOS_TRABAJO.map((t) => t.codigo)).toEqual([4]);
