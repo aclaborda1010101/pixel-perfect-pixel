@@ -258,5 +258,12 @@ export async function sincronizarEdificioDesdeHubspot(
     stats.dudosos_nota = Number((enlace as any).dudosos ?? 0);
   }
 
+  // 7) Recalcular etiquetas de influenciador y estado de porcentajes del edificio.
+  //    Sólo lectura desde HubSpot: esto ordena nuestros propios datos.
+  const { error: infErr } = await supabase.rpc('recalcular_influenciadores', { p_building_id: buildingId });
+  if (infErr) console.error('[sync] influenciadores:', infErr);
+  const { error: verErr } = await supabase.rpc('recalcular_porcentajes_estado_crm', { p_building_id: buildingId });
+  if (verErr) console.error('[sync] estado porcentajes:', verErr);
+
   return stats;
 }

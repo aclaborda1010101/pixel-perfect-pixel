@@ -50,6 +50,7 @@ import { BloqueoContactoBadge, ExcepcionContactoButton } from "@/components/buil
 import { contactoBloqueado, TEXTO_CONTACTO_BLOQUEADO } from "@/lib/bloqueoContacto";
 import { Label } from "@/components/ui/label";
 import { SyncHubspotBar } from "@/components/buildings/SyncHubspotBar";
+import { explicaSuma } from "@/lib/sumaPropiedad";
 
 type SortKey = "score" | "pct" | "last" | "estado";
 
@@ -176,6 +177,10 @@ export default function ComercialEdificioDetalle() {
         .select("n_sin_ficha, pct_sin_ficha")
         .eq("building_id", id!)
         .maybeSingle();
+      const { data: fincas } = await (supabase.from("v_building_fincas" as any) as any)
+        .select("n_fincas")
+        .eq("building_id", id!)
+        .maybeSingle();
       // Backfill desde Catastro (authority cache) — año construcción y desglose por usos.
       let catastro: any = null;
       const rc14 = (b as any)?.refcatastral ? String((b as any).refcatastral).slice(0, 14) : null;
@@ -196,6 +201,7 @@ export default function ComercialEdificioDetalle() {
         catastro,
         sucesion: (sucesion ?? null) as any,
         sinFicha: (sinFicha ?? null) as any,
+        nFincas: Number((fincas as any)?.n_fincas ?? 0),
         ownersExtra: Object.fromEntries(
           ((ownersExtra ?? []) as any[]).map((r: any) => [r.owner_id, { ...(r.owners || {}), cuota: r.cuota }]),
         ),
@@ -278,6 +284,14 @@ export default function ComercialEdificioDetalle() {
   const fuentePct: string = String((ownersAll[0] as any)?.pct_fuente_edificio ?? "nota");
   const titularesSinFicha = Number((data as any)?.sinFicha?.n_sin_ficha ?? 0);
   const pctSinFicha = Number((data as any)?.sinFicha?.pct_sin_ficha ?? 0);
+  const nFincas = Number((data as any)?.nFincas ?? 0);
+  const explicacionSuma = explicaSuma({
+    suma: sumaVisible,
+    nFincas,
+    titularesSinFicha,
+    pctSinFicha,
+    fuente: fuentePct,
+  });
 
   const mapsQuery = encodeURIComponent(`${b.direccion}, ${b.ciudad ?? "Madrid"}`);
 
@@ -417,6 +431,11 @@ export default function ComercialEdificioDetalle() {
             >
               Suma de propiedad: {sumaVisible.toLocaleString("es-ES", { maximumFractionDigits: 2 })}%
             </div>
+            {explicacionSuma && (
+              <div className="mt-1 max-w-prose text-[11px] leading-snug text-muted-foreground">
+                {explicacionSuma}
+              </div>
+            )}
             <div className="mt-1 text-[11px] text-muted-foreground">
               {fuentePct === "crm"
                 ? "Porcentajes tomados de HubSpot (suman 100 %). No se mezclan con los de la nota del Registro."
