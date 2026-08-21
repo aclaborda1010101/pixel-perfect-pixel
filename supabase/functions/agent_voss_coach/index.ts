@@ -677,6 +677,39 @@ Devuelve el JSON estricto con la forma EXACTA del system.`;
       // Inyecta header SIEMPRE (no depende del modelo)
       ai.header = header;
       ai.n_llamadas_previas = n_previas;
+
+      // "Lo que ya sabemos": lo construimos NOSOTROS con la evidencia real,
+      // no el modelo. Así el comercial ve el dato y su cita, no una promesa.
+      ai.lo_que_ya_sabemos = kpiTenemos
+        .filter((k) => !!k.evidencia)
+        .map((k) => ({
+          dato: k.label,
+          confirmado: k.estado === 'tenemos',
+          cita: k.evidencia,
+          fecha: k.fecha ?? null,
+          fuente: k.fuente ?? null,
+        }));
+      // Red de seguridad determinista: si un KPI está CONFIRMADO, se cae de
+      // "info mínima a extraer" aunque el modelo lo haya vuelto a colar.
+      const info = ai.info_minima_a_extraer;
+      if (info && typeof info === 'object') {
+        if (clavesSabidas.has('tipologia')) info.tipologia = null;
+        if (clavesSabidas.has('motivacion_urgencia') && clavesSabidas.has('necesidad_liquidez')) info.que_le_mueve = null;
+        if (clavesSabidas.has('whatsapp_abierto')) info.canal_abierto = null;
+        const sabidoEdificio: Array<[string, RegExp]> = [
+          ['cuadro_rentas', /(renta|alquiler|inquilin|vencimient|arrend)/i],
+          ['n_copropietarios', /(copropietari|cuota|porcentaje|%|partes)/i],
+          ['relacion_copropietarios', /(relaci[oó]n|conflicto|familia|se llevan)/i],
+          ['vive_en_edificio', /(vive|reside|habita)/i],
+          ['oferta_previa', /(oferta|ofrecid|propuesta previa)/i],
+        ];
+        if (Array.isArray(info.info_edificio)) {
+          info.info_edificio = info.info_edificio.filter((linea: unknown) => {
+            const txt = String(linea ?? '');
+            return !sabidoEdificio.some(([clave, re]) => clavesSabidas.has(clave) && re.test(txt));
+          });
+        }
+      }
     }
 
     return new Response(JSON.stringify({
