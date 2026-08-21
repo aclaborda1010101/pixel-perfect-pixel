@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,7 +21,19 @@ export function SyncHubspotBar({ buildingId, lastSyncedAt, onDone }: Props) {
 
   const aviso = necesitaAviso(fecha);
 
-  async function actualizar() {
+  // Al abrir un edificio nunca sincronizado (o con datos viejos) traemos los
+  // datos solos: el comercial no tiene que acordarse de pulsar el botón.
+  const autoLanzado = useRef(false);
+  useEffect(() => {
+    if (autoLanzado.current) return;
+    if (!buildingId) return;
+    if (!necesitaAviso(lastSyncedAt)) return;
+    autoLanzado.current = true;
+    void actualizar(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buildingId, lastSyncedAt]);
+
+  async function actualizar(automatica = false) {
     setCorriendo(true);
     setMensaje(null);
     try {
@@ -45,7 +57,10 @@ export function SyncHubspotBar({ buildingId, lastSyncedAt, onDone }: Props) {
         return;
       }
       setFecha(r.last_synced_at ?? new Date().toISOString());
-      setMensaje({ tono: "ok", texto: resumenCambios(r) });
+      setMensaje({
+        tono: "ok",
+        texto: automatica ? `Actualizado solo al abrir. ${resumenCambios(r)}` : resumenCambios(r),
+      });
       onDone?.();
     } catch (e) {
       setMensaje({ tono: "error", texto: `No se han podido traer los datos de HubSpot: ${String((e as Error)?.message ?? e)}` });
@@ -65,7 +80,7 @@ export function SyncHubspotBar({ buildingId, lastSyncedAt, onDone }: Props) {
           <Info className="h-3 w-3 text-muted-foreground" aria-hidden />
           <span className="sr-only">{AYUDA_SYNC}</span>
         </div>
-        <Button size="sm" variant="outline" onClick={actualizar} disabled={corriendo} title={AYUDA_SYNC}>
+        <Button size="sm" variant="outline" onClick={() => actualizar()} disabled={corriendo} title={AYUDA_SYNC}>
           <RefreshCw className={cn("h-3 w-3", corriendo && "animate-spin")} />
           {corriendo ? "Trayendo datos de HubSpot…" : "Actualizar desde HubSpot"}
         </Button>
