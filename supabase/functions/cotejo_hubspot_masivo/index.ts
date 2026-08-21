@@ -171,7 +171,13 @@ Deno.serve(async (req) => {
   }
 
   if (incidencias.length > 0) {
-    const filas = incidencias.map((i) => ({ ...i, run_id: runId, estado: 'abierta' }));
+    // Lo que ya se ha arreglado solo queda cerrado; sólo abre lo que exige revisión.
+    const filas = incidencias.map((i) => ({
+      ...i,
+      run_id: runId,
+      estado: i.resolucion === 'auto_corregido' ? 'corregido' : 'abierta',
+    }));
+
     for (let k = 0; k < filas.length; k += 200) {
       const { error } = await admin.from('cotejo_hubspot_incidencias').insert(filas.slice(k, k + 200));
       if (error) console.error('[cotejo] incidencias:', error.message);
