@@ -123,6 +123,13 @@ export function VossCoachCard({
   const ctx = voss?.contexto_propietario ?? null;
   const hist = voss?.historico ?? null;
   const info = voss?.info_minima_a_extraer ?? null;
+  // Lo que ya consta con cita y fecha: el comercial no debe volver a preguntarlo.
+  const yaSabemos: Array<{ dato: string; confirmado?: boolean; cita?: string | null; fecha?: string | null; fuente?: string | null }> =
+    Array.isArray(voss?.lo_que_ya_sabemos) ? voss.lo_que_ya_sabemos : [];
+  const infoVacia =
+    !info ||
+    (!info.tipologia && !info.que_le_mueve && !info.canal_abierto &&
+      (!Array.isArray(info.info_edificio) || info.info_edificio.length === 0));
   const playbook = Array.isArray(voss?.playbook_priorizado) ? voss.playbook_priorizado : [];
   const enfoque = Array.isArray(voss?.enfoque_llamada) ? voss.enfoque_llamada : [];
   const plan = Array.isArray(voss?.plan_llamada) ? voss.plan_llamada : [];
