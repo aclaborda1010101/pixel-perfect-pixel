@@ -12349,6 +12349,7 @@ export type Database = {
       }
       auto_link_owner_building: { Args: { p_days?: number }; Returns: Json }
       build_score_summary: { Args: { p_building_id: string }; Returns: string }
+      buscar_owner_por_nombre: { Args: { p_nombre: string }; Returns: string }
       calls_stats: {
         Args: never
         Returns: {
