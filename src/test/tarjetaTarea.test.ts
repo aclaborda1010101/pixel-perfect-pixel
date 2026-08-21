@@ -35,7 +35,7 @@ describe("parseTarjetaTarea", () => {
 });
 
 describe("resumenConsentimiento", () => {
-  it("detecta autorización previa con fecha y origen de llamada", () => {
+  it("manda la señal más reciente, no la más antigua", () => {
     const r = resumenConsentimiento(
       [
         { owner_id: "o1", veredicto: "autorizado", fecha_llamada: "2026-07-29T10:00:00Z", hs_call_id: "c1" },
@@ -44,12 +44,27 @@ describe("resumenConsentimiento", () => {
       "o1",
     );
     expect(r.autorizado).toBe(true);
-    expect(r.fecha).toBe("2026-07-29T10:00:00.000Z");
-    expect(r.origen).toBe("llamada");
+    expect(r.fecha).toBe("2026-08-01T10:00:00.000Z");
+    expect(r.origen).toBe("registro");
+  });
+
+  it("un no posterior revoca el sí anterior", () => {
+    const r = resumenConsentimiento(
+      [
+        { owner_id: "o1", veredicto: "autorizado", fecha_llamada: "2026-07-29T10:00:00Z", hs_call_id: "c1" },
+        { owner_id: "o1", veredicto: "rechazado", fecha_llamada: "2026-08-05T10:00:00Z", hs_call_id: "c2" },
+      ],
+      "o1",
+    );
+    expect(r.autorizado).toBe(false);
+    expect(r.revocado).toBe(true);
   });
 
   it("sin señales afirmativas no autoriza", () => {
     const r = resumenConsentimiento([{ owner_id: "o1", veredicto: "dudoso" }], "o1");
-    expect(r).toEqual({ autorizado: false, fecha: null, origen: null });
+    expect(r.autorizado).toBe(false);
+    expect(r.fecha).toBeNull();
+    expect(r.origen).toBeNull();
   });
 });
+

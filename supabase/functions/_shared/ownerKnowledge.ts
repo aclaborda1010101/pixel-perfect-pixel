@@ -56,6 +56,16 @@ export function diagnosticKnowledge(metadata: unknown): Array<{
   });
 }
 
+/**
+ * Registra el consentimiento que el CLIENTE tiene marcado en su CRM.
+ *
+ * Importante: esto NO es evidencia nuestra. Se guarda con origen 'cliente'
+ * y una cita que dice exactamente de dónde viene, para no confundirlo con
+ * un consentimiento detectado en una llamada. Si el registro de HubSpot lo
+ * escribimos nosotros (señal previa con escrito_en_hubspot=true), no se
+ * cuenta como consentimiento de origen cliente: sería el sistema
+ * validándose a sí mismo.
+ */
 export async function materializeHubspotConsent(
   supabase: any,
   ownerId: string,
@@ -63,21 +73,40 @@ export async function materializeHubspotConsent(
   properties: Record<string, unknown>,
 ): Promise<boolean> {
   if (!isHubspotYes(properties.whatsapp_abierto)) return false;
+
+  // ¿Ese "sí" de HubSpot lo pusimos nosotros? Entonces no es fuente independiente.
+  const { data: previas } = await supabase
+    .from("wa_consent_signals")
+    .select("id, escrito_en_hubspot, origen")
+    .eq("owner_id", ownerId)
+    .eq("escrito_en_hubspot", true)
+    .limit(1);
+  const loEscribimosNosotros = Array.isArray(previas) && previas.length > 0;
+
   const now = new Date().toISOString();
   const { error } = await supabase.from("wa_consent_signals").upsert({
     owner_id: ownerId,
     hs_call_id: `hubspot:contact:${contactId}:whatsapp_abierto`,
     veredicto: "autorizado",
-    cita_textual: "Canal WhatsApp abierto en HubSpot.",
+    cita_textual: "Marcado como canal WhatsApp abierto en el CRM del cliente (sin cita de llamada).",
     telefono: properties.phone || properties.mobilephone || null,
-    confianza: 1,
+    confianza: loEscribimosNosotros ? 0 : 0.5,
     fecha_llamada: properties.lastmodifieddate || now,
     detectado_at: now,
     escrito_en_hubspot: true,
     fuente: "hubspot",
+    origen: loEscribimosNosotros ? "sistema" : "cliente",
+    review_status: loEscribimosNosotros ? "pendiente_revision" : null,
+    review_reason: loEscribimosNosotros
+      ? "circular: el sí de HubSpot lo escribió nuestro sistema"
+      : null,
   }, { onConflict: "owner_id,hs_call_id" });
   if (error) throw error;
-  const { error: ownerError } = await supabase.from("owners").update({ consentimiento: true }).eq("id", ownerId);
-  if (ownerError) throw ownerError;
-  return true;
+
+  // owners.consentimiento sólo se enciende con consentimiento de origen cliente.
+  if (!loEscribimosNosotros) {
+    const { error: ownerError } = await supabase.from("owners").update({ consentimiento: true }).eq("id", ownerId);
+    if (ownerError) throw ownerError;
+  }
+  return !loEscribimosNosotros;
 }

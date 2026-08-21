@@ -9884,6 +9884,87 @@ export type Database = {
         }
         Relationships: []
       }
+      wa_consent_incidencias: {
+        Row: {
+          created_at: string
+          detalle: string | null
+          estado: string
+          hs_call_id: string | null
+          id: string
+          motivos: string[]
+          owner_id: string | null
+          resuelta_at: string | null
+          resuelta_por: string | null
+          signal_id: string | null
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          detalle?: string | null
+          estado?: string
+          hs_call_id?: string | null
+          id?: string
+          motivos?: string[]
+          owner_id?: string | null
+          resuelta_at?: string | null
+          resuelta_por?: string | null
+          signal_id?: string | null
+          tipo: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          detalle?: string | null
+          estado?: string
+          hs_call_id?: string | null
+          id?: string
+          motivos?: string[]
+          owner_id?: string | null
+          resuelta_at?: string | null
+          resuelta_por?: string | null
+          signal_id?: string | null
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_consent_incidencias_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wa_consent_incidencias_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_consent_incidencias_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_consent_incidencias_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_consent_incidencias_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "wa_consent_signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wa_consent_signals: {
         Row: {
           cita_textual: string | null
@@ -9894,14 +9975,19 @@ export type Database = {
           fuente: string | null
           hs_call_id: string
           id: string
+          origen: string | null
           owner_id: string | null
           registrado_por: string | null
           review_reason: string | null
           review_status: string | null
           review_updated_at: string | null
+          revisado_por: string | null
+          revocado_at: string | null
           task_id: string | null
           telefono: string | null
+          validacion: Json | null
           veredicto: string
+          veto_motivos: string[] | null
         }
         Insert: {
           cita_textual?: string | null
@@ -9912,14 +9998,19 @@ export type Database = {
           fuente?: string | null
           hs_call_id: string
           id?: string
+          origen?: string | null
           owner_id?: string | null
           registrado_por?: string | null
           review_reason?: string | null
           review_status?: string | null
           review_updated_at?: string | null
+          revisado_por?: string | null
+          revocado_at?: string | null
           task_id?: string | null
           telefono?: string | null
+          validacion?: Json | null
           veredicto: string
+          veto_motivos?: string[] | null
         }
         Update: {
           cita_textual?: string | null
@@ -9930,14 +10021,19 @@ export type Database = {
           fuente?: string | null
           hs_call_id?: string
           id?: string
+          origen?: string | null
           owner_id?: string | null
           registrado_por?: string | null
           review_reason?: string | null
           review_status?: string | null
           review_updated_at?: string | null
+          revisado_por?: string | null
+          revocado_at?: string | null
           task_id?: string | null
           telefono?: string | null
+          validacion?: Json | null
           veredicto?: string
+          veto_motivos?: string[] | null
         }
         Relationships: [
           {
@@ -12557,6 +12653,61 @@ export type Database = {
           },
           {
             foreignKeyName: "building_owners_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_score"
+            referencedColumns: ["owner_id"]
+          },
+        ]
+      }
+      v_wa_consent_contadores: {
+        Row: {
+          autorizados_vigentes: number | null
+          no_autorizados: number | null
+          origen: string | null
+          pendientes_revision: number | null
+        }
+        Relationships: []
+      }
+      v_wa_consent_vigente: {
+        Row: {
+          autorizado: boolean | null
+          cita_textual: string | null
+          confianza: number | null
+          escrito_en_hubspot: boolean | null
+          fecha: string | null
+          fuente: string | null
+          origen: string | null
+          owner_id: string | null
+          review_reason: string | null
+          review_status: string | null
+          telefono: string | null
+          veredicto_vigente: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wa_consent_signals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "owners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wa_consent_signals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_graph"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_consent_signals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_owner_last_contact"
+            referencedColumns: ["owner_id"]
+          },
+          {
+            foreignKeyName: "wa_consent_signals_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "v_owner_score"

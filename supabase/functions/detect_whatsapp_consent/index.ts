@@ -7,6 +7,7 @@
 //
 // Params: { limit?: number (default 30), only_whatsapp?: boolean, hs_call_id?: string }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { validarConsentimiento } from "../_shared/waConsent.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -115,21 +116,51 @@ async function processOne(sb: any, call: any): Promise<{ ok: boolean; skip?: str
   }
 
   const telefono = String(call.hs_call_to_number || call.hs_call_from_number || "").trim() || null;
+
+  // VALIDACIÓN LEGAL: la cita debe existir literalmente, estar atribuida al
+  // propietario y contener una aceptación explícita. Además, cualquier veto
+  // de privacidad bloquea el consentimiento y abre incidencia.
+  const { data: ownerRow } = await sb.from("owners").select("telefono").eq("id", ownerId).maybeSingle();
+  const val = validarConsentimiento({
+    veredicto: out.veredicto as any,
+    cita: out.cita_textual,
+    transcripcion: transcript,
+    telefonoLlamada: telefono,
+    telefonoFicha: (ownerRow as any)?.telefono ?? null,
+  });
+
+  const veredictoFinal = val.veredicto;
   const { error } = await sb.from("wa_consent_signals").insert({
     owner_id: ownerId,
     hs_call_id: hsCallId,
-    veredicto: out.veredicto,
+    veredicto: veredictoFinal,
     cita_textual: out.cita_textual || null,
     telefono,
-    confianza: out.confianza,
+    confianza: val.apto_para_escritura ? out.confianza : Math.min(out.confianza, 0.5),
     fecha_llamada: call.hs_timestamp ?? null,
     escrito_en_hubspot: false,
+    origen: "sistema",
+    validacion: val as any,
+    veto_motivos: val.vetos,
+    review_status: val.requiere_revision ? "pendiente_revision" : null,
+    review_reason: val.requiere_revision ? val.motivos.join(", ") : null,
+    review_updated_at: val.requiere_revision ? new Date().toISOString() : null,
   });
+
+  if (val.vetos.length) {
+    await sb.from("wa_consent_incidencias").insert({
+      owner_id: ownerId,
+      hs_call_id: hsCallId,
+      tipo: "veto_privacidad",
+      motivos: val.vetos,
+      detalle: "La llamada contiene una objeción de privacidad; el consentimiento queda bloqueado.",
+    });
+  }
   if (error && !String(error.message).includes("duplicate")) {
     console.error(`[detect_wa_consent] insert fail ${hsCallId}: ${error.message}`);
     return { ok: false, skip: `insert:${error.message}` };
   }
-  return { ok: true, veredicto: out.veredicto };
+  return { ok: true, veredicto: veredictoFinal };
 }
 
 Deno.serve(async (req) => {

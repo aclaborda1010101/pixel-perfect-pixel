@@ -49,74 +49,54 @@ export function decidirDestino(input: {
   return { modo: 'real', telefono: propietario };
 }
 
-export type SenalConsentimiento = {
-  owner_id?: string | null;
-  veredicto?: string | null;
-};
+import {
+  resolverConsentimiento,
+  type SenalConsentimiento as SenalWa,
+} from './waConsent.ts';
 
-const VEREDICTOS_AFIRMATIVOS = ['si', 'sí', 'true', 'yes', 'concedido', 'autorizado'];
+export type SenalConsentimiento = SenalWa;
 
-/** Hay consentimiento si existe al menos una señal afirmativa de ese propietario. */
+/**
+ * Hay consentimiento si la señal MÁS RECIENTE del propietario es afirmativa.
+ * Un «no» posterior revoca el «sí» anterior.
+ */
 export function tieneConsentimiento(
   senales: readonly SenalConsentimiento[] | null | undefined,
   ownerId: string,
 ): boolean {
-  return (senales ?? []).some(
-    (s) =>
-      String(s?.owner_id ?? '') === ownerId &&
-      VEREDICTOS_AFIRMATIVOS.includes(String(s?.veredicto ?? '').trim().toLowerCase()),
-  );
+  return resolverConsentimiento(senales, ownerId).autorizado;
 }
 
-export type SenalConsentimientoDetalle = SenalConsentimiento & {
-  detectado_at?: string | null;
-  fecha_llamada?: string | null;
-  fuente?: string | null;
-  hs_call_id?: string | null;
-};
+export type SenalConsentimientoDetalle = SenalConsentimiento;
 
 export type ResumenConsentimiento = {
   autorizado: boolean;
-  /** Fecha ISO de la autorización más antigua encontrada. */
+  /** Fecha ISO de la autorización vigente (la más reciente). */
   fecha: string | null;
   /** Origen en lenguaje llano: 'llamada' o 'registro'. */
   origen: 'llamada' | 'registro' | null;
+  /** true si hubo un sí anterior y una baja posterior. */
+  revocado?: boolean;
 };
 
 /**
- * Resume la autorización ya registrada de un propietario: si existe, desde
- * cuándo y de dónde viene. Sirve para mostrarla marcada y bloqueada.
+ * Resume la autorización vigente de un propietario: si existe, desde cuándo
+ * y de dónde viene. Manda siempre la señal más reciente.
  */
 export function resumenConsentimiento(
   senales: readonly SenalConsentimientoDetalle[] | null | undefined,
   ownerId: string,
 ): ResumenConsentimiento {
-  const afirmativas = (senales ?? []).filter(
-    (s) =>
-      String(s?.owner_id ?? '') === ownerId &&
-      VEREDICTOS_AFIRMATIVOS.includes(String(s?.veredicto ?? '').trim().toLowerCase()),
-  );
-  if (afirmativas.length === 0) return { autorizado: false, fecha: null, origen: null };
-  const conFecha = afirmativas
-    .map((s) => ({
-      s,
-      t: Date.parse(String(s.fecha_llamada ?? s.detectado_at ?? '')),
-    }))
-    .filter((x) => Number.isFinite(x.t))
-    .sort((a, b) => a.t - b.t);
-  const elegida = conFecha[0]?.s ?? afirmativas[0];
-  const fechaRaw = elegida.fecha_llamada ?? elegida.detectado_at ?? null;
-  const origen: 'llamada' | 'registro' | null = elegida.hs_call_id
+  const estado = resolverConsentimiento(senales, ownerId);
+  if (!estado.autorizado) {
+    return { autorizado: false, fecha: null, origen: null, revocado: estado.revocado };
+  }
+  const origen: 'llamada' | 'registro' = estado.senal?.hs_call_id && !String(estado.senal.hs_call_id).startsWith('hubspot:')
     ? 'llamada'
-    : elegida.fuente
-      ? 'registro'
-      : null;
-  return {
-    autorizado: true,
-    fecha: fechaRaw ? new Date(fechaRaw).toISOString() : null,
-    origen,
-  };
+    : 'registro';
+  return { autorizado: true, fecha: estado.fecha, origen, revocado: false };
 }
+
 
 export type ClaveGenerada = { code: string; buildingId: string; subjectId: string };
 
