@@ -75,33 +75,45 @@ Deno.serve(async (req) => {
       if (linksError) throw linksError;
       const ownerByContact = new Map((links || []).map((l: any) => [String(l.provider_id), String(l.entity_id)]));
 
-      for (const contact of contacts) {
-        try {
-          const contactId = String(contact.id);
-          const ownerId = ownerByContact.get(contactId);
-          if (!ownerId) { unmatched++; continue; }
-          const props = contact.properties || {};
-          const { data: owner, error: ownerReadError } = await supabase.from('owners')
-            .select('metadatos').eq('id', ownerId).single();
-          if (ownerReadError) throw ownerReadError;
-          const merged = { ...(owner?.metadatos || {}), ...props, _hubspot_contact_id: contactId };
-          const { error: updateError } = await supabase.from('owners').update({
-            metadatos: merged,
-            email: props.email || null,
-            telefono: props.phone || props.mobilephone || null,
-            last_synced_at: new Date().toISOString(),
-          }).eq('id', ownerId);
-          if (updateError) throw updateError;
-          if (await materializeHubspotConsent(supabase, ownerId, contactId, props)) consentsMaterialized++;
-          contactsUpdated++;
-          const modified = props.lastmodifieddate || contact.updatedAt;
-          if (modified && String(modified) > maxSeen) maxSeen = String(modified);
-        } catch (error) {
-          failures++;
-          console.error('[contact_diagnostics] contact failed', contact?.id, error);
-        }
+      for (let offset = 0; offset < contacts.length; offset += 10) {
+        const batch = contacts.slice(offset, offset + 10);
+        await Promise.all(batch.map(async (contact: any) => {
+          try {
+            const contactId = String(contact.id);
+            const ownerId = ownerByContact.get(contactId);
+            if (!ownerId) { unmatched++; return; }
+            const props = contact.properties || {};
+            const { data: owner, error: ownerReadError } = await supabase.from('owners')
+              .select('metadatos').eq('id', ownerId).single();
+            if (ownerReadError) throw ownerReadError;
+            const merged = { ...(owner?.metadatos || {}), ...props, _hubspot_contact_id: contactId };
+            const { error: updateError } = await supabase.from('owners').update({
+              metadatos: merged,
+              email: props.email || null,
+              telefono: props.phone || props.mobilephone || null,
+              last_synced_at: new Date().toISOString(),
+            }).eq('id', ownerId);
+            if (updateError) throw updateError;
+            if (await materializeHubspotConsent(supabase, ownerId, contactId, props)) consentsMaterialized++;
+            contactsUpdated++;
+            const modified = props.lastmodifieddate || contact.updatedAt;
+            if (modified && String(modified) > maxSeen) maxSeen = String(modified);
+          } catch (error) {
+            failures++;
+            console.error('[contact_diagnostics] contact failed', contact?.id, error);
+          }
+        }));
       }
       after = response?.paging?.next?.after;
+      // Checkpoint durable: una interrupción reanuda desde la última página terminada.
+      await supabase.from('hubspot_sync_state').update({
+        cursor: maxSeen,
+        metadatos: {
+          ...previous, since_ts: maxSeen, pages_fetched: pagesFetched,
+          contacts_updated: contactsUpdated, consents_materialized: consentsMaterialized,
+          unmatched, failures,
+        },
+      }).eq('entity', entity);
       if (!after) break;
     }
 
