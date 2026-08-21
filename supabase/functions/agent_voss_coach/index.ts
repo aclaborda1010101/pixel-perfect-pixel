@@ -619,8 +619,8 @@ ${snapshot.info_compartida_edificio?.precio_discrepancia ? '⚠ DISCREPANCIA DE 
 ${mode === 'brief' ? `TARGET_KPIS (KPIs OBJETIVO de esta llamada — enfoca el plan en conseguir ESTOS datos concretos; usa el label EXACTO en "enfoque_llamada[].kpi"):
 ${targetKpis.length ? targetKpis.map((k, i) => `[${i + 1}] ${k}`).join('\n') : '(vacío — plan estándar)'}
 
-KPI_CONTEXT · LO QUE YA SABEMOS DE ESTA PERSONA (úsalo como base para el plan_llamada — cita la evidencia en "por_que"):
-${kpiTenemos.length ? kpiTenemos.map((k) => `- [${k.estado}] ${k.label}${k.evidencia ? ` — evidencia: "${k.evidencia}"` : ''}`).join('\n') : '(no consta info previa consolidada — trata como primer contacto informativo)'}
+LO_QUE_YA_SABEMOS (PROHIBIDO volver a preguntar estos datos — úsalos como munición en plan_llamada[].por_que y en la apertura):
+${kpiTenemos.length ? kpiTenemos.map((k) => `- [${k.estado}] ${k.label}${k.evidencia ? ` — consta: "${k.evidencia}"` : ''}${k.fecha ? ` (${k.fecha}${k.fuente ? `, ${k.fuente}` : ''})` : ''}`).join('\n') : '(no consta info previa consolidada — trata como primer contacto informativo)'}
 
 KPI_CONTEXT · LO QUE NOS FALTA (a sacar en esta llamada):
 ${kpiFalta.length ? kpiFalta.map((k) => `- ${k.label}`).join('\n') : '(sin huecos declarados)'}
