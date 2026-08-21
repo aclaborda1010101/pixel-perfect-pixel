@@ -53,7 +53,7 @@ export default function ComercialPrepararLlamada() {
   const [awaiting, setAwaiting] = useState<{ nextAt: number; attempt: number } | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [targetKpis, setTargetKpis] = useState<string[]>([]);
-  const [kpiContext, setKpiContext] = useState<Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }>>([]);
+  const [kpiContext, setKpiContext] = useState<Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null; fuente?: string | null; fecha?: string | null }>>([]);
   const [targetKpiClaves, setTargetKpiClaves] = useState<string[]>([]);
   const [postKpiContext, setPostKpiContext] = useState<Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }> | null>(null);
   const [scheduledAnalyzeAt, setScheduledAnalyzeAt] = useState<number | null>(null);
