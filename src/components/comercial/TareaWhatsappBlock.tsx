@@ -31,6 +31,8 @@ type Props = {
 export function TareaWhatsappBlock({ task, onCompleted }: Props) {
   const qc = useQueryClient();
   const [guardando, setGuardando] = useState(false);
+  const [pidiendoCita, setPidiendoCita] = useState(false);
+  const [cita, setCita] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [cerrando, setCerrando] = useState(false);
   const [preparando, setPreparando] = useState(false);
