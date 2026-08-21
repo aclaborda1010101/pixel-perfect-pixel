@@ -123,6 +123,8 @@ export const DEAL_PROPERTIES = [
 ];
 
 // Properties para Contacts (propietarios + leads + inversores)
+import { HUBSPOT_DIAGNOSTIC_PROPERTY_NAMES } from './ownerKnowledge.ts';
+
 export const CONTACT_PROPERTIES = [
   // estándar
   'firstname', 'lastname', 'email', 'phone', 'mobilephone', 'lifecyclestage', 'hs_lead_status',
@@ -137,6 +139,8 @@ export const CONTACT_PROPERTIES = [
   'associatedcompanyid', 'motivo_venta', 'empresa_propia', 'edad',
   'relacion_familiar', 'profesion', 'situacion', 'primer_apellido',
   'fecha_nacimiento', 'lugar_residencia', 'anos_propietario',
+  // diagnóstico comercial: HubSpot también es fuente de verdad de entrada
+  ...HUBSPOT_DIAGNOSTIC_PROPERTY_NAMES,
 ];
 
 // (no helper extra; cada función importa createClient directamente)

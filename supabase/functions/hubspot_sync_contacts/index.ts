@@ -2,6 +2,7 @@
 // Upsert en owners + external_ids. Asociaciones a deals (building_owners) en una segunda pasada.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
 import { hubspotFetch, corsHeaders, CONTACT_PROPERTIES } from '../_shared/hubspot.ts';
+import { materializeHubspotConsent } from '../_shared/ownerKnowledge.ts';
 
 const PAGE_LIMIT = 100;
 const MAX_PAGES_PER_RUN = 10;
@@ -159,6 +160,7 @@ Deno.serve(async (req) => {
               }
             }
           }
+          await materializeHubspotConsent(supabase, ownerId, contact.id, props);
           upserted++;
 
           // Asociaciones contact -> deals
@@ -260,7 +262,7 @@ Deno.serve(async (req) => {
       last_error: msg,
     }).eq('entity', stateEntity);
     return new Response(JSON.stringify({ ok: false, error: msg, upserted, failed }), {
-      status: 200,
+      status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

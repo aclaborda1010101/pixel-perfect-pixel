@@ -3,6 +3,7 @@
 // batch/read. Nunca escribe en HubSpot.
 // Reutiliza la misma lógica que el volcado masivo hubspot_backfill_deal_contacts.
 import { hubspotFetch, CONTACT_PROPERTIES } from './hubspot.ts';
+import { materializeHubspotConsent } from './ownerKnowledge.ts';
 
 export const CALL_PROPERTIES = [
   'hs_call_title', 'hs_call_body', 'hs_call_summary', 'hs_call_status',
@@ -153,7 +154,10 @@ export async function sincronizarEdificioDesdeHubspot(
           telefono: props.phone || props.mobilephone || null,
           last_synced_at: new Date().toISOString(),
         }).eq('id', existing);
-        if (error) stats.fallos++; else stats.owners_actualizados++;
+        if (error) stats.fallos++; else {
+          await materializeHubspotConsent(supabase, existing, String(c.id), props);
+          stats.owners_actualizados++;
+        }
         continue;
       }
       const { data: ins, error: insErr } = await supabase.from('owners').insert({
@@ -179,6 +183,7 @@ export async function sincronizarEdificioDesdeHubspot(
         continue;
       }
       contactToOwner.set(String(c.id), ins.id);
+      await materializeHubspotConsent(supabase, ins.id, String(c.id), props);
       stats.owners_creados++;
     }
   }
