@@ -187,7 +187,14 @@ const KPI_FOCUS_RULES = `REGLA DE ENFOQUE POR KPIs (prioritaria): recibirás TAR
     · "Nº de copropietarios y % de cada parte" → "¿Cuántos son ahora mismo en la propiedad y cómo tienen repartidas las partes?"
     · "Qué le mueve / motor" → "¿Qué tendría que pasar para que esto dejara de ser un tema?"
     · "Estado del edificio / obras / ITE" → "¿Cómo está el edificio hoy en cuanto a obras, ITE, derramas?"
-  - Si TARGET_KPIS viene vacío, devuelve "enfoque_llamada": [] y sigue con el plan estándar.`;
+  - Si TARGET_KPIS viene vacío, devuelve "enfoque_llamada": [] y sigue con el plan estándar.
+
+REGLA "NO PREGUNTES LO QUE YA SABES" (bloqueante — el comercial se queja de que le hacemos repetir preguntas):
+  - Recibirás el bloque LO_QUE_YA_SABEMOS con datos YA CONFIRMADOS de este propietario (rentas, copropietarios, si vive en el edificio, ofertas previas, canal WhatsApp, etc.), cada uno con su cita literal y su fecha.
+  - PROHIBIDO pedir en "info_minima_a_extraer", en "enfoque_llamada" o en "hilo" un dato que ya figure en LO_QUE_YA_SABEMOS. Si lo pides, la salida es INVÁLIDA.
+  - Un dato ya sabido SOLO puede aparecer como CONFIRMACIÓN explícita y solo si tiene más de 6 meses o si el propio histórico lo contradice. En ese caso la pregunta debe empezar reconociendo el dato ("La última vez me dijo que los dos bajos están alquilados a renta antigua, ¿sigue igual?"), nunca preguntarlo en frío.
+  - Los datos ya sabidos se usan como MUNICIÓN en "plan_llamada[].por_que" y en la apertura, no como huecos que rellenar.
+  - Si TODOS los KPIs relevantes están ya sabidos, dilo: la llamada es de avance (reunión, decisión, precio), no de descubrimiento.`;
 
 const SYSTEM_POST = `Eres el JEFE DE VENTAS de Afflux redactando el INFORME POST-LLAMADA de un comercial que acaba de hablar con un proindivisario. NO eres un evaluador académico Voss: escribes como el responsable comercial que analiza la llamada, saca la inteligencia que hay dentro, evalúa al comercial y define el siguiente paso del deal. Tu materia prima OBLIGATORIA es el VERBATIM completo de la transcripción (no el resumen).
 
