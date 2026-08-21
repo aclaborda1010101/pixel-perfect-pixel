@@ -363,11 +363,15 @@ Deno.serve(async (req) => {
   try {
     const { mode = 'brief', owner_id, building_id, call_transcript, call_duration_seg, call_summary, target_kpis, kpi_context } = await req.json();
     const targetKpis: string[] = Array.isArray(target_kpis) ? target_kpis.filter((s) => typeof s === 'string' && s.trim()) : [];
-    const kpiContext: Array<{ clave: string; label: string; estado: string; evidencia: string | null }> = Array.isArray(kpi_context)
+    const kpiContext: Array<{ clave: string; label: string; estado: string; evidencia: string | null; fuente?: string | null; fecha?: string | null }> = Array.isArray(kpi_context)
       ? kpi_context.filter((k: any) => k && typeof k === 'object' && k.label)
       : [];
     const kpiTenemos = kpiContext.filter((k) => k.estado === 'tenemos' || k.estado === 'a_medias');
     const kpiFalta = kpiContext.filter((k) => k.estado === 'falta');
+    // Claves de KPI que constan CONFIRMADAS: no se pueden volver a preguntar.
+    const clavesSabidas = new Set(
+      kpiContext.filter((k) => k.estado === 'tenemos' && k.clave).map((k) => String(k.clave)),
+    );
     const lk = Deno.env.get('LOVABLE_API_KEY');
     if (!lk) throw new Error('LOVABLE_API_KEY missing');
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
