@@ -28,7 +28,7 @@ export function VossCoachCard({
   initialVoss?: any;
   onLoaded?: (voss: any) => void;
   targetKpis?: string[];
-  kpiContext?: Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null }>;
+  kpiContext?: Array<{ clave: string; label: string; estado: "tenemos" | "a_medias" | "falta"; evidencia: string | null; fuente?: string | null; fecha?: string | null }>;
   buyerPersona?: string | null;
 }) {
   const [voss, setVoss] = useState<any>(initialVoss ?? null);
