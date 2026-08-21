@@ -17,6 +17,7 @@ const FUENTE_LABEL: Record<string, string> = {
   transcripcion: "Transcripción",
   nota_hs: "Nota HubSpot",
   whatsapp: "WhatsApp",
+  hubspot: "HubSpot",
 };
 function fuenteLabel(f?: string | null): string {
   if (!f) return "notas";

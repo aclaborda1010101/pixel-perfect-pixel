@@ -1,4 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { diagnosticKnowledge } from "../_shared/ownerKnowledge.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,7 +52,14 @@ Deno.serve(async (req) => {
     );
 
     // 1) Propietario
-    const { data: owner } = await admin.from("owners").select("id,nombre,rol,telefono,notas_breves").eq("id", owner_id).maybeSingle();
+    const { data: owner } = await admin.from("owners").select("id,nombre,rol,telefono,notas_breves,metadatos,consentimiento").eq("id", owner_id).maybeSingle();
+    const hubspotKnown = diagnosticKnowledge(owner?.metadatos);
+    if (owner?.consentimiento && !hubspotKnown.some((k) => k.clave === "whatsapp_abierto")) {
+      hubspotKnown.push({
+        clave: "whatsapp_abierto", label: "Canal WhatsApp abierto", estado: "tenemos",
+        evidencia: "WhatsApp autorizado", fuente: "hubspot", fecha: null,
+      });
+    }
 
     // 2) Llamadas enriquecidas (vista)
     const { data: callsView } = await (admin.from("v_owner_calls_enriched" as any) as any)
@@ -147,11 +155,13 @@ Deno.serve(async (req) => {
       if (body) notasCorpus.push(`[WHATSAPP ${when}] ${body}`);
     }
 
+    const knownByKey = new Map(hubspotKnown.map((k) => [k.clave, k]));
+    const emptyKpis = KPIS.map((k) => knownByKey.get(k.clave) ?? ({ clave: k.clave, label: k.label, estado: "falta" as const, evidencia: null }));
     const emptyResult = {
       total: KPIS.length,
-      completados: 0,
-      kpis: KPIS.map((k) => ({ clave: k.clave, label: k.label, estado: "falta" as const, evidencia: null })),
-      a_abordar: ["cuadro_rentas", "predisposicion", "tipologia"],
+      completados: emptyKpis.filter((k) => k.estado === "tenemos").length,
+      kpis: emptyKpis,
+      a_abordar: ["cuadro_rentas", "predisposicion", "tipologia"].filter((k) => !knownByKey.has(k)),
     };
 
     if (notasCorpus.length === 0) {
@@ -262,6 +272,8 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
     for (const k of (parsed.kpis ?? [])) byClave.set(k.clave, k);
 
     const kpis = KPIS.map((k) => {
+      const known = knownByKey.get(k.clave);
+      if (known) return known;
       const m = byClave.get(k.clave);
       const estado = m?.estado === "tenemos" || m?.estado === "a_medias" || m?.estado === "falta" ? m.estado : "falta";
       const evidencia = estado === "tenemos" ? (typeof m?.evidencia === "string" ? m.evidencia.slice(0, 240) : null) : null;
@@ -273,7 +285,7 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
 
     // a_abordar: prioriza cuadro_rentas si no lo tenemos
     const validClaves = new Set(KPIS.map((k) => k.clave));
-    let aAbordar = (parsed.a_abordar ?? []).filter((c: string) => validClaves.has(c));
+    let aAbordar = (parsed.a_abordar ?? []).filter((c: string) => validClaves.has(c) && !knownByKey.has(c));
     const cuadroEstado = kpis.find((k) => k.clave === "cuadro_rentas")?.estado;
     if (cuadroEstado !== "tenemos") {
       aAbordar = ["cuadro_rentas", ...aAbordar.filter((c: string) => c !== "cuadro_rentas")];
@@ -285,7 +297,7 @@ No inventes. Si no aparece, es "falta". Después elige 3-5 KPIs "a_abordar" en l
         if (k.estado !== "tenemos" && !aAbordar.includes(k.clave)) aAbordar.push(k.clave);
       }
     }
-    aAbordar = aAbordar.slice(0, 5);
+    aAbordar = aAbordar.filter((clave: string) => kpis.find((k) => k.clave === clave)?.estado !== "tenemos").slice(0, 5);
 
     return new Response(JSON.stringify({
       total: KPIS.length,
