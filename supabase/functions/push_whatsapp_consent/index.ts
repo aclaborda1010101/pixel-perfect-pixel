@@ -5,6 +5,7 @@
 // intentando pero cada invocación se auto-frenará hasta que el scope se conceda).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { hubspotFetch, corsHeaders } from "../_shared/hubspot.ts";
+import { validarConsentimiento } from "../_shared/waConsent.ts";
 
 const ENTITY = "push_whatsapp_consent";
 const DEFAULT_BATCH = 25;
@@ -45,8 +46,25 @@ Deno.serve(async (req) => {
   const batchSize = Math.max(1, Math.min(100, Number(body.batch ?? DEFAULT_BATCH)));
   const t0 = Date.now();
 
+  // INTERRUPTOR LEGAL: sin él, no entra nada en el CRM del cliente por esta vía.
+  // Sólo una aprobación explícita (approved_signal_ids) puede saltarlo.
+  const aprobadas: string[] = Array.isArray(body.approved_signal_ids)
+    ? body.approved_signal_ids.map(String).filter(Boolean)
+    : [];
+  const { data: flag } = await sb.from("app_settings")
+    .select("value").eq("key", "wa_consent_escritura_automatica").maybeSingle();
+  const automaticaActiva = String((flag as any)?.value ?? "false") === "true";
+  if (!automaticaActiva && aprobadas.length === 0) {
+    return new Response(JSON.stringify({
+      ok: true,
+      skipped: true,
+      reason: "escritura_automatica_desactivada",
+      message: "La escritura automática del consentimiento de WhatsApp está desactivada. Sólo se escribe con aprobación manual (approved_signal_ids).",
+    }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   const { data: logRow } = await sb.from("hubspot_sync_log")
-    .insert({ entity: ENTITY, status: "running", metadatos: { batch: batchSize } })
+    .insert({ entity: ENTITY, status: "running", metadatos: { batch: batchSize, aprobadas: aprobadas.length } })
     .select("id").single();
   const logId = logRow?.id;
 
@@ -59,24 +77,61 @@ Deno.serve(async (req) => {
     const flagProp = await detectContactProperty(WA_FLAG_CANDIDATES);
     if (!phoneProp) throw new Error("No se encontró propiedad de teléfono WhatsApp en HubSpot (candidatos: " + WA_PHONE_CANDIDATES.join(", ") + ")");
 
+
     // 1) Señales pendientes
-    const { data: signals, error: sErr } = await sb.from("wa_consent_signals")
-      .select("id, owner_id, telefono, hs_call_id, fecha_llamada")
+    let q = sb.from("wa_consent_signals")
+      .select("id, owner_id, telefono, hs_call_id, fecha_llamada, cita_textual, review_status, origen")
       .eq("veredicto", "autorizado")
       .eq("escrito_en_hubspot", false)
-      .not("telefono", "is", null)
+      .not("telefono", "is", null);
+    if (aprobadas.length) q = q.in("id", aprobadas);
+    const { data: signalsRaw, error: sErr } = await q
       .order("fecha_llamada", { ascending: false })
       .limit(batchSize);
     if (sErr) throw sErr;
 
-    if (!signals || !signals.length) {
+    // 1.bis) TODA escritura pasa por el validador legal.
+    const signals: any[] = [];
+    const rechazadasPorValidacion: any[] = [];
+    for (const s of signalsRaw ?? []) {
+      if (["pendiente_revision", "revocado"].includes(String((s as any).review_status ?? ""))) {
+        rechazadasPorValidacion.push({ id: s.id, motivos: ["en_revision"] });
+        continue;
+      }
+      const { data: owner } = await sb.from("owners").select("telefono").eq("id", s.owner_id).maybeSingle();
+      const { data: call } = await sb.from("hubspot_calls")
+        .select("hs_call_transcription").eq("hs_id", String(s.hs_call_id)).maybeSingle();
+      const v = validarConsentimiento({
+        veredicto: "autorizado",
+        cita: (s as any).cita_textual,
+        transcripcion: (call as any)?.hs_call_transcription ?? null,
+        telefonoLlamada: s.telefono,
+        telefonoFicha: (owner as any)?.telefono ?? null,
+      });
+      if (!v.apto_para_escritura) {
+        rechazadasPorValidacion.push({ id: s.id, motivos: v.motivos });
+        await sb.from("wa_consent_signals").update({
+          veredicto: "dudoso",
+          review_status: "pendiente_revision",
+          review_reason: v.motivos.join(", "),
+          review_updated_at: new Date().toISOString(),
+          validacion: v as any,
+          veto_motivos: v.vetos,
+        }).eq("id", s.id);
+        continue;
+      }
+      signals.push(s);
+    }
+
+    if (!signals.length) {
       await sb.from("hubspot_sync_log").update({
         finished_at: new Date().toISOString(), status: "ok",
-        metadatos: { batch: batchSize, message: "no_candidates", phoneProp, flagProp },
+        metadatos: { batch: batchSize, message: "no_candidates", phoneProp, flagProp, rechazadasPorValidacion },
       }).eq("id", logId);
-      return new Response(JSON.stringify({ ok: true, message: "no_candidates", phoneProp, flagProp }),
+      return new Response(JSON.stringify({ ok: true, message: "no_candidates", phoneProp, flagProp, rechazadasPorValidacion }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
 
     // 2) Owner → contactId vía external_ids
     const ownerIds = Array.from(new Set(signals.map((s: any) => s.owner_id).filter(Boolean)));
