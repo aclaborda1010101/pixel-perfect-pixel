@@ -133,10 +133,10 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
     {"kpi": "<label EXACTO del KPI objetivo tal como venga en TARGET_KPIS>", "pregunta_o_tactica": "pregunta LITERAL calibrada (empieza por qué/cómo) o táctica Voss concreta para sacar ese dato, apoyada en el histórico si existe", "tecnica": "espejo|etiqueta|pregunta_calibrada|orientación_al_no|auditoría"}
   ],
   "info_minima_a_extraer": {
-    "tipologia": "qué hay que confirmar/descubrir sobre su tipología",
-    "que_le_mueve": "qué motor identificar (dinero, paz, herederos, miedo, control)",
-    "info_edificio": ["lista de datos del edificio/copropietarios/alquileres a sacar"],
-    "canal_abierto": "qué resultado mínimo cuenta como canal abierto (whatsapp, mail, referido a influenciador)"
+    "tipologia": "qué hay que confirmar/descubrir sobre su tipología — null si YA LO SABEMOS",
+    "que_le_mueve": "qué motor identificar (dinero, paz, herederos, miedo, control) — null si YA LO SABEMOS",
+    "info_edificio": ["SOLO datos del edificio/copropietarios/alquileres que NO constan ya en LO_QUE_YA_SABEMOS"],
+    "canal_abierto": "qué resultado mínimo cuenta como canal abierto (whatsapp, mail, referido a influenciador) — null si el canal ya está abierto"
   },
   "por_que_funciona": "1-2 frases explicando por qué este abordaje encaja con ESTE propietario concreto, citando el dato del snapshot que lo justifica",
   "fragmentos_usados": [{"source": "libro_voss|correo_chris_voss", "chunk_id": "<uuid real>", "tecnica": "..."}]
