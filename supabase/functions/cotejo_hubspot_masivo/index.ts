@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
 
   // --- Selección del lote: primero los nunca cotejados, luego los más antiguos ---
   let q = admin.from('buildings')
-    .select('id, direccion, refcatastral, metros_viviendas, metros_comercio, metros_oficina, num_viviendas, pct_terciario, pct_residencial, distrito, barrio, hs_deal_id, hs_props_synced_at')
+    .select('id, direccion, refcatastral, metros_viviendas, metros_comercio, metros_oficina, num_viviendas, pct_terciario, pct_residencial, uso_principal, distrito, barrio, hs_deal_id, hs_props_synced_at')
     .order('hs_props_synced_at', { ascending: true, nullsFirst: true })
     .limit(lote);
   if (!rehacer) q = q.is('hs_props_synced_at', null);

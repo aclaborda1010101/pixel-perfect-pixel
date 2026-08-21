@@ -120,6 +120,10 @@ export const DEAL_PROPERTIES = [
   'metros_cuadrados_ocio_hostel',
   'industrial__unidades_',
   'metros_cuadrados_industrial',
+  // datos del inmueble que mantiene el cliente y mandan sobre los nuestros
+  'porcentaje_terciario',
+  'porcentaje_residencial',
+  'uso_principal',
 ];
 
 // Properties para Contacts (propietarios + leads + inversores)

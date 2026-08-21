@@ -3,6 +3,7 @@
 // batch/read. Nunca escribe en HubSpot.
 // Reutiliza la misma lógica que el volcado masivo hubspot_backfill_deal_contacts.
 import { hubspotFetch, CONTACT_PROPERTIES } from './hubspot.ts';
+import { INMUEBLE_DEAL_PROPERTIES, aplicarDatosInmueble } from './datosInmueble.ts';
 import { materializeHubspotConsent } from './ownerKnowledge.ts';
 
 export const CALL_PROPERTIES = [
@@ -42,6 +43,8 @@ export interface SyncStats {
   enlazados_nota: number;
   dudosos_nota: number;
   fallos: number;
+  /** Campos del inmueble que se han traído frescos de HubSpot. */
+  campos_inmueble: string[];
 }
 
 /** Foto del estado del edificio ANTES/DESPUÉS, para poder contar lo que cambió. */
@@ -104,8 +107,28 @@ export async function sincronizarEdificioDesdeHubspot(
   const stats: SyncStats = {
     contactos_hubspot: 0, owners_creados: 0, owners_actualizados: 0,
     vinculos_creados: 0, llamadas_sincronizadas: 0,
-    enlazados_nota: 0, dudosos_nota: 0, fallos: 0,
+    enlazados_nota: 0, dudosos_nota: 0, fallos: 0, campos_inmueble: [],
   };
+
+  // 0) Datos del inmueble: HubSpot manda y se refrescan siempre.
+  try {
+    const deal = await hubspotFetch(
+      `/crm/v3/objects/deals/${dealId}?properties=${INMUEBLE_DEAL_PROPERTIES.join(',')}`,
+    );
+    const { data: b } = await supabase
+      .from('buildings')
+      .select('id, direccion, refcatastral, metros_viviendas, num_viviendas, pct_terciario, pct_residencial, uso_principal, hs_deal_id')
+      .eq('id', buildingId).maybeSingle();
+    if (b) {
+      const cambios = await aplicarDatosInmueble(supabase, b, (deal?.properties ?? {}) as Record<string, unknown>);
+      stats.campos_inmueble = cambios.map((c) => c.campo);
+    }
+  } catch (e) {
+    stats.fallos++;
+    console.error('[sync] datos del inmueble:', String((e as Error)?.message ?? e));
+  }
+
+
 
   // 1) Contactos asociados al negocio (lectura)
   const assoc = await hubspotFetch('/crm/v4/associations/deals/contacts/batch/read', {

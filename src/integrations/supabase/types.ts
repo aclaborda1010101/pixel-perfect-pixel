@@ -1350,6 +1350,66 @@ export type Database = {
         }
         Relationships: []
       }
+      backup_20260821_inmueble: {
+        Row: {
+          copiado_at: string | null
+          direccion: string | null
+          hs_deal_id: string | null
+          id: string | null
+          metros_viviendas: number | null
+          num_viviendas: number | null
+          pct_residencial: number | null
+          pct_terciario: number | null
+          refcatastral: string | null
+          uso_principal: string | null
+        }
+        Insert: {
+          copiado_at?: string | null
+          direccion?: string | null
+          hs_deal_id?: string | null
+          id?: string | null
+          metros_viviendas?: number | null
+          num_viviendas?: number | null
+          pct_residencial?: number | null
+          pct_terciario?: number | null
+          refcatastral?: string | null
+          uso_principal?: string | null
+        }
+        Update: {
+          copiado_at?: string | null
+          direccion?: string | null
+          hs_deal_id?: string | null
+          id?: string | null
+          metros_viviendas?: number | null
+          num_viviendas?: number | null
+          pct_residencial?: number | null
+          pct_terciario?: number | null
+          refcatastral?: string | null
+          uso_principal?: string | null
+        }
+        Relationships: []
+      }
+      backup_20260821_terciario_escala: {
+        Row: {
+          antes: number | null
+          copiado_at: string | null
+          direccion: string | null
+          id: string | null
+        }
+        Insert: {
+          antes?: number | null
+          copiado_at?: string | null
+          direccion?: string | null
+          id?: string | null
+        }
+        Update: {
+          antes?: number | null
+          copiado_at?: string | null
+          direccion?: string | null
+          id?: string | null
+        }
+        Relationships: []
+      }
       backup_q4_building_owners: {
         Row: {
           building_id: string | null
@@ -6068,6 +6128,125 @@ export type Database = {
           titulo?: string
         }
         Relationships: []
+      }
+      hs_inmueble_snapshot: {
+        Row: {
+          building_id: string
+          created_at: string
+          dealstage: string | null
+          direccion: string | null
+          hs_deal_id: string | null
+          leido_at: string
+          metros_viviendas: number | null
+          num_viviendas: number | null
+          pct_residencial: number | null
+          pct_terciario: number | null
+          refcatastral: string | null
+          updated_at: string
+          uso_principal: string | null
+        }
+        Insert: {
+          building_id: string
+          created_at?: string
+          dealstage?: string | null
+          direccion?: string | null
+          hs_deal_id?: string | null
+          leido_at?: string
+          metros_viviendas?: number | null
+          num_viviendas?: number | null
+          pct_residencial?: number | null
+          pct_terciario?: number | null
+          refcatastral?: string | null
+          updated_at?: string
+          uso_principal?: string | null
+        }
+        Update: {
+          building_id?: string
+          created_at?: string
+          dealstage?: string | null
+          direccion?: string | null
+          hs_deal_id?: string | null
+          leido_at?: string
+          metros_viviendas?: number | null
+          num_viviendas?: number | null
+          pct_residencial?: number | null
+          pct_terciario?: number | null
+          refcatastral?: string | null
+          updated_at?: string
+          uso_principal?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_pct_fuente"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "hs_inmueble_snapshot_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
       }
       hubspot_calls: {
         Row: {

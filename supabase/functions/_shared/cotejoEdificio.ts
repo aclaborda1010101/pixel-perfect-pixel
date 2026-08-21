@@ -12,6 +12,8 @@
 // Estas reglas viven en la vista v_owner_score y en recalcular_influenciadores;
 // aquí sólo se comparan los campos del inmueble y se registran incidencias.
 
+import { normalizarPorcentaje } from './datosInmueble.ts';
+
 export type Resolucion = 'auto_corregido' | 'revision_humana' | 'sin_datos';
 
 export interface Incidencia {
@@ -74,16 +76,20 @@ export function camposDelNegocio(props: Record<string, unknown>) {
   const mCom = num(props.metros_cuadrados_comercio);
   const mOfi = num(props.metros_cuadrados_oficina) ?? num(props.metros_cuadrado_oficina);
   const mTotalDeclarado = num(props['metros_cuadrados__exactos_']) ?? num(props['metros_cuadrados__exactos____clonada_']);
-  const viviendas = ent(props['viviendas__unidades_']) ?? ent(props['viviendas__unidades___clonada_']);
+  // Las viviendas las mantiene el cliente en la propiedad clonada.
+  const viviendas = ent(props['viviendas__unidades___clonada_']) ?? ent(props['viviendas__unidades_']);
 
-  // Terciario = comercio + oficina sobre el total. Sólo se calcula si hay base real.
+  // El reparto de usos lo dice HubSpot con su propio campo («84.37%»).
+  // Sólo si no lo tiene se calcula a partir de los metros.
   const base = mTotalDeclarado ?? [mViv, mCom, mOfi].reduce<number>((t, v) => t + (v ?? 0), 0);
-  const terciario = base && base > 0 && (mCom !== null || mOfi !== null)
+  const terciarioCalculado = base && base > 0 && (mCom !== null || mOfi !== null)
     ? Math.round((((mCom ?? 0) + (mOfi ?? 0)) / base) * 10000) / 100
     : null;
-  const residencial = base && base > 0 && mViv !== null
+  const residencialCalculado = base && base > 0 && mViv !== null
     ? Math.round(((mViv / base) * 10000)) / 100
     : null;
+  const terciario = normalizarPorcentaje(props.porcentaje_terciario) ?? terciarioCalculado;
+  const residencial = normalizarPorcentaje(props.porcentaje_residencial) ?? residencialCalculado;
 
   return {
     direccion: txt(props.dealname) ?? txt(props.address),
@@ -94,6 +100,7 @@ export function camposDelNegocio(props: Record<string, unknown>) {
     num_viviendas: viviendas,
     pct_terciario: terciario,
     pct_residencial: residencial,
+    uso_principal: txt(props.uso_principal),
     distrito: txt(props['distrito_zona__clonada_']) ?? txt(props.distrito_zona),
     barrio: txt(props['barrios_completos__clonada_']) ?? txt(props.barrios_completos),
     dealstage: txt(props.dealstage),
@@ -130,6 +137,7 @@ export function cotejarInmueble(
     { col: 'num_viviendas', etiqueta: 'número de viviendas', hs: hs.num_viviendas, tipo: 'numero' },
     { col: 'pct_terciario', etiqueta: 'porcentaje terciario', hs: hs.pct_terciario, tipo: 'numero', tol: 0.05 },
     { col: 'pct_residencial', etiqueta: 'porcentaje residencial', hs: hs.pct_residencial, tipo: 'numero', tol: 0.05 },
+    { col: 'uso_principal', etiqueta: 'uso principal', hs: hs.uso_principal, tipo: 'texto' },
     { col: 'distrito', etiqueta: 'distrito', hs: hs.distrito, tipo: 'texto' },
     { col: 'barrio', etiqueta: 'barrio', hs: hs.barrio, tipo: 'texto' },
   ];
