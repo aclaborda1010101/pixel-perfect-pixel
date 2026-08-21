@@ -51,7 +51,7 @@ export type Cadencia = {
 
 const CONTACTO_OUTCOMES = new Set(['interesado', 'dudoso', 'no_interesado', 'otro']);
 /** Sólo mide calidad de conversación; NUNCA decide si hubo contacto. */
-export const DURACION_CONVERSACION_SUSTANCIAL_SEG = 30;
+export const DURACION_CONVERSACION_SUSTANCIAL_SEG = 15;
 
 export const MAX_INTENTOS_SIN_CONTACTO = 3;
 export const VENTANA_INTENTOS_DIAS = 10;
@@ -71,7 +71,7 @@ export function huboContacto(c: Llamada): boolean {
   return CONTACTO_OUTCOMES.has(o);
 }
 
-/** Conversación sustancial: conectada y de al menos 30 segundos (sólo calidad). */
+/** Conversación sustancial: conectada y de al menos 15 segundos (sólo calidad). */
 export function conversacionSustancial(c: Llamada): boolean {
   return huboContacto(c) && Number(c.duracion_seg ?? 0) >= DURACION_CONVERSACION_SUSTANCIAL_SEG;
 }

@@ -330,6 +330,7 @@ export default function ComercialEdificios() {
   const [vivMax, setVivMax] = useState<string>("");
   const [dh, setDh] = useState<"all" | "yes" | "no">("all");
   const [barrios, setBarrios] = useState<Set<string>>(new Set());
+  const [distritos, setDistritos] = useState<Set<string>>(new Set());
   // Filtros avanzados
   const [ventanasMin, setVentanasMin] = useState<string>("");
   const [advSegundasEscaleras, setAdvSegundasEscaleras] = useState(false);
@@ -476,6 +477,12 @@ export default function ComercialEdificios() {
   const countJesus = useMemo(() => rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("jes")).length, [rows]);
   const countDavid = useMemo(() => rows.filter((r) => (r.comercial ?? "").toLowerCase().includes("david") || (r.comercial ?? "").toLowerCase().includes("casero")).length, [rows]);
 
+  const allDistritos = useMemo(() => {
+    const set = new Set<string>();
+    rowsByTab.forEach((r) => r.distrito && set.add(r.distrito));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [rowsByTab]);
+
   const allBarrios = useMemo(() => {
     const set = new Set<string>();
     rowsByTab.forEach((r) => r.barrio && set.add(r.barrio));
@@ -492,7 +499,8 @@ export default function ComercialEdificios() {
         const hay =
           r.direccion?.toLowerCase().includes(s) ||
           (r.ciudad ?? "").toLowerCase().includes(s) ||
-          (r.barrio ?? "").toLowerCase().includes(s);
+          (r.barrio ?? "").toLowerCase().includes(s) ||
+          (r.distrito ?? "").toLowerCase().includes(s);
         if (!hay) return false;
       }
       // Filtro de score mínimo sobre el score MOSTRADO (mismo modo que la card).
@@ -502,6 +510,7 @@ export default function ComercialEdificios() {
         rMode,
       );
       if (rShown < smin) return false;
+      if (distritos.size > 0 && (!r.distrito || !distritos.has(r.distrito))) return false;
       if (barrios.size > 0 && (!r.barrio || !barrios.has(r.barrio))) return false;
       if (vntMin > -Infinity && (r.ventanas_total ?? -1) < vntMin) return false;
       if (advSegundasEscaleras && !r.segundas_escaleras) return false;
@@ -573,10 +582,19 @@ export default function ComercialEdificios() {
     });
   };
 
+  const toggleDistrito = (d: string) => {
+    setDistritos((prev) => {
+      const n = new Set(prev);
+      n.has(d) ? n.delete(d) : n.add(d);
+      return n;
+    });
+  };
+
   const clearFilters = () => {
     setQ("");
     setScoreMin("");
     setBarrios(new Set());
+    setDistritos(new Set());
     setVentanasMin("");
     setAdvSegundasEscaleras(false);
     setAdvPlantasLevantables(false);
@@ -608,6 +626,7 @@ export default function ComercialEdificios() {
   const activeFiltersCount =
     (scoreMin !== "" ? 1 : 0) +
     (barrios.size > 0 ? 1 : 0) +
+    (distritos.size > 0 ? 1 : 0) +
     (soloInterlocutor ? 1 : 0) +
     advancedCount;
 
@@ -617,7 +636,7 @@ export default function ComercialEdificios() {
   // Al cambiar filtros/orden/tab, volvemos a la primera "página" de render.
   useEffect(() => {
     setShownTodos(TODOS_PAGE);
-  }, [tab, q, sort, scoreMin, barrios, ventanasMin, advSegundasEscaleras,
+  }, [tab, q, sort, scoreMin, barrios, distritos, ventanasMin, advSegundasEscaleras,
       advPlantasLevantables, advAzotea, advEsquina, advSinProteccion,
       advSinReforma, advSinGestionPro, advClusters, advSoloEstrella, advSoloPrioritarios, advNotaSimple,
       soloInterlocutor]);
@@ -642,7 +661,7 @@ export default function ComercialEdificios() {
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Buscar por dirección, ciudad o barrio…"
+              placeholder="Buscar por dirección, distrito o barrio…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="h-9 w-80 pl-7"
@@ -686,6 +705,39 @@ export default function ComercialEdificios() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
                 <MapPin className="h-3 w-3" />
+                Distrito
+                {distritos.size > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                    {distritos.size}
+                  </Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="max-h-80 w-64 overflow-y-auto">
+              <DropdownMenuLabel className="text-xs">Filtrar por distrito</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {allDistritos.length === 0 && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  Todavía no hay distritos cargados
+                </div>
+              )}
+              {allDistritos.map((d) => (
+                <DropdownMenuCheckboxItem
+                  key={d}
+                  checked={distritos.has(d)}
+                  onCheckedChange={() => toggleDistrito(d)}
+                  className="text-xs"
+                >
+                  {d}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
+                <MapPin className="h-3 w-3" />
                 Barrio
                 {barrios.size > 0 && (
                   <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
@@ -698,7 +750,9 @@ export default function ComercialEdificios() {
               <DropdownMenuLabel className="text-xs">Filtrar por barrio</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {allBarrios.length === 0 && (
-                <div className="px-2 py-1.5 text-xs text-muted-foreground">Sin barrios</div>
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  Todavía no hay barrios cargados
+                </div>
               )}
               {allBarrios.map((b) => (
                 <DropdownMenuCheckboxItem
