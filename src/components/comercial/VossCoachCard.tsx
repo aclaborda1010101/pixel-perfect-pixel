@@ -330,9 +330,26 @@ export function VossCoachCard({
                 <blockquote className="border-l-2 border-emerald-500 pl-3 italic text-foreground">"{cierreFerrero}"</blockquote>
               </div>
             )}
-            {info && (
+            {yaSabemos.length > 0 && (
+              <div className="rounded border border-emerald-500/40 bg-emerald-500/5 p-2">
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-emerald-700 mb-1">
+                  Lo que ya sabemos · no lo vuelvas a preguntar
+                </div>
+                <ul className="space-y-1 text-foreground">
+                  {yaSabemos.map((s, i) => (
+                    <li key={i}>
+                      • <span className="font-medium">{s.dato}:</span>{" "}
+                      {s.cita ? <span className="italic text-muted-foreground">"{s.cita}"</span> : null}
+                      {s.fecha && <span className="ml-1 text-xs text-muted-foreground">({s.fecha}{s.fuente ? ` · ${s.fuente}` : ""})</span>}
+                      {s.confirmado === false && <Badge variant="outline" className="ml-1 text-[10px]">a confirmar</Badge>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {info && !infoVacia && (
               <div className="rounded border border-gold/30 bg-gold-soft/20 p-2">
-                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-gold mb-1">Info mínima a extraer</div>
+                <div className="text-[10px] font-mono uppercase tracking-eyebrow text-gold mb-1">Info que todavía falta</div>
                 <ul className="space-y-0.5 text-foreground">
                   {info.tipologia && (
                     <li>• <span className="font-medium">Tipología:</span> {normalizeTipologiaString(info.tipologia)}</li>
@@ -341,6 +358,11 @@ export function VossCoachCard({
                   {Array.isArray(info.info_edificio) && info.info_edificio.map((x: string, i: number) => <li key={i}>• <span className="font-medium">Edificio:</span> {x}</li>)}
                   {info.canal_abierto && <li>• <span className="font-medium">Canal:</span> {info.canal_abierto}</li>}
                 </ul>
+              </div>
+            )}
+            {infoVacia && yaSabemos.length > 0 && (
+              <div className="rounded border border-border-faint bg-muted/40 p-2 text-muted-foreground">
+                No queda información básica por sacar. Esta llamada es de avance: reunión, decisión o precio.
               </div>
             )}
             {playbook.length > 0 && (
