@@ -171,8 +171,12 @@ export default function ComercialPrepararLlamada() {
         setTargetKpis(labels);
         setTargetKpiClaves(aAbordar);
         // Guarda TODO el checklist (tenemos + a_medias + falta con evidencia) para alimentar el brief.
-        const full = ((res as any).kpis ?? []) as Array<{ clave: string; label: string; estado: any; evidencia: string | null }>;
-        setKpiContext(full.map((k) => ({ clave: k.clave, label: k.label, estado: k.estado, evidencia: k.evidencia ?? null })));
+        // Incluye fuente y fecha: el brief las necesita para NO volver a preguntar lo que ya consta.
+        const full = ((res as any).kpis ?? []) as Array<{ clave: string; label: string; estado: any; evidencia: string | null; fuente?: string | null; fecha?: string | null }>;
+        setKpiContext(full.map((k) => ({
+          clave: k.clave, label: k.label, estado: k.estado,
+          evidencia: k.evidencia ?? null, fuente: k.fuente ?? null, fecha: k.fecha ?? null,
+        })));
       } catch { /* best-effort */ }
     })();
     return () => { cancelled = true; };
