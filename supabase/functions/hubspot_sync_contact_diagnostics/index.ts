@@ -25,6 +25,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const pages = Math.max(1, Math.min(Number(body.pages) || DEFAULT_PAGES, 100));
     const fallbackDays = Math.max(1, Math.min(Number(body.fallback_days) || 7, 3650));
+    const whatsappBackfill = body.mode === 'whatsapp_backfill';
     await supabase.from('hubspot_sync_state').upsert({ entity }, { onConflict: 'entity' });
     const { data: state, error: stateError } = await supabase.from('hubspot_sync_state')
       .select('metadatos').eq('entity', entity).single();
@@ -55,7 +56,10 @@ Deno.serve(async (req) => {
 
     for (let page = 0; page < pages; page++) {
       const searchBody: Record<string, unknown> = {
-        filterGroups: [{ filters: [{ propertyName: 'lastmodifieddate', operator: 'GT', value: String(sinceMs) }] }],
+        filterGroups: [{ filters: whatsappBackfill
+          ? [{ propertyName: 'whatsapp_abierto', operator: 'HAS_PROPERTY' }]
+          : [{ propertyName: 'lastmodifieddate', operator: 'GT', value: String(sinceMs) }]
+        }],
         sorts: [{ propertyName: 'lastmodifieddate', direction: 'ASCENDING' }],
         properties: CONTACT_PROPERTIES,
         limit: PAGE_LIMIT,
@@ -107,9 +111,9 @@ Deno.serve(async (req) => {
       after = response?.paging?.next?.after;
       // Checkpoint durable: una interrupción reanuda desde la última página terminada.
       await supabase.from('hubspot_sync_state').update({
-        cursor: maxSeen,
+        ...(whatsappBackfill ? {} : { cursor: maxSeen }),
         metadatos: {
-          ...previous, since_ts: maxSeen, pages_fetched: pagesFetched,
+          ...previous, ...(whatsappBackfill ? {} : { since_ts: maxSeen }), pages_fetched: pagesFetched,
           contacts_updated: contactsUpdated, consents_materialized: consentsMaterialized,
           unmatched, failures,
         },
@@ -125,8 +129,9 @@ Deno.serve(async (req) => {
       records_upserted: contactsUpdated, records_failed: 0, metadatos: { ...metrics, since: sinceIso, since_after: maxSeen },
     }).eq('id', logId);
     await supabase.from('hubspot_sync_state').update({
-      last_run_status: 'ok', last_run_at: finishedAt, cursor: maxSeen, last_error: null,
-      metadatos: { ...previous, since_ts: maxSeen, ...metrics },
+      last_run_status: 'ok', last_run_at: finishedAt,
+      ...(whatsappBackfill ? {} : { cursor: maxSeen }), last_error: null,
+      metadatos: { ...previous, ...(whatsappBackfill ? {} : { since_ts: maxSeen }), ...metrics },
     }).eq('entity', entity);
     return json(200, { ok: true, since: sinceIso, since_after: maxSeen, ...metrics });
   } catch (error) {

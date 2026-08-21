@@ -14,6 +14,8 @@ describe("HubSpot contact diagnostic sync", () => {
     const source = readFileSync("supabase/functions/hubspot_sync_contact_diagnostics/index.ts", "utf8");
     expect(source).toContain("lastmodifieddate");
     expect(source).toContain("materializeHubspotConsent");
+    expect(source).toContain("whatsapp_backfill");
+    expect(source).toContain("HAS_PROPERTY");
     expect(source).toContain("Checkpoint durable");
     expect(source).toMatch(/return json\(500/);
   });
