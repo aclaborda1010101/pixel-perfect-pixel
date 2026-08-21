@@ -317,6 +317,13 @@ Deno.serve(async (req) => {
               .select("id").ilike("nombre", nombre).limit(1).maybeSingle();
             if (data?.id) resolvedId = data.id;
           }
+          // Antes de crear: búsqueda tolerante (sin tildes, sin DON/DOÑA,
+          // apellidos en cualquier orden, nombres compuestos abreviados).
+          if (!resolvedId) {
+            const { data: fuzzyId } = await sb.rpc("buscar_owner_por_nombre", { p_nombre: nombre });
+            if (fuzzyId) resolvedId = String(fuzzyId);
+          }
+
           if (!resolvedId && !dryRun) {
             const { data, error } = await sb.from("owners").insert({
               nombre,
