@@ -3466,7 +3466,9 @@ export type Database = {
       }
       buildings: {
         Row: {
+          anio_construccion: number | null
           avisos_inteligentes: Json | null
+          barrio: string | null
           cartera_demo_seed: boolean
           catastro_ref: string | null
           ciudad: string
@@ -3480,6 +3482,7 @@ export type Database = {
           confianza_media: number | null
           created_at: string
           direccion: string
+          distrito: string | null
           division_horizontal: boolean
           es_esquina_manual: boolean | null
           es_estrella: boolean
@@ -3500,6 +3503,8 @@ export type Database = {
           interlocutor_owner_id: string | null
           last_synced_at: string | null
           metadatos: Json
+          metros_comercio: number | null
+          metros_oficina: number | null
           metros_viviendas: number | null
           notas: string | null
           num_viviendas: number | null
@@ -3522,7 +3527,9 @@ export type Database = {
           uso_principal: string | null
         }
         Insert: {
+          anio_construccion?: number | null
           avisos_inteligentes?: Json | null
+          barrio?: string | null
           cartera_demo_seed?: boolean
           catastro_ref?: string | null
           ciudad: string
@@ -3536,6 +3543,7 @@ export type Database = {
           confianza_media?: number | null
           created_at?: string
           direccion: string
+          distrito?: string | null
           division_horizontal?: boolean
           es_esquina_manual?: boolean | null
           es_estrella?: boolean
@@ -3556,6 +3564,8 @@ export type Database = {
           interlocutor_owner_id?: string | null
           last_synced_at?: string | null
           metadatos?: Json
+          metros_comercio?: number | null
+          metros_oficina?: number | null
           metros_viviendas?: number | null
           notas?: string | null
           num_viviendas?: number | null
@@ -3578,7 +3588,9 @@ export type Database = {
           uso_principal?: string | null
         }
         Update: {
+          anio_construccion?: number | null
           avisos_inteligentes?: Json | null
+          barrio?: string | null
           cartera_demo_seed?: boolean
           catastro_ref?: string | null
           ciudad?: string
@@ -3592,6 +3604,7 @@ export type Database = {
           confianza_media?: number | null
           created_at?: string
           direccion?: string
+          distrito?: string | null
           division_horizontal?: boolean
           es_esquina_manual?: boolean | null
           es_estrella?: boolean
@@ -3612,6 +3625,8 @@ export type Database = {
           interlocutor_owner_id?: string | null
           last_synced_at?: string | null
           metadatos?: Json
+          metros_comercio?: number | null
+          metros_oficina?: number | null
           metros_viviendas?: number | null
           notas?: string | null
           num_viviendas?: number | null
@@ -4593,6 +4608,8 @@ export type Database = {
           detalle: Json
           estado: string
           id: string
+          resolucion: string
+          run_id: string | null
           tipo: string
           titulo: string
           updated_at: string
@@ -4603,6 +4620,8 @@ export type Database = {
           detalle?: Json
           estado?: string
           id?: string
+          resolucion?: string
+          run_id?: string | null
           tipo: string
           titulo: string
           updated_at?: string
@@ -4613,6 +4632,8 @@ export type Database = {
           detalle?: Json
           estado?: string
           id?: string
+          resolucion?: string
+          run_id?: string | null
           tipo?: string
           titulo?: string
           updated_at?: string
@@ -4689,6 +4710,48 @@ export type Database = {
             referencedColumns: ["building_id"]
           },
         ]
+      }
+      cotejo_hubspot_runs: {
+        Row: {
+          created_at: string
+          detalle: Json
+          estado: string
+          fallidos: number
+          finished_at: string | null
+          id: string
+          procesados: number
+          started_at: string
+          total_objetivo: number
+          ultimo_building_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          detalle?: Json
+          estado?: string
+          fallidos?: number
+          finished_at?: string | null
+          id?: string
+          procesados?: number
+          started_at?: string
+          total_objetivo?: number
+          ultimo_building_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          detalle?: Json
+          estado?: string
+          fallidos?: number
+          finished_at?: string | null
+          id?: string
+          procesados?: number
+          started_at?: string
+          total_objetivo?: number
+          ultimo_building_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       deals_gemelos: {
         Row: {
@@ -7074,6 +7137,24 @@ export type Database = {
             referencedColumns: ["owner_id"]
           },
         ]
+      }
+      internal_tokens: {
+        Row: {
+          created_at: string
+          name: string
+          token: string
+        }
+        Insert: {
+          created_at?: string
+          name: string
+          token: string
+        }
+        Update: {
+          created_at?: string
+          name?: string
+          token?: string
+        }
+        Relationships: []
       }
       investors: {
         Row: {
