@@ -17,6 +17,7 @@ describe("HubSpot contact diagnostic sync", () => {
     expect(source).toContain("whatsapp_backfill");
     expect(source).toContain("HAS_PROPERTY");
     expect(source).toContain("Checkpoint durable");
+    expect(source).toContain("Ejecución interrumpida antes de finalizar");
     expect(source).toMatch(/return json\(500/);
   });
 

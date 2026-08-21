@@ -22,6 +22,12 @@ Deno.serve(async (req) => {
   const entity = 'contact_diagnostics_inc';
   let logId: string | null = null;
   try {
+    // Una ejecución cortada por timeout no puede quedarse como éxito aparente.
+    await supabase.from('hubspot_sync_log').update({
+      status: 'error', finished_at: new Date().toISOString(),
+      error_message: 'Ejecución interrumpida antes de finalizar',
+    }).eq('entity', entity).eq('status', 'running')
+      .lt('created_at', new Date(Date.now() - 120_000).toISOString());
     const body = await req.json().catch(() => ({}));
     const pages = Math.max(1, Math.min(Number(body.pages) || DEFAULT_PAGES, 100));
     const fallbackDays = Math.max(1, Math.min(Number(body.fallback_days) || 7, 3650));
