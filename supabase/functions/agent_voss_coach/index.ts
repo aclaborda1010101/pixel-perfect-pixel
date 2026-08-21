@@ -362,16 +362,18 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
     const { mode = 'brief', owner_id, building_id, call_transcript, call_duration_seg, call_summary, target_kpis, kpi_context } = await req.json();
-    const targetKpis: string[] = Array.isArray(target_kpis) ? target_kpis.filter((s) => typeof s === 'string' && s.trim()) : [];
+    let targetKpis: string[] = Array.isArray(target_kpis) ? target_kpis.filter((s) => typeof s === 'string' && s.trim()) : [];
     const kpiContext: Array<{ clave: string; label: string; estado: string; evidencia: string | null; fuente?: string | null; fecha?: string | null }> = Array.isArray(kpi_context)
       ? kpi_context.filter((k: any) => k && typeof k === 'object' && k.label)
       : [];
     const kpiTenemos = kpiContext.filter((k) => k.estado === 'tenemos' || k.estado === 'a_medias');
-    const kpiFalta = kpiContext.filter((k) => k.estado === 'falta');
+    let kpiFalta = kpiContext.filter((k) => k.estado === 'falta');
     // Claves de KPI que constan CONFIRMADAS: no se pueden volver a preguntar.
     const clavesSabidas = new Set(
       kpiContext.filter((k) => k.estado === 'tenemos' && k.clave).map((k) => String(k.clave)),
     );
+    const RE_COPROS = /(copropietari|cu[aá]ntos son|reparto|% de cada|porcentaje de cada|partes)/i;
+
     const lk = Deno.env.get('LOVABLE_API_KEY');
     if (!lk) throw new Error('LOVABLE_API_KEY missing');
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -417,6 +419,41 @@ Deno.serve(async (req) => {
       snapshot.copropietarios_top = (copros || []).map((c: any) => ({ nombre: c.owners?.nombre, cuota: c.cuota, subrole: c.subrole, es_yo: c.owner_id === owner_id }));
       if (!rel?.cuota) snapshot.datos_faltantes.push('cuota_propiedad');
       if (ba?.mala_gestion_score == null) snapshot.datos_faltantes.push('mala_gestion_score');
+
+      // Nº de copropietarios y reparto: si YA consta en la nota simple o en las
+      // cuotas de HubSpot, es un dato SABIDO y no se vuelve a preguntar.
+      try {
+        const { data: vos } = await (sb.from('v_owner_score' as any) as any)
+          .select('nombre, pct_propiedad, pct_origen, es_influencer')
+          .eq('building_id', building_id);
+        const propietarios = (vos || []).filter((r: any) => !r.es_influencer);
+        const conCuota = propietarios.filter((r: any) => r.pct_propiedad != null);
+        if (propietarios.length >= 2 && conCuota.length >= 2) {
+          const fuente = conCuota.some((r: any) => String(r.pct_origen || '').startsWith('crm')) ? 'HubSpot' : 'nota simple';
+          const detalle = conCuota
+            .sort((a: any, b: any) => Number(b.pct_propiedad) - Number(a.pct_propiedad))
+            .slice(0, 8)
+            .map((r: any) => `${r.nombre} ${Number(r.pct_propiedad).toFixed(2)}%`)
+            .join('; ');
+          const texto = `${propietarios.length} copropietarios · ${detalle}`;
+          snapshot.reparto_conocido = texto;
+          if (!clavesSabidas.has('n_copropietarios')) {
+            clavesSabidas.add('n_copropietarios');
+            kpiTenemos.push({
+              clave: 'n_copropietarios',
+              label: 'Nº de copropietarios y % de cada parte',
+              estado: 'tenemos',
+              evidencia: texto,
+              fuente,
+              fecha: null,
+            });
+          }
+          kpiFalta = kpiFalta.filter((k) => k.clave !== 'n_copropietarios' && !RE_COPROS.test(String(k.label ?? '')));
+          targetKpis = targetKpis.filter((k) => !RE_COPROS.test(k));
+        }
+      } catch (_) { /* vista no disponible: se sigue preguntando */ }
+
+
 
       // Info COMPARTIDA del edificio (Tanda B · punto 3): datos agregados de
       // TODAS las llamadas de todos los propietarios de este edificio. Separado
@@ -710,6 +747,18 @@ Devuelve el JSON estricto con la forma EXACTA del system.`;
           });
         }
       }
+      // Si el reparto ya consta, nunca aparece en "A abordar en esta llamada".
+      if (clavesSabidas.has('n_copropietarios')) {
+        if (Array.isArray(ai.enfoque_llamada)) {
+          ai.enfoque_llamada = ai.enfoque_llamada.filter((e: any) =>
+            !RE_COPROS.test(String(e?.kpi ?? '')) && !RE_COPROS.test(String(e?.objetivo ?? ''))
+          );
+        }
+        if (Array.isArray(ai.hilo)) {
+          ai.hilo = ai.hilo.filter((h: any) => !RE_COPROS.test(typeof h === 'string' ? h : String(h?.pregunta ?? '')));
+        }
+      }
+
     }
 
     return new Response(JSON.stringify({
