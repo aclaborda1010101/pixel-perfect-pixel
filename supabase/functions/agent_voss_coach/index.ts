@@ -133,10 +133,10 @@ Devuelve SIEMPRE JSON ESTRICTO sin markdown con esta forma EXACTA:
     {"kpi": "<label EXACTO del KPI objetivo tal como venga en TARGET_KPIS>", "pregunta_o_tactica": "pregunta LITERAL calibrada (empieza por qué/cómo) o táctica Voss concreta para sacar ese dato, apoyada en el histórico si existe", "tecnica": "espejo|etiqueta|pregunta_calibrada|orientación_al_no|auditoría"}
   ],
   "info_minima_a_extraer": {
-    "tipologia": "qué hay que confirmar/descubrir sobre su tipología",
-    "que_le_mueve": "qué motor identificar (dinero, paz, herederos, miedo, control)",
-    "info_edificio": ["lista de datos del edificio/copropietarios/alquileres a sacar"],
-    "canal_abierto": "qué resultado mínimo cuenta como canal abierto (whatsapp, mail, referido a influenciador)"
+    "tipologia": "qué hay que confirmar/descubrir sobre su tipología — null si YA LO SABEMOS",
+    "que_le_mueve": "qué motor identificar (dinero, paz, herederos, miedo, control) — null si YA LO SABEMOS",
+    "info_edificio": ["SOLO datos del edificio/copropietarios/alquileres que NO constan ya en LO_QUE_YA_SABEMOS"],
+    "canal_abierto": "qué resultado mínimo cuenta como canal abierto (whatsapp, mail, referido a influenciador) — null si el canal ya está abierto"
   },
   "por_que_funciona": "1-2 frases explicando por qué este abordaje encaja con ESTE propietario concreto, citando el dato del snapshot que lo justifica",
   "fragmentos_usados": [{"source": "libro_voss|correo_chris_voss", "chunk_id": "<uuid real>", "tecnica": "..."}]
@@ -187,7 +187,14 @@ const KPI_FOCUS_RULES = `REGLA DE ENFOQUE POR KPIs (prioritaria): recibirás TAR
     · "Nº de copropietarios y % de cada parte" → "¿Cuántos son ahora mismo en la propiedad y cómo tienen repartidas las partes?"
     · "Qué le mueve / motor" → "¿Qué tendría que pasar para que esto dejara de ser un tema?"
     · "Estado del edificio / obras / ITE" → "¿Cómo está el edificio hoy en cuanto a obras, ITE, derramas?"
-  - Si TARGET_KPIS viene vacío, devuelve "enfoque_llamada": [] y sigue con el plan estándar.`;
+  - Si TARGET_KPIS viene vacío, devuelve "enfoque_llamada": [] y sigue con el plan estándar.
+
+REGLA "NO PREGUNTES LO QUE YA SABES" (bloqueante — el comercial se queja de que le hacemos repetir preguntas):
+  - Recibirás el bloque LO_QUE_YA_SABEMOS con datos YA CONFIRMADOS de este propietario (rentas, copropietarios, si vive en el edificio, ofertas previas, canal WhatsApp, etc.), cada uno con su cita literal y su fecha.
+  - PROHIBIDO pedir en "info_minima_a_extraer", en "enfoque_llamada" o en "hilo" un dato que ya figure en LO_QUE_YA_SABEMOS. Si lo pides, la salida es INVÁLIDA.
+  - Un dato ya sabido SOLO puede aparecer como CONFIRMACIÓN explícita y solo si tiene más de 6 meses o si el propio histórico lo contradice. En ese caso la pregunta debe empezar reconociendo el dato ("La última vez me dijo que los dos bajos están alquilados a renta antigua, ¿sigue igual?"), nunca preguntarlo en frío.
+  - Los datos ya sabidos se usan como MUNICIÓN en "plan_llamada[].por_que" y en la apertura, no como huecos que rellenar.
+  - Si TODOS los KPIs relevantes están ya sabidos, dilo: la llamada es de avance (reunión, decisión, precio), no de descubrimiento.`;
 
 const SYSTEM_POST = `Eres el JEFE DE VENTAS de Afflux redactando el INFORME POST-LLAMADA de un comercial que acaba de hablar con un proindivisario. NO eres un evaluador académico Voss: escribes como el responsable comercial que analiza la llamada, saca la inteligencia que hay dentro, evalúa al comercial y define el siguiente paso del deal. Tu materia prima OBLIGATORIA es el VERBATIM completo de la transcripción (no el resumen).
 
@@ -356,11 +363,15 @@ Deno.serve(async (req) => {
   try {
     const { mode = 'brief', owner_id, building_id, call_transcript, call_duration_seg, call_summary, target_kpis, kpi_context } = await req.json();
     const targetKpis: string[] = Array.isArray(target_kpis) ? target_kpis.filter((s) => typeof s === 'string' && s.trim()) : [];
-    const kpiContext: Array<{ clave: string; label: string; estado: string; evidencia: string | null }> = Array.isArray(kpi_context)
+    const kpiContext: Array<{ clave: string; label: string; estado: string; evidencia: string | null; fuente?: string | null; fecha?: string | null }> = Array.isArray(kpi_context)
       ? kpi_context.filter((k: any) => k && typeof k === 'object' && k.label)
       : [];
     const kpiTenemos = kpiContext.filter((k) => k.estado === 'tenemos' || k.estado === 'a_medias');
     const kpiFalta = kpiContext.filter((k) => k.estado === 'falta');
+    // Claves de KPI que constan CONFIRMADAS: no se pueden volver a preguntar.
+    const clavesSabidas = new Set(
+      kpiContext.filter((k) => k.estado === 'tenemos' && k.clave).map((k) => String(k.clave)),
+    );
     const lk = Deno.env.get('LOVABLE_API_KEY');
     if (!lk) throw new Error('LOVABLE_API_KEY missing');
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -608,8 +619,8 @@ ${snapshot.info_compartida_edificio?.precio_discrepancia ? '⚠ DISCREPANCIA DE 
 ${mode === 'brief' ? `TARGET_KPIS (KPIs OBJETIVO de esta llamada — enfoca el plan en conseguir ESTOS datos concretos; usa el label EXACTO en "enfoque_llamada[].kpi"):
 ${targetKpis.length ? targetKpis.map((k, i) => `[${i + 1}] ${k}`).join('\n') : '(vacío — plan estándar)'}
 
-KPI_CONTEXT · LO QUE YA SABEMOS DE ESTA PERSONA (úsalo como base para el plan_llamada — cita la evidencia en "por_que"):
-${kpiTenemos.length ? kpiTenemos.map((k) => `- [${k.estado}] ${k.label}${k.evidencia ? ` — evidencia: "${k.evidencia}"` : ''}`).join('\n') : '(no consta info previa consolidada — trata como primer contacto informativo)'}
+LO_QUE_YA_SABEMOS (PROHIBIDO volver a preguntar estos datos — úsalos como munición en plan_llamada[].por_que y en la apertura):
+${kpiTenemos.length ? kpiTenemos.map((k) => `- [${k.estado}] ${k.label}${k.evidencia ? ` — consta: "${k.evidencia}"` : ''}${k.fecha ? ` (${k.fecha}${k.fuente ? `, ${k.fuente}` : ''})` : ''}`).join('\n') : '(no consta info previa consolidada — trata como primer contacto informativo)'}
 
 KPI_CONTEXT · LO QUE NOS FALTA (a sacar en esta llamada):
 ${kpiFalta.length ? kpiFalta.map((k) => `- ${k.label}`).join('\n') : '(sin huecos declarados)'}
@@ -666,6 +677,39 @@ Devuelve el JSON estricto con la forma EXACTA del system.`;
       // Inyecta header SIEMPRE (no depende del modelo)
       ai.header = header;
       ai.n_llamadas_previas = n_previas;
+
+      // "Lo que ya sabemos": lo construimos NOSOTROS con la evidencia real,
+      // no el modelo. Así el comercial ve el dato y su cita, no una promesa.
+      ai.lo_que_ya_sabemos = kpiTenemos
+        .filter((k) => !!k.evidencia)
+        .map((k) => ({
+          dato: k.label,
+          confirmado: k.estado === 'tenemos',
+          cita: k.evidencia,
+          fecha: k.fecha ?? null,
+          fuente: k.fuente ?? null,
+        }));
+      // Red de seguridad determinista: si un KPI está CONFIRMADO, se cae de
+      // "info mínima a extraer" aunque el modelo lo haya vuelto a colar.
+      const info = ai.info_minima_a_extraer;
+      if (info && typeof info === 'object') {
+        if (clavesSabidas.has('tipologia')) info.tipologia = null;
+        if (clavesSabidas.has('motivacion_urgencia') && clavesSabidas.has('necesidad_liquidez')) info.que_le_mueve = null;
+        if (clavesSabidas.has('whatsapp_abierto')) info.canal_abierto = null;
+        const sabidoEdificio: Array<[string, RegExp]> = [
+          ['cuadro_rentas', /(renta|alquiler|inquilin|vencimient|arrend)/i],
+          ['n_copropietarios', /(copropietari|cuota|porcentaje|%|partes)/i],
+          ['relacion_copropietarios', /(relaci[oó]n|conflicto|familia|se llevan)/i],
+          ['vive_en_edificio', /(vive|reside|habita)/i],
+          ['oferta_previa', /(oferta|ofrecid|propuesta previa)/i],
+        ];
+        if (Array.isArray(info.info_edificio)) {
+          info.info_edificio = info.info_edificio.filter((linea: unknown) => {
+            const txt = String(linea ?? '');
+            return !sabidoEdificio.some(([clave, re]) => clavesSabidas.has(clave) && re.test(txt));
+          });
+        }
+      }
     }
 
     return new Response(JSON.stringify({
