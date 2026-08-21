@@ -11,6 +11,15 @@ const MAX_BATCHES = 20;
 const TIME_BUDGET_MS = 100_000;
 const JOB_LOCK = 'promote_calls';
 
+// Disposiciones de HubSpot que significan "conectada". Sin umbral de duración.
+const CONECTADA_DISPOSITIONS = new Set([
+  'f240bbac-87c9-4f6e-bf70-924b57d47db7',
+  '55428849-9fbc-4038-92d6-7c4f2b850974',
+  '371c7887-c871-4c38-b0e7-77bafc4de124',
+  'ea9e4795-50e0-4c7b-8b97-3c0bb743dbf7',
+]);
+
+
 function dirOf(d: string | null): 'entrante' | 'saliente' {
   if (!d) return 'saliente';
   const s = d.toLowerCase();
@@ -76,7 +85,7 @@ Deno.serve(async (req) => {
     for (let b = 0; b < MAX_BATCHES; b++) {
       let q = supabase
         .from('hubspot_calls')
-        .select('hs_id, hs_call_body, hs_call_title, hs_call_direction, hs_call_duration, hs_call_recording_url, hs_timestamp, associated_contact_ids, associated_deal_ids, hs_call_to_number, hs_call_from_number')
+        .select('hs_id, hs_call_body, hs_call_title, hs_call_direction, hs_call_duration, hs_call_disposition, hs_call_recording_url, hs_timestamp, associated_contact_ids, associated_deal_ids, hs_call_to_number, hs_call_from_number')
         .order('hs_id', { ascending: true })
         .limit(BATCH);
       if (cursor) q = q.gt('hs_id', cursor);
@@ -220,6 +229,10 @@ Deno.serve(async (req) => {
           transcripcion_url: r.hs_call_recording_url || null,
           fecha: r.hs_timestamp || new Date().toISOString(),
           resumen,
+          // Lo que dice HubSpot manda: conectada = contacto conseguido, sin umbral de duración.
+          outcome: r.hs_call_disposition
+            ? (CONECTADA_DISPOSITIONS.has(String(r.hs_call_disposition)) ? 'otro' : 'no_contestado')
+            : null,
         });
       }
 

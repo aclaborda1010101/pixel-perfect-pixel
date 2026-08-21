@@ -8,7 +8,7 @@
  * Mapeo situación -> campos reales (no se añaden columnas):
  *  - intentos            = filas de `calls` del propietario
  *  - contacto conseguido = calls.outcome in (interesado, dudoso, no_interesado, otro)
- *                          o calls.duracion_seg >= 30
+ *                          o HubSpot marca la llamada como conectada (sin umbral de duración)
  *  - interés claro       = última llamada con contacto -> outcome = 'interesado'
  *  - receptivo           = buildings.estado = 'posible_interes'
  *                          o última llamada con contacto: outcome='dudoso' o sentiment='positivo'
@@ -21,7 +21,10 @@ export type Llamada = {
   outcome?: string | null;
   sentiment?: string | null;
   duracion_seg?: number | null;
+  /** true si HubSpot marcó la llamada como conectada (sin umbral de duración). */
+  conectada?: boolean | null;
 };
+
 
 export type Situacion =
   | 'no_contactado'
@@ -47,7 +50,8 @@ export type Cadencia = {
 };
 
 const CONTACTO_OUTCOMES = new Set(['interesado', 'dudoso', 'no_interesado', 'otro']);
-const DURACION_CONTACTO_SEG = 30;
+/** Sólo mide calidad de conversación; NUNCA decide si hubo contacto. */
+export const DURACION_CONVERSACION_SUSTANCIAL_SEG = 30;
 
 export const MAX_INTENTOS_SIN_CONTACTO = 3;
 export const VENTANA_INTENTOS_DIAS = 10;
@@ -57,11 +61,21 @@ export const DIAS_RECEPTIVO = 14;
 export const DIAS_INTERES = 7;
 export const DIAS_SIN_RESPUESTA = 30;
 
+/**
+ * Hubo contacto si HubSpot dice que la llamada fue conectada, o si el
+ * resultado registrado implica conversación. La duración NO decide.
+ */
 export function huboContacto(c: Llamada): boolean {
+  if (c.conectada === true) return true;
   const o = (c.outcome ?? '').toLowerCase();
-  if (CONTACTO_OUTCOMES.has(o)) return true;
-  return Number(c.duracion_seg ?? 0) >= DURACION_CONTACTO_SEG;
+  return CONTACTO_OUTCOMES.has(o);
 }
+
+/** Conversación sustancial: conectada y de al menos 30 segundos (sólo calidad). */
+export function conversacionSustancial(c: Llamada): boolean {
+  return huboContacto(c) && Number(c.duracion_seg ?? 0) >= DURACION_CONVERSACION_SUSTANCIAL_SEG;
+}
+
 
 function ts(f: string | Date): number {
   return (f instanceof Date ? f : new Date(f)).getTime();
@@ -163,7 +177,7 @@ export function agruparLlamadas(
     const id = f?.owner_id ? String(f.owner_id) : null;
     if (!id) continue;
     const arr = m.get(id) ?? [];
-    arr.push({ fecha: f.fecha, outcome: f.outcome, sentiment: f.sentiment, duracion_seg: f.duracion_seg });
+    arr.push({ fecha: f.fecha, outcome: f.outcome, sentiment: f.sentiment, duracion_seg: f.duracion_seg, conectada: f.conectada });
     m.set(id, arr);
   }
   return m;

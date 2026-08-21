@@ -11228,12 +11228,14 @@ export type Database = {
       }
       v_owner_call_stats: {
         Row: {
+          conversaciones_sustanciales: number | null
           dias_desde_ultima_llamada: number | null
           entrantes: number | null
           intentos_totales: number | null
           llamadas_sin_edificio: number | null
           owner_id: string | null
           salientes: number | null
+          ultima_conversacion_sustancial: string | null
           ultima_llamada: string | null
           ultima_vez_conectado: string | null
           veces_conectado: number | null
@@ -11244,6 +11246,7 @@ export type Database = {
         Row: {
           building_id: string | null
           conectada: boolean | null
+          conversacion_sustancial: boolean | null
           direccion: string | null
           duracion_seg: number | null
           hs_id: string | null
@@ -12346,6 +12349,7 @@ export type Database = {
       }
       auto_link_owner_building: { Args: { p_days?: number }; Returns: Json }
       build_score_summary: { Args: { p_building_id: string }; Returns: string }
+      buscar_owner_por_nombre: { Args: { p_nombre: string }; Returns: string }
       calls_stats: {
         Args: never
         Returns: {
@@ -12505,6 +12509,10 @@ export type Database = {
         Returns: boolean
       }
       has_whatsapp_access: { Args: { _user_id: string }; Returns: boolean }
+      hs_disposition_conectada: {
+        Args: { p_disposition: string }
+        Returns: boolean
+      }
       hubspot_apply_task_status: {
         Args: { p_status: string; p_task_id: string }
         Returns: boolean

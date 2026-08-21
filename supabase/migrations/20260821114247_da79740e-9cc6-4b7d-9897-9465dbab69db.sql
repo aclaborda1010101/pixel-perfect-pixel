@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.hs_disposition_conectada(text) TO PUBLIC;
