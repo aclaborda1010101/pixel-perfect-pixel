@@ -65,7 +65,7 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
     enabled: !!ownerId,
     queryFn: async () => {
       const { data } = await (supabase.from("wa_consent_signals" as any) as any)
-        .select("owner_id,veredicto,detectado_at,fecha_llamada,hs_call_id,registrado_por,task_id,fuente")
+        .select("owner_id,veredicto,detectado_at,fecha_llamada,hs_call_id,registrado_por,task_id,fuente,origen,review_status,review_reason")
         .eq("owner_id", ownerId);
       const filas = (data ?? []) as any[];
       return {
@@ -100,17 +100,28 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
   const origenAutorizacion =
     resumen?.origen === "llamada" ? "llamada" : resumen?.origen === "registro" ? "registro" : null;
   const telefono = owner?.telefono ?? null;
+  const filasConsent = (consentimiento?.filas ?? []) as any[];
+  const pendienteRevision = !autorizado &&
+    filasConsent.some((f) => String(f?.review_status ?? "") === "pendiente_revision");
+  const motivoRevision = filasConsent.find((f) => f?.review_reason)?.review_reason ?? null;
+  const revocado = !!resumen?.revocado;
 
-  const marcarConsentimiento = async (valor: boolean) => {
-    if (!valor || autorizado) return;
+  const marcarConsentimiento = async () => {
+    if (autorizado) return;
     setGuardando(true);
     try {
       const { data, error } = await supabase.functions.invoke("wa_task_consent", {
-        body: { task_id: task.id, owner_id: ownerId },
+        body: { task_id: task.id, owner_id: ownerId, cita_textual: cita.trim() },
       });
       if (error) throw error;
       if ((data as any)?.ok === false) throw new Error((data as any).error);
-      toast.success("Autorización guardada");
+      setPidiendoCita(false);
+      setCita("");
+      toast.success(
+        (data as any)?.requiere_revision
+          ? "Registrado como declaración tuya: queda pendiente de revisión y no se envía al CRM."
+          : "Autorización guardada con la frase del propietario.",
+      );
       await qc.invalidateQueries({ queryKey: ["tarea_wa_consent", ownerId] });
     } catch (e: any) {
       toast.error(e?.message ?? "No se pudo guardar la autorización");
@@ -228,7 +239,7 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
             <Checkbox
               checked={autorizado}
               disabled={autorizado || guardando || !abierta}
-              onCheckedChange={(c) => marcarConsentimiento(!!c)}
+              onCheckedChange={(c) => { if (c) setPidiendoCita(true); }}
               className="mt-0.5"
             />
             <span>El propietario ha autorizado por teléfono el envío de WhatsApp.</span>
@@ -243,6 +254,19 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
               retirar esta autorización.
             </div>
           )}
+          {!autorizado && pendienteRevision && (
+            <div className="pl-6 text-[11px] text-amber-500">
+              Hay una autorización registrada que está <strong>pendiente de revisión</strong>
+              {motivoRevision ? ` (${motivoRevision})` : ""}. Hasta que se apruebe no se puede enviar
+              WhatsApp ni se comunica al CRM.
+            </div>
+          )}
+          {!autorizado && revocado && !pendienteRevision && (
+            <div className="pl-6 text-[11px] text-destructive">
+              Esta persona <strong>retiró</strong> su autorización. No se le puede escribir por WhatsApp.
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
@@ -273,6 +297,34 @@ export function TareaWhatsappBlock({ task, onCompleted }: Props) {
             )}
             {autorizado && <Badge variant="outline" className="text-[9px]">Autorizado</Badge>}
           </div>
+
+          <Dialog open={pidiendoCita} onOpenChange={(o) => { if (!guardando) setPidiendoCita(o); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>¿Qué dijo exactamente el propietario?</DialogTitle>
+                <DialogDescription>
+                  Copia su frase literal pidiendo o aceptando el WhatsApp. Si no la pones, queda
+                  registrado como declaración tuya y pasa a revisión: no se envía nada ni se anota en el CRM.
+                </DialogDescription>
+              </DialogHeader>
+              <Textarea
+                value={cita}
+                onChange={(e) => setCita(e.target.value)}
+                rows={3}
+                placeholder="Ej.: Vale, pues mándame el WhatsApp."
+                className="text-xs"
+                aria-label="Frase literal del propietario"
+              />
+              <DialogFooter>
+                <Button size="sm" variant="outline" disabled={guardando} onClick={() => setPidiendoCita(false)}>
+                  Cancelar
+                </Button>
+                <Button size="sm" variant="gold" disabled={guardando} onClick={() => marcarConsentimiento()}>
+                  {guardando && <Loader2 className="h-3 w-3 animate-spin" />} Guardar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <Dialog open={!!vista} onOpenChange={(o) => { if (!o && !enviando) setVista(null); }}>
             <DialogContent className="max-w-lg">
