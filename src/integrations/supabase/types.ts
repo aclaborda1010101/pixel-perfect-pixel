@@ -3238,6 +3238,45 @@ export type Database = {
         }
         Relationships: []
       }
+      building_relink_audit: {
+        Row: {
+          building_destino: string | null
+          building_origen: string | null
+          created_at: string
+          direccion_destino: string | null
+          direccion_origen: string | null
+          entidad: string
+          entidad_id: string | null
+          evidencia: Json
+          id: string
+          motivo: string
+        }
+        Insert: {
+          building_destino?: string | null
+          building_origen?: string | null
+          created_at?: string
+          direccion_destino?: string | null
+          direccion_origen?: string | null
+          entidad: string
+          entidad_id?: string | null
+          evidencia?: Json
+          id?: string
+          motivo: string
+        }
+        Update: {
+          building_destino?: string | null
+          building_origen?: string | null
+          created_at?: string
+          direccion_destino?: string | null
+          direccion_origen?: string | null
+          entidad?: string
+          entidad_id?: string | null
+          evidencia?: Json
+          id?: string
+          motivo?: string
+        }
+        Relationships: []
+      }
       building_sanitation_history: {
         Row: {
           accion: string
@@ -4458,6 +4497,122 @@ export type Database = {
             foreignKeyName: "catastro_data_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
+      catastro_direccion_audit: {
+        Row: {
+          building_id: string
+          checked_at: string
+          coincide: boolean | null
+          created_at: string
+          direccion_catastro: string | null
+          direccion_nuestra: string | null
+          linderos_sospechosos: string | null
+          motivo: string | null
+          numero_catastro: number | null
+          refcatastral_14: string | null
+          updated_at: string
+          via_catastro: string | null
+        }
+        Insert: {
+          building_id: string
+          checked_at?: string
+          coincide?: boolean | null
+          created_at?: string
+          direccion_catastro?: string | null
+          direccion_nuestra?: string | null
+          linderos_sospechosos?: string | null
+          motivo?: string | null
+          numero_catastro?: number | null
+          refcatastral_14?: string | null
+          updated_at?: string
+          via_catastro?: string | null
+        }
+        Update: {
+          building_id?: string
+          checked_at?: string
+          coincide?: boolean | null
+          created_at?: string
+          direccion_catastro?: string | null
+          direccion_nuestra?: string | null
+          linderos_sospechosos?: string | null
+          motivo?: string | null
+          numero_catastro?: number | null
+          refcatastral_14?: string | null
+          updated_at?: string
+          via_catastro?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_pct_fuente"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_direccion_audit_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: true
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
@@ -6407,6 +6562,36 @@ export type Database = {
           id?: string
           raw?: Json
           updated_at?: string
+        }
+        Relationships: []
+      }
+      hubspot_deal_duplicados: {
+        Row: {
+          detalle: Json
+          detectado_at: string
+          direccion_muestra: string | null
+          direccion_norm: string
+          hs_deal_ids: string[]
+          id: string
+          n_deals: number
+        }
+        Insert: {
+          detalle?: Json
+          detectado_at?: string
+          direccion_muestra?: string | null
+          direccion_norm: string
+          hs_deal_ids: string[]
+          id?: string
+          n_deals: number
+        }
+        Update: {
+          detalle?: Json
+          detectado_at?: string
+          direccion_muestra?: string | null
+          direccion_norm?: string
+          hs_deal_ids?: string[]
+          id?: string
+          n_deals?: number
         }
         Relationships: []
       }
@@ -13015,6 +13200,9 @@ export type Database = {
       norm_addr: { Args: { p: string }; Returns: string }
       norm_person_name: { Args: { p: string }; Returns: string }
       norm_phone: { Args: { t: string }; Returns: string }
+      norm_via: { Args: { p: string }; Returns: string }
+      norm_via_nombre: { Args: { p: string }; Returns: string }
+      norm_via_numero: { Args: { p: string }; Returns: number }
       normalize_barrio: { Args: { p: string }; Returns: string }
       normalize_catastro: { Args: { p: string }; Returns: string }
       normalize_pct_propiedad: {
@@ -13303,6 +13491,10 @@ export type Database = {
         Returns: boolean
       }
       volcar_cuotas_desde_notas: { Args: never; Returns: Json }
+      volcar_titulares_registrales_pendientes: {
+        Args: { p_building_id?: string; p_dry_run?: boolean; p_limit?: number }
+        Returns: Json
+      }
     }
     Enums: {
       app_role:
