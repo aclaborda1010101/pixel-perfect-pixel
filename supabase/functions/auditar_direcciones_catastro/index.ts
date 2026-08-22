@@ -131,19 +131,33 @@ Deno.serve(async (req) => {
   const rehacer = body.rehacer === true;
   const soloIds = Array.isArray(body.building_ids) ? (body.building_ids as string[]) : null;
 
-  let q = admin.from('buildings')
-    .select('id, direccion, refcatastral')
-    .not('refcatastral', 'is', null)
-    .order('id', { ascending: true })
-    .limit(2000);
-  if (soloIds) q = q.in('id', soloIds);
-  const { data: edificios, error } = await q;
-  if (error) return json({ ok: false, error: error.message }, 500);
+  // PostgREST devuelve como mucho 1.000 filas por consulta: hay que paginar
+  // o se quedarian edificios sin auditar (y el proceso diria "terminado" en falso).
+  const edificios: { id: string; direccion: string | null; refcatastral: string | null }[] = [];
+  const PAGINA = 1000;
+  for (let desde = 0; ; desde += PAGINA) {
+    let q = admin.from('buildings')
+      .select('id, direccion, refcatastral')
+      .not('refcatastral', 'is', null)
+      .order('id', { ascending: true })
+      .range(desde, desde + PAGINA - 1);
+    if (soloIds) q = q.in('id', soloIds);
+    const { data, error } = await q;
+    if (error) return json({ ok: false, error: error.message }, 500);
+    edificios.push(...((data ?? []) as typeof edificios));
+    if (!data || data.length < PAGINA) break;
+  }
 
-  let candidatos = (edificios ?? []).filter((b) => (b.refcatastral ?? '').length >= 14);
+  let candidatos = edificios.filter((b) => (b.refcatastral ?? '').length >= 14);
   if (!rehacer && !soloIds) {
-    const { data: ya } = await admin.from('catastro_direccion_audit').select('building_id');
-    const hechos = new Set((ya ?? []).map((r) => r.building_id));
+    const hechos = new Set<string>();
+    for (let desde = 0; ; desde += PAGINA) {
+      const { data: ya } = await admin.from('catastro_direccion_audit')
+        .select('building_id').order('building_id', { ascending: true })
+        .range(desde, desde + PAGINA - 1);
+      for (const r of ya ?? []) hechos.add(r.building_id as string);
+      if (!ya || ya.length < PAGINA) break;
+    }
     candidatos = candidatos.filter((b) => !hechos.has(b.id));
   }
   candidatos = candidatos.slice(0, lote);
