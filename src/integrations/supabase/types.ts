@@ -4510,6 +4510,7 @@ export type Database = {
           created_at: string
           direccion_catastro: string | null
           direccion_nuestra: string | null
+          estado_revision: string | null
           linderos_sospechosos: string | null
           motivo: string | null
           numero_catastro: number | null
@@ -4524,6 +4525,7 @@ export type Database = {
           created_at?: string
           direccion_catastro?: string | null
           direccion_nuestra?: string | null
+          estado_revision?: string | null
           linderos_sospechosos?: string | null
           motivo?: string | null
           numero_catastro?: number | null
@@ -4538,6 +4540,7 @@ export type Database = {
           created_at?: string
           direccion_catastro?: string | null
           direccion_nuestra?: string | null
+          estado_revision?: string | null
           linderos_sospechosos?: string | null
           motivo?: string | null
           numero_catastro?: number | null
@@ -4613,6 +4616,192 @@ export type Database = {
             foreignKeyName: "catastro_direccion_audit_building_id_fkey"
             columns: ["building_id"]
             isOneToOne: true
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+        ]
+      }
+      catastro_ref_correcciones: {
+        Row: {
+          aplicada: boolean
+          building_id: string
+          colision_building_id: string | null
+          created_at: string
+          direccion: string | null
+          evidencia: Json
+          fuente: string
+          id: string
+          motivo: string | null
+          ref_anterior: string | null
+          ref_nueva: string
+          updated_at: string
+        }
+        Insert: {
+          aplicada?: boolean
+          building_id: string
+          colision_building_id?: string | null
+          created_at?: string
+          direccion?: string | null
+          evidencia?: Json
+          fuente?: string
+          id?: string
+          motivo?: string | null
+          ref_anterior?: string | null
+          ref_nueva: string
+          updated_at?: string
+        }
+        Update: {
+          aplicada?: boolean
+          building_id?: string
+          colision_building_id?: string | null
+          created_at?: string
+          direccion?: string | null
+          evidencia?: Json
+          fuente?: string
+          id?: string
+          motivo?: string | null
+          ref_anterior?: string | null
+          ref_nueva?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_pct_fuente"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_building_id_fkey"
+            columns: ["building_id"]
+            isOneToOne: false
+            referencedRelation: "v_staircase_review_queue"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "buildings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_estado_calculado"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_graph"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_pct_fuente"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_rights_status"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_building_score_gate"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_cohort77_pct_audit"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
+            referencedRelation: "v_contraste_nota_simple"
+            referencedColumns: ["building_id"]
+          },
+          {
+            foreignKeyName: "catastro_ref_correcciones_colision_building_id_fkey"
+            columns: ["colision_building_id"]
+            isOneToOne: false
             referencedRelation: "v_staircase_review_queue"
             referencedColumns: ["building_id"]
           },
